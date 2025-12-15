@@ -625,6 +625,97 @@ key findings from test 11:
 | 9. WASI + custom imports | **PASS** | can combine Node.js WASI with custom bridge functions |
 | 10. custom Wasmer package | PARTIAL | fromWasm() works but wait() hangs |
 | 11. WASIX syscall intercept | **FAIL** | @wasmer/sdk is completely locked down, no hooks |
+| 12. WASIX + custom module | **PASS** | WebAssembly.instantiate + WASIX polyfill + bridge imports works |
+
+---
+
+## 12. test WASIX + custom module with bridge imports
+
+test if we can create a custom WASM module that uses both WASIX imports and custom bridge imports.
+
+create `test12-wasix-custom-module.ts`:
+
+```typescript
+import { init, Wasmer, runWasix, wat2wasm } from "@wasmer/sdk/node";
+
+async function main(): Promise<void> {
+  await init();
+
+  // Create WAT with both WASIX and bridge imports
+  const wat = `
+    (module
+      ;; WASIX imports
+      (import "wasi_snapshot_preview1" "fd_write"
+        (func $fd_write (param i32 i32 i32 i32) (result i32)))
+      (import "wasi_snapshot_preview1" "proc_exit"
+        (func $proc_exit (param i32)))
+
+      ;; Custom bridge imports
+      (import "bridge" "spawn_node" (func $spawn_node (param i32 i32) (result i32)))
+      (import "bridge" "log" (func $log (param i32 i32)))
+
+      (memory (export "memory") 1)
+      (data (i32.const 0) "Hello from WASIX!\\n")
+      (data (i32.const 100) "script.js")
+
+      (func (export "_start")
+        ;; write to stdout, then call bridge functions
+        ;; ...
+      )
+    )
+  `;
+
+  const wasmBytes = wat2wasm(wat);
+
+  // Test A: runWasix - FAILS (can't provide bridge imports)
+  // Test B: Wasmer.fromWasm - FAILS (can't provide bridge imports)
+
+  // Test C: WebAssembly.instantiate with custom imports - WORKS!
+  const wasixPolyfill = {
+    fd_write: (fd, iovs, iovs_len, nwritten) => { /* impl */ },
+    proc_exit: (code) => console.log(`exit(${code})`),
+  };
+
+  const bridgeImports = {
+    spawn_node: (ptr, len) => {
+      const scriptPath = readFromMemory(ptr, len);
+      console.log(`[BRIDGE] spawn_node("${scriptPath}")`);
+      return 0;
+    },
+    log: (ptr, len) => console.log(`[BRIDGE] ${readFromMemory(ptr, len)}`),
+  };
+
+  const { instance } = await WebAssembly.instantiate(wasmBytes, {
+    wasi_snapshot_preview1: wasixPolyfill,
+    bridge: bridgeImports,
+  });
+
+  (instance.exports._start as () => void)();
+}
+```
+
+**result**: PASS
+
+| approach | result |
+|----------|--------|
+| runWasix with bridge imports | FAILS - times out, can't provide custom imports |
+| Wasmer.fromWasm with bridge | FAILS - times out, can't provide custom imports |
+| WebAssembly.instantiate + polyfill | **WORKS** - full control over all imports |
+
+output:
+```
+Hello from WASIX module!
+[BRIDGE] log: "Bridge log message from WASM"
+[BRIDGE] spawn_node called!
+[BRIDGE] Script path: "script.js"
+[WASIX] proc_exit(0)
+```
+
+**key insight**: we can bypass @wasmer/sdk runtime entirely and use native WebAssembly.instantiate() with:
+1. A custom WASIX polyfill (fd_write, proc_exit, etc.)
+2. Custom bridge imports (spawn_node, log, etc.)
+
+this confirms the approach: **build custom WASM modules that use WASIX for I/O and bridge.* for JS callbacks**.
 
 ## final recommendations
 
