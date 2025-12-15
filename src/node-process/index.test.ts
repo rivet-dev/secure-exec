@@ -45,4 +45,65 @@ describe("NodeProcess", () => {
       expect(result.code).toBe(0);
     });
   });
+
+  describe("Step 2: require() with node stdlib polyfills", () => {
+    it("should require path module and use join", async () => {
+      proc = new NodeProcess();
+      const result = await proc.run(`
+        const path = require("path");
+        module.exports = path.join("foo", "bar");
+      `);
+      expect(result).toBe("foo/bar");
+    });
+
+    it("should require path module with node: prefix", async () => {
+      proc = new NodeProcess();
+      const result = await proc.run(`
+        const path = require("node:path");
+        module.exports = path.dirname("/foo/bar/baz.txt");
+      `);
+      expect(result).toBe("/foo/bar");
+    });
+
+    it("should require events module", async () => {
+      proc = new NodeProcess();
+      const result = await proc.run(`
+        const { EventEmitter } = require("events");
+        const emitter = new EventEmitter();
+        let called = false;
+        emitter.on("test", () => { called = true; });
+        emitter.emit("test");
+        module.exports = called;
+      `);
+      expect(result).toBe(true);
+    });
+
+    it("should require util module", async () => {
+      proc = new NodeProcess();
+      const result = await proc.run(`
+        const util = require("util");
+        module.exports = util.format("hello %s", "world");
+      `);
+      expect(result).toBe("hello world");
+    });
+
+    it("should cache modules", async () => {
+      proc = new NodeProcess();
+      const result = await proc.run(`
+        const path1 = require("path");
+        const path2 = require("path");
+        module.exports = path1 === path2;
+      `);
+      expect(result).toBe(true);
+    });
+
+    it("should throw for unknown modules", async () => {
+      proc = new NodeProcess();
+      const result = await proc.exec(`
+        const unknown = require("nonexistent-module");
+      `);
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("Cannot find module");
+    });
+  });
 });
