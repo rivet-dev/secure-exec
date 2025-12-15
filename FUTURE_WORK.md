@@ -1,5 +1,7 @@
 # future work
 
+- fs-polyfill: inline compiled code at build time instead of runtime fs.readFileSync()
+- fs-polyfill: add dedicated test suite for the package
 - terminal emulation
 - get claude code cli working in this emulator
 - emulate npm

@@ -2,7 +2,7 @@ import ivm from "isolated-vm";
 import { bundlePolyfill, hasPolyfill } from "./polyfills.js";
 import { resolveModule, loadFile } from "./package-bundler.js";
 import type { SystemBridge } from "../system-bridge/index.js";
-import { FS_MODULE_CODE } from "@rivetkit/nano-sandbox-fs-polyfill";
+import { FS_MODULE_CODE } from "@nano-sandbox/fs-polyfill";
 
 export interface NodeProcessOptions {
   memoryLimit?: number; // MB, default 128
