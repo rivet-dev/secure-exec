@@ -11,6 +11,15 @@ export interface ExecResult {
   code: number;
 }
 
+export interface InteractiveSession {
+  /** The running WASM instance - use stdin/stdout/stderr for streaming */
+  instance: Awaited<ReturnType<Awaited<ReturnType<typeof Wasmer.fromFile>>["commands"][string]["run"]>>;
+  /** Wait for the command to complete and get exit code */
+  wait(): Promise<number>;
+  /** Stop the IPC poller (call when done) */
+  stop(): void;
+}
+
 export interface WasixInstanceOptions {
   directory?: Directory;
   systemBridge?: SystemBridge;
@@ -48,23 +57,12 @@ export class WasixInstance {
       wasmerInitialized = true;
     }
 
-    // Load the wasix-runtime package if not already loaded
+    // Load runtime package (includes bash + node-shim for IPC)
     if (!wasixRuntime) {
       const currentDir = path.dirname(fileURLToPath(import.meta.url));
-      const webcPath = path.resolve(
-        currentDir,
-        "../../assets/wasix-runtime.webc"
-      );
-      try {
-        const webcBytes = await fs.readFile(webcPath);
-        wasixRuntime = await Wasmer.fromFile(webcBytes);
-      } catch (err) {
-        // wasix-runtime.webc is required - throw error if not found
-        throw new Error(
-          `wasix-runtime.webc not found at ${webcPath}. ` +
-            `Please build the wasix-runtime package first.`
-        );
-      }
+      const webcPath = path.resolve(currentDir, "../../assets/runtime.webc");
+      const webcBytes = await fs.readFile(webcPath);
+      wasixRuntime = await Wasmer.fromFile(webcBytes);
     }
 
     this.initialized = true;
@@ -139,12 +137,7 @@ export class WasixInstance {
         mount: { "/": this.directory },
       });
 
-      const result = await Promise.race([
-        instance.wait(),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("Command timeout (10s)")), 10000)
-        ),
-      ]);
+      const result = await instance.wait();
 
       return {
         stdout: result.stdout || "",
@@ -194,7 +187,14 @@ export class WasixInstance {
           const requestContent = await ipcDir.readTextFile("/request.txt");
 
           // Parse request (all lines are node args)
-          const nodeArgs = requestContent.trim().split("\n").filter(Boolean);
+          let nodeArgs = requestContent.trim().split("\n").filter(Boolean);
+
+          // Handle --ipc-script: read script from /ipc/script.js
+          const ipcScriptIdx = nodeArgs.indexOf("--ipc-script");
+          if (ipcScriptIdx !== -1) {
+            const scriptContent = await ipcDir.readTextFile("/script.js");
+            nodeArgs = ["-e", scriptContent];
+          }
 
           // Execute node via NodeProcess or real node
           let nodeResult: { exitCode: number; stdout: string; stderr: string };
@@ -215,6 +215,7 @@ export class WasixInstance {
           // Clear request for next iteration
           try {
             await ipcDir.removeFile("/request.txt");
+            await ipcDir.removeFile("/script.js");
           } catch {
             // Ignore
           }
@@ -235,12 +236,7 @@ export class WasixInstance {
         },
       });
 
-      const result = await Promise.race([
-        instance.wait(),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("Command timeout (10s)")), 10000)
-        ),
-      ]);
+      const result = await instance.wait();
 
       pollActive = false;
       await poller;
@@ -258,6 +254,92 @@ export class WasixInstance {
         code: 1,
       };
     }
+  }
+
+  /**
+   * Run an interactive command with streaming I/O
+   * Returns the instance for stream access plus IPC polling for node support
+   */
+  async runInteractive(
+    commandName: string,
+    args: string[] = []
+  ): Promise<InteractiveSession> {
+    await this.init();
+
+    if (!wasixRuntime) {
+      throw new Error("WASIX not properly initialized");
+    }
+
+    // Create IPC directory for node execution support
+    const ipcDir = new Directory();
+
+    // Get command
+    const cmd = wasixRuntime.commands[commandName];
+    if (!cmd) {
+      throw new Error(`Command not found: ${commandName}`);
+    }
+
+    // Start IPC polling loop
+    let pollActive = true;
+
+    const poller = (async () => {
+      while (pollActive) {
+        try {
+          const requestContent = await ipcDir.readTextFile("/request.txt");
+          let nodeArgs = requestContent.trim().split("\n").filter(Boolean);
+
+          // Handle --ipc-script: read script from /ipc/script.js
+          const ipcScriptIdx = nodeArgs.indexOf("--ipc-script");
+          if (ipcScriptIdx !== -1) {
+            const scriptContent = await ipcDir.readTextFile("/script.js");
+            // Replace --ipc-script with -e and the script content
+            nodeArgs = ["-e", scriptContent];
+          }
+
+          let nodeResult: { exitCode: number; stdout: string; stderr: string };
+
+          if (this.nodeProcess) {
+            nodeResult = await this.executeNodeViaProcess(nodeArgs);
+          } else {
+            nodeResult = await this.executeNodeViaSpawn(nodeArgs);
+          }
+
+          const responseContent = `${nodeResult.exitCode}\n${nodeResult.stdout}`;
+          ipcDir.writeFile("/response.txt", responseContent);
+
+          try {
+            await ipcDir.removeFile("/request.txt");
+            await ipcDir.removeFile("/script.js");
+          } catch {
+            // Ignore
+          }
+        } catch {
+          await sleep(POLL_INTERVAL_MS);
+        }
+      }
+    })();
+
+    // Run the command with IPC directory mounted
+    const instance = await cmd.run({
+      args,
+      mount: {
+        "/": this.directory,
+        "/ipc": ipcDir,
+      },
+    });
+
+    return {
+      instance,
+      async wait(): Promise<number> {
+        const result = await instance.wait();
+        pollActive = false;
+        await poller;
+        return result.code ?? 0;
+      },
+      stop(): void {
+        pollActive = false;
+      },
+    };
   }
 
   /**
@@ -352,3 +434,5 @@ export class WasixInstance {
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+export { Directory };

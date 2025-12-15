@@ -1,7 +1,9 @@
 import { init, Directory } from "@wasmer/sdk/node";
 import { SystemBridge } from "../system-bridge/index.js";
 import { NodeProcess } from "../node-process/index.js";
-import { WasixInstance } from "../wasix/index.js";
+import { WasixInstance, InteractiveSession } from "../wasix/index.js";
+
+export { WasixInstance, InteractiveSession, Directory };
 
 export interface SpawnResult {
   stdout: string;
@@ -207,6 +209,23 @@ export class VirtualMachine {
       stderr: result.stderr,
       code: result.code,
     };
+  }
+
+  /**
+   * Run an interactive command with streaming I/O
+   * Returns an InteractiveSession for stream access
+   */
+  async runInteractive(
+    command: string,
+    args: string[] = []
+  ): Promise<InteractiveSession> {
+    await this.init();
+
+    if (!this.wasixInstance) {
+      throw new Error("VirtualMachine not properly initialized");
+    }
+
+    return this.wasixInstance.runInteractive(command, args);
   }
 
   /**

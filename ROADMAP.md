@@ -1,0 +1,11 @@
+- prompt about major missing pieces (specifically in node binding)
+- get cc working
+- get npm working
+- get nextjs working
+- split out node sandbox in to its own package
+- misc tools
+    - curl
+    - grep
+    - sed
+    - etc
+

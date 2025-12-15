@@ -871,13 +871,14 @@ const fs = {
 
   createReadStream(
     path: string,
-    options?: { encoding?: string }
+    options?: { encoding?: Encoding }
   ): {
     on: (event: string, handler: (data?: unknown) => void) => unknown;
     pipe: <T extends { write: (data: unknown) => void; end: () => void }>(dest: T) => T;
   } {
     // Basic readable stream simulation
-    const content = fs.readFileSync(path, options?.encoding || "utf8");
+    const encoding: Encoding = options?.encoding ?? "utf8";
+    const content = fs.readFileSync(path, { encoding });
     return {
       on(event: string, handler: (data?: unknown) => void) {
         if (event === "data") {

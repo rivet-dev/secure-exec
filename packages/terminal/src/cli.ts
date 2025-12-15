@@ -7,6 +7,7 @@ async function main() {
 
   let hostPath: string | undefined;
   let command: string | undefined;
+  let debug = false;
 
   // Parse arguments
   for (let i = 0; i < args.length; i++) {
@@ -15,6 +16,8 @@ async function main() {
       hostPath = args[++i];
     } else if (arg === "--command" || arg === "-c") {
       command = args[++i];
+    } else if (arg === "--debug" || arg === "-d") {
+      debug = true;
     } else if (arg === "--help" || arg === "-h") {
       console.log(`
 nano-sandbox - Interactive terminal for nano-sandbox VM
@@ -24,6 +27,7 @@ Usage: nano-sandbox [options]
 Options:
   -p, --path <dir>     Load files from host directory into VM
   -c, --command <cmd>  Command to run (default: bash)
+  -d, --debug          Enable debug output
   -h, --help           Show this help message
 
 Examples:
@@ -42,6 +46,7 @@ Examples:
     const exitCode = await startTerminal({
       hostPath,
       command,
+      debug,
     });
 
     process.exit(exitCode);

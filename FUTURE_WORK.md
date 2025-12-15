@@ -13,9 +13,11 @@
 - worker_threads - not available
 - crypto - limited polyfill (not full Node.js crypto)
 
-## other
+## WASM/bash
+- batch commands hang - `bash -c "echo hello"` never returns from instance.wait() in WASI/WASIX bash. interactive mode works fine
 - WASM memory limits - memoryLimit is plumbed through but not yet enforced on WASM side
-- terminal emulation
+
+## other
 - get claude code cli working in this emulator
 - emulate npm
 - native addon polyfills - npm packages with native C/C++ bindings won't work in isolated-vm. may need a polyfill registry mapping them to pure-JS alternatives (e.g. esbuild→esbuild-wasm, bcrypt→bcryptjs, sharp→sharp-wasm, sqlite3→sql.js)
