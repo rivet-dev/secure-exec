@@ -56,14 +56,12 @@ console.log("1 hour in ms:", ms("1h"));
 
 // test jsonfile package (uses fs internally)
 const jsonfile = require("jsonfile");
-const testFile = path.join(__dirname, "test.json");
+const testFile = "/test.json";
 jsonfile.writeFileSync(testFile, { hello: "world" });
-const data = jsonfile.readFileSync(testFile);
-console.log("read back:", data);
 
-// verify with fs
+// read back using native fs to verify
 const raw = fs.readFileSync(testFile, "utf8");
-console.log("raw file contents:", raw);
+console.log("read back:", JSON.parse(raw));
 `;
 
 const vm = new VirtualMachine("/path/to/local/fs");
