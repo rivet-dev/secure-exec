@@ -1,5 +1,8 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { VirtualMachine } from "./index";
+import * as fs from "fs/promises";
+import * as path from "path";
+import * as os from "os";
 
 describe("VirtualMachine", () => {
   describe("Step 4: Basic filesystem", () => {
@@ -71,6 +74,72 @@ describe("VirtualMachine", () => {
 
       vm.writeFile("/test.txt", "ok");
       expect(await vm.readFile("/test.txt")).toBe("ok");
+    });
+  });
+
+  describe("Step 5: Host filesystem loading", () => {
+    let tempDir: string;
+
+    beforeAll(async () => {
+      // Create a temp directory with some test files
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "vm-test-"));
+      await fs.writeFile(path.join(tempDir, "hello.txt"), "Hello World");
+      await fs.mkdir(path.join(tempDir, "subdir"));
+      await fs.writeFile(path.join(tempDir, "subdir", "nested.txt"), "Nested content");
+      await fs.mkdir(path.join(tempDir, "node_modules"));
+      await fs.writeFile(
+        path.join(tempDir, "node_modules", "package.json"),
+        '{"name": "test-pkg"}'
+      );
+    });
+
+    afterAll(async () => {
+      // Cleanup temp directory
+      await fs.rm(tempDir, { recursive: true, force: true });
+    });
+
+    it("should load files from host directory", async () => {
+      const vm = new VirtualMachine();
+      await vm.init();
+      await vm.loadFromHost(tempDir);
+
+      expect(await vm.readFile("/hello.txt")).toBe("Hello World");
+    });
+
+    it("should load nested directories", async () => {
+      const vm = new VirtualMachine();
+      await vm.init();
+      await vm.loadFromHost(tempDir);
+
+      expect(await vm.readFile("/subdir/nested.txt")).toBe("Nested content");
+    });
+
+    it("should load node_modules directory", async () => {
+      const vm = new VirtualMachine();
+      await vm.init();
+      await vm.loadFromHost(tempDir);
+
+      const pkgJson = await vm.readFile("/node_modules/package.json");
+      expect(pkgJson).toContain("test-pkg");
+    });
+
+    it("should list loaded directories", async () => {
+      const vm = new VirtualMachine();
+      await vm.init();
+      await vm.loadFromHost(tempDir);
+
+      const entries = await vm.readDir("/");
+      expect(entries).toContain("hello.txt");
+      expect(entries).toContain("subdir");
+      expect(entries).toContain("node_modules");
+    });
+
+    it("should load to custom virtual base path", async () => {
+      const vm = new VirtualMachine();
+      await vm.init();
+      await vm.loadFromHost(tempDir, "/project");
+
+      expect(await vm.readFile("/project/hello.txt")).toBe("Hello World");
     });
   });
 });

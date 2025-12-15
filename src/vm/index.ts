@@ -114,10 +114,16 @@ export class VirtualMachine {
   /**
    * Load files from host filesystem into the virtual filesystem
    * This recursively copies all files from the host path into the virtual fs
+   * @param hostPath - Path on the host filesystem to copy from
+   * @param virtualBasePath - Where to mount in virtual fs (default "/")
    */
-  async loadFromHost(hostPath: string): Promise<void> {
-    // This will be implemented in Step 5
-    throw new Error("loadFromHost not yet implemented");
+  async loadFromHost(
+    hostPath: string,
+    virtualBasePath: string = "/"
+  ): Promise<void> {
+    const { loadHostDirectory } = await import("./host-loader.js");
+    const bridge = this.ensureInitialized();
+    await loadHostDirectory(hostPath, virtualBasePath, bridge);
   }
 
   /**
