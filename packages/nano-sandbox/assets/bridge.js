@@ -3592,6 +3592,7 @@ var bridge = (() => {
     execFileSync,
     fork
   };
+  globalThis._childProcessModule = childProcess;
   var child_process_default = childProcess;
 
   // bridge/network.ts
@@ -4207,6 +4208,13 @@ var bridge = (() => {
   }
   var http = createHttpModule("http");
   var https = createHttpModule("https");
+  globalThis._httpModule = http;
+  globalThis._httpsModule = https;
+  globalThis._dnsModule = dns;
+  globalThis.fetch = fetch;
+  globalThis.Headers = Headers;
+  globalThis.Request = Request;
+  globalThis.Response = Response;
   var network_default = {
     fetch,
     Headers,
@@ -4573,12 +4581,11 @@ var bridge = (() => {
     once(event, listener) {
       return _addListener(event, listener, true);
     },
-    off(event, listener) {
-      return _removeListener(event, listener);
-    },
     removeListener(event, listener) {
       return _removeListener(event, listener);
     },
+    // off is an alias for removeListener (assigned below to be same reference)
+    off: null,
     removeAllListeners(event) {
       if (event) {
         delete _processListeners[event];
@@ -4704,6 +4711,7 @@ var bridge = (() => {
     _cwd: config2.cwd,
     _umask: 18
   };
+  process.off = process.removeListener;
   process.memoryUsage.rss = function() {
     return 50 * 1024 * 1024;
   };

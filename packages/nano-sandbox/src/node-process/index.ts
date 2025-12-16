@@ -2,15 +2,29 @@ import ivm from "isolated-vm";
 import { bundlePolyfill, hasPolyfill } from "./polyfills.js";
 import { resolveModule, loadFile } from "./package-bundler.js";
 import type { SystemBridge } from "../system-bridge/index.js";
-import { FS_MODULE_CODE } from "../bridge-loader.js";
-import {
-  generateProcessPolyfill,
-  type ProcessConfig,
-} from "./process-polyfill.js";
-import { generateChildProcessPolyfill } from "./child-process-polyfill.js";
-import { generateNetworkPolyfill } from "./network-polyfill.js";
-import { generateOSPolyfill, type OSConfig } from "./os-polyfill.js";
-import { generateModulePolyfill } from "./module-polyfill.js";
+import { FS_MODULE_CODE, getBridgeWithConfig } from "../bridge-loader.js";
+
+// Config types for process and os modules
+export interface ProcessConfig {
+  platform?: string;
+  arch?: string;
+  version?: string;
+  cwd?: string;
+  env?: Record<string, string>;
+  argv?: string[];
+  execPath?: string;
+}
+
+export interface OSConfig {
+  platform?: string;
+  arch?: string;
+  type?: string;
+  release?: string;
+  version?: string;
+  homedir?: string;
+  tmpdir?: string;
+  hostname?: string;
+}
 
 // Interface for command executor (like WasixInstance)
 export interface CommandExecutor {
@@ -648,10 +662,6 @@ export class NodeProcess {
 
       await jail.set("_childProcessExecRaw", childProcessExecRef);
       await jail.set("_childProcessSpawnRaw", childProcessSpawnRef);
-
-      // Initialize child_process polyfill
-      const childProcessPolyfillCode = generateChildProcessPolyfill();
-      await context.eval(childProcessPolyfillCode);
     }
 
     // Set up network References if we have a NetworkAdapter
@@ -687,22 +697,34 @@ export class NodeProcess {
       await jail.set("_networkFetchRaw", networkFetchRef);
       await jail.set("_networkDnsLookupRaw", networkDnsLookupRef);
       await jail.set("_networkHttpRequestRaw", networkHttpRequestRef);
-
-      // Initialize network polyfill
-      const networkPolyfillCode = generateNetworkPolyfill();
-      await context.eval(networkPolyfillCode);
     }
 
-    // Initialize os polyfill (always available)
-    const osPolyfillCode = generateOSPolyfill(this.osConfig);
-    await context.eval(osPolyfillCode);
-
-    // Set up the require system with dynamic CommonJS resolution
+    // Set up globals needed by the bridge BEFORE loading it
     const initialCwd = this.processConfig.cwd ?? "/";
     await context.eval(`
       globalThis._moduleCache = {};
       globalThis._pendingModules = {};
       globalThis._currentModule = { dirname: ${JSON.stringify(initialCwd)} };
+    `);
+
+    // Load the bridge bundle which sets up all polyfill modules
+    const bridgeCode = getBridgeWithConfig(this.processConfig, this.osConfig);
+    await context.eval(bridgeCode);
+
+    // Unset module globals that require adapters if adapters aren't configured
+    if (!this.commandExecutor) {
+      await context.eval(`delete globalThis._childProcessModule;`);
+    }
+    if (!this.networkAdapter) {
+      await context.eval(`
+        delete globalThis._httpModule;
+        delete globalThis._httpsModule;
+        delete globalThis._dnsModule;
+      `);
+    }
+
+    // Set up the require system with dynamic CommonJS resolution
+    await context.eval(`
 
       // Path utilities
       function _dirname(p) {
@@ -1196,14 +1218,7 @@ export class NodeProcess {
       globalThis._requireFrom = _requireFrom;
 
     `);
-
-    // Initialize module polyfill (now that _requireFrom and _resolveModule are available)
-    const modulePolyfillCode = generateModulePolyfill();
-    await context.eval(modulePolyfillCode);
-
-    // Set up comprehensive process object
-    const processPolyfillCode = generateProcessPolyfill(this.processConfig);
-    await context.eval(processPolyfillCode);
+    // module and process are already initialized by the bridge
   }
 
   /**
@@ -1293,9 +1308,9 @@ export class NodeProcess {
       `);
     }
 
-    // Set up comprehensive process object
-    const processPolyfillCode = generateProcessPolyfill(this.processConfig);
-    await context.eval(processPolyfillCode);
+    // Load the bridge bundle which sets up process and other globals
+    const bridgeCode = getBridgeWithConfig(this.processConfig, this.osConfig);
+    await context.eval(bridgeCode);
   }
 
   /**

@@ -607,5 +607,8 @@ const childProcess = {
   fork,
 };
 
+// Expose to global for require() to use
+(globalThis as Record<string, unknown>)._childProcessModule = childProcess;
+
 export { ChildProcess, exec, execSync, spawn, spawnSync, execFile, execFileSync, fork };
 export default childProcess;

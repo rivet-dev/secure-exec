@@ -783,6 +783,17 @@ function createHttpModule(_protocol: string): Partial<typeof nodeHttp> {
 export const http = createHttpModule("http");
 export const https = createHttpModule("https");
 
+// Export modules and make them available as globals for require()
+(globalThis as Record<string, unknown>)._httpModule = http;
+(globalThis as Record<string, unknown>)._httpsModule = https;
+(globalThis as Record<string, unknown>)._dnsModule = dns;
+
+// Make fetch API available globally
+(globalThis as Record<string, unknown>).fetch = fetch;
+(globalThis as Record<string, unknown>).Headers = Headers;
+(globalThis as Record<string, unknown>).Request = Request;
+(globalThis as Record<string, unknown>).Response = Response;
+
 export default {
   fetch,
   Headers,

@@ -465,13 +465,12 @@ const process: Partial<typeof nodeProcess> & {
     return _addListener(event, listener, true);
   },
 
-  off(event: string, listener: EventListener): typeof process {
-    return _removeListener(event, listener);
-  },
-
   removeListener(event: string, listener: EventListener): typeof process {
     return _removeListener(event, listener);
   },
+
+  // off is an alias for removeListener (assigned below to be same reference)
+  off: null as unknown as (event: string, listener: EventListener) => typeof process,
 
   removeAllListeners(event?: string): typeof process {
     if (event) {
@@ -620,6 +619,9 @@ const process: Partial<typeof nodeProcess> & {
   _cwd: config.cwd,
   _umask: 0o022,
 };
+
+// Make process.off === process.removeListener (same function reference)
+process.off = process.removeListener;
 
 // Add memoryUsage.rss
 (process.memoryUsage as unknown as Record<string, () => number>).rss =
