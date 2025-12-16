@@ -1,6 +1,6 @@
 # Node.js Compatibility Specification
 
-This document describes the Node.js API compatibility of the nano-sandbox NodeProcess implementation.
+This document describes the Node.js API compatibility of the nanosandbox NodeProcess implementation.
 
 ## Architecture Overview
 
@@ -225,11 +225,11 @@ No support for:
 
 ## WebContainers Comparison
 
-Research on how [WebContainers](https://webcontainers.io/) (by StackBlitz) compares to nano-sandbox.
+Research on how [WebContainers](https://webcontainers.io/) (by StackBlitz) compares to nanosandbox.
 
 ### Architecture Difference
 
-| Aspect | WebContainers | nano-sandbox |
+| Aspect | WebContainers | nanosandbox |
 |--------|--------------|--------------|
 | **Runtime** | Full Node.js compiled to WASM | isolated-vm (V8 isolate) with polyfills |
 | **Environment** | Browser-only | Node.js host |
@@ -238,7 +238,7 @@ Research on how [WebContainers](https://webcontainers.io/) (by StackBlitz) compa
 
 ### Feature Comparison
 
-| Feature | WebContainers | nano-sandbox |
+| Feature | WebContainers | nanosandbox |
 |---------|--------------|--------------|
 | **Full Node.js stdlib** | ✅ Yes (real Node) | ⚠️ Partial (polyfills) |
 | **npm/pnpm install** | ✅ Yes | ❌ No (pre-install only) |
@@ -266,7 +266,7 @@ Research on how [WebContainers](https://webcontainers.io/) (by StackBlitz) compa
 6. **Full crypto** - Real Node.js crypto module
 7. **process object** - Full process.argv, process.env, process.platform, etc.
 
-### What nano-sandbox Has That WebContainers Doesn't
+### What nanosandbox Has That WebContainers Doesn't
 
 1. **Node.js host environment** - Runs server-side, not just browser
 2. **Multiple instances** - Can run many sandboxes concurrently

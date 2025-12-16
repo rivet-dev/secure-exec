@@ -1,4 +1,4 @@
-i need to impelment a test suite of common tools using the virtual machine. add a folder at ecosystem-tests/ that has a vitest test for each of these cli tools:
+i need to impl a test suite of common tools using the virtual machine. add a folder at ecosystem-tests/ that has a vitest test for each of these cli tools:
 
 - npm (should not need to be installed, since it should be auto-provided by the virtual machien)
     - use all existing tests

@@ -1,7 +1,7 @@
 # NPM Compatibility Spec Phase 2: Running npm CLI
 
 ## Goal
-Run actual npm commands inside the nano-sandbox, working up from simple to complex.
+Run actual npm commands inside the nanosandbox, working up from simple to complex.
 
 ## Test Plan (in order of difficulty)
 

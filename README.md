@@ -41,15 +41,15 @@ TODO
 TODO
 
 ```
-npx @nano-sandbox/shell
+npx @nanosandbox/shell
 ```
 
 ## Components
 
-- `nano-sandbox`
-- `@nano-sandbox/sandboxed-node`
-- `nano-sandbox-actor` (WIP)
-- `nano-sandbox-mcp` (WIP)
+- `nanosandbox`
+- `@nanosandbox/sandboxed-node`
+- `nanosandbox-actor` (WIP)
+- `nanosandbox-mcp` (WIP)
 - `wasix-runtime`
 - Tools compiled to WASIX: TODO
 

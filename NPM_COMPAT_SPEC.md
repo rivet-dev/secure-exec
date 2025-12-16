@@ -120,7 +120,7 @@ Same pattern for `http.request`, `dns.lookup`, etc.
 ### 1.3 Test Code
 
 ```typescript
-// packages/nano-sandbox/src/node-process/index.test.ts
+// packages/nanosandbox/src/node-process/index.test.ts
 
 describe("Phase 1: Process Object Enhancement", () => {
   describe("process static properties", () => {

@@ -2,7 +2,7 @@
 
 ## Current State
 
-npm CLI integration has basic functionality working in the nano-sandbox:
+npm CLI integration has basic functionality working in the nanosandbox:
 
 | Command | Status | Notes |
 |---------|--------|-------|
@@ -19,7 +19,7 @@ npm CLI integration has basic functionality working in the nano-sandbox:
 
 ### 1. File URL Handling in npm-package-arg
 
-**Location:** `packages/nano-sandbox/src/node-process/process-polyfill.ts` (URL polyfill)
+**Location:** `packages/nanosandbox/src/node-process/process-polyfill.ts` (URL polyfill)
 
 **Problem:** npm-package-arg creates file URLs like `file:.` for the current directory and expects both of these to work:
 ```javascript
@@ -203,7 +203,7 @@ The network mock returns empty body for .tgz requests. Need to:
 #### 2c. Gunzip Support
 npm uses zlib to decompress .tgz files. Current zlib polyfill status:
 ```javascript
-// packages/nano-sandbox/src/node-process/polyfills.ts
+// packages/nanosandbox/src/node-process/polyfills.ts
 // zlib polyfill is minimal - needs gunzip/inflate support
 ```
 
@@ -251,7 +251,7 @@ console.log("done");    // Never reached
 
 ### 4. Binary Data Handling
 
-**Location:** `packages/nano-sandbox/src/bridge/fs.ts`
+**Location:** `packages/nanosandbox/src/bridge/fs.ts`
 
 **Problem:** Current fs implementation converts everything to strings:
 ```javascript

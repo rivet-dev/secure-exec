@@ -71,7 +71,7 @@
 
 - wasm-llm-migrator
 - node-sandbox
-- nano-sandbox
-- nano-sandbox-actor
-- nano-sandbox-mcp
+- nanosandbox
+- nanosandbox-actor
+- nanosandbox-mcp
 

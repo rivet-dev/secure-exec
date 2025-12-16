@@ -7,7 +7,7 @@ NPM_VERSION="${NPM_VERSION:-11.7.0}"
 ASSETS_DIR="assets/npm"
 
 # Cache downloaded tarballs
-CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/nano-sandbox"
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/nanosandbox"
 NPM_TARBALL="${CACHE_DIR}/npm-${NPM_VERSION}.tgz"
 
 echo "==> Archiving npm@${NPM_VERSION} to ${ASSETS_DIR}..."
