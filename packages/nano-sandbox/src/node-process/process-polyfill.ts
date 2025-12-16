@@ -623,20 +623,106 @@ export function generateProcessPolyfill(config: ProcessConfig = {}): string {
             ? base.toString()
             : String(base);
 
-          // Very basic relative URL handling
-          if (!urlStr.startsWith('http://') && !urlStr.startsWith('https://') && !urlStr.startsWith('//')) {
-            const baseUrl = new URL(baseStr);
-            if (urlStr.startsWith('/')) {
-              fullUrl = baseUrl.origin + urlStr;
+          // Check if urlStr is already absolute (has a protocol with proper URL structure)
+          // Note: "file:." and "file:./path" are NOT absolute - they're relative file refs
+          // Only "file://..." is truly absolute
+          let isAbsolute = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(urlStr);
+
+          // Special case: "file:" without "//" is a relative file reference
+          if (urlStr.startsWith('file:') && !urlStr.startsWith('file://')) {
+            isAbsolute = false;
+            // Strip the "file:" prefix to get the relative path
+            urlStr = urlStr.slice(5);
+          }
+
+          if (!isAbsolute) {
+            // Handle file:// base URLs specially
+            if (baseStr.startsWith('file://')) {
+              // Extract the path from file:// URL
+              let basePath = baseStr.slice(7); // Remove 'file://'
+              // Handle file:/// (3 slashes for Unix absolute paths)
+              if (basePath.startsWith('/')) {
+                basePath = basePath; // Keep leading slash
+              }
+
+              // Resolve the relative path
+              let resolvedPath;
+              if (urlStr.startsWith('/')) {
+                // Absolute path
+                resolvedPath = urlStr;
+              } else {
+                // Relative path - resolve against base directory
+                // Get directory of base path (remove trailing filename if any)
+                let baseDir = basePath;
+                if (!baseDir.endsWith('/')) {
+                  const lastSlash = baseDir.lastIndexOf('/');
+                  baseDir = lastSlash >= 0 ? baseDir.slice(0, lastSlash + 1) : '/';
+                }
+
+                // Combine and normalize path
+                const combined = baseDir + urlStr;
+                const parts = combined.split('/');
+                const normalized = [];
+                for (const part of parts) {
+                  if (part === '..') {
+                    normalized.pop();
+                  } else if (part !== '.' && part !== '') {
+                    normalized.push(part);
+                  }
+                }
+                resolvedPath = '/' + normalized.join('/');
+              }
+
+              fullUrl = 'file://' + resolvedPath;
             } else {
-              fullUrl = baseStr.replace(/[^/]*$/, '') + urlStr;
+              // HTTP/HTTPS base URL handling
+              const baseUrl = new URL(baseStr);
+              if (urlStr.startsWith('/')) {
+                fullUrl = baseUrl.origin + urlStr;
+              } else {
+                fullUrl = baseStr.replace(/[^/]*$/, '') + urlStr;
+              }
             }
           }
         }
 
-        // Parse the URL
-        const match = fullUrl.match(/^(https?:)\\/\\/([^/:]+)(?::(\\d+))?(\\/[^?#]*)?(\\?[^#]*)?(#.*)?$/);
+        // Parse the URL (support http, https, and file protocols)
+        let match = fullUrl.match(/^(https?:)\\/\\/([^/:]+)(?::(\\d+))?(\\/[^?#]*)?(\\?[^#]*)?(#.*)?$/);
+
         if (!match) {
+          // Try file:// URLs (full form)
+          const fileMatch = fullUrl.match(/^file:\\/\\/(\\/[^?#]*)?(\\?[^#]*)?(#.*)?$/);
+          if (fileMatch) {
+            this.protocol = 'file:';
+            this.host = '';
+            this.hostname = '';
+            this.port = '';
+            this.pathname = fileMatch[1] || '/';
+            this.search = fileMatch[2] || '';
+            this.hash = fileMatch[3] || '';
+            this.origin = 'null';
+            this.href = 'file://' + this.pathname + this.search + this.hash;
+            this.searchParams = new URLSearchParams(this.search);
+            return;
+          }
+
+          // Try bare "file:" or "file:path" (without //)
+          // Only accept absolute paths (starting with /) - relative paths require a base
+          const bareFileMatch = fullUrl.match(/^file:(\\/[^?#]*)?(\\?[^#]*)?(#.*)?$/);
+          if (bareFileMatch) {
+            this.protocol = 'file:';
+            this.host = '';
+            this.hostname = '';
+            this.port = '';
+            this.pathname = bareFileMatch[1] || '/';
+            this.search = bareFileMatch[2] || '';
+            this.hash = bareFileMatch[3] || '';
+            this.origin = 'null';
+            this.href = 'file://' + this.pathname + this.search + this.hash;
+            this.searchParams = new URLSearchParams(this.search);
+            return;
+          }
+
           throw new TypeError('Invalid URL: ' + urlStr);
         }
 

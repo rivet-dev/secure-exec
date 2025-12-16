@@ -2016,7 +2016,21 @@ var bridge = (() => {
       const pathStr = typeof path === "number" ? fdTable.get(path)?.path : toPathString(path);
       if (!pathStr) throw createFsError("EBADF", "EBADF: bad file descriptor", "read");
       const encoding = typeof options === "string" ? options : options?.encoding;
-      const content = _fs.readFile.applySyncPromise(void 0, [pathStr]);
+      let content;
+      try {
+        content = _fs.readFile.applySyncPromise(void 0, [pathStr]);
+      } catch (err) {
+        const errMsg = err.message || String(err);
+        if (errMsg.includes("entry not found") || errMsg.includes("not found")) {
+          throw createFsError(
+            "ENOENT",
+            `ENOENT: no such file or directory, read '${pathStr}'`,
+            "read",
+            pathStr
+          );
+        }
+        throw err;
+      }
       if (encoding) return content;
       return import_buffer.Buffer.from(content);
     },
@@ -2033,7 +2047,21 @@ var bridge = (() => {
     },
     readdirSync(path, options) {
       const pathStr = toPathString(path);
-      const entriesJson = _fs.readDir.applySyncPromise(void 0, [pathStr]);
+      let entriesJson;
+      try {
+        entriesJson = _fs.readDir.applySyncPromise(void 0, [pathStr]);
+      } catch (err) {
+        const errMsg = err.message || String(err);
+        if (errMsg.includes("entry not found") || errMsg.includes("not found")) {
+          throw createFsError(
+            "ENOENT",
+            `ENOENT: no such file or directory, scandir '${pathStr}'`,
+            "scandir",
+            pathStr
+          );
+        }
+        throw err;
+      }
       const entries = JSON.parse(entriesJson);
       if (options?.withFileTypes) {
         return entries.map((e) => new Dirent(e.name, e.isDirectory, pathStr));
@@ -2052,7 +2080,22 @@ var bridge = (() => {
       return _fs.exists.applySyncPromise(void 0, [toPathString(path)]);
     },
     statSync(path, _options) {
-      const statJson = _fs.stat.applySyncPromise(void 0, [toPathString(path)]);
+      const pathStr = toPathString(path);
+      let statJson;
+      try {
+        statJson = _fs.stat.applySyncPromise(void 0, [pathStr]);
+      } catch (err) {
+        const errMsg = err.message || String(err);
+        if (errMsg.includes("entry not found") || errMsg.includes("not found") || errMsg.includes("ENOENT") || errMsg.includes("no such file or directory")) {
+          throw createFsError(
+            "ENOENT",
+            `ENOENT: no such file or directory, stat '${pathStr}'`,
+            "stat",
+            pathStr
+          );
+        }
+        throw err;
+      }
       const stat = JSON.parse(statJson);
       return new Stats(stat);
     },
@@ -2441,23 +2484,51 @@ var bridge = (() => {
       }
     },
     // fs.promises API
+    // Note: Using async functions to properly catch sync errors and return rejected promises
     promises: {
-      readFile: (path, options) => Promise.resolve(fs.readFileSync(path, options)),
-      writeFile: (path, data, options) => Promise.resolve(fs.writeFileSync(path, data, options)),
-      appendFile: (path, data, options) => Promise.resolve(fs.appendFileSync(path, data, options)),
-      readdir: (path, options) => Promise.resolve(fs.readdirSync(path, options)),
-      mkdir: (path, options) => Promise.resolve(fs.mkdirSync(path, options)),
-      rmdir: (path) => Promise.resolve(fs.rmdirSync(path)),
-      stat: (path) => Promise.resolve(fs.statSync(path)),
-      lstat: (path) => Promise.resolve(fs.lstatSync(path)),
-      unlink: (path) => Promise.resolve(fs.unlinkSync(path)),
-      rename: (oldPath, newPath) => Promise.resolve(fs.renameSync(oldPath, newPath)),
-      copyFile: (src, dest) => Promise.resolve(fs.copyFileSync(src, dest)),
-      access: (path) => Promise.resolve(
-        fs.existsSync(path) ? void 0 : (() => {
-          throw new Error("ENOENT");
-        })()
-      )
+      async readFile(path, options) {
+        return fs.readFileSync(path, options);
+      },
+      async writeFile(path, data, options) {
+        return fs.writeFileSync(path, data, options);
+      },
+      async appendFile(path, data, options) {
+        return fs.appendFileSync(path, data, options);
+      },
+      async readdir(path, options) {
+        return fs.readdirSync(path, options);
+      },
+      async mkdir(path, options) {
+        return fs.mkdirSync(path, options);
+      },
+      async rmdir(path) {
+        return fs.rmdirSync(path);
+      },
+      async stat(path) {
+        return fs.statSync(path);
+      },
+      async lstat(path) {
+        return fs.lstatSync(path);
+      },
+      async unlink(path) {
+        return fs.unlinkSync(path);
+      },
+      async rename(oldPath, newPath) {
+        return fs.renameSync(oldPath, newPath);
+      },
+      async copyFile(src, dest) {
+        return fs.copyFileSync(src, dest);
+      },
+      async access(path) {
+        if (!fs.existsSync(path)) {
+          throw createFsError(
+            "ENOENT",
+            `ENOENT: no such file or directory, access '${path}'`,
+            "access",
+            path
+          );
+        }
+      }
     },
     // Compatibility methods
     accessSync(path) {
@@ -2535,7 +2606,9 @@ var bridge = (() => {
     },
     createWriteStream(path, _options) {
       let content = "";
+      const listeners = {};
       const stream = {
+        writable: true,
         write(chunk) {
           content += typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk);
           return true;
@@ -2543,9 +2616,34 @@ var bridge = (() => {
         end(chunk) {
           if (chunk) stream.write(chunk);
           fs.writeFileSync(path, content);
+          stream.writable = false;
+          Promise.resolve().then(() => {
+            stream.emit("finish");
+            stream.emit("close");
+          });
         },
-        on() {
+        on(event, handler) {
+          if (!listeners[event]) listeners[event] = [];
+          listeners[event].push(handler);
           return stream;
+        },
+        once(event, handler) {
+          const wrapper = () => {
+            handler();
+            const idx = listeners[event]?.indexOf(wrapper);
+            if (idx !== void 0 && idx !== -1) {
+              listeners[event].splice(idx, 1);
+            }
+          };
+          return stream.on(event, wrapper);
+        },
+        emit(event) {
+          const handlers = listeners[event];
+          if (handlers) {
+            handlers.forEach((h) => h());
+            return true;
+          }
+          return false;
         }
       };
       return stream;

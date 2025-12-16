@@ -1062,10 +1062,15 @@ const fs = {
   ): {
     write: (chunk: string | Uint8Array) => boolean;
     end: (chunk?: string | Uint8Array) => void;
-    on: () => unknown;
+    on: (event: string, handler: () => void) => unknown;
+    once: (event: string, handler: () => void) => unknown;
+    emit: (event: string) => boolean;
+    writable: boolean;
   } {
     let content = "";
+    const listeners: Record<string, Array<() => void>> = {};
     const stream = {
+      writable: true,
       write(chunk: string | Uint8Array): boolean {
         content +=
           typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk);
@@ -1074,9 +1079,38 @@ const fs = {
       end(chunk?: string | Uint8Array): void {
         if (chunk) stream.write(chunk);
         fs.writeFileSync(path, content);
+        stream.writable = false;
+        // Emit finish and close events
+        // Use Promise.resolve() for async microtask instead of setTimeout
+        // as setTimeout may not work properly in isolated-vm
+        Promise.resolve().then(() => {
+          stream.emit("finish");
+          stream.emit("close");
+        });
       },
-      on() {
+      on(event: string, handler: () => void) {
+        if (!listeners[event]) listeners[event] = [];
+        listeners[event].push(handler);
         return stream;
+      },
+      once(event: string, handler: () => void) {
+        const wrapper = () => {
+          handler();
+          // Remove after first call
+          const idx = listeners[event]?.indexOf(wrapper);
+          if (idx !== undefined && idx !== -1) {
+            listeners[event].splice(idx, 1);
+          }
+        };
+        return stream.on(event, wrapper);
+      },
+      emit(event: string): boolean {
+        const handlers = listeners[event];
+        if (handlers) {
+          handlers.forEach((h) => h());
+          return true;
+        }
+        return false;
       },
     };
     return stream;
