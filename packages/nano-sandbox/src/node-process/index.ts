@@ -3,10 +3,15 @@ import { bundlePolyfill, hasPolyfill } from "./polyfills.js";
 import { resolveModule, loadFile } from "./package-bundler.js";
 import type { SystemBridge } from "../system-bridge/index.js";
 import { FS_MODULE_CODE } from "@nano-sandbox/fs-polyfill";
+import {
+  generateProcessPolyfill,
+  type ProcessConfig,
+} from "./process-polyfill.js";
 
 export interface NodeProcessOptions {
   memoryLimit?: number; // MB, default 128
   systemBridge?: SystemBridge; // For accessing virtual filesystem
+  processConfig?: ProcessConfig; // Process object configuration
 }
 
 /**
@@ -64,7 +69,14 @@ function wrapCJSForESM(code: string): string {
   `;
 }
 
-export interface RunResult {
+export interface RunResult<T = unknown> {
+  stdout: string;
+  stderr: string;
+  code: number;
+  exports?: T;
+}
+
+export interface ExecResult {
   stdout: string;
   stderr: string;
   code: number;
@@ -78,6 +90,7 @@ export class NodeProcess {
   private context: ivm.Context | null = null;
   private memoryLimit: number;
   private systemBridge?: SystemBridge;
+  private processConfig: ProcessConfig;
   // Cache for compiled ESM modules (per isolate)
   private esmModuleCache: Map<string, ivm.Module> = new Map();
 
@@ -85,6 +98,7 @@ export class NodeProcess {
     this.memoryLimit = options.memoryLimit ?? 128;
     this.isolate = new ivm.Isolate({ memoryLimit: this.memoryLimit });
     this.systemBridge = options.systemBridge;
+    this.processConfig = options.processConfig ?? {};
   }
 
   /**
@@ -633,11 +647,11 @@ export class NodeProcess {
         return module.exports;
       }
 
-      // Also set up process.cwd() which path module needs
-      globalThis.process = globalThis.process || {};
-      globalThis.process.cwd = function() { return '/'; };
-      globalThis.process.env = globalThis.process.env || {};
     `);
+
+    // Set up comprehensive process object
+    const processPolyfillCode = generateProcessPolyfill(this.processConfig);
+    await context.eval(processPolyfillCode);
   }
 
   /**
@@ -714,27 +728,32 @@ export class NodeProcess {
       `);
     }
 
-    // Set up process object
-    await context.eval(`
-      globalThis.process = globalThis.process || {};
-      globalThis.process.cwd = function() { return '/'; };
-      globalThis.process.env = globalThis.process.env || {};
-    `);
+    // Set up comprehensive process object
+    const processPolyfillCode = generateProcessPolyfill(this.processConfig);
+    await context.eval(processPolyfillCode);
   }
 
   /**
    * Run code and return the value of module.exports (CJS) or default export (ESM)
+   * along with exit code and captured stdout/stderr
    */
-  async run<T = unknown>(code: string, filePath?: string): Promise<T> {
+  async run<T = unknown>(code: string, filePath?: string): Promise<RunResult<T>> {
     // Clear caches for fresh run
     this.esmModuleCache.clear();
     this.dynamicImportCache.clear();
 
     const context = await this.isolate.createContext();
+    const stdout: string[] = [];
+    const stderr: string[] = [];
 
     try {
       const jail = context.global;
       await jail.set("global", jail.derefInto());
+
+      // Set up console capture
+      await this.setupConsole(context, jail, stdout, stderr);
+
+      let exports: T;
 
       // Detect ESM vs CJS
       if (isESM(code, filePath)) {
@@ -750,35 +769,68 @@ export class NodeProcess {
         // Set up dynamic import function
         await this.setupDynamicImport(context, jail);
 
-        const result = await this.runESM(transformedCode, context, filePath);
-        return result as T;
+        exports = (await this.runESM(transformedCode, context, filePath)) as T;
+      } else {
+        // CJS path (existing behavior)
+        await this.setupRequire(context, jail);
+
+        // Create module object
+        const moduleObj = await this.isolate.compileScript(
+          "globalThis.module = { exports: {} };"
+        );
+        await moduleObj.run(context);
+
+        // Transform dynamic import() to __dynamicImport()
+        const transformedCode = transformDynamicImport(code);
+
+        // Pre-compile all dynamic imports
+        await this.precompileDynamicImports(transformedCode, context);
+
+        // Set up dynamic import function
+        await this.setupDynamicImport(context, jail);
+
+        // Run user code
+        const script = await this.isolate.compileScript(transformedCode);
+        await script.run(context);
+
+        // Get module.exports
+        exports = (await context.eval("module.exports", { copy: true })) as T;
       }
 
-      // CJS path (existing behavior)
-      await this.setupRequire(context, jail);
+      // Get exit code from process.exitCode if set
+      const exitCode = (await context.eval("process.exitCode || 0", {
+        copy: true,
+      })) as number;
 
-      // Create module object
-      const moduleObj = await this.isolate.compileScript(
-        "globalThis.module = { exports: {} };"
-      );
-      await moduleObj.run(context);
+      return {
+        stdout: stdout.join("\n") + (stdout.length > 0 ? "\n" : ""),
+        stderr: stderr.join("\n") + (stderr.length > 0 ? "\n" : ""),
+        code: exitCode,
+        exports,
+      };
+    } catch (err) {
+      // Check if this is a ProcessExitError (controlled exit)
+      const errMessage = err instanceof Error ? err.message : String(err);
 
-      // Transform dynamic import() to __dynamicImport()
-      const transformedCode = transformDynamicImport(code);
+      // ProcessExitError format: "process.exit(N)"
+      const exitMatch = errMessage.match(/process\.exit\((\d+)\)/);
+      if (exitMatch) {
+        const exitCode = parseInt(exitMatch[1], 10);
+        return {
+          stdout: stdout.join("\n") + (stdout.length > 0 ? "\n" : ""),
+          stderr: stderr.join("\n") + (stderr.length > 0 ? "\n" : ""),
+          code: exitCode,
+          exports: undefined as T,
+        };
+      }
 
-      // Pre-compile all dynamic imports
-      await this.precompileDynamicImports(transformedCode, context);
-
-      // Set up dynamic import function
-      await this.setupDynamicImport(context, jail);
-
-      // Run user code
-      const script = await this.isolate.compileScript(transformedCode);
-      await script.run(context);
-
-      // Get module.exports
-      const result = await context.eval("module.exports", { copy: true });
-      return result as T;
+      stderr.push(errMessage);
+      return {
+        stdout: stdout.join("\n") + (stdout.length > 0 ? "\n" : ""),
+        stderr: stderr.join("\n") + (stderr.length > 0 ? "\n" : ""),
+        code: 1,
+        exports: undefined as T,
+      };
     } finally {
       context.release();
     }
@@ -825,7 +877,7 @@ export class NodeProcess {
    * Execute code like a script with console output capture
    * Supports both CJS and ESM syntax
    */
-  async exec(code: string, filePath?: string): Promise<RunResult> {
+  async exec(code: string, filePath?: string): Promise<ExecResult> {
     // Clear caches for fresh run
     this.esmModuleCache.clear();
     this.dynamicImportCache.clear();
@@ -874,13 +926,32 @@ export class NodeProcess {
         await script.run(context);
       }
 
+      // Get exit code from process.exitCode if set
+      const exitCode = await context.eval("process.exitCode || 0", {
+        copy: true,
+      });
+
       return {
         stdout: stdout.join("\n") + (stdout.length > 0 ? "\n" : ""),
         stderr: stderr.join("\n") + (stderr.length > 0 ? "\n" : ""),
-        code: 0,
+        code: exitCode as number,
       };
     } catch (err) {
-      stderr.push(err instanceof Error ? err.message : String(err));
+      // Check if this is a ProcessExitError (controlled exit)
+      const errMessage = err instanceof Error ? err.message : String(err);
+
+      // ProcessExitError format: "process.exit(N)"
+      const exitMatch = errMessage.match(/process\.exit\((\d+)\)/);
+      if (exitMatch) {
+        const exitCode = parseInt(exitMatch[1], 10);
+        return {
+          stdout: stdout.join("\n") + (stdout.length > 0 ? "\n" : ""),
+          stderr: stderr.join("\n") + (stderr.length > 0 ? "\n" : ""),
+          code: exitCode,
+        };
+      }
+
+      stderr.push(errMessage);
       return {
         stdout: stdout.join("\n") + (stdout.length > 0 ? "\n" : ""),
         stderr: stderr.join("\n") + (stderr.length > 0 ? "\n" : ""),

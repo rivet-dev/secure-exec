@@ -18,7 +18,7 @@ describe("NodeProcess", () => {
     it("should run basic code and return module.exports", async () => {
       proc = new NodeProcess();
       const result = await proc.run(`module.exports = 1 + 1`);
-      expect(result).toBe(2);
+      expect(result.exports).toBe(2);
     });
 
     it("should return complex objects", async () => {
@@ -26,7 +26,7 @@ describe("NodeProcess", () => {
       const result = await proc.run<{ foo: string; bar: number }>(
         `module.exports = { foo: "hello", bar: 42 }`
       );
-      expect(result).toEqual({ foo: "hello", bar: 42 });
+      expect(result.exports).toEqual({ foo: "hello", bar: 42 });
     });
 
     it("should execute code with console output", async () => {
@@ -59,7 +59,7 @@ describe("NodeProcess", () => {
         const path = require("path");
         module.exports = path.join("foo", "bar");
       `);
-      expect(result).toBe("foo/bar");
+      expect(result.exports).toBe("foo/bar");
     });
 
     it("should require path module with node: prefix", async () => {
@@ -68,7 +68,7 @@ describe("NodeProcess", () => {
         const path = require("node:path");
         module.exports = path.dirname("/foo/bar/baz.txt");
       `);
-      expect(result).toBe("/foo/bar");
+      expect(result.exports).toBe("/foo/bar");
     });
 
     it("should require events module", async () => {
@@ -81,7 +81,7 @@ describe("NodeProcess", () => {
         emitter.emit("test");
         module.exports = called;
       `);
-      expect(result).toBe(true);
+      expect(result.exports).toBe(true);
     });
 
     it("should require util module", async () => {
@@ -90,7 +90,7 @@ describe("NodeProcess", () => {
         const util = require("util");
         module.exports = util.format("hello %s", "world");
       `);
-      expect(result).toBe("hello world");
+      expect(result.exports).toBe("hello world");
     });
 
     it("should cache modules", async () => {
@@ -100,7 +100,7 @@ describe("NodeProcess", () => {
         const path2 = require("path");
         module.exports = path1 === path2;
       `);
-      expect(result).toBe(true);
+      expect(result.exports).toBe(true);
     });
 
     it("should throw for unknown modules", async () => {
@@ -135,7 +135,7 @@ describe("NodeProcess", () => {
         module.exports = pkg.add(2, 3);
       `);
 
-      expect(result).toBe(5);
+      expect(result.exports).toBe(5);
     });
 
     it("should load package with default index.js", async () => {
@@ -159,7 +159,7 @@ describe("NodeProcess", () => {
         module.exports = pkg;
       `);
 
-      expect(result).toBe("hello from simple-pkg");
+      expect(result.exports).toBe("hello from simple-pkg");
     });
 
     it("should prioritize polyfills over node_modules", async () => {
@@ -184,7 +184,7 @@ describe("NodeProcess", () => {
         module.exports = typeof path.join === 'function';
       `);
 
-      expect(result).toBe(true);
+      expect(result.exports).toBe(true);
     });
 
     it("should use setSystemBridge to add bridge later", async () => {
@@ -209,7 +209,7 @@ describe("NodeProcess", () => {
         module.exports = pkg;
       `);
 
-      expect(result).toBe(42);
+      expect(result.exports).toBe(42);
     });
   });
 
@@ -232,7 +232,7 @@ describe("NodeProcess", () => {
         module.exports = main;
       `);
 
-      expect(result).toBe("Hello");
+      expect(result.exports).toBe("Hello");
     });
 
     it("should resolve parent directory imports", async () => {
@@ -252,7 +252,7 @@ describe("NodeProcess", () => {
         module.exports = reader;
       `);
 
-      expect(result).toBe("test");
+      expect(result.exports).toBe("test");
     });
 
     it("should load JSON files", async () => {
@@ -267,7 +267,7 @@ describe("NodeProcess", () => {
         module.exports = data.version;
       `);
 
-      expect(result).toBe("1.0.0");
+      expect(result.exports).toBe("1.0.0");
     });
 
     it("should handle nested requires with dependencies", async () => {
@@ -295,7 +295,7 @@ describe("NodeProcess", () => {
         module.exports = lib.calc(5);
       `);
 
-      expect(result).toBe(10);
+      expect(result.exports).toBe(10);
     });
 
     it("should handle package subpath imports", async () => {
@@ -322,7 +322,7 @@ describe("NodeProcess", () => {
         module.exports = extra.extra;
       `);
 
-      expect(result).toBe(true);
+      expect(result.exports).toBe(true);
     });
 
     it("should cache modules", async () => {
@@ -344,7 +344,7 @@ describe("NodeProcess", () => {
       `);
 
       // If caching works, c2 is the same instance as c1
-      expect(result).toBe(3);
+      expect(result.exports).toBe(3);
     });
   });
 
@@ -360,7 +360,7 @@ describe("NodeProcess", () => {
         module.exports = fs.readFileSync('/test.txt', 'utf8');
       `);
 
-      expect(result).toBe("hello world");
+      expect(result.exports).toBe("hello world");
     });
 
     it("should check file existence", async () => {
@@ -377,7 +377,7 @@ describe("NodeProcess", () => {
         };
       `);
 
-      expect(result).toEqual({ exists: true, notExists: false });
+      expect(result.exports).toEqual({ exists: true, notExists: false });
     });
 
     it("should get file stats", async () => {
@@ -396,7 +396,7 @@ describe("NodeProcess", () => {
         };
       `);
 
-      expect(result).toEqual({
+      expect(result.exports).toEqual({
         isFile: true,
         isDirectory: false,
         size: 5,
@@ -416,8 +416,8 @@ describe("NodeProcess", () => {
         module.exports = fs.readdirSync('/mydir').sort();
       `);
 
-      expect(result).toContain("a.txt");
-      expect(result).toContain("b.txt");
+      expect(result.exports).toContain("a.txt");
+      expect(result.exports).toContain("b.txt");
     });
 
     it("should delete files", async () => {
@@ -434,7 +434,7 @@ describe("NodeProcess", () => {
         module.exports = { existsBefore, existsAfter };
       `);
 
-      expect(result).toEqual({ existsBefore: true, existsAfter: false });
+      expect(result.exports).toEqual({ existsBefore: true, existsAfter: false });
     });
 
     it("should work with file descriptors", async () => {
@@ -450,7 +450,7 @@ describe("NodeProcess", () => {
         module.exports = fs.readFileSync('/fd-test.txt', 'utf8');
       `);
 
-      expect(result).toBe("hello");
+      expect(result.exports).toBe("hello");
     });
 
     it("should append to files", async () => {
@@ -465,7 +465,7 @@ describe("NodeProcess", () => {
         module.exports = fs.readFileSync('/append.txt', 'utf8');
       `);
 
-      expect(result).toBe("hello world");
+      expect(result.exports).toBe("hello world");
     });
 
     it("should create directories", async () => {
@@ -480,7 +480,7 @@ describe("NodeProcess", () => {
         module.exports = fs.existsSync('/newdir/file.txt');
       `);
 
-      expect(result).toBe(true);
+      expect(result.exports).toBe(true);
     });
   });
 
@@ -759,6 +759,264 @@ describe("NodeProcess", () => {
 
       expect(result.code).toBe(0);
       expect(result.stdout).toContain("Hello from CJS");
+    });
+  });
+
+  describe("Phase 1: Process Object Enhancement", () => {
+    describe("process static properties", () => {
+      it("should have process.platform", async () => {
+        proc = new NodeProcess();
+        const result = await proc.run(`
+          module.exports = process.platform;
+        `);
+        expect(result.exports).toBe("linux");
+      });
+
+      it("should have process.arch", async () => {
+        proc = new NodeProcess();
+        const result = await proc.run(`
+          module.exports = process.arch;
+        `);
+        expect(result.exports).toBe("x64");
+      });
+
+      it("should have process.version", async () => {
+        proc = new NodeProcess();
+        const result = await proc.run(`
+          module.exports = process.version;
+        `);
+        expect(result.exports).toMatch(/^v\d+\.\d+\.\d+$/);
+      });
+
+      it("should have process.versions object", async () => {
+        proc = new NodeProcess();
+        const result = await proc.run(`
+          module.exports = {
+            hasNode: typeof process.versions.node === 'string',
+            hasV8: typeof process.versions.v8 === 'string'
+          };
+        `);
+        expect(result.exports).toEqual({ hasNode: true, hasV8: true });
+      });
+
+      it("should have process.pid", async () => {
+        proc = new NodeProcess();
+        const result = await proc.run(`
+          module.exports = typeof process.pid === 'number' && process.pid > 0;
+        `);
+        expect(result.exports).toBe(true);
+      });
+
+      it("should have process.argv", async () => {
+        proc = new NodeProcess();
+        const result = await proc.run(`
+          module.exports = Array.isArray(process.argv) && process.argv.length >= 2;
+        `);
+        expect(result.exports).toBe(true);
+      });
+
+      it("should have process.execPath", async () => {
+        proc = new NodeProcess();
+        const result = await proc.run(`
+          module.exports = typeof process.execPath === 'string' && process.execPath.includes('node');
+        `);
+        expect(result.exports).toBe(true);
+      });
+    });
+
+    describe("process methods", () => {
+      it("should support process.exit() by throwing", async () => {
+        proc = new NodeProcess();
+        const result = await proc.run(`
+          process.exit(42);
+          module.exports = 'should not reach';
+        `);
+        expect(result.code).toBe(42);
+      });
+
+      it("should support process.exitCode", async () => {
+        proc = new NodeProcess();
+        const result = await proc.run(`
+          process.exitCode = 5;
+          module.exports = process.exitCode;
+        `);
+        expect(result.exports).toBe(5);
+        expect(result.code).toBe(5);
+      });
+
+      it("should support process.nextTick", async () => {
+        proc = new NodeProcess();
+        // Test that nextTick exists and is callable
+        const result = await proc.run(`
+          const hasNextTick = typeof process.nextTick === 'function';
+          let callbackCalled = false;
+          process.nextTick(() => { callbackCalled = true; });
+          // Callback won't have run yet since we're still in sync code
+          module.exports = {
+            hasNextTick: hasNextTick,
+            callbackCalledSync: callbackCalled
+          };
+        `);
+        expect(result.exports).toEqual({
+          hasNextTick: true,
+          callbackCalledSync: false // Callback runs async via queueMicrotask
+        });
+      });
+
+      it("should support process.hrtime()", async () => {
+        proc = new NodeProcess();
+        const result = await proc.run(`
+          const t1 = process.hrtime();
+          const isArray = Array.isArray(t1) && t1.length === 2;
+          const hasSeconds = typeof t1[0] === 'number';
+          const hasNanos = typeof t1[1] === 'number';
+          module.exports = { isArray, hasSeconds, hasNanos };
+        `);
+        expect(result.exports).toEqual({ isArray: true, hasSeconds: true, hasNanos: true });
+      });
+
+      it("should support process.hrtime.bigint()", async () => {
+        proc = new NodeProcess();
+        const result = await proc.run(`
+          const t = process.hrtime.bigint();
+          // BigInt cannot be serialized to JSON, so check type in sandbox
+          module.exports = typeof t === 'bigint';
+        `);
+        expect(result.exports).toBe(true);
+      });
+
+      it("should support process.getuid() and process.getgid()", async () => {
+        proc = new NodeProcess();
+        const result = await proc.run(`
+          module.exports = {
+            uid: process.getuid(),
+            gid: process.getgid()
+          };
+        `);
+        expect(result.exports).toEqual({ uid: 0, gid: 0 });
+      });
+
+      it("should support process.uptime()", async () => {
+        proc = new NodeProcess();
+        const result = await proc.run(`
+          const t = process.uptime();
+          module.exports = typeof t === 'number' && t >= 0;
+        `);
+        expect(result.exports).toBe(true);
+      });
+
+      it("should support process.memoryUsage()", async () => {
+        proc = new NodeProcess();
+        const result = await proc.run(`
+          const mem = process.memoryUsage();
+          module.exports = {
+            hasRss: typeof mem.rss === 'number',
+            hasHeapTotal: typeof mem.heapTotal === 'number',
+            hasHeapUsed: typeof mem.heapUsed === 'number'
+          };
+        `);
+        expect(result.exports).toEqual({ hasRss: true, hasHeapTotal: true, hasHeapUsed: true });
+      });
+    });
+  });
+
+  describe("Phase 2: Process as EventEmitter", () => {
+    describe("process events", () => {
+      it("should support process.on and process.emit", async () => {
+        proc = new NodeProcess();
+        const result = await proc.run(`
+          let received = null;
+          process.on('custom', (data) => { received = data; });
+          process.emit('custom', 'hello');
+          module.exports = received;
+        `);
+        expect(result.exports).toBe("hello");
+      });
+
+      it("should support process.once", async () => {
+        proc = new NodeProcess();
+        const result = await proc.run(`
+          let count = 0;
+          process.once('test', () => { count++; });
+          process.emit('test');
+          process.emit('test');
+          module.exports = count;
+        `);
+        expect(result.exports).toBe(1);
+      });
+
+      it("should support process.removeListener", async () => {
+        proc = new NodeProcess();
+        const result = await proc.run(`
+          let count = 0;
+          const handler = () => { count++; };
+          process.on('test', handler);
+          process.emit('test');
+          process.removeListener('test', handler);
+          process.emit('test');
+          module.exports = count;
+        `);
+        expect(result.exports).toBe(1);
+      });
+
+      it("should support process.off as alias", async () => {
+        proc = new NodeProcess();
+        const result = await proc.run(`
+          module.exports = process.off === process.removeListener;
+        `);
+        expect(result.exports).toBe(true);
+      });
+
+      it("should fire exit event on process.exit()", async () => {
+        proc = new NodeProcess();
+        const result = await proc.run(`
+          let exitFired = false;
+          process.on('exit', (code) => {
+            exitFired = true;
+            console.log('exit:' + code);
+          });
+          process.exit(0);
+        `);
+        expect(result.stdout).toContain("exit:0");
+      });
+    });
+
+    describe("process stdio streams", () => {
+      it("should have process.stdout as writable", async () => {
+        proc = new NodeProcess();
+        const result = await proc.run(`
+          process.stdout.write('hello from stdout');
+          module.exports = typeof process.stdout.write === 'function';
+        `);
+        expect(result.stdout).toContain("hello from stdout");
+        expect(result.exports).toBe(true);
+      });
+
+      it("should have process.stderr as writable", async () => {
+        proc = new NodeProcess();
+        const result = await proc.run(`
+          process.stderr.write('hello from stderr');
+          module.exports = typeof process.stderr.write === 'function';
+        `);
+        expect(result.stderr).toContain("hello from stderr");
+        expect(result.exports).toBe(true);
+      });
+
+      it("should have process.stdin as readable", async () => {
+        proc = new NodeProcess();
+        const result = await proc.run(`
+          module.exports = {
+            hasOn: typeof process.stdin.on === 'function',
+            hasRead: typeof process.stdin.read === 'function',
+            readable: process.stdin.readable !== undefined
+          };
+        `);
+        expect(result.exports).toEqual({
+          hasOn: true,
+          hasRead: true,
+          readable: true
+        });
+      });
     });
   });
 });
