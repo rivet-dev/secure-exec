@@ -1,4 +1,7 @@
 import ivm from "isolated-vm";
+import * as https from "node:https";
+import * as dns from "node:dns";
+import * as zlib from "node:zlib";
 import { bundlePolyfill, hasPolyfill } from "./polyfills.js";
 import { resolveModule, loadFile } from "./package-bundler.js";
 import type { SystemBridge } from "../system-bridge/index.js";
@@ -62,6 +65,148 @@ export interface NetworkAdapter {
     body: string;
     url: string;
   }>;
+}
+
+/**
+ * Create a default network adapter using Node.js native https and dns modules.
+ * This allows the sandbox to make real network requests.
+ */
+export function createDefaultNetworkAdapter(): NetworkAdapter {
+  return {
+    async fetch(url, options) {
+      const response = await fetch(url, {
+        method: options?.method || "GET",
+        headers: options?.headers,
+        body: options?.body,
+      });
+      const headers: Record<string, string> = {};
+      response.headers.forEach((v, k) => {
+        headers[k] = v;
+      });
+
+      // Node's fetch auto-decompresses gzip, so remove content-encoding header
+      // to prevent double-decompression in the sandbox
+      delete headers["content-encoding"];
+
+      // Only base64 encode for actual binary content types (not based on content-encoding
+      // since Node's fetch already decompressed it)
+      const contentType = response.headers.get("content-type") || "";
+      const isBinary =
+        contentType.includes("octet-stream") ||
+        contentType.includes("gzip") ||
+        url.endsWith(".tgz");
+
+      let body: string;
+      if (isBinary) {
+        // For binary content, get raw bytes and base64 encode
+        const buffer = await response.arrayBuffer();
+        body = Buffer.from(buffer).toString("base64");
+        headers["x-body-encoding"] = "base64";
+      } else {
+        body = await response.text();
+      }
+
+      return {
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+        body,
+        url: response.url,
+        redirected: response.redirected,
+      };
+    },
+
+    async dnsLookup(hostname) {
+      return new Promise((resolve) => {
+        dns.lookup(hostname, (err, address, family) => {
+          if (err) {
+            resolve({ error: err.message, code: err.code || "ENOTFOUND" });
+          } else {
+            resolve({ address, family });
+          }
+        });
+      });
+    },
+
+    async httpRequest(url, options) {
+      return new Promise((resolve, reject) => {
+        const urlObj = new URL(url);
+        const reqOptions: https.RequestOptions = {
+          hostname: urlObj.hostname,
+          port: urlObj.port || 443,
+          path: urlObj.pathname + urlObj.search,
+          method: options?.method || "GET",
+          headers: options?.headers || {},
+        };
+
+        const req = https.request(reqOptions, (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (chunk: Buffer) => chunks.push(chunk));
+          res.on("end", async () => {
+            let buffer: Buffer = Buffer.concat(chunks);
+
+            // Decompress gzip if needed (https.request doesn't auto-decompress)
+            const contentEncoding = res.headers["content-encoding"];
+            if (contentEncoding === "gzip" || contentEncoding === "deflate") {
+              try {
+                buffer = await new Promise((res, rej) => {
+                  const decompress =
+                    contentEncoding === "gzip" ? zlib.gunzip : zlib.inflate;
+                  decompress(buffer, (err, result) => {
+                    if (err) rej(err);
+                    else res(result);
+                  });
+                });
+              } catch {
+                // If decompression fails, use original buffer
+              }
+            }
+
+            const contentType = res.headers["content-type"] || "";
+            const isBinary =
+              contentType.includes("octet-stream") ||
+              contentType.includes("gzip") ||
+              url.endsWith(".tgz");
+
+            const headers: Record<string, string> = {};
+            Object.entries(res.headers).forEach(([k, v]) => {
+              if (typeof v === "string") headers[k] = v;
+              else if (Array.isArray(v)) headers[k] = v.join(", ");
+            });
+
+            // Remove content-encoding since we decompressed
+            delete headers["content-encoding"];
+
+            // For binary content, base64 encode and add marker header
+            if (isBinary) {
+              headers["x-body-encoding"] = "base64";
+              resolve({
+                status: res.statusCode || 200,
+                statusText: res.statusMessage || "OK",
+                headers,
+                body: buffer.toString("base64"),
+                url,
+              });
+            } else {
+              resolve({
+                status: res.statusCode || 200,
+                statusText: res.statusMessage || "OK",
+                headers,
+                body: buffer.toString("utf-8"),
+                url,
+              });
+            }
+          });
+          res.on("error", reject);
+        });
+
+        req.on("error", reject);
+        if (options?.body) req.write(options.body);
+        req.end();
+      });
+    },
+  };
 }
 
 export interface NodeProcessOptions {

@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, beforeAll } from "vitest";
 import { init, Directory } from "@wasmer/sdk/node";
-import { NodeProcess, type NetworkAdapter } from "./index";
+import { NodeProcess, createDefaultNetworkAdapter } from "./index";
 import { SystemBridge } from "../system-bridge/index";
 import * as fs from "fs";
 import * as path from "path";
@@ -416,37 +416,10 @@ describe("NPM CLI Integration", () => {
           },
         };
 
-        // Mock network adapter for npm's http/https needs
-        const mockNetworkAdapter = {
-          async fetch(url: string) {
-            return {
-              ok: true,
-              status: 200,
-              statusText: "OK",
-              headers: {},
-              body: "{}",
-              url,
-              redirected: false,
-            };
-          },
-          async dnsLookup(hostname: string) {
-            return { address: "127.0.0.1", family: 4 };
-          },
-          async httpRequest(url: string) {
-            return {
-              status: 200,
-              statusText: "OK",
-              headers: {},
-              body: "{}",
-              url,
-            };
-          },
-        };
-
         proc = new NodeProcess({
           systemBridge,
           commandExecutor: mockCommandExecutor,
-          networkAdapter: mockNetworkAdapter,
+          networkAdapter: createDefaultNetworkAdapter(),
           processConfig: {
             cwd: "/app",
             env: {
@@ -564,37 +537,10 @@ describe("NPM CLI Integration", () => {
           },
         };
 
-        // Mock network adapter for npm's http/https needs
-        const mockNetworkAdapter = {
-          async fetch(url: string) {
-            return {
-              ok: true,
-              status: 200,
-              statusText: "OK",
-              headers: {},
-              body: "{}",
-              url,
-              redirected: false,
-            };
-          },
-          async dnsLookup(hostname: string) {
-            return { address: "127.0.0.1", family: 4 };
-          },
-          async httpRequest(url: string) {
-            return {
-              status: 200,
-              statusText: "OK",
-              headers: {},
-              body: "{}",
-              url,
-            };
-          },
-        };
-
         proc = new NodeProcess({
           systemBridge,
           commandExecutor: mockCommandExecutor,
-          networkAdapter: mockNetworkAdapter,
+          networkAdapter: createDefaultNetworkAdapter(),
           processConfig: {
             cwd: "/app",
             env: {
@@ -729,45 +675,10 @@ describe("NPM CLI Integration", () => {
           },
         };
 
-        // Mock network adapter that responds to ping requests
-        const mockNetworkAdapter: NetworkAdapter = {
-          async fetch(url, options) {
-            console.log("[Network] fetch:", url, options?.method || "GET");
-            const headers: Record<string, string> = url.includes("/-/ping")
-              ? { "npm-notice": "Welcome to npm!" }
-              : { "content-type": "application/json" };
-            return {
-              ok: true,
-              status: 200,
-              statusText: "OK",
-              headers,
-              body: "{}",
-              url,
-              redirected: false,
-            };
-          },
-          async dnsLookup(hostname) {
-            return { address: "104.16.0.1", family: 4 };
-          },
-          async httpRequest(url, options) {
-            console.log("[Network] httpRequest:", url, options?.method || "GET");
-            const headers: Record<string, string> = url.includes("/-/ping")
-              ? { "npm-notice": "Welcome to npm!" }
-              : { "content-type": "application/json" };
-            return {
-              status: 200,
-              statusText: "OK",
-              headers,
-              body: "{}",
-              url,
-            };
-          },
-        };
-
         proc = new NodeProcess({
           systemBridge,
           commandExecutor: mockCommandExecutor,
-          networkAdapter: mockNetworkAdapter,
+          networkAdapter: createDefaultNetworkAdapter(),
           processConfig: {
             cwd: "/app",
             env: {
@@ -887,143 +798,10 @@ describe("NPM CLI Integration", () => {
           },
         };
 
-        // Mock package metadata response (lodash) - complete packument format
-        const lodashVersionInfo = {
-          name: "lodash",
-          version: "4.17.21",
-          description: "Lodash modular utilities.",
-          main: "lodash.js",
-          keywords: ["modules", "stdlib", "util"],
-          author: { name: "John-David Dalton", email: "john.david.dalton@gmail.com" },
-          license: "MIT",
-          repository: {
-            type: "git",
-            url: "git+https://github.com/lodash/lodash.git",
-          },
-          bugs: { url: "https://github.com/lodash/lodash/issues" },
-          homepage: "https://lodash.com/",
-          dependencies: {},
-          devDependencies: {},
-          scripts: {},
-          _id: "lodash@4.17.21",
-          _npmVersion: "6.14.0",
-          _nodeVersion: "14.0.0",
-          _npmUser: { name: "jdalton", email: "john.david.dalton@gmail.com" },
-          maintainers: [{ name: "jdalton", email: "john.david.dalton@gmail.com" }],
-          dist: {
-            shasum: "679591c564c3bffaae8454cf0b3df370c3d6911c",
-            tarball: "https://registry.npmjs.org/lodash/-/lodash-4.17.21.tgz",
-            integrity: "sha512-v2kDEe57lecTulaDIuNTPy3Ry4gLGJ6Z1O3vE1krgXZNrsQ+LFTGHVxVjcXPs17LhbZVGedAJv8XZ1tvj5FvSg==",
-            fileCount: 1054,
-            unpackedSize: 1412415,
-          },
-        };
-
-        const lodashPackageInfo = {
-          _id: "lodash",
-          _rev: "1-12345",
-          name: "lodash",
-          description: "Lodash modular utilities.",
-          "dist-tags": {
-            latest: "4.17.21",
-          },
-          versions: {
-            "4.17.21": lodashVersionInfo,
-          },
-          maintainers: [{ name: "jdalton", email: "john.david.dalton@gmail.com" }],
-          time: {
-            created: "2012-04-23T16:23:56.976Z",
-            modified: "2023-10-15T00:00:00.000Z",
-            "4.17.21": "2021-02-22T00:00:00.000Z",
-          },
-          license: "MIT",
-          homepage: "https://lodash.com/",
-          repository: {
-            type: "git",
-            url: "git+https://github.com/lodash/lodash.git",
-          },
-          author: { name: "John-David Dalton", email: "john.david.dalton@gmail.com" },
-          bugs: { url: "https://github.com/lodash/lodash/issues" },
-          keywords: ["modules", "stdlib", "util"],
-          readme: "# lodash\\n\\nLodash modular utilities.",
-          readmeFilename: "README.md",
-        };
-
-        // Minimal npm package info to suppress update checks
-        const npmPackageInfo = {
-          _id: "npm",
-          name: "npm",
-          "dist-tags": { latest: "10.9.2" },
-          versions: { "10.9.2": { name: "npm", version: "10.9.2" } },
-        };
-
-        // Mock network adapter that responds to package info requests
-        const mockNetworkAdapter = {
-          async fetch(url: string, options?: { method?: string; headers?: Record<string, string>; body?: string | null }) {
-            console.log("[Network] fetch:", url);
-            if (url.includes("/lodash")) {
-              return {
-                ok: true,
-                status: 200,
-                statusText: "OK",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify(lodashPackageInfo),
-                url,
-                redirected: false,
-              };
-            }
-            return {
-              ok: true,
-              status: 200,
-              statusText: "OK",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify(npmPackageInfo),
-              url,
-              redirected: false,
-            };
-          },
-          async dnsLookup(hostname: string) {
-            return { address: "104.16.0.1", family: 4 };
-          },
-          async httpRequest(url: string, options?: { method?: string; headers?: Record<string, string>; body?: string | null }) {
-            console.log("[Network] httpRequest:", url);
-
-            // npm view requests the package document from registry
-            if (url.includes("/lodash")) {
-              return {
-                status: 200,
-                statusText: "OK",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify(lodashPackageInfo),
-                url,
-              };
-            }
-
-            // npm package info (for update checks)
-            if (url.includes("/npm")) {
-              return {
-                status: 200,
-                statusText: "OK",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify(npmPackageInfo),
-                url,
-              };
-            }
-
-            return {
-              status: 200,
-              statusText: "OK",
-              headers: { "content-type": "application/json" },
-              body: "{}",
-              url,
-            };
-          },
-        };
-
         proc = new NodeProcess({
           systemBridge,
           commandExecutor: mockCommandExecutor,
-          networkAdapter: mockNetworkAdapter,
+          networkAdapter: createDefaultNetworkAdapter(),
           processConfig: {
             cwd: "/app",
             env: {
@@ -1160,36 +938,10 @@ describe("NPM CLI Integration", () => {
           },
         };
 
-        const mockNetworkAdapter = {
-          async fetch(url: string) {
-            return {
-              ok: true,
-              status: 200,
-              statusText: "OK",
-              headers: {},
-              body: "{}",
-              url,
-              redirected: false,
-            };
-          },
-          async dnsLookup(hostname: string) {
-            return { address: "127.0.0.1", family: 4 };
-          },
-          async httpRequest(url: string) {
-            return {
-              status: 200,
-              statusText: "OK",
-              headers: {},
-              body: "{}",
-              url,
-            };
-          },
-        };
-
         proc = new NodeProcess({
           systemBridge,
           commandExecutor: mockCommandExecutor,
-          networkAdapter: mockNetworkAdapter,
+          networkAdapter: createDefaultNetworkAdapter(),
           processConfig: {
             cwd: "/app",
             env: {
@@ -1357,110 +1109,10 @@ describe("NPM CLI Integration", () => {
           )
         );
 
-        // Create mock network adapter that returns real-looking responses
-        const mockNetworkAdapter: NetworkAdapter = {
-          async fetch(url, options) {
-            console.log("[Network] fetch:", url, options?.method || "GET");
-            const headers: Record<string, string> = { "content-type": "application/json" };
-
-            // Mock the registry response for is-number
-            if (url.includes("registry.npmjs.org/is-number")) {
-              return {
-                ok: true,
-                status: 200,
-                statusText: "OK",
-                headers,
-                body: JSON.stringify({
-                  name: "is-number",
-                  "dist-tags": { latest: "7.0.0" },
-                  versions: {
-                    "7.0.0": {
-                      name: "is-number",
-                      version: "7.0.0",
-                      main: "index.js",
-                      dist: {
-                        tarball: "https://registry.npmjs.org/is-number/-/is-number-7.0.0.tgz",
-                        shasum: "7535345b896734d5f80c4d06c50955527a14f12b",
-                        integrity: "sha512-41Cifkg6e8TylSpdtTpeLVMqvSBEVzTttHvERD741+pnZ8ANv0004MRL43QKPDlK9cGvNp6NZWZUBlbGXYxxng==",
-                      },
-                    },
-                  },
-                }),
-                url,
-                redirected: false,
-              };
-            }
-
-            // For other URLs (like npm)
-            return {
-              ok: true,
-              status: 200,
-              statusText: "OK",
-              headers,
-              body: "{}",
-              url,
-              redirected: false,
-            };
-          },
-          async dnsLookup(hostname) {
-            return { address: "127.0.0.1", family: 4 };
-          },
-          async httpRequest(url, options) {
-            console.log("[Network] httpRequest:", url);
-            const headers: Record<string, string> = { "content-type": "application/json" };
-
-            // Mock registry metadata
-            if (url.includes("registry.npmjs.org/is-number") && !url.includes(".tgz")) {
-              return {
-                status: 200,
-                statusText: "OK",
-                headers,
-                body: JSON.stringify({
-                  name: "is-number",
-                  "dist-tags": { latest: "7.0.0" },
-                  versions: {
-                    "7.0.0": {
-                      name: "is-number",
-                      version: "7.0.0",
-                      main: "index.js",
-                      dist: {
-                        tarball: "https://registry.npmjs.org/is-number/-/is-number-7.0.0.tgz",
-                        shasum: "7535345b896734d5f80c4d06c50955527a14f12b",
-                        integrity: "sha512-41Cifkg6e8TylSpdtTpeLVMqvSBEVzTttHvERD741+pnZ8ANv0004MRL43QKPDlK9cGvNp6NZWZUBlbGXYxxng==",
-                      },
-                    },
-                  },
-                }),
-                url,
-              };
-            }
-
-            // Mock tarball download - return a minimal valid gzipped tarball
-            if (url.includes(".tgz")) {
-              console.log("[Network] Tarball request:", url);
-              return {
-                status: 200,
-                statusText: "OK",
-                headers: { "content-type": "application/octet-stream" } as Record<string, string>,
-                body: "",
-                url,
-              };
-            }
-
-            return {
-              status: 200,
-              statusText: "OK",
-              headers,
-              body: "{}",
-              url,
-            };
-          },
-        };
-
         proc = new NodeProcess({
           systemBridge,
           commandExecutor: mockCommandExecutor,
-          networkAdapter: mockNetworkAdapter,
+          networkAdapter: createDefaultNetworkAdapter(),
           processConfig: {
             cwd: "/app",
             env: {
