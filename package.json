@@ -10,9 +10,12 @@
 		"test": "turbo run test",
 		"test:watch": "turbo run test:watch",
 		"dev": "turbo run dev",
-		"shell": "pnpm build -F nanosandbox && pnpm --filter @nanosandbox/terminal start"
+		"shell": "pnpm build -F nanosandbox && pnpm --filter @nanosandbox/terminal start",
+		"lint": "biome check",
+		"lint:fix": "biome check --write"
 	},
 	"devDependencies": {
+		"@biomejs/biome": "^2.3.9",
 		"@types/node": "^22.10.2",
 		"tsup": "^8.3.5",
 		"tsx": "^4.19.2",

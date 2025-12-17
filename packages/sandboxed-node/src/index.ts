@@ -1,75 +1,89 @@
-import ivm from "isolated-vm";
-import * as https from "node:https";
 import * as dns from "node:dns";
+import * as https from "node:https";
 import * as zlib from "node:zlib";
 import type { Directory } from "@wasmer/sdk/node";
-import { bundlePolyfill, hasPolyfill } from "./polyfills.js";
-import { resolveModule, loadFile } from "./package-bundler.js";
-import { exists, stat, rename, readDirWithTypes, mkdir, type StatInfo, type DirEntry } from "./fs-helpers.js";
+import ivm from "isolated-vm";
 import { FS_MODULE_CODE, getBridgeWithConfig } from "./bridge-loader.js";
+import { exists, mkdir, readDirWithTypes, rename, stat } from "./fs-helpers.js";
+import { loadFile, resolveModule } from "./package-bundler.js";
+import { bundlePolyfill, hasPolyfill } from "./polyfills.js";
 
 // Re-export types
 export type { Directory } from "@wasmer/sdk/node";
-export type { StatInfo, DirEntry } from "./fs-helpers.js";
+export type { DirEntry, StatInfo } from "./fs-helpers.js";
 
 // Config types for process and os modules
 export interface ProcessConfig {
-  platform?: string;
-  arch?: string;
-  version?: string;
-  cwd?: string;
-  env?: Record<string, string>;
-  argv?: string[];
-  execPath?: string;
+	platform?: string;
+	arch?: string;
+	version?: string;
+	cwd?: string;
+	env?: Record<string, string>;
+	argv?: string[];
+	execPath?: string;
 }
 
 export interface OSConfig {
-  platform?: string;
-  arch?: string;
-  type?: string;
-  release?: string;
-  version?: string;
-  homedir?: string;
-  tmpdir?: string;
-  hostname?: string;
+	platform?: string;
+	arch?: string;
+	type?: string;
+	release?: string;
+	version?: string;
+	homedir?: string;
+	tmpdir?: string;
+	hostname?: string;
 }
 
 // Interface for command executor (like WasixInstance)
 export interface CommandExecutor {
-  exec(command: string): Promise<{ stdout: string; stderr: string; code: number }>;
-  run(command: string, args?: string[]): Promise<{ stdout: string; stderr: string; code: number }>;
+	exec(
+		command: string,
+	): Promise<{ stdout: string; stderr: string; code: number }>;
+	run(
+		command: string,
+		args?: string[],
+	): Promise<{ stdout: string; stderr: string; code: number }>;
 }
 
 // Interface for network adapter (fetch, http, dns)
 export interface NetworkAdapter {
-  fetch(url: string, options: {
-    method?: string;
-    headers?: Record<string, string>;
-    body?: string | null;
-  }): Promise<{
-    ok: boolean;
-    status: number;
-    statusText: string;
-    headers: Record<string, string>;
-    body: string;
-    url: string;
-    redirected: boolean;
-  }>;
-  dnsLookup(hostname: string): Promise<{
-    address: string;
-    family: number;
-  } | { error: string; code: string }>;
-  httpRequest(url: string, options: {
-    method?: string;
-    headers?: Record<string, string>;
-    body?: string | null;
-  }): Promise<{
-    status: number;
-    statusText: string;
-    headers: Record<string, string>;
-    body: string;
-    url: string;
-  }>;
+	fetch(
+		url: string,
+		options: {
+			method?: string;
+			headers?: Record<string, string>;
+			body?: string | null;
+		},
+	): Promise<{
+		ok: boolean;
+		status: number;
+		statusText: string;
+		headers: Record<string, string>;
+		body: string;
+		url: string;
+		redirected: boolean;
+	}>;
+	dnsLookup(hostname: string): Promise<
+		| {
+				address: string;
+				family: number;
+		  }
+		| { error: string; code: string }
+	>;
+	httpRequest(
+		url: string,
+		options: {
+			method?: string;
+			headers?: Record<string, string>;
+			body?: string | null;
+		},
+	): Promise<{
+		status: number;
+		statusText: string;
+		headers: Record<string, string>;
+		body: string;
+		url: string;
+	}>;
 }
 
 /**
@@ -77,172 +91,172 @@ export interface NetworkAdapter {
  * This allows the sandbox to make real network requests.
  */
 export function createDefaultNetworkAdapter(): NetworkAdapter {
-  return {
-    async fetch(url, options) {
-      const response = await fetch(url, {
-        method: options?.method || "GET",
-        headers: options?.headers,
-        body: options?.body,
-      });
-      const headers: Record<string, string> = {};
-      response.headers.forEach((v, k) => {
-        headers[k] = v;
-      });
+	return {
+		async fetch(url, options) {
+			const response = await fetch(url, {
+				method: options?.method || "GET",
+				headers: options?.headers,
+				body: options?.body,
+			});
+			const headers: Record<string, string> = {};
+			response.headers.forEach((v, k) => {
+				headers[k] = v;
+			});
 
-      // Node's fetch auto-decompresses gzip, so remove content-encoding header
-      // to prevent double-decompression in the sandbox
-      delete headers["content-encoding"];
+			// Node's fetch auto-decompresses gzip, so remove content-encoding header
+			// to prevent double-decompression in the sandbox
+			delete headers["content-encoding"];
 
-      // Only base64 encode for actual binary content types (not based on content-encoding
-      // since Node's fetch already decompressed it)
-      const contentType = response.headers.get("content-type") || "";
-      const isBinary =
-        contentType.includes("octet-stream") ||
-        contentType.includes("gzip") ||
-        url.endsWith(".tgz");
+			// Only base64 encode for actual binary content types (not based on content-encoding
+			// since Node's fetch already decompressed it)
+			const contentType = response.headers.get("content-type") || "";
+			const isBinary =
+				contentType.includes("octet-stream") ||
+				contentType.includes("gzip") ||
+				url.endsWith(".tgz");
 
-      let body: string;
-      if (isBinary) {
-        // For binary content, get raw bytes and base64 encode
-        const buffer = await response.arrayBuffer();
-        body = Buffer.from(buffer).toString("base64");
-        headers["x-body-encoding"] = "base64";
-      } else {
-        body = await response.text();
-      }
+			let body: string;
+			if (isBinary) {
+				// For binary content, get raw bytes and base64 encode
+				const buffer = await response.arrayBuffer();
+				body = Buffer.from(buffer).toString("base64");
+				headers["x-body-encoding"] = "base64";
+			} else {
+				body = await response.text();
+			}
 
-      return {
-        ok: response.ok,
-        status: response.status,
-        statusText: response.statusText,
-        headers,
-        body,
-        url: response.url,
-        redirected: response.redirected,
-      };
-    },
+			return {
+				ok: response.ok,
+				status: response.status,
+				statusText: response.statusText,
+				headers,
+				body,
+				url: response.url,
+				redirected: response.redirected,
+			};
+		},
 
-    async dnsLookup(hostname) {
-      return new Promise((resolve) => {
-        dns.lookup(hostname, (err, address, family) => {
-          if (err) {
-            resolve({ error: err.message, code: err.code || "ENOTFOUND" });
-          } else {
-            resolve({ address, family });
-          }
-        });
-      });
-    },
+		async dnsLookup(hostname) {
+			return new Promise((resolve) => {
+				dns.lookup(hostname, (err, address, family) => {
+					if (err) {
+						resolve({ error: err.message, code: err.code || "ENOTFOUND" });
+					} else {
+						resolve({ address, family });
+					}
+				});
+			});
+		},
 
-    async httpRequest(url, options) {
-      return new Promise((resolve, reject) => {
-        const urlObj = new URL(url);
-        const reqOptions: https.RequestOptions = {
-          hostname: urlObj.hostname,
-          port: urlObj.port || 443,
-          path: urlObj.pathname + urlObj.search,
-          method: options?.method || "GET",
-          headers: options?.headers || {},
-        };
+		async httpRequest(url, options) {
+			return new Promise((resolve, reject) => {
+				const urlObj = new URL(url);
+				const reqOptions: https.RequestOptions = {
+					hostname: urlObj.hostname,
+					port: urlObj.port || 443,
+					path: urlObj.pathname + urlObj.search,
+					method: options?.method || "GET",
+					headers: options?.headers || {},
+				};
 
-        const req = https.request(reqOptions, (res) => {
-          const chunks: Buffer[] = [];
-          res.on("data", (chunk: Buffer) => chunks.push(chunk));
-          res.on("end", async () => {
-            let buffer: Buffer = Buffer.concat(chunks);
+				const req = https.request(reqOptions, (res) => {
+					const chunks: Buffer[] = [];
+					res.on("data", (chunk: Buffer) => chunks.push(chunk));
+					res.on("end", async () => {
+						let buffer: Buffer = Buffer.concat(chunks);
 
-            // Decompress gzip if needed (https.request doesn't auto-decompress)
-            const contentEncoding = res.headers["content-encoding"];
-            if (contentEncoding === "gzip" || contentEncoding === "deflate") {
-              try {
-                buffer = await new Promise((res, rej) => {
-                  const decompress =
-                    contentEncoding === "gzip" ? zlib.gunzip : zlib.inflate;
-                  decompress(buffer, (err, result) => {
-                    if (err) rej(err);
-                    else res(result);
-                  });
-                });
-              } catch {
-                // If decompression fails, use original buffer
-              }
-            }
+						// Decompress gzip if needed (https.request doesn't auto-decompress)
+						const contentEncoding = res.headers["content-encoding"];
+						if (contentEncoding === "gzip" || contentEncoding === "deflate") {
+							try {
+								buffer = await new Promise((res, rej) => {
+									const decompress =
+										contentEncoding === "gzip" ? zlib.gunzip : zlib.inflate;
+									decompress(buffer, (err, result) => {
+										if (err) rej(err);
+										else res(result);
+									});
+								});
+							} catch {
+								// If decompression fails, use original buffer
+							}
+						}
 
-            const contentType = res.headers["content-type"] || "";
-            const isBinary =
-              contentType.includes("octet-stream") ||
-              contentType.includes("gzip") ||
-              url.endsWith(".tgz");
+						const contentType = res.headers["content-type"] || "";
+						const isBinary =
+							contentType.includes("octet-stream") ||
+							contentType.includes("gzip") ||
+							url.endsWith(".tgz");
 
-            const headers: Record<string, string> = {};
-            Object.entries(res.headers).forEach(([k, v]) => {
-              if (typeof v === "string") headers[k] = v;
-              else if (Array.isArray(v)) headers[k] = v.join(", ");
-            });
+						const headers: Record<string, string> = {};
+						Object.entries(res.headers).forEach(([k, v]) => {
+							if (typeof v === "string") headers[k] = v;
+							else if (Array.isArray(v)) headers[k] = v.join(", ");
+						});
 
-            // Remove content-encoding since we decompressed
-            delete headers["content-encoding"];
+						// Remove content-encoding since we decompressed
+						delete headers["content-encoding"];
 
-            // For binary content, base64 encode and add marker header
-            if (isBinary) {
-              headers["x-body-encoding"] = "base64";
-              resolve({
-                status: res.statusCode || 200,
-                statusText: res.statusMessage || "OK",
-                headers,
-                body: buffer.toString("base64"),
-                url,
-              });
-            } else {
-              resolve({
-                status: res.statusCode || 200,
-                statusText: res.statusMessage || "OK",
-                headers,
-                body: buffer.toString("utf-8"),
-                url,
-              });
-            }
-          });
-          res.on("error", reject);
-        });
+						// For binary content, base64 encode and add marker header
+						if (isBinary) {
+							headers["x-body-encoding"] = "base64";
+							resolve({
+								status: res.statusCode || 200,
+								statusText: res.statusMessage || "OK",
+								headers,
+								body: buffer.toString("base64"),
+								url,
+							});
+						} else {
+							resolve({
+								status: res.statusCode || 200,
+								statusText: res.statusMessage || "OK",
+								headers,
+								body: buffer.toString("utf-8"),
+								url,
+							});
+						}
+					});
+					res.on("error", reject);
+				});
 
-        req.on("error", reject);
-        if (options?.body) req.write(options.body);
-        req.end();
-      });
-    },
-  };
+				req.on("error", reject);
+				if (options?.body) req.write(options.body);
+				req.end();
+			});
+		},
+	};
 }
 
 export interface NodeProcessOptions {
-  memoryLimit?: number; // MB, default 128
-  directory?: Directory; // For accessing virtual filesystem
-  processConfig?: ProcessConfig; // Process object configuration
-  commandExecutor?: CommandExecutor; // For child_process support (e.g., WasixInstance)
-  networkAdapter?: NetworkAdapter; // For network support (fetch, http, https, dns)
-  osConfig?: OSConfig; // OS module configuration
+	memoryLimit?: number; // MB, default 128
+	directory?: Directory; // For accessing virtual filesystem
+	processConfig?: ProcessConfig; // Process object configuration
+	commandExecutor?: CommandExecutor; // For child_process support (e.g., WasixInstance)
+	networkAdapter?: NetworkAdapter; // For network support (fetch, http, https, dns)
+	osConfig?: OSConfig; // OS module configuration
 }
 
 /**
  * Detect if code uses ESM syntax
  */
 function isESM(code: string, filePath?: string): boolean {
-  // .mjs is always ESM, .cjs is always CJS
-  if (filePath?.endsWith(".mjs")) return true;
-  if (filePath?.endsWith(".cjs")) return false;
+	// .mjs is always ESM, .cjs is always CJS
+	if (filePath?.endsWith(".mjs")) return true;
+	if (filePath?.endsWith(".cjs")) return false;
 
-  // Check for ESM syntax patterns
-  // import declarations (but not dynamic import())
-  // Note: Use \s* (not \s+) to handle minified code like "import{...}from"
-  const hasImport =
-    /^\s*import\s*(?:[\w{},*\s]+\s*from\s*)?['"][^'"]+['"]/m.test(code) ||
-    /^\s*import\s*\{[^}]*\}\s*from\s*['"][^'"]+['"]/m.test(code);
-  // export declarations (also handle minified export{...})
-  const hasExport =
-    /^\s*export\s+(?:default|const|let|var|function|class|{)/m.test(code) ||
-    /^\s*export\s*\{/m.test(code);
+	// Check for ESM syntax patterns
+	// import declarations (but not dynamic import())
+	// Note: Use \s* (not \s+) to handle minified code like "import{...}from"
+	const hasImport =
+		/^\s*import\s*(?:[\w{},*\s]+\s*from\s*)?['"][^'"]+['"]/m.test(code) ||
+		/^\s*import\s*\{[^}]*\}\s*from\s*['"][^'"]+['"]/m.test(code);
+	// export declarations (also handle minified export{...})
+	const hasExport =
+		/^\s*export\s+(?:default|const|let|var|function|class|{)/m.test(code) ||
+		/^\s*export\s*\{/m.test(code);
 
-  return hasImport || hasExport;
+	return hasImport || hasExport;
 }
 
 /**
@@ -250,10 +264,10 @@ function isESM(code: string, filePath?: string): boolean {
  * This is needed because isolated-vm's V8 doesn't support the import() syntax
  */
 function transformDynamicImport(code: string): string {
-  // Replace import( with __dynamicImport(
-  // This regex handles the common cases while avoiding transformation inside strings
-  // We match "import(" that's not preceded by a word character (to avoid matching e.g. "reimport(")
-  return code.replace(/(?<![a-zA-Z_$])import\s*\(/g, "__dynamicImport(");
+	// Replace import( with __dynamicImport(
+	// This regex handles the common cases while avoiding transformation inside strings
+	// We match "import(" that's not preceded by a word character (to avoid matching e.g. "reimport(")
+	return code.replace(/(?<![a-zA-Z_$])import\s*\(/g, "__dynamicImport(");
 }
 
 /**
@@ -261,20 +275,19 @@ function transformDynamicImport(code: string): string {
  * Only extracts string literals, not dynamic expressions
  */
 function extractDynamicImportSpecifiers(code: string): string[] {
-  const regex = /__dynamicImport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
-  const specifiers = new Set<string>();
-  let match;
-  while ((match = regex.exec(code)) !== null) {
-    specifiers.add(match[1]);
-  }
-  return Array.from(specifiers);
+	const regex = /__dynamicImport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+	const specifiers = new Set<string>();
+	for (const match of code.matchAll(regex)) {
+		specifiers.add(match[1]);
+	}
+	return Array.from(specifiers);
 }
 
 /**
  * Convert CJS module to ESM-compatible wrapper
  */
 function wrapCJSForESM(code: string): string {
-  return `
+	return `
     const module = { exports: {} };
     const exports = module.exports;
     ${code}
@@ -284,152 +297,151 @@ function wrapCJSForESM(code: string): string {
 }
 
 export interface RunResult<T = unknown> {
-  stdout: string;
-  stderr: string;
-  code: number;
-  exports?: T;
+	stdout: string;
+	stderr: string;
+	code: number;
+	exports?: T;
 }
 
 export interface ExecResult {
-  stdout: string;
-  stderr: string;
-  code: number;
+	stdout: string;
+	stderr: string;
+	code: number;
 }
 
 // Cache of bundled polyfills
 const polyfillCodeCache: Map<string, string> = new Map();
 
 export class NodeProcess {
-  private isolate: ivm.Isolate;
-  private context: ivm.Context | null = null;
-  private memoryLimit: number;
-  private directory?: Directory;
-  private processConfig: ProcessConfig;
-  private commandExecutor?: CommandExecutor;
-  private networkAdapter?: NetworkAdapter;
-  private osConfig: OSConfig;
-  // Cache for compiled ESM modules (per isolate)
-  private esmModuleCache: Map<string, ivm.Module> = new Map();
+	private isolate: ivm.Isolate;
+	private memoryLimit: number;
+	private directory?: Directory;
+	private processConfig: ProcessConfig;
+	private commandExecutor?: CommandExecutor;
+	private networkAdapter?: NetworkAdapter;
+	private osConfig: OSConfig;
+	// Cache for compiled ESM modules (per isolate)
+	private esmModuleCache: Map<string, ivm.Module> = new Map();
 
-  constructor(options: NodeProcessOptions = {}) {
-    this.memoryLimit = options.memoryLimit ?? 128;
-    this.isolate = new ivm.Isolate({ memoryLimit: this.memoryLimit });
-    this.directory = options.directory;
-    this.processConfig = options.processConfig ?? {};
-    this.commandExecutor = options.commandExecutor;
-    this.networkAdapter = options.networkAdapter;
-    this.osConfig = options.osConfig ?? {};
-  }
+	constructor(options: NodeProcessOptions = {}) {
+		this.memoryLimit = options.memoryLimit ?? 128;
+		this.isolate = new ivm.Isolate({ memoryLimit: this.memoryLimit });
+		this.directory = options.directory;
+		this.processConfig = options.processConfig ?? {};
+		this.commandExecutor = options.commandExecutor;
+		this.networkAdapter = options.networkAdapter;
+		this.osConfig = options.osConfig ?? {};
+	}
 
-  /**
-   * Set the command executor for child_process support
-   */
-  setCommandExecutor(executor: CommandExecutor): void {
-    this.commandExecutor = executor;
-  }
+	/**
+	 * Set the command executor for child_process support
+	 */
+	setCommandExecutor(executor: CommandExecutor): void {
+		this.commandExecutor = executor;
+	}
 
-  /**
-   * Set the network adapter for fetch/http/https/dns support
-   */
-  setNetworkAdapter(adapter: NetworkAdapter): void {
-    this.networkAdapter = adapter;
-  }
+	/**
+	 * Set the network adapter for fetch/http/https/dns support
+	 */
+	setNetworkAdapter(adapter: NetworkAdapter): void {
+		this.networkAdapter = adapter;
+	}
 
-  /**
-   * Set the Directory for filesystem access
-   */
-  setDirectory(directory: Directory): void {
-    this.directory = directory;
-  }
+	/**
+	 * Set the Directory for filesystem access
+	 */
+	setDirectory(directory: Directory): void {
+		this.directory = directory;
+	}
 
-  /**
-   * Resolve a module specifier to an absolute path
-   */
-  private async resolveESMPath(
-    specifier: string,
-    referrerPath: string
-  ): Promise<string | null> {
-    // Handle node: prefix for built-ins
-    if (specifier.startsWith("node:")) {
-      return specifier; // Keep as-is for built-in handling
-    }
+	/**
+	 * Resolve a module specifier to an absolute path
+	 */
+	private async resolveESMPath(
+		specifier: string,
+		referrerPath: string,
+	): Promise<string | null> {
+		// Handle node: prefix for built-ins
+		if (specifier.startsWith("node:")) {
+			return specifier; // Keep as-is for built-in handling
+		}
 
-    // Handle bare module names that are polyfills (events, path, etc.)
-    const moduleName = specifier.replace(/^node:/, "");
-    // Special modules we provide via bridge (fs, module, os)
-    const bridgeModules = ["fs", "module", "os"];
-    if (hasPolyfill(moduleName) || bridgeModules.includes(moduleName)) {
-      return specifier; // Return as-is, compileESMModule will handle it
-    }
+		// Handle bare module names that are polyfills (events, path, etc.)
+		const moduleName = specifier.replace(/^node:/, "");
+		// Special modules we provide via bridge (fs, module, os)
+		const bridgeModules = ["fs", "module", "os"];
+		if (hasPolyfill(moduleName) || bridgeModules.includes(moduleName)) {
+			return specifier; // Return as-is, compileESMModule will handle it
+		}
 
-    // Handle absolute paths - return as-is
-    if (specifier.startsWith("/")) {
-      return specifier;
-    }
+		// Handle absolute paths - return as-is
+		if (specifier.startsWith("/")) {
+			return specifier;
+		}
 
-    // Get directory of referrer
-    const referrerDir = referrerPath.includes("/")
-      ? referrerPath.substring(0, referrerPath.lastIndexOf("/")) || "/"
-      : "/";
+		// Get directory of referrer
+		const referrerDir = referrerPath.includes("/")
+			? referrerPath.substring(0, referrerPath.lastIndexOf("/")) || "/"
+			: "/";
 
-    // Handle relative paths
-    if (specifier.startsWith("./") || specifier.startsWith("../")) {
-      // Resolve relative to referrer directory
-      const parts = referrerDir.split("/").filter(Boolean);
-      const specParts = specifier.split("/");
+		// Handle relative paths
+		if (specifier.startsWith("./") || specifier.startsWith("../")) {
+			// Resolve relative to referrer directory
+			const parts = referrerDir.split("/").filter(Boolean);
+			const specParts = specifier.split("/");
 
-      for (const part of specParts) {
-        if (part === "..") {
-          parts.pop();
-        } else if (part !== ".") {
-          parts.push(part);
-        }
-      }
+			for (const part of specParts) {
+				if (part === "..") {
+					parts.pop();
+				} else if (part !== ".") {
+					parts.push(part);
+				}
+			}
 
-      return "/" + parts.join("/");
-    }
+			return `/${parts.join("/")}`;
+		}
 
-    // Bare specifier - try to resolve from node_modules
-    if (!this.directory) {
-      return null;
-    }
+		// Bare specifier - try to resolve from node_modules
+		if (!this.directory) {
+			return null;
+		}
 
-    return resolveModule(specifier, referrerDir, this.directory);
-  }
+		return resolveModule(specifier, referrerDir, this.directory);
+	}
 
-  /**
-   * Load and compile an ESM module, handling both ESM and CJS sources
-   */
-  private async compileESMModule(
-    filePath: string,
-    context: ivm.Context
-  ): Promise<ivm.Module> {
-    // Check cache first
-    const cached = this.esmModuleCache.get(filePath);
-    if (cached) {
-      return cached;
-    }
+	/**
+	 * Load and compile an ESM module, handling both ESM and CJS sources
+	 */
+	private async compileESMModule(
+		filePath: string,
+		_context: ivm.Context,
+	): Promise<ivm.Module> {
+		// Check cache first
+		const cached = this.esmModuleCache.get(filePath);
+		if (cached) {
+			return cached;
+		}
 
-    let code: string;
+		let code: string;
 
-    // Handle built-in modules (node: prefix or known polyfills)
-    const moduleName = filePath.replace(/^node:/, "");
+		// Handle built-in modules (node: prefix or known polyfills)
+		const moduleName = filePath.replace(/^node:/, "");
 
-    // Special handling for modules we provide via bridge
-    const specialModules = ["fs", "module", "os"];
-    const isSpecialModule = specialModules.includes(moduleName);
+		// Special handling for modules we provide via bridge
+		const specialModules = ["fs", "module", "os"];
+		const isSpecialModule = specialModules.includes(moduleName);
 
-    if (
-      filePath.startsWith("node:") ||
-      hasPolyfill(moduleName) ||
-      isSpecialModule
-    ) {
-      // Special case for fs
-      if (moduleName === "fs") {
-        code = wrapCJSForESM(FS_MODULE_CODE);
-      } else if (moduleName === "module") {
-        // Module polyfill from bridge - provides createRequire, Module class, etc.
-        code = `
+		if (
+			filePath.startsWith("node:") ||
+			hasPolyfill(moduleName) ||
+			isSpecialModule
+		) {
+			// Special case for fs
+			if (moduleName === "fs") {
+				code = wrapCJSForESM(FS_MODULE_CODE);
+			} else if (moduleName === "module") {
+				// Module polyfill from bridge - provides createRequire, Module class, etc.
+				code = `
           const _modulePolyfill = globalThis.bridge?.module || {
             createRequire: globalThis._createRequire || function(f) {
               const dir = f.replace(/\\/[^\\/]*$/, '') || '/';
@@ -447,21 +459,21 @@ export class NodeProcess {
           export const SourceMap = _modulePolyfill.SourceMap;
           export const syncBuiltinESMExports = _modulePolyfill.syncBuiltinESMExports || (() => {});
         `;
-      } else if (moduleName === "os" && !hasPolyfill(moduleName)) {
-        // OS polyfill from bridge
-        code = `
+			} else if (moduleName === "os" && !hasPolyfill(moduleName)) {
+				// OS polyfill from bridge
+				code = `
           const _osPolyfill = globalThis.bridge?.os || {};
           export default _osPolyfill;
         `;
-      } else {
-        // Get polyfill code and wrap for ESM
-        let polyfillCode = polyfillCodeCache.get(moduleName);
-        if (!polyfillCode) {
-          polyfillCode = await bundlePolyfill(moduleName);
-          polyfillCodeCache.set(moduleName, polyfillCode);
-        }
-        // Polyfills are IIFE that return the module, wrap for ESM
-        code = `
+			} else {
+				// Get polyfill code and wrap for ESM
+				let polyfillCode = polyfillCodeCache.get(moduleName);
+				if (!polyfillCode) {
+					polyfillCode = await bundlePolyfill(moduleName);
+					polyfillCodeCache.set(moduleName, polyfillCode);
+				}
+				// Polyfills are IIFE that return the module, wrap for ESM
+				code = `
           const _polyfillResult = ${polyfillCode};
           export default _polyfillResult;
           // Re-export all properties for named imports
@@ -469,177 +481,174 @@ export class NodeProcess {
             ? Object.keys(_polyfillResult) : [];
           export { _keys as __polyfillKeys };
         `;
-      }
-    } else {
-      // Load from filesystem
-      if (!this.directory) {
-        throw new Error("Directory required for loading modules");
-      }
-      const source = await loadFile(filePath, this.directory);
-      if (source === null) {
-        throw new Error(`Cannot load module: ${filePath}`);
-      }
+			}
+		} else {
+			// Load from filesystem
+			if (!this.directory) {
+				throw new Error("Directory required for loading modules");
+			}
+			const source = await loadFile(filePath, this.directory);
+			if (source === null) {
+				throw new Error(`Cannot load module: ${filePath}`);
+			}
 
-      // Handle JSON files
-      if (filePath.endsWith(".json")) {
-        code = `export default ${source};`;
-      } else if (!isESM(source, filePath)) {
-        // CJS module - wrap it for ESM compatibility
-        code = wrapCJSForESM(source);
-      } else {
-        code = source;
-      }
-    }
+			// Handle JSON files
+			if (filePath.endsWith(".json")) {
+				code = `export default ${source};`;
+			} else if (!isESM(source, filePath)) {
+				// CJS module - wrap it for ESM compatibility
+				code = wrapCJSForESM(source);
+			} else {
+				code = source;
+			}
+		}
 
-    // Compile the module
-    const module = await this.isolate.compileModule(code, {
-      filename: filePath,
-    });
+		// Compile the module
+		const module = await this.isolate.compileModule(code, {
+			filename: filePath,
+		});
 
-    // Cache it
-    this.esmModuleCache.set(filePath, module);
+		// Cache it
+		this.esmModuleCache.set(filePath, module);
 
-    return module;
-  }
+		return module;
+	}
 
-  /**
-   * Create the ESM resolver callback for module.instantiate()
-   */
-  private createESMResolver(
-    context: ivm.Context
-  ): (
-    specifier: string,
-    referrer: ivm.Module
-  ) => Promise<ivm.Module> {
-    return async (specifier: string, referrer: ivm.Module) => {
-      // Get the referrer's filename from our cache (reverse lookup)
-      let referrerPath = "/";
-      for (const [path, mod] of this.esmModuleCache.entries()) {
-        if (mod === referrer) {
-          referrerPath = path;
-          break;
-        }
-      }
+	/**
+	 * Create the ESM resolver callback for module.instantiate()
+	 */
+	private createESMResolver(
+		context: ivm.Context,
+	): (specifier: string, referrer: ivm.Module) => Promise<ivm.Module> {
+		return async (specifier: string, referrer: ivm.Module) => {
+			// Get the referrer's filename from our cache (reverse lookup)
+			let referrerPath = "/";
+			for (const [path, mod] of this.esmModuleCache.entries()) {
+				if (mod === referrer) {
+					referrerPath = path;
+					break;
+				}
+			}
 
-      // Resolve the specifier
-      const resolved = await this.resolveESMPath(specifier, referrerPath);
-      if (!resolved) {
-        throw new Error(
-          `Cannot resolve module '${specifier}' from '${referrerPath}'`
-        );
-      }
+			// Resolve the specifier
+			const resolved = await this.resolveESMPath(specifier, referrerPath);
+			if (!resolved) {
+				throw new Error(
+					`Cannot resolve module '${specifier}' from '${referrerPath}'`,
+				);
+			}
 
-      // Compile and return the module
-      const module = await this.compileESMModule(resolved, context);
+			// Compile and return the module
+			const module = await this.compileESMModule(resolved, context);
 
-      // Instantiate if not already (recursive resolution happens automatically)
-      if (module.dependencySpecifiers.length > 0) {
-        try {
-          await module.instantiate(context, this.createESMResolver(context));
-        } catch {
-          // Already instantiated, ignore
-        }
-      }
+			// Instantiate if not already (recursive resolution happens automatically)
+			if (module.dependencySpecifiers.length > 0) {
+				try {
+					await module.instantiate(context, this.createESMResolver(context));
+				} catch {
+					// Already instantiated, ignore
+				}
+			}
 
-      return module;
-    };
-  }
+			return module;
+		};
+	}
 
-  /**
-   * Run ESM code
-   */
-  private async runESM(
-    code: string,
-    context: ivm.Context,
-    filePath: string = "/<entry>.mjs"
-  ): Promise<unknown> {
-    // Compile the entry module
-    const entryModule = await this.isolate.compileModule(code, {
-      filename: filePath,
-    });
-    this.esmModuleCache.set(filePath, entryModule);
+	/**
+	 * Run ESM code
+	 */
+	private async runESM(
+		code: string,
+		context: ivm.Context,
+		filePath: string = "/<entry>.mjs",
+	): Promise<unknown> {
+		// Compile the entry module
+		const entryModule = await this.isolate.compileModule(code, {
+			filename: filePath,
+		});
+		this.esmModuleCache.set(filePath, entryModule);
 
-    // Instantiate with resolver (this resolves all dependencies)
-    await entryModule.instantiate(context, this.createESMResolver(context));
+		// Instantiate with resolver (this resolves all dependencies)
+		await entryModule.instantiate(context, this.createESMResolver(context));
 
-    // Evaluate and return
-    return entryModule.evaluate({ copy: true });
-  }
+		// Evaluate and return
+		return entryModule.evaluate({ copy: true });
+	}
 
-  // Cache for pre-compiled dynamic import modules (namespace references)
-  private dynamicImportCache = new Map<string, ivm.Reference<unknown>>();
+	// Cache for pre-compiled dynamic import modules (namespace references)
+	private dynamicImportCache = new Map<string, ivm.Reference<unknown>>();
 
-  /**
-   * Pre-compile all static dynamic import specifiers found in the code
-   * This must be called BEFORE running the code to avoid deadlocks
-   */
-  private async precompileDynamicImports(
-    transformedCode: string,
-    context: ivm.Context,
-    referrerPath: string = "/"
-  ): Promise<void> {
-    const specifiers = extractDynamicImportSpecifiers(transformedCode);
+	/**
+	 * Pre-compile all static dynamic import specifiers found in the code
+	 * This must be called BEFORE running the code to avoid deadlocks
+	 */
+	private async precompileDynamicImports(
+		transformedCode: string,
+		context: ivm.Context,
+		referrerPath: string = "/",
+	): Promise<void> {
+		const specifiers = extractDynamicImportSpecifiers(transformedCode);
 
-    for (const specifier of specifiers) {
-      // Resolve the module path
-      const resolved = await this.resolveESMPath(specifier, referrerPath);
-      if (!resolved) {
-        continue; // Skip unresolvable modules, error will be thrown at runtime
-      }
+		for (const specifier of specifiers) {
+			// Resolve the module path
+			const resolved = await this.resolveESMPath(specifier, referrerPath);
+			if (!resolved) {
+				continue; // Skip unresolvable modules, error will be thrown at runtime
+			}
 
-      // Check if already compiled
-      if (this.dynamicImportCache.has(resolved)) {
-        continue;
-      }
+			// Check if already compiled
+			if (this.dynamicImportCache.has(resolved)) {
+				continue;
+			}
 
-      // Compile the module
-      const module = await this.compileESMModule(resolved, context);
+			// Compile the module
+			const module = await this.compileESMModule(resolved, context);
 
-      // Instantiate
-      try {
-        await module.instantiate(context, this.createESMResolver(context));
-      } catch {
-        // Already instantiated
-      }
+			// Instantiate
+			try {
+				await module.instantiate(context, this.createESMResolver(context));
+			} catch {
+				// Already instantiated
+			}
 
-      // Evaluate
-      await module.evaluate();
+			// Evaluate
+			await module.evaluate();
 
-      // Cache the namespace reference
-      this.dynamicImportCache.set(resolved, module.namespace);
+			// Cache the namespace reference
+			this.dynamicImportCache.set(resolved, module.namespace);
 
-      // Also cache by original specifier for direct lookup
-      if (resolved !== specifier) {
-        this.dynamicImportCache.set(specifier, module.namespace);
-      }
-    }
-  }
+			// Also cache by original specifier for direct lookup
+			if (resolved !== specifier) {
+				this.dynamicImportCache.set(specifier, module.namespace);
+			}
+		}
+	}
 
-  /**
-   * Set up dynamic import() function for ESM
-   * Note: precompileDynamicImports must be called BEFORE running user code
-   * Falls back to require() for CommonJS modules when not pre-compiled
-   */
-  private async setupDynamicImport(
-    context: ivm.Context,
-    jail: ivm.Reference<Record<string, unknown>>
-  ): Promise<void> {
-    // Create a SYNCHRONOUS reference for dynamic imports (returns from cache or null if not found)
-    const dynamicImportRef = new ivm.Reference((specifier: string) => {
-      // Check the cache - look up both by specifier and resolved path
-      const ns = this.dynamicImportCache.get(specifier);
-      if (!ns) {
-        // Return null to signal fallback to require()
-        return null;
-      }
-      return ns.derefInto();
-    });
+	/**
+	 * Set up dynamic import() function for ESM
+	 * Note: precompileDynamicImports must be called BEFORE running user code
+	 * Falls back to require() for CommonJS modules when not pre-compiled
+	 */
+	private async setupDynamicImport(
+		context: ivm.Context,
+		jail: ivm.Reference<Record<string, unknown>>,
+	): Promise<void> {
+		// Create a SYNCHRONOUS reference for dynamic imports (returns from cache or null if not found)
+		const dynamicImportRef = new ivm.Reference((specifier: string) => {
+			// Check the cache - look up both by specifier and resolved path
+			const ns = this.dynamicImportCache.get(specifier);
+			if (!ns) {
+				// Return null to signal fallback to require()
+				return null;
+			}
+			return ns.derefInto();
+		});
 
-    await jail.set("_dynamicImport", dynamicImportRef);
+		await jail.set("_dynamicImport", dynamicImportRef);
 
-    // Create the __dynamicImport function in the isolate
-    // First tries ESM cache, then falls back to require()
-    await context.eval(`
+		// Create the __dynamicImport function in the isolate
+		// First tries ESM cache, then falls back to require()
+		await context.eval(`
       globalThis.__dynamicImport = function(specifier) {
         // Try the ESM cache first
         const cached = _dynamicImport.applySync(undefined, [specifier]);
@@ -658,169 +667,175 @@ export class NodeProcess {
         }
       };
     `);
-  }
+	}
 
-  /**
-   * Set up the require() system in a context
-   */
-  private async setupRequire(
-    context: ivm.Context,
-    jail: ivm.Reference<Record<string, unknown>>
-  ): Promise<void> {
-    // Create a reference that can load polyfills on demand
-    const loadPolyfillRef = new ivm.Reference(
-      async (moduleName: string): Promise<string | null> => {
-        const name = moduleName.replace(/^node:/, "");
+	/**
+	 * Set up the require() system in a context
+	 */
+	private async setupRequire(
+		context: ivm.Context,
+		jail: ivm.Reference<Record<string, unknown>>,
+	): Promise<void> {
+		// Create a reference that can load polyfills on demand
+		const loadPolyfillRef = new ivm.Reference(
+			async (moduleName: string): Promise<string | null> => {
+				const name = moduleName.replace(/^node:/, "");
 
-        // fs is handled specially
-        if (name === "fs") {
-          return null;
-        }
+				// fs is handled specially
+				if (name === "fs") {
+					return null;
+				}
 
-        // child_process is handled specially
-        if (name === "child_process") {
-          return null;
-        }
+				// child_process is handled specially
+				if (name === "child_process") {
+					return null;
+				}
 
-        // Network modules are handled specially
-        if (name === "http" || name === "https" || name === "dns") {
-          return null;
-        }
+				// Network modules are handled specially
+				if (name === "http" || name === "https" || name === "dns") {
+					return null;
+				}
 
-        // os module is handled specially with our own polyfill
-        if (name === "os") {
-          return null;
-        }
+				// os module is handled specially with our own polyfill
+				if (name === "os") {
+					return null;
+				}
 
-        // module is handled specially with our own polyfill
-        if (name === "module") {
-          return null;
-        }
+				// module is handled specially with our own polyfill
+				if (name === "module") {
+					return null;
+				}
 
-        if (!hasPolyfill(name)) {
-          return null;
-        }
-        // Check cache first
-        let code = polyfillCodeCache.get(name);
-        if (!code) {
-          code = await bundlePolyfill(name);
-          polyfillCodeCache.set(name, code);
-        }
-        return code;
-      }
-    );
+				if (!hasPolyfill(name)) {
+					return null;
+				}
+				// Check cache first
+				let code = polyfillCodeCache.get(name);
+				if (!code) {
+					code = await bundlePolyfill(name);
+					polyfillCodeCache.set(name, code);
+				}
+				return code;
+			},
+		);
 
-    // Create a reference for resolving module paths
-    const resolveModuleRef = new ivm.Reference(
-      async (request: string, fromDir: string): Promise<string | null> => {
-        if (!this.directory) {
-          return null;
-        }
-        return resolveModule(request, fromDir, this.directory);
-      }
-    );
+		// Create a reference for resolving module paths
+		const resolveModuleRef = new ivm.Reference(
+			async (request: string, fromDir: string): Promise<string | null> => {
+				if (!this.directory) {
+					return null;
+				}
+				return resolveModule(request, fromDir, this.directory);
+			},
+		);
 
-    // Create a reference for loading file content
-    // Also transforms dynamic import() calls to __dynamicImport()
-    const loadFileRef = new ivm.Reference(
-      async (path: string): Promise<string | null> => {
-        if (!this.directory) {
-          return null;
-        }
-        const source = await loadFile(path, this.directory);
-        if (source === null) {
-          return null;
-        }
-        // Transform dynamic import() to __dynamicImport() for V8 compatibility
-        return transformDynamicImport(source);
-      }
-    );
+		// Create a reference for loading file content
+		// Also transforms dynamic import() calls to __dynamicImport()
+		const loadFileRef = new ivm.Reference(
+			async (path: string): Promise<string | null> => {
+				if (!this.directory) {
+					return null;
+				}
+				const source = await loadFile(path, this.directory);
+				if (source === null) {
+					return null;
+				}
+				// Transform dynamic import() to __dynamicImport() for V8 compatibility
+				return transformDynamicImport(source);
+			},
+		);
 
-    await jail.set("_loadPolyfill", loadPolyfillRef);
-    await jail.set("_resolveModule", resolveModuleRef);
-    await jail.set("_loadFile", loadFileRef);
+		await jail.set("_loadPolyfill", loadPolyfillRef);
+		await jail.set("_resolveModule", resolveModuleRef);
+		await jail.set("_loadFile", loadFileRef);
 
-    // Set up timer Reference for actual delays (not just microtasks)
-    // This allows setTimeout/setInterval to use real host-side timers
-    const scheduleTimerRef = new ivm.Reference((delayMs: number) => {
-      return new Promise<void>((resolve) => {
-        // Use real host setTimeout with actual delay
-        globalThis.setTimeout(resolve, delayMs);
-      });
-    });
-    await jail.set("_scheduleTimer", scheduleTimerRef);
+		// Set up timer Reference for actual delays (not just microtasks)
+		// This allows setTimeout/setInterval to use real host-side timers
+		const scheduleTimerRef = new ivm.Reference((delayMs: number) => {
+			return new Promise<void>((resolve) => {
+				// Use real host setTimeout with actual delay
+				globalThis.setTimeout(resolve, delayMs);
+			});
+		});
+		await jail.set("_scheduleTimer", scheduleTimerRef);
 
-    // Set up fs References if we have a Directory
-    if (this.directory) {
-      const directory = this.directory;
+		// Set up fs References if we have a Directory
+		if (this.directory) {
+			const directory = this.directory;
 
-      // Create individual References for each fs operation
-      const readFileRef = new ivm.Reference(async (path: string) => {
-        return directory.readTextFile(path);
-      });
-      const writeFileRef = new ivm.Reference((path: string, content: string) => {
-        directory.writeFile(path, content);
-      });
-      // Binary file operations using base64 encoding
-      const readFileBinaryRef = new ivm.Reference(async (path: string) => {
-        const data = await directory.readFile(path);
-        // Convert to base64 for transfer across isolate boundary
-        return Buffer.from(data).toString("base64");
-      });
-      const writeFileBinaryRef = new ivm.Reference((path: string, base64Content: string) => {
-        // Decode base64 and write as binary
-        const data = Buffer.from(base64Content, "base64");
-        directory.writeFile(path, data);
-      });
-      const readDirRef = new ivm.Reference(async (path: string) => {
-        const entries = await readDirWithTypes(directory, path);
-        // Return as JSON string for transfer
-        return JSON.stringify(entries);
-      });
-      const mkdirRef = new ivm.Reference((path: string) => {
-        mkdir(directory, path);
-      });
-      const rmdirRef = new ivm.Reference(async (path: string) => {
-        await directory.removeDir(path);
-      });
-      const existsRef = new ivm.Reference(async (path: string) => {
-        return exists(directory, path);
-      });
-      const statRef = new ivm.Reference(async (path: string) => {
-        const statInfo = await stat(directory, path);
-        // Return as JSON string for transfer
-        return JSON.stringify({
-          mode: statInfo.mode,
-          size: statInfo.size,
-          isDirectory: statInfo.isDirectory,
-          atimeMs: statInfo.atimeMs,
-          mtimeMs: statInfo.mtimeMs,
-          ctimeMs: statInfo.ctimeMs,
-          birthtimeMs: statInfo.birthtimeMs,
-        });
-      });
-      const unlinkRef = new ivm.Reference(async (path: string) => {
-        await directory.removeFile(path);
-      });
-      const renameRef = new ivm.Reference(async (oldPath: string, newPath: string) => {
-        await rename(directory, oldPath, newPath);
-      });
+			// Create individual References for each fs operation
+			const readFileRef = new ivm.Reference(async (path: string) => {
+				return directory.readTextFile(path);
+			});
+			const writeFileRef = new ivm.Reference(
+				(path: string, content: string) => {
+					directory.writeFile(path, content);
+				},
+			);
+			// Binary file operations using base64 encoding
+			const readFileBinaryRef = new ivm.Reference(async (path: string) => {
+				const data = await directory.readFile(path);
+				// Convert to base64 for transfer across isolate boundary
+				return Buffer.from(data).toString("base64");
+			});
+			const writeFileBinaryRef = new ivm.Reference(
+				(path: string, base64Content: string) => {
+					// Decode base64 and write as binary
+					const data = Buffer.from(base64Content, "base64");
+					directory.writeFile(path, data);
+				},
+			);
+			const readDirRef = new ivm.Reference(async (path: string) => {
+				const entries = await readDirWithTypes(directory, path);
+				// Return as JSON string for transfer
+				return JSON.stringify(entries);
+			});
+			const mkdirRef = new ivm.Reference((path: string) => {
+				mkdir(directory, path);
+			});
+			const rmdirRef = new ivm.Reference(async (path: string) => {
+				await directory.removeDir(path);
+			});
+			const existsRef = new ivm.Reference(async (path: string) => {
+				return exists(directory, path);
+			});
+			const statRef = new ivm.Reference(async (path: string) => {
+				const statInfo = await stat(directory, path);
+				// Return as JSON string for transfer
+				return JSON.stringify({
+					mode: statInfo.mode,
+					size: statInfo.size,
+					isDirectory: statInfo.isDirectory,
+					atimeMs: statInfo.atimeMs,
+					mtimeMs: statInfo.mtimeMs,
+					ctimeMs: statInfo.ctimeMs,
+					birthtimeMs: statInfo.birthtimeMs,
+				});
+			});
+			const unlinkRef = new ivm.Reference(async (path: string) => {
+				await directory.removeFile(path);
+			});
+			const renameRef = new ivm.Reference(
+				async (oldPath: string, newPath: string) => {
+					await rename(directory, oldPath, newPath);
+				},
+			);
 
-      // Set up each fs Reference individually in the isolate
-      await jail.set("_fsReadFile", readFileRef);
-      await jail.set("_fsWriteFile", writeFileRef);
-      await jail.set("_fsReadFileBinary", readFileBinaryRef);
-      await jail.set("_fsWriteFileBinary", writeFileBinaryRef);
-      await jail.set("_fsReadDir", readDirRef);
-      await jail.set("_fsMkdir", mkdirRef);
-      await jail.set("_fsRmdir", rmdirRef);
-      await jail.set("_fsExists", existsRef);
-      await jail.set("_fsStat", statRef);
-      await jail.set("_fsUnlink", unlinkRef);
-      await jail.set("_fsRename", renameRef);
+			// Set up each fs Reference individually in the isolate
+			await jail.set("_fsReadFile", readFileRef);
+			await jail.set("_fsWriteFile", writeFileRef);
+			await jail.set("_fsReadFileBinary", readFileBinaryRef);
+			await jail.set("_fsWriteFileBinary", writeFileBinaryRef);
+			await jail.set("_fsReadDir", readDirRef);
+			await jail.set("_fsMkdir", mkdirRef);
+			await jail.set("_fsRmdir", rmdirRef);
+			await jail.set("_fsExists", existsRef);
+			await jail.set("_fsStat", statRef);
+			await jail.set("_fsUnlink", unlinkRef);
+			await jail.set("_fsRename", renameRef);
 
-      // Create the _fs object inside the isolate
-      await context.eval(`
+			// Create the _fs object inside the isolate
+			await context.eval(`
         globalThis._fs = {
           readFile: _fsReadFile,
           writeFile: _fsWriteFile,
@@ -835,98 +850,98 @@ export class NodeProcess {
           rename: _fsRename,
         };
       `);
-    }
+		}
 
-    // Store the fs module code for use in require
-    await jail.set("_fsModuleCode", FS_MODULE_CODE);
+		// Store the fs module code for use in require
+		await jail.set("_fsModuleCode", FS_MODULE_CODE);
 
-    // Set up child_process References if we have a CommandExecutor
-    if (this.commandExecutor) {
-      const executor = this.commandExecutor;
+		// Set up child_process References if we have a CommandExecutor
+		if (this.commandExecutor) {
+			const executor = this.commandExecutor;
 
-      // Reference for exec (shell command) - returns JSON string for transfer
-      const childProcessExecRef = new ivm.Reference(
-        async (command: string): Promise<string> => {
-          const result = await executor.exec(command);
-          return JSON.stringify(result);
-        }
-      );
+			// Reference for exec (shell command) - returns JSON string for transfer
+			const childProcessExecRef = new ivm.Reference(
+				async (command: string): Promise<string> => {
+					const result = await executor.exec(command);
+					return JSON.stringify(result);
+				},
+			);
 
-      // Reference for spawn (command with args) - returns JSON string for transfer
-      // Args are passed as JSON string for transferability
-      const childProcessSpawnRef = new ivm.Reference(
-        async (command: string, argsJson: string): Promise<string> => {
-          const args = JSON.parse(argsJson) as string[];
-          const result = await executor.run(command, args);
-          return JSON.stringify(result);
-        }
-      );
+			// Reference for spawn (command with args) - returns JSON string for transfer
+			// Args are passed as JSON string for transferability
+			const childProcessSpawnRef = new ivm.Reference(
+				async (command: string, argsJson: string): Promise<string> => {
+					const args = JSON.parse(argsJson) as string[];
+					const result = await executor.run(command, args);
+					return JSON.stringify(result);
+				},
+			);
 
-      await jail.set("_childProcessExecRaw", childProcessExecRef);
-      await jail.set("_childProcessSpawnRaw", childProcessSpawnRef);
-    }
+			await jail.set("_childProcessExecRaw", childProcessExecRef);
+			await jail.set("_childProcessSpawnRaw", childProcessSpawnRef);
+		}
 
-    // Set up network References if we have a NetworkAdapter
-    if (this.networkAdapter) {
-      const adapter = this.networkAdapter;
+		// Set up network References if we have a NetworkAdapter
+		if (this.networkAdapter) {
+			const adapter = this.networkAdapter;
 
-      // Reference for fetch - returns JSON string for transfer
-      const networkFetchRef = new ivm.Reference(
-        async (url: string, optionsJson: string): Promise<string> => {
-          const options = JSON.parse(optionsJson);
-          const result = await adapter.fetch(url, options);
-          return JSON.stringify(result);
-        }
-      );
+			// Reference for fetch - returns JSON string for transfer
+			const networkFetchRef = new ivm.Reference(
+				async (url: string, optionsJson: string): Promise<string> => {
+					const options = JSON.parse(optionsJson);
+					const result = await adapter.fetch(url, options);
+					return JSON.stringify(result);
+				},
+			);
 
-      // Reference for DNS lookup - returns JSON string for transfer
-      const networkDnsLookupRef = new ivm.Reference(
-        async (hostname: string): Promise<string> => {
-          const result = await adapter.dnsLookup(hostname);
-          return JSON.stringify(result);
-        }
-      );
+			// Reference for DNS lookup - returns JSON string for transfer
+			const networkDnsLookupRef = new ivm.Reference(
+				async (hostname: string): Promise<string> => {
+					const result = await adapter.dnsLookup(hostname);
+					return JSON.stringify(result);
+				},
+			);
 
-      // Reference for HTTP request - returns JSON string for transfer
-      const networkHttpRequestRef = new ivm.Reference(
-        async (url: string, optionsJson: string): Promise<string> => {
-          const options = JSON.parse(optionsJson);
-          const result = await adapter.httpRequest(url, options);
-          return JSON.stringify(result);
-        }
-      );
+			// Reference for HTTP request - returns JSON string for transfer
+			const networkHttpRequestRef = new ivm.Reference(
+				async (url: string, optionsJson: string): Promise<string> => {
+					const options = JSON.parse(optionsJson);
+					const result = await adapter.httpRequest(url, options);
+					return JSON.stringify(result);
+				},
+			);
 
-      await jail.set("_networkFetchRaw", networkFetchRef);
-      await jail.set("_networkDnsLookupRaw", networkDnsLookupRef);
-      await jail.set("_networkHttpRequestRaw", networkHttpRequestRef);
-    }
+			await jail.set("_networkFetchRaw", networkFetchRef);
+			await jail.set("_networkDnsLookupRaw", networkDnsLookupRef);
+			await jail.set("_networkHttpRequestRaw", networkHttpRequestRef);
+		}
 
-    // Set up globals needed by the bridge BEFORE loading it
-    const initialCwd = this.processConfig.cwd ?? "/";
-    await context.eval(`
+		// Set up globals needed by the bridge BEFORE loading it
+		const initialCwd = this.processConfig.cwd ?? "/";
+		await context.eval(`
       globalThis._moduleCache = {};
       globalThis._pendingModules = {};
       globalThis._currentModule = { dirname: ${JSON.stringify(initialCwd)} };
     `);
 
-    // Load the bridge bundle which sets up all polyfill modules
-    const bridgeCode = getBridgeWithConfig(this.processConfig, this.osConfig);
-    await context.eval(bridgeCode);
+		// Load the bridge bundle which sets up all polyfill modules
+		const bridgeCode = getBridgeWithConfig(this.processConfig, this.osConfig);
+		await context.eval(bridgeCode);
 
-    // Unset module globals that require adapters if adapters aren't configured
-    if (!this.commandExecutor) {
-      await context.eval(`delete globalThis._childProcessModule;`);
-    }
-    if (!this.networkAdapter) {
-      await context.eval(`
+		// Unset module globals that require adapters if adapters aren't configured
+		if (!this.commandExecutor) {
+			await context.eval(`delete globalThis._childProcessModule;`);
+		}
+		if (!this.networkAdapter) {
+			await context.eval(`
         delete globalThis._httpModule;
         delete globalThis._httpsModule;
         delete globalThis._dnsModule;
       `);
-    }
+		}
 
-    // Set up the require system with dynamic CommonJS resolution
-    await context.eval(`
+		// Set up the require system with dynamic CommonJS resolution
+		await context.eval(`
 
       // Path utilities
       function _dirname(p) {
@@ -1500,80 +1515,86 @@ export class NodeProcess {
       globalThis._requireFrom = _requireFrom;
 
     `);
-    // module and process are already initialized by the bridge
-  }
+		// module and process are already initialized by the bridge
+	}
 
-  /**
-   * Set up ESM-compatible globals (process, Buffer, etc.)
-   */
-  private async setupESMGlobals(
-    context: ivm.Context,
-    jail: ivm.Reference<Record<string, unknown>>
-  ): Promise<void> {
-    // Set up fs references if we have a Directory (needed for fs import)
-    if (this.directory) {
-      const directory = this.directory;
+	/**
+	 * Set up ESM-compatible globals (process, Buffer, etc.)
+	 */
+	private async setupESMGlobals(
+		context: ivm.Context,
+		jail: ivm.Reference<Record<string, unknown>>,
+	): Promise<void> {
+		// Set up fs references if we have a Directory (needed for fs import)
+		if (this.directory) {
+			const directory = this.directory;
 
-      const readFileRef = new ivm.Reference(async (path: string) => {
-        return directory.readTextFile(path);
-      });
-      const writeFileRef = new ivm.Reference((path: string, content: string) => {
-        directory.writeFile(path, content);
-      });
-      // Binary file operations using base64 encoding
-      const readFileBinaryRef = new ivm.Reference(async (path: string) => {
-        const data = await directory.readFile(path);
-        return Buffer.from(data).toString("base64");
-      });
-      const writeFileBinaryRef = new ivm.Reference((path: string, base64Content: string) => {
-        const data = Buffer.from(base64Content, "base64");
-        directory.writeFile(path, data);
-      });
-      const readDirRef = new ivm.Reference(async (path: string) => {
-        const entries = await readDirWithTypes(directory, path);
-        return JSON.stringify(entries);
-      });
-      const mkdirRef = new ivm.Reference((path: string) => {
-        mkdir(directory, path);
-      });
-      const rmdirRef = new ivm.Reference(async (path: string) => {
-        await directory.removeDir(path);
-      });
-      const existsRef = new ivm.Reference(async (path: string) => {
-        return exists(directory, path);
-      });
-      const statRef = new ivm.Reference(async (path: string) => {
-        const statInfo = await stat(directory, path);
-        return JSON.stringify({
-          mode: statInfo.mode,
-          size: statInfo.size,
-          isDirectory: statInfo.isDirectory,
-          atimeMs: statInfo.atimeMs,
-          mtimeMs: statInfo.mtimeMs,
-          ctimeMs: statInfo.ctimeMs,
-          birthtimeMs: statInfo.birthtimeMs,
-        });
-      });
-      const unlinkRef = new ivm.Reference(async (path: string) => {
-        await directory.removeFile(path);
-      });
-      const renameRef = new ivm.Reference(async (oldPath: string, newPath: string) => {
-        await rename(directory, oldPath, newPath);
-      });
+			const readFileRef = new ivm.Reference(async (path: string) => {
+				return directory.readTextFile(path);
+			});
+			const writeFileRef = new ivm.Reference(
+				(path: string, content: string) => {
+					directory.writeFile(path, content);
+				},
+			);
+			// Binary file operations using base64 encoding
+			const readFileBinaryRef = new ivm.Reference(async (path: string) => {
+				const data = await directory.readFile(path);
+				return Buffer.from(data).toString("base64");
+			});
+			const writeFileBinaryRef = new ivm.Reference(
+				(path: string, base64Content: string) => {
+					const data = Buffer.from(base64Content, "base64");
+					directory.writeFile(path, data);
+				},
+			);
+			const readDirRef = new ivm.Reference(async (path: string) => {
+				const entries = await readDirWithTypes(directory, path);
+				return JSON.stringify(entries);
+			});
+			const mkdirRef = new ivm.Reference((path: string) => {
+				mkdir(directory, path);
+			});
+			const rmdirRef = new ivm.Reference(async (path: string) => {
+				await directory.removeDir(path);
+			});
+			const existsRef = new ivm.Reference(async (path: string) => {
+				return exists(directory, path);
+			});
+			const statRef = new ivm.Reference(async (path: string) => {
+				const statInfo = await stat(directory, path);
+				return JSON.stringify({
+					mode: statInfo.mode,
+					size: statInfo.size,
+					isDirectory: statInfo.isDirectory,
+					atimeMs: statInfo.atimeMs,
+					mtimeMs: statInfo.mtimeMs,
+					ctimeMs: statInfo.ctimeMs,
+					birthtimeMs: statInfo.birthtimeMs,
+				});
+			});
+			const unlinkRef = new ivm.Reference(async (path: string) => {
+				await directory.removeFile(path);
+			});
+			const renameRef = new ivm.Reference(
+				async (oldPath: string, newPath: string) => {
+					await rename(directory, oldPath, newPath);
+				},
+			);
 
-      await jail.set("_fsReadFile", readFileRef);
-      await jail.set("_fsWriteFile", writeFileRef);
-      await jail.set("_fsReadFileBinary", readFileBinaryRef);
-      await jail.set("_fsWriteFileBinary", writeFileBinaryRef);
-      await jail.set("_fsReadDir", readDirRef);
-      await jail.set("_fsMkdir", mkdirRef);
-      await jail.set("_fsRmdir", rmdirRef);
-      await jail.set("_fsExists", existsRef);
-      await jail.set("_fsStat", statRef);
-      await jail.set("_fsUnlink", unlinkRef);
-      await jail.set("_fsRename", renameRef);
+			await jail.set("_fsReadFile", readFileRef);
+			await jail.set("_fsWriteFile", writeFileRef);
+			await jail.set("_fsReadFileBinary", readFileBinaryRef);
+			await jail.set("_fsWriteFileBinary", writeFileBinaryRef);
+			await jail.set("_fsReadDir", readDirRef);
+			await jail.set("_fsMkdir", mkdirRef);
+			await jail.set("_fsRmdir", rmdirRef);
+			await jail.set("_fsExists", existsRef);
+			await jail.set("_fsStat", statRef);
+			await jail.set("_fsUnlink", unlinkRef);
+			await jail.set("_fsRename", renameRef);
 
-      await context.eval(`
+			await context.eval(`
         globalThis._fs = {
           readFile: _fsReadFile,
           writeFile: _fsWriteFile,
@@ -1588,136 +1609,139 @@ export class NodeProcess {
           rename: _fsRename,
         };
       `);
-    }
+		}
 
-    // Load the bridge bundle which sets up process and other globals
-    const bridgeCode = getBridgeWithConfig(this.processConfig, this.osConfig);
-    await context.eval(bridgeCode);
-  }
+		// Load the bridge bundle which sets up process and other globals
+		const bridgeCode = getBridgeWithConfig(this.processConfig, this.osConfig);
+		await context.eval(bridgeCode);
+	}
 
-  /**
-   * Run code and return the value of module.exports (CJS) or default export (ESM)
-   * along with exit code and captured stdout/stderr
-   */
-  async run<T = unknown>(code: string, filePath?: string): Promise<RunResult<T>> {
-    // Clear caches for fresh run
-    this.esmModuleCache.clear();
-    this.dynamicImportCache.clear();
+	/**
+	 * Run code and return the value of module.exports (CJS) or default export (ESM)
+	 * along with exit code and captured stdout/stderr
+	 */
+	async run<T = unknown>(
+		code: string,
+		filePath?: string,
+	): Promise<RunResult<T>> {
+		// Clear caches for fresh run
+		this.esmModuleCache.clear();
+		this.dynamicImportCache.clear();
 
-    const context = await this.isolate.createContext();
-    const stdout: string[] = [];
-    const stderr: string[] = [];
+		const context = await this.isolate.createContext();
+		const stdout: string[] = [];
+		const stderr: string[] = [];
 
-    try {
-      const jail = context.global;
-      await jail.set("global", jail.derefInto());
+		try {
+			const jail = context.global;
+			await jail.set("global", jail.derefInto());
 
-      // Set up console capture
-      await this.setupConsole(context, jail, stdout, stderr);
+			// Set up console capture
+			await this.setupConsole(context, jail, stdout, stderr);
 
-      let exports: T;
+			let exports: T;
 
-      // Detect ESM vs CJS
-      if (isESM(code, filePath)) {
-        // ESM path
-        await this.setupESMGlobals(context, jail);
+			// Detect ESM vs CJS
+			if (isESM(code, filePath)) {
+				// ESM path
+				await this.setupESMGlobals(context, jail);
 
-        // Transform dynamic import() to __dynamicImport()
-        const transformedCode = transformDynamicImport(code);
+				// Transform dynamic import() to __dynamicImport()
+				const transformedCode = transformDynamicImport(code);
 
-        // Pre-compile all dynamic imports
-        await this.precompileDynamicImports(transformedCode, context);
+				// Pre-compile all dynamic imports
+				await this.precompileDynamicImports(transformedCode, context);
 
-        // Set up dynamic import function
-        await this.setupDynamicImport(context, jail);
+				// Set up dynamic import function
+				await this.setupDynamicImport(context, jail);
 
-        exports = (await this.runESM(transformedCode, context, filePath)) as T;
-      } else {
-        // CJS path (existing behavior)
-        await this.setupRequire(context, jail);
+				exports = (await this.runESM(transformedCode, context, filePath)) as T;
+			} else {
+				// CJS path (existing behavior)
+				await this.setupRequire(context, jail);
 
-        // Create module object
-        const moduleObj = await this.isolate.compileScript(
-          "globalThis.module = { exports: {} };"
-        );
-        await moduleObj.run(context);
+				// Create module object
+				const moduleObj = await this.isolate.compileScript(
+					"globalThis.module = { exports: {} };",
+				);
+				await moduleObj.run(context);
 
-        // Transform dynamic import() to __dynamicImport()
-        const transformedCode = transformDynamicImport(code);
+				// Transform dynamic import() to __dynamicImport()
+				const transformedCode = transformDynamicImport(code);
 
-        // Pre-compile all dynamic imports
-        await this.precompileDynamicImports(transformedCode, context);
+				// Pre-compile all dynamic imports
+				await this.precompileDynamicImports(transformedCode, context);
 
-        // Set up dynamic import function
-        await this.setupDynamicImport(context, jail);
+				// Set up dynamic import function
+				await this.setupDynamicImport(context, jail);
 
-        // Run user code
-        const script = await this.isolate.compileScript(transformedCode);
-        await script.run(context);
+				// Run user code
+				const script = await this.isolate.compileScript(transformedCode);
+				await script.run(context);
 
-        // Get module.exports
-        exports = (await context.eval("module.exports", { copy: true })) as T;
-      }
+				// Get module.exports
+				exports = (await context.eval("module.exports", { copy: true })) as T;
+			}
 
-      // Get exit code from process.exitCode if set
-      const exitCode = (await context.eval("process.exitCode || 0", {
-        copy: true,
-      })) as number;
+			// Get exit code from process.exitCode if set
+			const exitCode = (await context.eval("process.exitCode || 0", {
+				copy: true,
+			})) as number;
 
-      return {
-        stdout: stdout.join("\n") + (stdout.length > 0 ? "\n" : ""),
-        stderr: stderr.join("\n") + (stderr.length > 0 ? "\n" : ""),
-        code: exitCode,
-        exports,
-      };
-    } catch (err) {
-      // Check if this is a ProcessExitError (controlled exit)
-      const errMessage = err instanceof Error ? err.message : String(err);
+			return {
+				stdout: stdout.join("\n") + (stdout.length > 0 ? "\n" : ""),
+				stderr: stderr.join("\n") + (stderr.length > 0 ? "\n" : ""),
+				code: exitCode,
+				exports,
+			};
+		} catch (err) {
+			// Check if this is a ProcessExitError (controlled exit)
+			const errMessage = err instanceof Error ? err.message : String(err);
 
-      // ProcessExitError format: "process.exit(N)"
-      const exitMatch = errMessage.match(/process\.exit\((\d+)\)/);
-      if (exitMatch) {
-        const exitCode = parseInt(exitMatch[1], 10);
-        return {
-          stdout: stdout.join("\n") + (stdout.length > 0 ? "\n" : ""),
-          stderr: stderr.join("\n") + (stderr.length > 0 ? "\n" : ""),
-          code: exitCode,
-          exports: undefined as T,
-        };
-      }
+			// ProcessExitError format: "process.exit(N)"
+			const exitMatch = errMessage.match(/process\.exit\((\d+)\)/);
+			if (exitMatch) {
+				const exitCode = parseInt(exitMatch[1], 10);
+				return {
+					stdout: stdout.join("\n") + (stdout.length > 0 ? "\n" : ""),
+					stderr: stderr.join("\n") + (stderr.length > 0 ? "\n" : ""),
+					code: exitCode,
+					exports: undefined as T,
+				};
+			}
 
-      stderr.push(errMessage);
-      return {
-        stdout: stdout.join("\n") + (stdout.length > 0 ? "\n" : ""),
-        stderr: stderr.join("\n") + (stderr.length > 0 ? "\n" : ""),
-        code: 1,
-        exports: undefined as T,
-      };
-    } finally {
-      context.release();
-    }
-  }
+			stderr.push(errMessage);
+			return {
+				stdout: stdout.join("\n") + (stdout.length > 0 ? "\n" : ""),
+				stderr: stderr.join("\n") + (stderr.length > 0 ? "\n" : ""),
+				code: 1,
+				exports: undefined as T,
+			};
+		} finally {
+			context.release();
+		}
+	}
 
-  /**
-   * Set up console with output capture
-   */
-  private async setupConsole(
-    context: ivm.Context,
-    jail: ivm.Reference<Record<string, unknown>>,
-    stdout: string[],
-    stderr: string[]
-  ): Promise<void> {
-    const logRef = new ivm.Reference((msg: string) => {
-      stdout.push(String(msg));
-    });
-    const errorRef = new ivm.Reference((msg: string) => {
-      stderr.push(String(msg));
-    });
+	/**
+	 * Set up console with output capture
+	 */
+	private async setupConsole(
+		context: ivm.Context,
+		jail: ivm.Reference<Record<string, unknown>>,
+		stdout: string[],
+		stderr: string[],
+	): Promise<void> {
+		const logRef = new ivm.Reference((msg: string) => {
+			stdout.push(String(msg));
+		});
+		const errorRef = new ivm.Reference((msg: string) => {
+			stderr.push(String(msg));
+		});
 
-    await jail.set("_log", logRef);
-    await jail.set("_error", errorRef);
+		await jail.set("_log", logRef);
+		await jail.set("_error", errorRef);
 
-    await context.eval(`
+		await context.eval(`
       globalThis.console = {
         log: (...args) => _log.applySync(undefined, [args.map(a =>
           typeof a === 'object' ? JSON.stringify(a) : String(a)
@@ -1733,113 +1757,113 @@ export class NodeProcess {
         ).join(' ')]),
       };
     `);
-  }
+	}
 
-  /**
-   * Execute code like a script with console output capture
-   * Supports both CJS and ESM syntax
-   */
-  async exec(code: string, filePath?: string): Promise<ExecResult> {
-    // Clear caches for fresh run
-    this.esmModuleCache.clear();
-    this.dynamicImportCache.clear();
+	/**
+	 * Execute code like a script with console output capture
+	 * Supports both CJS and ESM syntax
+	 */
+	async exec(code: string, filePath?: string): Promise<ExecResult> {
+		// Clear caches for fresh run
+		this.esmModuleCache.clear();
+		this.dynamicImportCache.clear();
 
-    const context = await this.isolate.createContext();
-    const stdout: string[] = [];
-    const stderr: string[] = [];
+		const context = await this.isolate.createContext();
+		const stdout: string[] = [];
+		const stderr: string[] = [];
 
-    try {
-      const jail = context.global;
-      await jail.set("global", jail.derefInto());
+		try {
+			const jail = context.global;
+			await jail.set("global", jail.derefInto());
 
-      // Set up console capture
-      await this.setupConsole(context, jail, stdout, stderr);
+			// Set up console capture
+			await this.setupConsole(context, jail, stdout, stderr);
 
-      // Detect ESM vs CJS
-      if (isESM(code, filePath)) {
-        // ESM path
-        await this.setupESMGlobals(context, jail);
+			// Detect ESM vs CJS
+			if (isESM(code, filePath)) {
+				// ESM path
+				await this.setupESMGlobals(context, jail);
 
-        // Transform dynamic import() to __dynamicImport()
-        const transformedCode = transformDynamicImport(code);
+				// Transform dynamic import() to __dynamicImport()
+				const transformedCode = transformDynamicImport(code);
 
-        // Pre-compile all dynamic imports
-        await this.precompileDynamicImports(transformedCode, context);
+				// Pre-compile all dynamic imports
+				await this.precompileDynamicImports(transformedCode, context);
 
-        // Set up dynamic import function
-        await this.setupDynamicImport(context, jail);
+				// Set up dynamic import function
+				await this.setupDynamicImport(context, jail);
 
-        await this.runESM(transformedCode, context, filePath);
-      } else {
-        // CJS path
-        await this.setupRequire(context, jail);
-        await context.eval("globalThis.module = { exports: {} };");
+				await this.runESM(transformedCode, context, filePath);
+			} else {
+				// CJS path
+				await this.setupRequire(context, jail);
+				await context.eval("globalThis.module = { exports: {} };");
 
-        // Transform dynamic import() to __dynamicImport()
-        const transformedCode = transformDynamicImport(code);
+				// Transform dynamic import() to __dynamicImport()
+				const transformedCode = transformDynamicImport(code);
 
-        // Pre-compile all dynamic imports (must happen before setting up the function)
-        await this.precompileDynamicImports(transformedCode, context);
+				// Pre-compile all dynamic imports (must happen before setting up the function)
+				await this.precompileDynamicImports(transformedCode, context);
 
-        // Now set up the dynamic import function (uses pre-compiled cache)
-        await this.setupDynamicImport(context, jail);
+				// Now set up the dynamic import function (uses pre-compiled cache)
+				await this.setupDynamicImport(context, jail);
 
-        // Wrap code to capture the result in a global and await if it's a promise
-        // For async IIFEs, we need to capture the Promise returned by the IIFE
-        const wrappedCode = `
+				// Wrap code to capture the result in a global and await if it's a promise
+				// For async IIFEs, we need to capture the Promise returned by the IIFE
+				const wrappedCode = `
           globalThis.__scriptResult__ = eval(${JSON.stringify(transformedCode)});
         `;
-        const script = await this.isolate.compileScript(wrappedCode);
-        await script.run(context);
+				const script = await this.isolate.compileScript(wrappedCode);
+				await script.run(context);
 
-        // If the script returned a promise, await it
-        // Return the promise directly so isolated-vm can properly await it with { promise: true }
-        const hasPromise = await context.eval(
-          `globalThis.__scriptResult__ && typeof globalThis.__scriptResult__.then === 'function'`,
-          { copy: true }
-        );
-        if (hasPromise) {
-          await context.eval(`globalThis.__scriptResult__`, { promise: true });
-        }
-      }
+				// If the script returned a promise, await it
+				// Return the promise directly so isolated-vm can properly await it with { promise: true }
+				const hasPromise = await context.eval(
+					`globalThis.__scriptResult__ && typeof globalThis.__scriptResult__.then === 'function'`,
+					{ copy: true },
+				);
+				if (hasPromise) {
+					await context.eval(`globalThis.__scriptResult__`, { promise: true });
+				}
+			}
 
-      // Get exit code from process.exitCode if set
-      const exitCode = await context.eval("process.exitCode || 0", {
-        copy: true,
-      });
+			// Get exit code from process.exitCode if set
+			const exitCode = await context.eval("process.exitCode || 0", {
+				copy: true,
+			});
 
-      return {
-        stdout: stdout.join("\n") + (stdout.length > 0 ? "\n" : ""),
-        stderr: stderr.join("\n") + (stderr.length > 0 ? "\n" : ""),
-        code: exitCode as number,
-      };
-    } catch (err) {
-      // Check if this is a ProcessExitError (controlled exit)
-      const errMessage = err instanceof Error ? err.message : String(err);
+			return {
+				stdout: stdout.join("\n") + (stdout.length > 0 ? "\n" : ""),
+				stderr: stderr.join("\n") + (stderr.length > 0 ? "\n" : ""),
+				code: exitCode as number,
+			};
+		} catch (err) {
+			// Check if this is a ProcessExitError (controlled exit)
+			const errMessage = err instanceof Error ? err.message : String(err);
 
-      // ProcessExitError format: "process.exit(N)"
-      const exitMatch = errMessage.match(/process\.exit\((\d+)\)/);
-      if (exitMatch) {
-        const exitCode = parseInt(exitMatch[1], 10);
-        return {
-          stdout: stdout.join("\n") + (stdout.length > 0 ? "\n" : ""),
-          stderr: stderr.join("\n") + (stderr.length > 0 ? "\n" : ""),
-          code: exitCode,
-        };
-      }
+			// ProcessExitError format: "process.exit(N)"
+			const exitMatch = errMessage.match(/process\.exit\((\d+)\)/);
+			if (exitMatch) {
+				const exitCode = parseInt(exitMatch[1], 10);
+				return {
+					stdout: stdout.join("\n") + (stdout.length > 0 ? "\n" : ""),
+					stderr: stderr.join("\n") + (stderr.length > 0 ? "\n" : ""),
+					code: exitCode,
+				};
+			}
 
-      stderr.push(errMessage);
-      return {
-        stdout: stdout.join("\n") + (stdout.length > 0 ? "\n" : ""),
-        stderr: stderr.join("\n") + (stderr.length > 0 ? "\n" : ""),
-        code: 1,
-      };
-    } finally {
-      context.release();
-    }
-  }
+			stderr.push(errMessage);
+			return {
+				stdout: stdout.join("\n") + (stdout.length > 0 ? "\n" : ""),
+				stderr: stderr.join("\n") + (stderr.length > 0 ? "\n" : ""),
+				code: 1,
+			};
+		} finally {
+			context.release();
+		}
+	}
 
-  dispose(): void {
-    this.isolate.dispose();
-  }
+	dispose(): void {
+		this.isolate.dispose();
+	}
 }

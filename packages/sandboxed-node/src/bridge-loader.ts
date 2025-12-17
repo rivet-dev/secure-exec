@@ -1,6 +1,6 @@
-import * as fs from "fs";
-import * as path from "path";
-import { fileURLToPath } from "url";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -12,11 +12,11 @@ let bridgeCodeCache: string | null = null;
  * This is the IIFE that creates the global `bridge` object.
  */
 export function getRawBridgeCode(): string {
-  if (!bridgeCodeCache) {
-    const bridgePath = path.join(__dirname, "..", "assets", "bridge.js");
-    bridgeCodeCache = fs.readFileSync(bridgePath, "utf8");
-  }
-  return bridgeCodeCache;
+	if (!bridgeCodeCache) {
+		const bridgePath = path.join(__dirname, "..", "assets", "bridge.js");
+		bridgeCodeCache = fs.readFileSync(bridgePath, "utf8");
+	}
+	return bridgeCodeCache;
 }
 
 /**
@@ -24,12 +24,12 @@ export function getRawBridgeCode(): string {
  * This returns the compiled JavaScript code as a string wrapped in an IIFE.
  */
 export function getFsModuleCode(): string {
-  const code = getRawBridgeCode();
+	const code = getRawBridgeCode();
 
-  // The compiled code creates a global `bridge` variable with the module exports
-  // bridge = { default: fs, fs: fs }
-  // We need to wrap it to return the default export (which is the fs module)
-  return `(function() {
+	// The compiled code creates a global `bridge` variable with the module exports
+	// bridge = { default: fs, fs: fs }
+	// We need to wrap it to return the default export (which is the fs module)
+	return `(function() {
 ${code}
   return bridge.default;
 })()`;
@@ -42,9 +42,9 @@ ${code}
  * - setupGlobals, URL, URLSearchParams, Buffer, etc.
  */
 export function getBridgeModuleCode(): string {
-  const code = getRawBridgeCode();
+	const code = getRawBridgeCode();
 
-  return `(function() {
+	return `(function() {
 ${code}
   return bridge;
 })()`;
@@ -58,36 +58,36 @@ ${code}
  * @param osConfig - OS configuration (platform, arch, hostname, etc.)
  */
 export function getBridgeWithConfig(
-  processConfig?: {
-    platform?: string;
-    arch?: string;
-    version?: string;
-    cwd?: string;
-    env?: Record<string, string>;
-    argv?: string[];
-    execPath?: string;
-  },
-  osConfig?: {
-    platform?: string;
-    arch?: string;
-    type?: string;
-    release?: string;
-    version?: string;
-    homedir?: string;
-    tmpdir?: string;
-    hostname?: string;
-  }
+	processConfig?: {
+		platform?: string;
+		arch?: string;
+		version?: string;
+		cwd?: string;
+		env?: Record<string, string>;
+		argv?: string[];
+		execPath?: string;
+	},
+	osConfig?: {
+		platform?: string;
+		arch?: string;
+		type?: string;
+		release?: string;
+		version?: string;
+		homedir?: string;
+		tmpdir?: string;
+		hostname?: string;
+	},
 ): string {
-  const code = getRawBridgeCode();
+	const code = getRawBridgeCode();
 
-  // Set up config globals before loading the bridge
-  const configSetup = `
+	// Set up config globals before loading the bridge
+	const configSetup = `
     // Set up configuration globals before bridge loads
     globalThis._processConfig = ${JSON.stringify(processConfig || {})};
     globalThis._osConfig = ${JSON.stringify(osConfig || {})};
   `;
 
-  return `(function() {
+	return `(function() {
 ${configSetup}
 ${code}
   return bridge;

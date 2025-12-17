@@ -1,0 +1,23 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.3.9/schema.json",
+	"assist": { "actions": { "source": { "organizeImports": "on" } } },
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"recommended": true,
+			"nursery": {
+				"noFloatingPromises": "error"
+			}
+		}
+	},
+	"files": {
+		"includes": [
+			"**/packages/**/*.ts",
+			"**/packages/**/*.tsx",
+			"!**/node_modules",
+			"!**/dist",
+			"!**/assets",
+			"!**/bridge"
+		]
+	}
+}

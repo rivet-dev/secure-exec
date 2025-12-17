@@ -1,94 +1,98 @@
-import { describe, it, expect, afterEach, beforeAll } from "vitest";
-import { init, Directory } from "@wasmer/sdk/node";
-import { NodeProcess, type NetworkAdapter, type CommandExecutor } from "./index.js";
+import { Directory, init } from "@wasmer/sdk/node";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import {
+	type CommandExecutor,
+	type NetworkAdapter,
+	NodeProcess,
+} from "./index.js";
 
 /**
  * Create a directory and all its parent directories
  */
 async function mkdirp(dir: Directory, path: string): Promise<void> {
-  const parts = path.split("/").filter(Boolean);
-  let currentPath = "";
-  for (const part of parts) {
-    currentPath += "/" + part;
-    try {
-      await dir.createDir(currentPath);
-    } catch {
-      // Directory may already exist
-    }
-  }
+	const parts = path.split("/").filter(Boolean);
+	let currentPath = "";
+	for (const part of parts) {
+		currentPath += `/${part}`;
+		try {
+			await dir.createDir(currentPath);
+		} catch {
+			// Directory may already exist
+		}
+	}
 }
 
 describe("NodeProcess", () => {
-  let proc: NodeProcess;
+	let proc: NodeProcess;
 
-  beforeAll(async () => {
-    await init();
-  });
+	beforeAll(async () => {
+		await init();
+	});
 
-  afterEach(() => {
-    proc?.dispose();
-  });
+	afterEach(() => {
+		proc?.dispose();
+	});
 
-  describe("Step 1: Basic isolate execution", () => {
-    it("should run basic code and return module.exports", async () => {
-      proc = new NodeProcess();
-      const result = await proc.run(`module.exports = 1 + 1`);
-      expect(result.exports).toBe(2);
-    });
+	describe("Step 1: Basic isolate execution", () => {
+		it("should run basic code and return module.exports", async () => {
+			proc = new NodeProcess();
+			const result = await proc.run(`module.exports = 1 + 1`);
+			expect(result.exports).toBe(2);
+		});
 
-    it("should return complex objects", async () => {
-      proc = new NodeProcess();
-      const result = await proc.run<{ foo: string; bar: number }>(
-        `module.exports = { foo: "hello", bar: 42 }`
-      );
-      expect(result.exports).toEqual({ foo: "hello", bar: 42 });
-    });
+		it("should return complex objects", async () => {
+			proc = new NodeProcess();
+			const result = await proc.run<{ foo: string; bar: number }>(
+				`module.exports = { foo: "hello", bar: 42 }`,
+			);
+			expect(result.exports).toEqual({ foo: "hello", bar: 42 });
+		});
 
-    it("should execute code with console output", async () => {
-      proc = new NodeProcess();
-      const result = await proc.exec(`console.log("hello world")`);
-      expect(result.stdout).toBe("hello world\n");
-      expect(result.stderr).toBe("");
-      expect(result.code).toBe(0);
-    });
+		it("should execute code with console output", async () => {
+			proc = new NodeProcess();
+			const result = await proc.exec(`console.log("hello world")`);
+			expect(result.stdout).toBe("hello world\n");
+			expect(result.stderr).toBe("");
+			expect(result.code).toBe(0);
+		});
 
-    it("should capture errors to stderr", async () => {
-      proc = new NodeProcess();
-      const result = await proc.exec(`throw new Error("oops")`);
-      expect(result.code).toBe(1);
-      expect(result.stderr).toContain("oops");
-    });
+		it("should capture errors to stderr", async () => {
+			proc = new NodeProcess();
+			const result = await proc.exec(`throw new Error("oops")`);
+			expect(result.code).toBe(1);
+			expect(result.stderr).toContain("oops");
+		});
 
-    it("should capture console.error to stderr", async () => {
-      proc = new NodeProcess();
-      const result = await proc.exec(`console.error("bad thing")`);
-      expect(result.stderr).toBe("bad thing\n");
-      expect(result.code).toBe(0);
-    });
-  });
+		it("should capture console.error to stderr", async () => {
+			proc = new NodeProcess();
+			const result = await proc.exec(`console.error("bad thing")`);
+			expect(result.stderr).toBe("bad thing\n");
+			expect(result.code).toBe(0);
+		});
+	});
 
-  describe("Step 2: require() with node stdlib polyfills", () => {
-    it("should require path module and use join", async () => {
-      proc = new NodeProcess();
-      const result = await proc.run(`
+	describe("Step 2: require() with node stdlib polyfills", () => {
+		it("should require path module and use join", async () => {
+			proc = new NodeProcess();
+			const result = await proc.run(`
         const path = require("path");
         module.exports = path.join("foo", "bar");
       `);
-      expect(result.exports).toBe("foo/bar");
-    });
+			expect(result.exports).toBe("foo/bar");
+		});
 
-    it("should require path module with node: prefix", async () => {
-      proc = new NodeProcess();
-      const result = await proc.run(`
+		it("should require path module with node: prefix", async () => {
+			proc = new NodeProcess();
+			const result = await proc.run(`
         const path = require("node:path");
         module.exports = path.dirname("/foo/bar/baz.txt");
       `);
-      expect(result.exports).toBe("/foo/bar");
-    });
+			expect(result.exports).toBe("/foo/bar");
+		});
 
-    it("should require events module", async () => {
-      proc = new NodeProcess();
-      const result = await proc.run(`
+		it("should require events module", async () => {
+			proc = new NodeProcess();
+			const result = await proc.run(`
         const { EventEmitter } = require("events");
         const emitter = new EventEmitter();
         let called = false;
@@ -96,261 +100,273 @@ describe("NodeProcess", () => {
         emitter.emit("test");
         module.exports = called;
       `);
-      expect(result.exports).toBe(true);
-    });
+			expect(result.exports).toBe(true);
+		});
 
-    it("should require util module", async () => {
-      proc = new NodeProcess();
-      const result = await proc.run(`
+		it("should require util module", async () => {
+			proc = new NodeProcess();
+			const result = await proc.run(`
         const util = require("util");
         module.exports = util.format("hello %s", "world");
       `);
-      expect(result.exports).toBe("hello world");
-    });
+			expect(result.exports).toBe("hello world");
+		});
 
-    it("should cache modules", async () => {
-      proc = new NodeProcess();
-      const result = await proc.run(`
+		it("should cache modules", async () => {
+			proc = new NodeProcess();
+			const result = await proc.run(`
         const path1 = require("path");
         const path2 = require("path");
         module.exports = path1 === path2;
       `);
-      expect(result.exports).toBe(true);
-    });
+			expect(result.exports).toBe(true);
+		});
 
-    it("should throw for unknown modules", async () => {
-      proc = new NodeProcess();
-      const result = await proc.exec(`
+		it("should throw for unknown modules", async () => {
+			proc = new NodeProcess();
+			const result = await proc.exec(`
         const unknown = require("nonexistent-module");
       `);
-      expect(result.code).toBe(1);
-      expect(result.stderr).toContain("Cannot find module");
-    });
-  });
+			expect(result.code).toBe(1);
+			expect(result.stderr).toContain("Cannot find module");
+		});
+	});
 
-  describe("Step 8: Package imports from node_modules", () => {
-    it("should load a simple package from virtual node_modules", async () => {
-      const dir = new Directory();
-      const bridge = dir;
+	describe("Step 8: Package imports from node_modules", () => {
+		it("should load a simple package from virtual node_modules", async () => {
+			const dir = new Directory();
+			const bridge = dir;
 
-      // Create a simple mock package
-      await mkdirp(bridge, "/node_modules/my-pkg");
-      await bridge.writeFile(
-        "/node_modules/my-pkg/package.json",
-        JSON.stringify({ name: "my-pkg", main: "index.js" })
-      );
-      await bridge.writeFile(
-        "/node_modules/my-pkg/index.js",
-        `module.exports = { add: (a, b) => a + b };`
-      );
+			// Create a simple mock package
+			await mkdirp(bridge, "/node_modules/my-pkg");
+			await bridge.writeFile(
+				"/node_modules/my-pkg/package.json",
+				JSON.stringify({ name: "my-pkg", main: "index.js" }),
+			);
+			await bridge.writeFile(
+				"/node_modules/my-pkg/index.js",
+				`module.exports = { add: (a, b) => a + b };`,
+			);
 
-      proc = new NodeProcess({ directory: bridge });
-      const result = await proc.run(`
+			proc = new NodeProcess({ directory: bridge });
+			const result = await proc.run(`
         const pkg = require('my-pkg');
         module.exports = pkg.add(2, 3);
       `);
 
-      expect(result.exports).toBe(5);
-    });
+			expect(result.exports).toBe(5);
+		});
 
-    it("should load package with default index.js", async () => {
-      const dir = new Directory();
-      const bridge = dir;
+		it("should load package with default index.js", async () => {
+			const dir = new Directory();
+			const bridge = dir;
 
-      // Package without explicit main
-      await mkdirp(bridge, "/node_modules/simple-pkg");
-      await bridge.writeFile(
-        "/node_modules/simple-pkg/package.json",
-        JSON.stringify({ name: "simple-pkg" })
-      );
-      await bridge.writeFile(
-        "/node_modules/simple-pkg/index.js",
-        `module.exports = "hello from simple-pkg";`
-      );
+			// Package without explicit main
+			await mkdirp(bridge, "/node_modules/simple-pkg");
+			await bridge.writeFile(
+				"/node_modules/simple-pkg/package.json",
+				JSON.stringify({ name: "simple-pkg" }),
+			);
+			await bridge.writeFile(
+				"/node_modules/simple-pkg/index.js",
+				`module.exports = "hello from simple-pkg";`,
+			);
 
-      proc = new NodeProcess({ directory: bridge });
-      const result = await proc.run(`
+			proc = new NodeProcess({ directory: bridge });
+			const result = await proc.run(`
         const pkg = require('simple-pkg');
         module.exports = pkg;
       `);
 
-      expect(result.exports).toBe("hello from simple-pkg");
-    });
+			expect(result.exports).toBe("hello from simple-pkg");
+		});
 
-    it("should prioritize polyfills over node_modules", async () => {
-      const dir = new Directory();
-      const bridge = dir;
+		it("should prioritize polyfills over node_modules", async () => {
+			const dir = new Directory();
+			const bridge = dir;
 
-      // Even if path exists in node_modules, polyfill should be used
-      await mkdirp(bridge, "/node_modules/path");
-      await bridge.writeFile(
-        "/node_modules/path/package.json",
-        JSON.stringify({ name: "path", main: "index.js" })
-      );
-      await bridge.writeFile(
-        "/node_modules/path/index.js",
-        `module.exports = { fake: true };`
-      );
+			// Even if path exists in node_modules, polyfill should be used
+			await mkdirp(bridge, "/node_modules/path");
+			await bridge.writeFile(
+				"/node_modules/path/package.json",
+				JSON.stringify({ name: "path", main: "index.js" }),
+			);
+			await bridge.writeFile(
+				"/node_modules/path/index.js",
+				`module.exports = { fake: true };`,
+			);
 
-      proc = new NodeProcess({ directory: bridge });
-      const result = await proc.run(`
+			proc = new NodeProcess({ directory: bridge });
+			const result = await proc.run(`
         const path = require('path');
         // Real path polyfill has join, our fake doesn't
         module.exports = typeof path.join === 'function';
       `);
 
-      expect(result.exports).toBe(true);
-    });
+			expect(result.exports).toBe(true);
+		});
 
-    it("should use setDirectory to add bridge later", async () => {
-      const dir = new Directory();
-      const bridge = dir;
+		it("should use setDirectory to add bridge later", async () => {
+			const dir = new Directory();
+			const bridge = dir;
 
-      await mkdirp(bridge, "/node_modules/late-pkg");
-      await bridge.writeFile(
-        "/node_modules/late-pkg/package.json",
-        JSON.stringify({ name: "late-pkg", main: "index.js" })
-      );
-      await bridge.writeFile(
-        "/node_modules/late-pkg/index.js",
-        `module.exports = 42;`
-      );
+			await mkdirp(bridge, "/node_modules/late-pkg");
+			await bridge.writeFile(
+				"/node_modules/late-pkg/package.json",
+				JSON.stringify({ name: "late-pkg", main: "index.js" }),
+			);
+			await bridge.writeFile(
+				"/node_modules/late-pkg/index.js",
+				`module.exports = 42;`,
+			);
 
-      proc = new NodeProcess();
-      proc.setDirectory(bridge);
+			proc = new NodeProcess();
+			proc.setDirectory(bridge);
 
-      const result = await proc.run(`
+			const result = await proc.run(`
         const pkg = require('late-pkg');
         module.exports = pkg;
       `);
 
-      expect(result.exports).toBe(42);
-    });
-  });
+			expect(result.exports).toBe(42);
+		});
+	});
 
-  describe("Dynamic CommonJS module resolution", () => {
-    it("should resolve relative imports", async () => {
-      const dir = new Directory();
-      const bridge = dir;
+	describe("Dynamic CommonJS module resolution", () => {
+		it("should resolve relative imports", async () => {
+			const dir = new Directory();
+			const bridge = dir;
 
-      // Create a file with relative import
-      await bridge.createDir("/lib");
-      await bridge.writeFile("/lib/helper.js", `module.exports = { greet: () => 'Hello' };`);
-      await bridge.writeFile(
-        "/main.js",
-        `const helper = require('./lib/helper'); module.exports = helper.greet();`
-      );
+			// Create a file with relative import
+			await bridge.createDir("/lib");
+			await bridge.writeFile(
+				"/lib/helper.js",
+				`module.exports = { greet: () => 'Hello' };`,
+			);
+			await bridge.writeFile(
+				"/main.js",
+				`const helper = require('./lib/helper'); module.exports = helper.greet();`,
+			);
 
-      proc = new NodeProcess({ directory: bridge });
-      const result = await proc.run(`
+			proc = new NodeProcess({ directory: bridge });
+			const result = await proc.run(`
         const main = require('/main.js');
         module.exports = main;
       `);
 
-      expect(result.exports).toBe("Hello");
-    });
+			expect(result.exports).toBe("Hello");
+		});
 
-    it("should resolve parent directory imports", async () => {
-      const dir = new Directory();
-      const bridge = dir;
+		it("should resolve parent directory imports", async () => {
+			const dir = new Directory();
+			const bridge = dir;
 
-      await mkdirp(bridge, "/src/utils");
-      await bridge.writeFile("/src/config.js", `module.exports = { name: 'test' };`);
-      await bridge.writeFile(
-        "/src/utils/reader.js",
-        `const config = require('../config'); module.exports = config.name;`
-      );
+			await mkdirp(bridge, "/src/utils");
+			await bridge.writeFile(
+				"/src/config.js",
+				`module.exports = { name: 'test' };`,
+			);
+			await bridge.writeFile(
+				"/src/utils/reader.js",
+				`const config = require('../config'); module.exports = config.name;`,
+			);
 
-      proc = new NodeProcess({ directory: bridge });
-      const result = await proc.run(`
+			proc = new NodeProcess({ directory: bridge });
+			const result = await proc.run(`
         const reader = require('/src/utils/reader.js');
         module.exports = reader;
       `);
 
-      expect(result.exports).toBe("test");
-    });
+			expect(result.exports).toBe("test");
+		});
 
-    it("should load JSON files", async () => {
-      const dir = new Directory();
-      const bridge = dir;
+		it("should load JSON files", async () => {
+			const dir = new Directory();
+			const bridge = dir;
 
-      await bridge.writeFile("/data.json", JSON.stringify({ version: "1.0.0" }));
+			await bridge.writeFile(
+				"/data.json",
+				JSON.stringify({ version: "1.0.0" }),
+			);
 
-      proc = new NodeProcess({ directory: bridge });
-      const result = await proc.run(`
+			proc = new NodeProcess({ directory: bridge });
+			const result = await proc.run(`
         const data = require('/data.json');
         module.exports = data.version;
       `);
 
-      expect(result.exports).toBe("1.0.0");
-    });
+			expect(result.exports).toBe("1.0.0");
+		});
 
-    it("should handle nested requires with dependencies", async () => {
-      const dir = new Directory();
-      const bridge = dir;
+		it("should handle nested requires with dependencies", async () => {
+			const dir = new Directory();
+			const bridge = dir;
 
-      // Create a package with internal dependencies
-      await mkdirp(bridge, "/node_modules/my-lib");
-      await bridge.writeFile(
-        "/node_modules/my-lib/package.json",
-        JSON.stringify({ name: "my-lib", main: "index.js" })
-      );
-      await bridge.writeFile(
-        "/node_modules/my-lib/utils.js",
-        `module.exports = { double: x => x * 2 };`
-      );
-      await bridge.writeFile(
-        "/node_modules/my-lib/index.js",
-        `const utils = require('./utils'); module.exports = { calc: x => utils.double(x) };`
-      );
+			// Create a package with internal dependencies
+			await mkdirp(bridge, "/node_modules/my-lib");
+			await bridge.writeFile(
+				"/node_modules/my-lib/package.json",
+				JSON.stringify({ name: "my-lib", main: "index.js" }),
+			);
+			await bridge.writeFile(
+				"/node_modules/my-lib/utils.js",
+				`module.exports = { double: x => x * 2 };`,
+			);
+			await bridge.writeFile(
+				"/node_modules/my-lib/index.js",
+				`const utils = require('./utils'); module.exports = { calc: x => utils.double(x) };`,
+			);
 
-      proc = new NodeProcess({ directory: bridge });
-      const result = await proc.run(`
+			proc = new NodeProcess({ directory: bridge });
+			const result = await proc.run(`
         const lib = require('my-lib');
         module.exports = lib.calc(5);
       `);
 
-      expect(result.exports).toBe(10);
-    });
+			expect(result.exports).toBe(10);
+		});
 
-    it("should handle package subpath imports", async () => {
-      const dir = new Directory();
-      const bridge = dir;
+		it("should handle package subpath imports", async () => {
+			const dir = new Directory();
+			const bridge = dir;
 
-      await mkdirp(bridge, "/node_modules/toolkit");
-      await bridge.writeFile(
-        "/node_modules/toolkit/package.json",
-        JSON.stringify({ name: "toolkit", main: "index.js" })
-      );
-      await bridge.writeFile(
-        "/node_modules/toolkit/index.js",
-        `module.exports = { main: true };`
-      );
-      await bridge.writeFile(
-        "/node_modules/toolkit/extra.js",
-        `module.exports = { extra: true };`
-      );
+			await mkdirp(bridge, "/node_modules/toolkit");
+			await bridge.writeFile(
+				"/node_modules/toolkit/package.json",
+				JSON.stringify({ name: "toolkit", main: "index.js" }),
+			);
+			await bridge.writeFile(
+				"/node_modules/toolkit/index.js",
+				`module.exports = { main: true };`,
+			);
+			await bridge.writeFile(
+				"/node_modules/toolkit/extra.js",
+				`module.exports = { extra: true };`,
+			);
 
-      proc = new NodeProcess({ directory: bridge });
-      const result = await proc.run(`
+			proc = new NodeProcess({ directory: bridge });
+			const result = await proc.run(`
         const extra = require('toolkit/extra');
         module.exports = extra.extra;
       `);
 
-      expect(result.exports).toBe(true);
-    });
+			expect(result.exports).toBe(true);
+		});
 
-    it("should cache modules", async () => {
-      const dir = new Directory();
-      const bridge = dir;
+		it("should cache modules", async () => {
+			const dir = new Directory();
+			const bridge = dir;
 
-      await bridge.writeFile("/counter.js", `
+			await bridge.writeFile(
+				"/counter.js",
+				`
         let count = 0;
         module.exports = { increment: () => ++count };
-      `);
+      `,
+			);
 
-      proc = new NodeProcess({ directory: bridge });
-      const result = await proc.run(`
+			proc = new NodeProcess({ directory: bridge });
+			const result = await proc.run(`
         const c1 = require('/counter.js');
         const c2 = require('/counter.js');
         c1.increment();
@@ -358,33 +374,33 @@ describe("NodeProcess", () => {
         module.exports = c2.increment();
       `);
 
-      // If caching works, c2 is the same instance as c1
-      expect(result.exports).toBe(3);
-    });
-  });
+			// If caching works, c2 is the same instance as c1
+			expect(result.exports).toBe(3);
+		});
+	});
 
-  describe("fs polyfill", () => {
-    it("should read and write files", async () => {
-      const dir = new Directory();
-      const bridge = dir;
+	describe("fs polyfill", () => {
+		it("should read and write files", async () => {
+			const dir = new Directory();
+			const bridge = dir;
 
-      proc = new NodeProcess({ directory: bridge });
-      const result = await proc.run(`
+			proc = new NodeProcess({ directory: bridge });
+			const result = await proc.run(`
         const fs = require('fs');
         fs.writeFileSync('/test.txt', 'hello world');
         module.exports = fs.readFileSync('/test.txt', 'utf8');
       `);
 
-      expect(result.exports).toBe("hello world");
-    });
+			expect(result.exports).toBe("hello world");
+		});
 
-    it("should check file existence", async () => {
-      const dir = new Directory();
-      const bridge = dir;
-      await bridge.writeFile("/existing.txt", "content");
+		it("should check file existence", async () => {
+			const dir = new Directory();
+			const bridge = dir;
+			await bridge.writeFile("/existing.txt", "content");
 
-      proc = new NodeProcess({ directory: bridge });
-      const result = await proc.run(`
+			proc = new NodeProcess({ directory: bridge });
+			const result = await proc.run(`
         const fs = require('fs');
         module.exports = {
           exists: fs.existsSync('/existing.txt'),
@@ -392,16 +408,16 @@ describe("NodeProcess", () => {
         };
       `);
 
-      expect(result.exports).toEqual({ exists: true, notExists: false });
-    });
+			expect(result.exports).toEqual({ exists: true, notExists: false });
+		});
 
-    it("should get file stats", async () => {
-      const dir = new Directory();
-      const bridge = dir;
-      await bridge.writeFile("/myfile.txt", "hello");
+		it("should get file stats", async () => {
+			const dir = new Directory();
+			const bridge = dir;
+			await bridge.writeFile("/myfile.txt", "hello");
 
-      proc = new NodeProcess({ directory: bridge });
-      const result = await proc.run(`
+			proc = new NodeProcess({ directory: bridge });
+			const result = await proc.run(`
         const fs = require('fs');
         const stats = fs.statSync('/myfile.txt');
         module.exports = {
@@ -411,37 +427,37 @@ describe("NodeProcess", () => {
         };
       `);
 
-      expect(result.exports).toEqual({
-        isFile: true,
-        isDirectory: false,
-        size: 5,
-      });
-    });
+			expect(result.exports).toEqual({
+				isFile: true,
+				isDirectory: false,
+				size: 5,
+			});
+		});
 
-    it("should read directory contents", async () => {
-      const dir = new Directory();
-      const bridge = dir;
-      await bridge.createDir("/mydir");
-      await bridge.writeFile("/mydir/a.txt", "a");
-      await bridge.writeFile("/mydir/b.txt", "b");
+		it("should read directory contents", async () => {
+			const dir = new Directory();
+			const bridge = dir;
+			await bridge.createDir("/mydir");
+			await bridge.writeFile("/mydir/a.txt", "a");
+			await bridge.writeFile("/mydir/b.txt", "b");
 
-      proc = new NodeProcess({ directory: bridge });
-      const result = await proc.run<string[]>(`
+			proc = new NodeProcess({ directory: bridge });
+			const result = await proc.run<string[]>(`
         const fs = require('fs');
         module.exports = fs.readdirSync('/mydir').sort();
       `);
 
-      expect(result.exports).toContain("a.txt");
-      expect(result.exports).toContain("b.txt");
-    });
+			expect(result.exports).toContain("a.txt");
+			expect(result.exports).toContain("b.txt");
+		});
 
-    it("should delete files", async () => {
-      const dir = new Directory();
-      const bridge = dir;
-      await bridge.writeFile("/todelete.txt", "content");
+		it("should delete files", async () => {
+			const dir = new Directory();
+			const bridge = dir;
+			await bridge.writeFile("/todelete.txt", "content");
 
-      proc = new NodeProcess({ directory: bridge });
-      const result = await proc.run(`
+			proc = new NodeProcess({ directory: bridge });
+			const result = await proc.run(`
         const fs = require('fs');
         const existsBefore = fs.existsSync('/todelete.txt');
         fs.unlinkSync('/todelete.txt');
@@ -449,15 +465,18 @@ describe("NodeProcess", () => {
         module.exports = { existsBefore, existsAfter };
       `);
 
-      expect(result.exports).toEqual({ existsBefore: true, existsAfter: false });
-    });
+			expect(result.exports).toEqual({
+				existsBefore: true,
+				existsAfter: false,
+			});
+		});
 
-    it("should work with file descriptors", async () => {
-      const dir = new Directory();
-      const bridge = dir;
+		it("should work with file descriptors", async () => {
+			const dir = new Directory();
+			const bridge = dir;
 
-      proc = new NodeProcess({ directory: bridge });
-      const result = await proc.run(`
+			proc = new NodeProcess({ directory: bridge });
+			const result = await proc.run(`
         const fs = require('fs');
         const fd = fs.openSync('/fd-test.txt', 'w');
         fs.writeSync(fd, 'hello');
@@ -465,78 +484,78 @@ describe("NodeProcess", () => {
         module.exports = fs.readFileSync('/fd-test.txt', 'utf8');
       `);
 
-      expect(result.exports).toBe("hello");
-    });
+			expect(result.exports).toBe("hello");
+		});
 
-    it("should append to files", async () => {
-      const dir = new Directory();
-      const bridge = dir;
-      await bridge.writeFile("/append.txt", "hello");
+		it("should append to files", async () => {
+			const dir = new Directory();
+			const bridge = dir;
+			await bridge.writeFile("/append.txt", "hello");
 
-      proc = new NodeProcess({ directory: bridge });
-      const result = await proc.run(`
+			proc = new NodeProcess({ directory: bridge });
+			const result = await proc.run(`
         const fs = require('fs');
         fs.appendFileSync('/append.txt', ' world');
         module.exports = fs.readFileSync('/append.txt', 'utf8');
       `);
 
-      expect(result.exports).toBe("hello world");
-    });
+			expect(result.exports).toBe("hello world");
+		});
 
-    it("should create directories", async () => {
-      const dir = new Directory();
-      const bridge = dir;
+		it("should create directories", async () => {
+			const dir = new Directory();
+			const bridge = dir;
 
-      proc = new NodeProcess({ directory: bridge });
-      const result = await proc.run(`
+			proc = new NodeProcess({ directory: bridge });
+			const result = await proc.run(`
         const fs = require('fs');
         fs.mkdirSync('/newdir');
         fs.writeFileSync('/newdir/file.txt', 'content');
         module.exports = fs.existsSync('/newdir/file.txt');
       `);
 
-      expect(result.exports).toBe(true);
-    });
-  });
+			expect(result.exports).toBe(true);
+		});
+	});
 
-  describe("ESM Support", () => {
-    it("should detect and run basic ESM code", async () => {
-      proc = new NodeProcess();
-      const result = await proc.exec(`
+	describe("ESM Support", () => {
+		it("should detect and run basic ESM code", async () => {
+			proc = new NodeProcess();
+			const result = await proc.exec(`
         const x = 1 + 1;
         export default x;
         console.log("result:", x);
       `);
 
-      expect(result.code).toBe(0);
-      expect(result.stdout).toContain("result: 2");
-    });
+			expect(result.code).toBe(0);
+			expect(result.stdout).toContain("result: 2");
+		});
 
-    it("should import built-in modules with ESM syntax", async () => {
-      proc = new NodeProcess();
-      const result = await proc.exec(`
+		it("should import built-in modules with ESM syntax", async () => {
+			proc = new NodeProcess();
+			const result = await proc.exec(`
         import path from 'path';
         console.log(path.join('foo', 'bar'));
       `);
 
-      expect(result.code).toBe(0);
-      expect(result.stdout).toContain("foo/bar");
-    });
+			expect(result.code).toBe(0);
+			expect(result.stdout).toContain("foo/bar");
+		});
 
-    it("should import path with node: prefix", async () => {
-      proc = new NodeProcess();
-      const result = await proc.exec(`
+		it("should import path with node: prefix", async () => {
+			proc = new NodeProcess();
+			const result = await proc.exec(`
         import path from 'node:path';
         console.log(path.basename('/foo/bar/baz.txt'));
       `);
 
-      expect(result.code).toBe(0);
-      expect(result.stdout).toContain("baz.txt");
-    });
+			expect(result.code).toBe(0);
+			expect(result.stdout).toContain("baz.txt");
+		});
 
-    it("should import events module", async () => {
-      proc = new NodeProcess();
-      const result = await proc.exec(`
+		it("should import events module", async () => {
+			proc = new NodeProcess();
+			const result = await proc.exec(`
         import events from 'events';
         const emitter = new events.EventEmitter();
         let msg = '';
@@ -545,148 +564,166 @@ describe("NodeProcess", () => {
         console.log(msg);
       `);
 
-      expect(result.code).toBe(0);
-      expect(result.stdout).toContain("hello");
-    });
+			expect(result.code).toBe(0);
+			expect(result.stdout).toContain("hello");
+		});
 
-    it("should import from filesystem with ESM", async () => {
-      const dir = new Directory();
-      const bridge = dir;
+		it("should import from filesystem with ESM", async () => {
+			const dir = new Directory();
+			const bridge = dir;
 
-      // Create directory and ESM module
-      await bridge.createDir("/lib");
-      await bridge.writeFile("/lib/math.js", `
+			// Create directory and ESM module
+			await bridge.createDir("/lib");
+			await bridge.writeFile(
+				"/lib/math.js",
+				`
         export const add = (a, b) => a + b;
         export const multiply = (a, b) => a * b;
-      `);
+      `,
+			);
 
-      proc = new NodeProcess({ directory: bridge });
-      const result = await proc.exec(`
+			proc = new NodeProcess({ directory: bridge });
+			const result = await proc.exec(`
         import { add, multiply } from '/lib/math.js';
         console.log('add:', add(2, 3));
         console.log('multiply:', multiply(4, 5));
       `);
 
-      expect(result.code).toBe(0);
-      expect(result.stdout).toContain("add: 5");
-      expect(result.stdout).toContain("multiply: 20");
-    });
+			expect(result.code).toBe(0);
+			expect(result.stdout).toContain("add: 5");
+			expect(result.stdout).toContain("multiply: 20");
+		});
 
-    it("should import CJS module from ESM", async () => {
-      const dir = new Directory();
-      const bridge = dir;
+		it("should import CJS module from ESM", async () => {
+			const dir = new Directory();
+			const bridge = dir;
 
-      // Create directory and CJS module
-      await bridge.createDir("/lib");
-      await bridge.writeFile("/lib/cjs-helper.js", `
+			// Create directory and CJS module
+			await bridge.createDir("/lib");
+			await bridge.writeFile(
+				"/lib/cjs-helper.js",
+				`
         module.exports = { greet: (name) => 'Hello, ' + name };
-      `);
+      `,
+			);
 
-      proc = new NodeProcess({ directory: bridge });
-      const result = await proc.exec(`
+			proc = new NodeProcess({ directory: bridge });
+			const result = await proc.exec(`
         import helper from '/lib/cjs-helper.js';
         console.log(helper.greet('World'));
       `);
 
-      expect(result.code).toBe(0);
-      expect(result.stdout).toContain("Hello, World");
-    });
+			expect(result.code).toBe(0);
+			expect(result.stdout).toContain("Hello, World");
+		});
 
-    it("should handle chained ESM imports", async () => {
-      const dir = new Directory();
-      const bridge = dir;
+		it("should handle chained ESM imports", async () => {
+			const dir = new Directory();
+			const bridge = dir;
 
-      // Create a chain of ESM imports
-      await bridge.writeFile("/a.js", `
+			// Create a chain of ESM imports
+			await bridge.writeFile(
+				"/a.js",
+				`
         export const valueA = 'A';
-      `);
-      await bridge.writeFile("/b.js", `
+      `,
+			);
+			await bridge.writeFile(
+				"/b.js",
+				`
         import { valueA } from '/a.js';
         export const valueB = valueA + 'B';
-      `);
-      await bridge.writeFile("/c.js", `
+      `,
+			);
+			await bridge.writeFile(
+				"/c.js",
+				`
         import { valueB } from '/b.js';
         export const valueC = valueB + 'C';
-      `);
+      `,
+			);
 
-      proc = new NodeProcess({ directory: bridge });
-      const result = await proc.exec(`
+			proc = new NodeProcess({ directory: bridge });
+			const result = await proc.exec(`
         import { valueC } from '/c.js';
         console.log(valueC);
       `);
 
-      expect(result.code).toBe(0);
-      expect(result.stdout).toContain("ABC");
-    });
+			expect(result.code).toBe(0);
+			expect(result.stdout).toContain("ABC");
+		});
 
-    it("should handle default and named exports together", async () => {
-      const dir = new Directory();
-      const bridge = dir;
+		it("should handle default and named exports together", async () => {
+			const dir = new Directory();
+			const bridge = dir;
 
-      await bridge.writeFile("/mixed.js", `
+			await bridge.writeFile(
+				"/mixed.js",
+				`
         export const PI = 3.14159;
         export const E = 2.71828;
         export default { name: 'math-constants' };
-      `);
+      `,
+			);
 
-      proc = new NodeProcess({ directory: bridge });
-      const result = await proc.exec(`
+			proc = new NodeProcess({ directory: bridge });
+			const result = await proc.exec(`
         import constants, { PI, E } from '/mixed.js';
         console.log('name:', constants.name);
         console.log('PI:', PI);
         console.log('E:', E);
       `);
 
-      expect(result.code).toBe(0);
-      expect(result.stdout).toContain("name: math-constants");
-      expect(result.stdout).toContain("PI: 3.14159");
-      expect(result.stdout).toContain("E: 2.71828");
-    });
+			expect(result.code).toBe(0);
+			expect(result.stdout).toContain("name: math-constants");
+			expect(result.stdout).toContain("PI: 3.14159");
+			expect(result.stdout).toContain("E: 2.71828");
+		});
 
-    it("should detect .mjs as ESM regardless of content", async () => {
-      proc = new NodeProcess();
-      // Even without import/export, .mjs should be treated as ESM
-      const result = await proc.exec(
-        `console.log("from mjs");`,
-        "/test.mjs"
-      );
+		it("should detect .mjs as ESM regardless of content", async () => {
+			proc = new NodeProcess();
+			// Even without import/export, .mjs should be treated as ESM
+			const result = await proc.exec(`console.log("from mjs");`, "/test.mjs");
 
-      expect(result.code).toBe(0);
-      expect(result.stdout).toContain("from mjs");
-    });
+			expect(result.code).toBe(0);
+			expect(result.stdout).toContain("from mjs");
+		});
 
-    it("should detect .cjs as CJS regardless of content", async () => {
-      proc = new NodeProcess();
-      const result = await proc.exec(
-        `module.exports = 42; console.log("from cjs");`,
-        "/test.cjs"
-      );
+		it("should detect .cjs as CJS regardless of content", async () => {
+			proc = new NodeProcess();
+			const result = await proc.exec(
+				`module.exports = 42; console.log("from cjs");`,
+				"/test.cjs",
+			);
 
-      expect(result.code).toBe(0);
-      expect(result.stdout).toContain("from cjs");
-    });
+			expect(result.code).toBe(0);
+			expect(result.stdout).toContain("from cjs");
+		});
 
-    it("should import JSON with ESM", async () => {
-      const dir = new Directory();
-      const bridge = dir;
+		it("should import JSON with ESM", async () => {
+			const dir = new Directory();
+			const bridge = dir;
 
-      await bridge.writeFile("/config.json", JSON.stringify({ debug: true, version: "1.0.0" }));
+			await bridge.writeFile(
+				"/config.json",
+				JSON.stringify({ debug: true, version: "1.0.0" }),
+			);
 
-      proc = new NodeProcess({ directory: bridge });
-      const result = await proc.exec(`
+			proc = new NodeProcess({ directory: bridge });
+			const result = await proc.exec(`
         import config from '/config.json';
         console.log('debug:', config.debug);
         console.log('version:', config.version);
       `);
 
-      expect(result.code).toBe(0);
-      expect(result.stdout).toContain("debug: true");
-      expect(result.stdout).toContain("version: 1.0.0");
-    });
+			expect(result.code).toBe(0);
+			expect(result.stdout).toContain("debug: true");
+			expect(result.stdout).toContain("version: 1.0.0");
+		});
 
-    it("should support dynamic import() for built-in modules", async () => {
-      proc = new NodeProcess();
-      const result = await proc.exec(`
+		it("should support dynamic import() for built-in modules", async () => {
+			proc = new NodeProcess();
+			const result = await proc.exec(`
         async function main() {
           const path = await import('path');
           console.log(path.default.join('foo', 'bar'));
@@ -694,22 +731,25 @@ describe("NodeProcess", () => {
         main();
       `);
 
-      expect(result.code).toBe(0);
-      expect(result.stdout).toContain("foo/bar");
-    });
+			expect(result.code).toBe(0);
+			expect(result.stdout).toContain("foo/bar");
+		});
 
-    it("should support dynamic import() for filesystem modules", async () => {
-      const dir = new Directory();
-      const bridge = dir;
+		it("should support dynamic import() for filesystem modules", async () => {
+			const dir = new Directory();
+			const bridge = dir;
 
-      await bridge.createDir("/lib");
-      await bridge.writeFile("/lib/utils.js", `
+			await bridge.createDir("/lib");
+			await bridge.writeFile(
+				"/lib/utils.js",
+				`
         export const double = (x) => x * 2;
         export const triple = (x) => x * 3;
-      `);
+      `,
+			);
 
-      proc = new NodeProcess({ directory: bridge });
-      const result = await proc.exec(`
+			proc = new NodeProcess({ directory: bridge });
+			const result = await proc.exec(`
         async function main() {
           const utils = await import('/lib/utils.js');
           console.log('double:', utils.double(5));
@@ -718,20 +758,20 @@ describe("NodeProcess", () => {
         main();
       `);
 
-      expect(result.code).toBe(0);
-      expect(result.stdout).toContain("double: 10");
-      expect(result.stdout).toContain("triple: 15");
-    });
+			expect(result.code).toBe(0);
+			expect(result.stdout).toContain("double: 10");
+			expect(result.stdout).toContain("triple: 15");
+		});
 
-    it("should support conditional dynamic imports", async () => {
-      const dir = new Directory();
-      const bridge = dir;
+		it("should support conditional dynamic imports", async () => {
+			const dir = new Directory();
+			const bridge = dir;
 
-      await bridge.writeFile("/a.js", `export const name = 'module-a';`);
-      await bridge.writeFile("/b.js", `export const name = 'module-b';`);
+			await bridge.writeFile("/a.js", `export const name = 'module-a';`);
+			await bridge.writeFile("/b.js", `export const name = 'module-b';`);
 
-      proc = new NodeProcess({ directory: bridge });
-      const result = await proc.exec(`
+			proc = new NodeProcess({ directory: bridge });
+			const result = await proc.exec(`
         async function loadModule(useA) {
           if (useA) {
             return await import('/a.js');
@@ -749,22 +789,25 @@ describe("NodeProcess", () => {
         main();
       `);
 
-      expect(result.code).toBe(0);
-      expect(result.stdout).toContain("a: module-a");
-      expect(result.stdout).toContain("b: module-b");
-    });
+			expect(result.code).toBe(0);
+			expect(result.stdout).toContain("a: module-a");
+			expect(result.stdout).toContain("b: module-b");
+		});
 
-    it("should support dynamic import() with CJS modules", async () => {
-      const dir = new Directory();
-      const bridge = dir;
+		it("should support dynamic import() with CJS modules", async () => {
+			const dir = new Directory();
+			const bridge = dir;
 
-      await bridge.createDir("/lib");
-      await bridge.writeFile("/lib/cjs-mod.js", `
+			await bridge.createDir("/lib");
+			await bridge.writeFile(
+				"/lib/cjs-mod.js",
+				`
         module.exports = { greeting: 'Hello from CJS' };
-      `);
+      `,
+			);
 
-      proc = new NodeProcess({ directory: bridge });
-      const result = await proc.exec(`
+			proc = new NodeProcess({ directory: bridge });
+			const result = await proc.exec(`
         async function main() {
           const mod = await import('/lib/cjs-mod.js');
           console.log(mod.default.greeting);
@@ -772,97 +815,97 @@ describe("NodeProcess", () => {
         main();
       `);
 
-      expect(result.code).toBe(0);
-      expect(result.stdout).toContain("Hello from CJS");
-    });
-  });
+			expect(result.code).toBe(0);
+			expect(result.stdout).toContain("Hello from CJS");
+		});
+	});
 
-  describe("Phase 1: Process Object Enhancement", () => {
-    describe("process static properties", () => {
-      it("should have process.platform", async () => {
-        proc = new NodeProcess();
-        const result = await proc.run(`
+	describe("Phase 1: Process Object Enhancement", () => {
+		describe("process static properties", () => {
+			it("should have process.platform", async () => {
+				proc = new NodeProcess();
+				const result = await proc.run(`
           module.exports = process.platform;
         `);
-        expect(result.exports).toBe("linux");
-      });
+				expect(result.exports).toBe("linux");
+			});
 
-      it("should have process.arch", async () => {
-        proc = new NodeProcess();
-        const result = await proc.run(`
+			it("should have process.arch", async () => {
+				proc = new NodeProcess();
+				const result = await proc.run(`
           module.exports = process.arch;
         `);
-        expect(result.exports).toBe("x64");
-      });
+				expect(result.exports).toBe("x64");
+			});
 
-      it("should have process.version", async () => {
-        proc = new NodeProcess();
-        const result = await proc.run(`
+			it("should have process.version", async () => {
+				proc = new NodeProcess();
+				const result = await proc.run(`
           module.exports = process.version;
         `);
-        expect(result.exports).toMatch(/^v\d+\.\d+\.\d+$/);
-      });
+				expect(result.exports).toMatch(/^v\d+\.\d+\.\d+$/);
+			});
 
-      it("should have process.versions object", async () => {
-        proc = new NodeProcess();
-        const result = await proc.run(`
+			it("should have process.versions object", async () => {
+				proc = new NodeProcess();
+				const result = await proc.run(`
           module.exports = {
             hasNode: typeof process.versions.node === 'string',
             hasV8: typeof process.versions.v8 === 'string'
           };
         `);
-        expect(result.exports).toEqual({ hasNode: true, hasV8: true });
-      });
+				expect(result.exports).toEqual({ hasNode: true, hasV8: true });
+			});
 
-      it("should have process.pid", async () => {
-        proc = new NodeProcess();
-        const result = await proc.run(`
+			it("should have process.pid", async () => {
+				proc = new NodeProcess();
+				const result = await proc.run(`
           module.exports = typeof process.pid === 'number' && process.pid > 0;
         `);
-        expect(result.exports).toBe(true);
-      });
+				expect(result.exports).toBe(true);
+			});
 
-      it("should have process.argv", async () => {
-        proc = new NodeProcess();
-        const result = await proc.run(`
+			it("should have process.argv", async () => {
+				proc = new NodeProcess();
+				const result = await proc.run(`
           module.exports = Array.isArray(process.argv) && process.argv.length >= 2;
         `);
-        expect(result.exports).toBe(true);
-      });
+				expect(result.exports).toBe(true);
+			});
 
-      it("should have process.execPath", async () => {
-        proc = new NodeProcess();
-        const result = await proc.run(`
+			it("should have process.execPath", async () => {
+				proc = new NodeProcess();
+				const result = await proc.run(`
           module.exports = typeof process.execPath === 'string' && process.execPath.includes('node');
         `);
-        expect(result.exports).toBe(true);
-      });
-    });
+				expect(result.exports).toBe(true);
+			});
+		});
 
-    describe("process methods", () => {
-      it("should support process.exit() by throwing", async () => {
-        proc = new NodeProcess();
-        const result = await proc.run(`
+		describe("process methods", () => {
+			it("should support process.exit() by throwing", async () => {
+				proc = new NodeProcess();
+				const result = await proc.run(`
           process.exit(42);
           module.exports = 'should not reach';
         `);
-        expect(result.code).toBe(42);
-      });
+				expect(result.code).toBe(42);
+			});
 
-      it("should support process.exitCode", async () => {
-        proc = new NodeProcess();
-        const result = await proc.run(`
+			it("should support process.exitCode", async () => {
+				proc = new NodeProcess();
+				const result = await proc.run(`
           process.exitCode = 5;
           module.exports = process.exitCode;
         `);
-        expect(result.exports).toBe(5);
-        expect(result.code).toBe(5);
-      });
+				expect(result.exports).toBe(5);
+				expect(result.code).toBe(5);
+			});
 
-      it("should support process.nextTick", async () => {
-        proc = new NodeProcess();
-        // Test that nextTick exists and is callable
-        const result = await proc.run(`
+			it("should support process.nextTick", async () => {
+				proc = new NodeProcess();
+				// Test that nextTick exists and is callable
+				const result = await proc.run(`
           const hasNextTick = typeof process.nextTick === 'function';
           let callbackCalled = false;
           process.nextTick(() => { callbackCalled = true; });
@@ -872,57 +915,61 @@ describe("NodeProcess", () => {
             callbackCalledSync: callbackCalled
           };
         `);
-        expect(result.exports).toEqual({
-          hasNextTick: true,
-          callbackCalledSync: false // Callback runs async via queueMicrotask
-        });
-      });
+				expect(result.exports).toEqual({
+					hasNextTick: true,
+					callbackCalledSync: false, // Callback runs async via queueMicrotask
+				});
+			});
 
-      it("should support process.hrtime()", async () => {
-        proc = new NodeProcess();
-        const result = await proc.run(`
+			it("should support process.hrtime()", async () => {
+				proc = new NodeProcess();
+				const result = await proc.run(`
           const t1 = process.hrtime();
           const isArray = Array.isArray(t1) && t1.length === 2;
           const hasSeconds = typeof t1[0] === 'number';
           const hasNanos = typeof t1[1] === 'number';
           module.exports = { isArray, hasSeconds, hasNanos };
         `);
-        expect(result.exports).toEqual({ isArray: true, hasSeconds: true, hasNanos: true });
-      });
+				expect(result.exports).toEqual({
+					isArray: true,
+					hasSeconds: true,
+					hasNanos: true,
+				});
+			});
 
-      it("should support process.hrtime.bigint()", async () => {
-        proc = new NodeProcess();
-        const result = await proc.run(`
+			it("should support process.hrtime.bigint()", async () => {
+				proc = new NodeProcess();
+				const result = await proc.run(`
           const t = process.hrtime.bigint();
           // BigInt cannot be serialized to JSON, so check type in sandbox
           module.exports = typeof t === 'bigint';
         `);
-        expect(result.exports).toBe(true);
-      });
+				expect(result.exports).toBe(true);
+			});
 
-      it("should support process.getuid() and process.getgid()", async () => {
-        proc = new NodeProcess();
-        const result = await proc.run(`
+			it("should support process.getuid() and process.getgid()", async () => {
+				proc = new NodeProcess();
+				const result = await proc.run(`
           module.exports = {
             uid: process.getuid(),
             gid: process.getgid()
           };
         `);
-        expect(result.exports).toEqual({ uid: 0, gid: 0 });
-      });
+				expect(result.exports).toEqual({ uid: 0, gid: 0 });
+			});
 
-      it("should support process.uptime()", async () => {
-        proc = new NodeProcess();
-        const result = await proc.run(`
+			it("should support process.uptime()", async () => {
+				proc = new NodeProcess();
+				const result = await proc.run(`
           const t = process.uptime();
           module.exports = typeof t === 'number' && t >= 0;
         `);
-        expect(result.exports).toBe(true);
-      });
+				expect(result.exports).toBe(true);
+			});
 
-      it("should support process.memoryUsage()", async () => {
-        proc = new NodeProcess();
-        const result = await proc.run(`
+			it("should support process.memoryUsage()", async () => {
+				proc = new NodeProcess();
+				const result = await proc.run(`
           const mem = process.memoryUsage();
           module.exports = {
             hasRss: typeof mem.rss === 'number',
@@ -930,39 +977,43 @@ describe("NodeProcess", () => {
             hasHeapUsed: typeof mem.heapUsed === 'number'
           };
         `);
-        expect(result.exports).toEqual({ hasRss: true, hasHeapTotal: true, hasHeapUsed: true });
-      });
-    });
-  });
+				expect(result.exports).toEqual({
+					hasRss: true,
+					hasHeapTotal: true,
+					hasHeapUsed: true,
+				});
+			});
+		});
+	});
 
-  describe("Phase 2: Process as EventEmitter", () => {
-    describe("process events", () => {
-      it("should support process.on and process.emit", async () => {
-        proc = new NodeProcess();
-        const result = await proc.run(`
+	describe("Phase 2: Process as EventEmitter", () => {
+		describe("process events", () => {
+			it("should support process.on and process.emit", async () => {
+				proc = new NodeProcess();
+				const result = await proc.run(`
           let received = null;
           process.on('custom', (data) => { received = data; });
           process.emit('custom', 'hello');
           module.exports = received;
         `);
-        expect(result.exports).toBe("hello");
-      });
+				expect(result.exports).toBe("hello");
+			});
 
-      it("should support process.once", async () => {
-        proc = new NodeProcess();
-        const result = await proc.run(`
+			it("should support process.once", async () => {
+				proc = new NodeProcess();
+				const result = await proc.run(`
           let count = 0;
           process.once('test', () => { count++; });
           process.emit('test');
           process.emit('test');
           module.exports = count;
         `);
-        expect(result.exports).toBe(1);
-      });
+				expect(result.exports).toBe(1);
+			});
 
-      it("should support process.removeListener", async () => {
-        proc = new NodeProcess();
-        const result = await proc.run(`
+			it("should support process.removeListener", async () => {
+				proc = new NodeProcess();
+				const result = await proc.run(`
           let count = 0;
           const handler = () => { count++; };
           process.on('test', handler);
@@ -971,20 +1022,20 @@ describe("NodeProcess", () => {
           process.emit('test');
           module.exports = count;
         `);
-        expect(result.exports).toBe(1);
-      });
+				expect(result.exports).toBe(1);
+			});
 
-      it("should support process.off as alias", async () => {
-        proc = new NodeProcess();
-        const result = await proc.run(`
+			it("should support process.off as alias", async () => {
+				proc = new NodeProcess();
+				const result = await proc.run(`
           module.exports = process.off === process.removeListener;
         `);
-        expect(result.exports).toBe(true);
-      });
+				expect(result.exports).toBe(true);
+			});
 
-      it("should fire exit event on process.exit()", async () => {
-        proc = new NodeProcess();
-        const result = await proc.run(`
+			it("should fire exit event on process.exit()", async () => {
+				proc = new NodeProcess();
+				const result = await proc.run(`
           let exitFired = false;
           process.on('exit', (code) => {
             exitFired = true;
@@ -992,78 +1043,82 @@ describe("NodeProcess", () => {
           });
           process.exit(0);
         `);
-        expect(result.stdout).toContain("exit:0");
-      });
-    });
+				expect(result.stdout).toContain("exit:0");
+			});
+		});
 
-    describe("process stdio streams", () => {
-      it("should have process.stdout as writable", async () => {
-        proc = new NodeProcess();
-        const result = await proc.run(`
+		describe("process stdio streams", () => {
+			it("should have process.stdout as writable", async () => {
+				proc = new NodeProcess();
+				const result = await proc.run(`
           process.stdout.write('hello from stdout');
           module.exports = typeof process.stdout.write === 'function';
         `);
-        expect(result.stdout).toContain("hello from stdout");
-        expect(result.exports).toBe(true);
-      });
+				expect(result.stdout).toContain("hello from stdout");
+				expect(result.exports).toBe(true);
+			});
 
-      it("should have process.stderr as writable", async () => {
-        proc = new NodeProcess();
-        const result = await proc.run(`
+			it("should have process.stderr as writable", async () => {
+				proc = new NodeProcess();
+				const result = await proc.run(`
           process.stderr.write('hello from stderr');
           module.exports = typeof process.stderr.write === 'function';
         `);
-        expect(result.stderr).toContain("hello from stderr");
-        expect(result.exports).toBe(true);
-      });
+				expect(result.stderr).toContain("hello from stderr");
+				expect(result.exports).toBe(true);
+			});
 
-      it("should have process.stdin as readable", async () => {
-        proc = new NodeProcess();
-        const result = await proc.run(`
+			it("should have process.stdin as readable", async () => {
+				proc = new NodeProcess();
+				const result = await proc.run(`
           module.exports = {
             hasOn: typeof process.stdin.on === 'function',
             hasRead: typeof process.stdin.read === 'function',
             readable: process.stdin.readable !== undefined
           };
         `);
-        expect(result.exports).toEqual({
-          hasOn: true,
-          hasRead: true,
-          readable: true
-        });
-      });
-    });
-  });
+				expect(result.exports).toEqual({
+					hasOn: true,
+					hasRead: true,
+					readable: true,
+				});
+			});
+		});
+	});
 
-  describe("Phase 3: child_process via CommandExecutor", () => {
-    // Mock command executor for testing
-    const mockExecutor = {
-      async exec(command: string) {
-        if (command.includes("echo")) {
-          const match = command.match(/echo\s+["']?([^"']+)["']?/);
-          const text = match ? match[1] : "";
-          return { stdout: text + "\n", stderr: "", code: 0 };
-        }
-        if (command.includes("fail")) {
-          return { stdout: "", stderr: "command failed", code: 1 };
-        }
-        return { stdout: "executed: " + command, stderr: "", code: 0 };
-      },
-      async run(command: string, args: string[] = []) {
-        if (command === "echo") {
-          return { stdout: args.join(" ") + "\n", stderr: "", code: 0 };
-        }
-        if (command === "cat") {
-          return { stdout: "file content", stderr: "", code: 0 };
-        }
-        return { stdout: "", stderr: "command not found: " + command, code: 127 };
-      }
-    };
+	describe("Phase 3: child_process via CommandExecutor", () => {
+		// Mock command executor for testing
+		const mockExecutor = {
+			async exec(command: string) {
+				if (command.includes("echo")) {
+					const match = command.match(/echo\s+["']?([^"']+)["']?/);
+					const text = match ? match[1] : "";
+					return { stdout: `${text}\n`, stderr: "", code: 0 };
+				}
+				if (command.includes("fail")) {
+					return { stdout: "", stderr: "command failed", code: 1 };
+				}
+				return { stdout: `executed: ${command}`, stderr: "", code: 0 };
+			},
+			async run(command: string, args: string[] = []) {
+				if (command === "echo") {
+					return { stdout: `${args.join(" ")}\n`, stderr: "", code: 0 };
+				}
+				if (command === "cat") {
+					return { stdout: "file content", stderr: "", code: 0 };
+				}
+				return {
+					stdout: "",
+					stderr: `command not found: ${command}`,
+					code: 127,
+				};
+			},
+		};
 
-    describe("require child_process", () => {
-      it("should load child_process module when CommandExecutor is provided", async () => {
-        proc = new NodeProcess({ commandExecutor: mockExecutor });
-        const result = await proc.run(`
+		describe("require child_process", () => {
+			it("should load child_process module when CommandExecutor is provided", async () => {
+				proc = new NodeProcess({ commandExecutor: mockExecutor });
+				const result = await proc.run(`
           const cp = require('child_process');
           module.exports = {
             hasExec: typeof cp.exec === 'function',
@@ -1073,30 +1128,30 @@ describe("NodeProcess", () => {
             hasFork: typeof cp.fork === 'function'
           };
         `);
-        expect(result.exports).toEqual({
-          hasExec: true,
-          hasExecSync: true,
-          hasSpawn: true,
-          hasSpawnSync: true,
-          hasFork: true
-        });
-      });
+				expect(result.exports).toEqual({
+					hasExec: true,
+					hasExecSync: true,
+					hasSpawn: true,
+					hasSpawnSync: true,
+					hasFork: true,
+				});
+			});
 
-      it("should throw when child_process is required without CommandExecutor", async () => {
-        proc = new NodeProcess();
-        const result = await proc.exec(`
+			it("should throw when child_process is required without CommandExecutor", async () => {
+				proc = new NodeProcess();
+				const result = await proc.exec(`
           const cp = require('child_process');
         `);
-        expect(result.code).toBe(1);
-        expect(result.stderr).toContain("CommandExecutor");
-      });
-    });
+				expect(result.code).toBe(1);
+				expect(result.stderr).toContain("CommandExecutor");
+			});
+		});
 
-    describe("exec", () => {
-      it("should execute shell commands", async () => {
-        proc = new NodeProcess({ commandExecutor: mockExecutor });
-        // Use sync method to test the callback pattern
-        const result = await proc.run(`
+		describe("exec", () => {
+			it("should execute shell commands", async () => {
+				proc = new NodeProcess({ commandExecutor: mockExecutor });
+				// Use sync method to test the callback pattern
+				const result = await proc.run(`
           const { exec } = require('child_process');
           const child = exec('echo hello');
           // Child should have the expected properties
@@ -1105,15 +1160,15 @@ describe("NodeProcess", () => {
             spawnargs: child.spawnargs
           };
         `);
-        expect(result.exports).toEqual({
-          hasCallback: true,
-          spawnargs: ['bash', '-c', 'echo hello']
-        });
-      });
+				expect(result.exports).toEqual({
+					hasCallback: true,
+					spawnargs: ["bash", "-c", "echo hello"],
+				});
+			});
 
-      it("should return ChildProcess with event methods", async () => {
-        proc = new NodeProcess({ commandExecutor: mockExecutor });
-        const result = await proc.run(`
+			it("should return ChildProcess with event methods", async () => {
+				proc = new NodeProcess({ commandExecutor: mockExecutor });
+				const result = await proc.run(`
           const { exec } = require('child_process');
           const child = exec('echo test');
           module.exports = {
@@ -1123,19 +1178,19 @@ describe("NodeProcess", () => {
             hasPid: typeof child.pid === 'number'
           };
         `);
-        expect(result.exports).toEqual({
-          hasOn: true,
-          hasStdout: true,
-          hasStderr: true,
-          hasPid: true
-        });
-      });
-    });
+				expect(result.exports).toEqual({
+					hasOn: true,
+					hasStdout: true,
+					hasStderr: true,
+					hasPid: true,
+				});
+			});
+		});
 
-    describe("spawn", () => {
-      it("should spawn commands with args", async () => {
-        proc = new NodeProcess({ commandExecutor: mockExecutor });
-        const result = await proc.run(`
+		describe("spawn", () => {
+			it("should spawn commands with args", async () => {
+				proc = new NodeProcess({ commandExecutor: mockExecutor });
+				const result = await proc.run(`
           const { spawn } = require('child_process');
           const child = spawn('echo', ['hello', 'world']);
           module.exports = {
@@ -1144,28 +1199,28 @@ describe("NodeProcess", () => {
             spawnargs: child.spawnargs
           };
         `);
-        expect(result.exports).toMatchObject({
-          hasOn: true,
-          hasStdout: true,
-          spawnargs: ['echo', 'hello', 'world']
-        });
-      });
-    });
+				expect(result.exports).toMatchObject({
+					hasOn: true,
+					hasStdout: true,
+					spawnargs: ["echo", "hello", "world"],
+				});
+			});
+		});
 
-    describe("execSync", () => {
-      it("should execute shell commands synchronously", async () => {
-        proc = new NodeProcess({ commandExecutor: mockExecutor });
-        const result = await proc.run(`
+		describe("execSync", () => {
+			it("should execute shell commands synchronously", async () => {
+				proc = new NodeProcess({ commandExecutor: mockExecutor });
+				const result = await proc.run(`
           const { execSync } = require('child_process');
           const output = execSync('echo hello', { encoding: 'utf8' });
           module.exports = output.trim();
         `);
-        expect(result.exports).toBe("hello");
-      });
+				expect(result.exports).toBe("hello");
+			});
 
-      it("should throw on non-zero exit code", async () => {
-        proc = new NodeProcess({ commandExecutor: mockExecutor });
-        const result = await proc.exec(`
+			it("should throw on non-zero exit code", async () => {
+				proc = new NodeProcess({ commandExecutor: mockExecutor });
+				const result = await proc.exec(`
           const { execSync } = require('child_process');
           try {
             execSync('fail');
@@ -1173,30 +1228,34 @@ describe("NodeProcess", () => {
             console.log('caught:', err.status);
           }
         `);
-        expect(result.stdout).toContain("caught: 1");
-      });
-    });
+				expect(result.stdout).toContain("caught: 1");
+			});
+		});
 
-    describe("spawnSync", () => {
-      it("should spawn commands synchronously", async () => {
-        // Create a complete mock executor for this test
-        const spawnMockExecutor = {
-          async exec(command: string) {
-            return { stdout: "exec: " + command, stderr: "", code: 0 };
-          },
-          async run(command: string, args: string[] = []) {
-            if (command === "echo") {
-              return { stdout: args.join(" ") + "\n", stderr: "", code: 0 };
-            }
-            if (command === "cat") {
-              return { stdout: "file content", stderr: "", code: 0 };
-            }
-            return { stdout: "", stderr: "command not found: " + command, code: 127 };
-          }
-        };
+		describe("spawnSync", () => {
+			it("should spawn commands synchronously", async () => {
+				// Create a complete mock executor for this test
+				const spawnMockExecutor = {
+					async exec(command: string) {
+						return { stdout: `exec: ${command}`, stderr: "", code: 0 };
+					},
+					async run(command: string, args: string[] = []) {
+						if (command === "echo") {
+							return { stdout: `${args.join(" ")}\n`, stderr: "", code: 0 };
+						}
+						if (command === "cat") {
+							return { stdout: "file content", stderr: "", code: 0 };
+						}
+						return {
+							stdout: "",
+							stderr: `command not found: ${command}`,
+							code: 127,
+						};
+					},
+				};
 
-        proc = new NodeProcess({ commandExecutor: spawnMockExecutor });
-        const result = await proc.run(`
+				proc = new NodeProcess({ commandExecutor: spawnMockExecutor });
+				const result = await proc.run(`
           const { spawnSync } = require('child_process');
           const result = spawnSync('echo', ['test']);
           module.exports = {
@@ -1206,87 +1265,95 @@ describe("NodeProcess", () => {
             stdoutStr: result.stdout.toString ? result.stdout.toString() : result.stdout
           };
         `);
-        expect(result.exports).toMatchObject({
-          status: 0,
-          hasStdout: true,
-          hasStderr: true
-        });
-        expect((result.exports as { stdoutStr: string }).stdoutStr).toContain("test");
-      });
-    });
-  });
+				expect(result.exports).toMatchObject({
+					status: 0,
+					hasStdout: true,
+					hasStderr: true,
+				});
+				expect((result.exports as { stdoutStr: string }).stdoutStr).toContain(
+					"test",
+				);
+			});
+		});
+	});
 
-  describe("Phase 4: Networking via Host Bridge", () => {
-    // Mock network adapter for testing
-    const mockNetworkAdapter: NetworkAdapter = {
-      async fetch(url, options) {
-        // Simple mock fetch implementation
-        if (url === "https://example.com/api/test") {
-          return {
-            ok: true,
-            status: 200,
-            statusText: "OK",
-            headers: { "content-type": "application/json" } as Record<string, string>,
-            body: JSON.stringify({ message: "Hello from mock!" }),
-            url,
-            redirected: false
-          };
-        }
-        if (url === "https://example.com/api/post") {
-          return {
-            ok: true,
-            status: 201,
-            statusText: "Created",
-            headers: { "content-type": "application/json" } as Record<string, string>,
-            body: JSON.stringify({ received: options.body }),
-            url,
-            redirected: false
-          };
-        }
-        return {
-          ok: false,
-          status: 404,
-          statusText: "Not Found",
-          headers: {} as Record<string, string>,
-          body: "Not Found",
-          url,
-          redirected: false
-        };
-      },
-      async dnsLookup(hostname) {
-        if (hostname === "example.com") {
-          return { address: "93.184.216.34", family: 4 };
-        }
-        if (hostname === "localhost") {
-          return { address: "127.0.0.1", family: 4 };
-        }
-        return { error: "ENOTFOUND", code: "ENOTFOUND" };
-      },
-      async httpRequest(url, _options) {
-        // Simple mock http request implementation
-        if (url.includes("example.com")) {
-          return {
-            status: 200,
-            statusText: "OK",
-            headers: { "content-type": "text/html" } as Record<string, string>,
-            body: "<html><body>Hello from mock http!</body></html>",
-            url
-          };
-        }
-        return {
-          status: 404,
-          statusText: "Not Found",
-          headers: {} as Record<string, string>,
-          body: "Not Found",
-          url
-        };
-      }
-    };
+	describe("Phase 4: Networking via Host Bridge", () => {
+		// Mock network adapter for testing
+		const mockNetworkAdapter: NetworkAdapter = {
+			async fetch(url, options) {
+				// Simple mock fetch implementation
+				if (url === "https://example.com/api/test") {
+					return {
+						ok: true,
+						status: 200,
+						statusText: "OK",
+						headers: { "content-type": "application/json" } as Record<
+							string,
+							string
+						>,
+						body: JSON.stringify({ message: "Hello from mock!" }),
+						url,
+						redirected: false,
+					};
+				}
+				if (url === "https://example.com/api/post") {
+					return {
+						ok: true,
+						status: 201,
+						statusText: "Created",
+						headers: { "content-type": "application/json" } as Record<
+							string,
+							string
+						>,
+						body: JSON.stringify({ received: options.body }),
+						url,
+						redirected: false,
+					};
+				}
+				return {
+					ok: false,
+					status: 404,
+					statusText: "Not Found",
+					headers: {} as Record<string, string>,
+					body: "Not Found",
+					url,
+					redirected: false,
+				};
+			},
+			async dnsLookup(hostname) {
+				if (hostname === "example.com") {
+					return { address: "93.184.216.34", family: 4 };
+				}
+				if (hostname === "localhost") {
+					return { address: "127.0.0.1", family: 4 };
+				}
+				return { error: "ENOTFOUND", code: "ENOTFOUND" };
+			},
+			async httpRequest(url, _options) {
+				// Simple mock http request implementation
+				if (url.includes("example.com")) {
+					return {
+						status: 200,
+						statusText: "OK",
+						headers: { "content-type": "text/html" } as Record<string, string>,
+						body: "<html><body>Hello from mock http!</body></html>",
+						url,
+					};
+				}
+				return {
+					status: 404,
+					statusText: "Not Found",
+					headers: {} as Record<string, string>,
+					body: "Not Found",
+					url,
+				};
+			},
+		};
 
-    describe("require network modules", () => {
-      it("should load http module when NetworkAdapter is provided", async () => {
-        proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
-        const result = await proc.run(`
+		describe("require network modules", () => {
+			it("should load http module when NetworkAdapter is provided", async () => {
+				proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
+				const result = await proc.run(`
           const http = require('http');
           module.exports = {
             hasRequest: typeof http.request === 'function',
@@ -1294,31 +1361,31 @@ describe("NodeProcess", () => {
             hasMethods: Array.isArray(http.METHODS)
           };
         `);
-        expect(result.exports).toEqual({
-          hasRequest: true,
-          hasGet: true,
-          hasMethods: true
-        });
-      });
+				expect(result.exports).toEqual({
+					hasRequest: true,
+					hasGet: true,
+					hasMethods: true,
+				});
+			});
 
-      it("should load https module when NetworkAdapter is provided", async () => {
-        proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
-        const result = await proc.run(`
+			it("should load https module when NetworkAdapter is provided", async () => {
+				proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
+				const result = await proc.run(`
           const https = require('https');
           module.exports = {
             hasRequest: typeof https.request === 'function',
             hasGet: typeof https.get === 'function'
           };
         `);
-        expect(result.exports).toEqual({
-          hasRequest: true,
-          hasGet: true
-        });
-      });
+				expect(result.exports).toEqual({
+					hasRequest: true,
+					hasGet: true,
+				});
+			});
 
-      it("should load dns module when NetworkAdapter is provided", async () => {
-        proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
-        const result = await proc.run(`
+			it("should load dns module when NetworkAdapter is provided", async () => {
+				proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
+				const result = await proc.run(`
           const dns = require('dns');
           module.exports = {
             hasLookup: typeof dns.lookup === 'function',
@@ -1326,16 +1393,16 @@ describe("NodeProcess", () => {
             hasPromises: typeof dns.promises === 'object'
           };
         `);
-        expect(result.exports).toEqual({
-          hasLookup: true,
-          hasResolve: true,
-          hasPromises: true
-        });
-      });
+				expect(result.exports).toEqual({
+					hasLookup: true,
+					hasResolve: true,
+					hasPromises: true,
+				});
+			});
 
-      it("should throw when http is required without NetworkAdapter", async () => {
-        proc = new NodeProcess({});
-        const result = await proc.run(`
+			it("should throw when http is required without NetworkAdapter", async () => {
+				proc = new NodeProcess({});
+				const result = await proc.run(`
           try {
             const http = require('http');
             module.exports = { error: false };
@@ -1343,13 +1410,15 @@ describe("NodeProcess", () => {
             module.exports = { error: true, message: e.message };
           }
         `);
-        expect(result.exports).toMatchObject({ error: true });
-        expect((result.exports as { message: string }).message).toContain("NetworkAdapter");
-      });
+				expect(result.exports).toMatchObject({ error: true });
+				expect((result.exports as { message: string }).message).toContain(
+					"NetworkAdapter",
+				);
+			});
 
-      it("should throw when https is required without NetworkAdapter", async () => {
-        proc = new NodeProcess({});
-        const result = await proc.run(`
+			it("should throw when https is required without NetworkAdapter", async () => {
+				proc = new NodeProcess({});
+				const result = await proc.run(`
           try {
             const https = require('https');
             module.exports = { error: false };
@@ -1357,13 +1426,15 @@ describe("NodeProcess", () => {
             module.exports = { error: true, message: e.message };
           }
         `);
-        expect(result.exports).toMatchObject({ error: true });
-        expect((result.exports as { message: string }).message).toContain("NetworkAdapter");
-      });
+				expect(result.exports).toMatchObject({ error: true });
+				expect((result.exports as { message: string }).message).toContain(
+					"NetworkAdapter",
+				);
+			});
 
-      it("should throw when dns is required without NetworkAdapter", async () => {
-        proc = new NodeProcess({});
-        const result = await proc.run(`
+			it("should throw when dns is required without NetworkAdapter", async () => {
+				proc = new NodeProcess({});
+				const result = await proc.run(`
           try {
             const dns = require('dns');
             module.exports = { error: false };
@@ -1371,15 +1442,17 @@ describe("NodeProcess", () => {
             module.exports = { error: true, message: e.message };
           }
         `);
-        expect(result.exports).toMatchObject({ error: true });
-        expect((result.exports as { message: string }).message).toContain("NetworkAdapter");
-      });
-    });
+				expect(result.exports).toMatchObject({ error: true });
+				expect((result.exports as { message: string }).message).toContain(
+					"NetworkAdapter",
+				);
+			});
+		});
 
-    describe("fetch", () => {
-      it("should provide global fetch function", async () => {
-        proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
-        const result = await proc.run(`
+		describe("fetch", () => {
+			it("should provide global fetch function", async () => {
+				proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
+				const result = await proc.run(`
           (async () => {
             const response = await fetch('https://example.com/api/test');
             const data = await response.json();
@@ -1390,16 +1463,16 @@ describe("NodeProcess", () => {
             };
           })();
         `);
-        expect(result.exports).toMatchObject({
-          ok: true,
-          status: 200,
-          data: { message: "Hello from mock!" }
-        });
-      });
+				expect(result.exports).toMatchObject({
+					ok: true,
+					status: 200,
+					data: { message: "Hello from mock!" },
+				});
+			});
 
-      it("should support fetch with options", async () => {
-        proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
-        const result = await proc.run(`
+			it("should support fetch with options", async () => {
+				proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
+				const result = await proc.run(`
           (async () => {
             const response = await fetch('https://example.com/api/post', {
               method: 'POST',
@@ -1414,15 +1487,15 @@ describe("NodeProcess", () => {
             };
           })();
         `);
-        expect(result.exports).toMatchObject({
-          ok: true,
-          status: 201
-        });
-      });
+				expect(result.exports).toMatchObject({
+					ok: true,
+					status: 201,
+				});
+			});
 
-      it("should handle fetch errors", async () => {
-        proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
-        const result = await proc.run(`
+			it("should handle fetch errors", async () => {
+				proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
+				const result = await proc.run(`
           (async () => {
             const response = await fetch('https://example.com/api/notfound');
             module.exports = {
@@ -1431,17 +1504,17 @@ describe("NodeProcess", () => {
             };
           })();
         `);
-        expect(result.exports).toMatchObject({
-          ok: false,
-          status: 404
-        });
-      });
-    });
+				expect(result.exports).toMatchObject({
+					ok: false,
+					status: 404,
+				});
+			});
+		});
 
-    describe("dns", () => {
-      it("should resolve hostname with dns.lookup callback", async () => {
-        proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
-        const result = await proc.run(`
+		describe("dns", () => {
+			it("should resolve hostname with dns.lookup callback", async () => {
+				proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
+				const result = await proc.run(`
           const dns = require('dns');
           (async () => {
             await new Promise((resolve, reject) => {
@@ -1457,30 +1530,30 @@ describe("NodeProcess", () => {
             });
           })();
         `);
-        expect(result.exports).toEqual({
-          address: "93.184.216.34",
-          family: 4
-        });
-      });
+				expect(result.exports).toEqual({
+					address: "93.184.216.34",
+					family: 4,
+				});
+			});
 
-      it("should resolve hostname with dns.promises.lookup", async () => {
-        proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
-        const result = await proc.run(`
+			it("should resolve hostname with dns.promises.lookup", async () => {
+				proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
+				const result = await proc.run(`
           const dns = require('dns');
           (async () => {
             const result = await dns.promises.lookup('localhost');
             module.exports = result;
           })();
         `);
-        expect(result.exports).toEqual({
-          address: "127.0.0.1",
-          family: 4
-        });
-      });
+				expect(result.exports).toEqual({
+					address: "127.0.0.1",
+					family: 4,
+				});
+			});
 
-      it("should handle dns lookup errors", async () => {
-        proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
-        const result = await proc.run(`
+			it("should handle dns lookup errors", async () => {
+				proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
+				const result = await proc.run(`
           const dns = require('dns');
           (async () => {
             await new Promise((resolve) => {
@@ -1495,17 +1568,17 @@ describe("NodeProcess", () => {
             });
           })();
         `);
-        expect(result.exports).toMatchObject({
-          error: true,
-          code: "ENOTFOUND"
-        });
-      });
-    });
+				expect(result.exports).toMatchObject({
+					error: true,
+					code: "ENOTFOUND",
+				});
+			});
+		});
 
-    describe("http", () => {
-      it("should make http.get requests", async () => {
-        proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
-        const result = await proc.run(`
+		describe("http", () => {
+			it("should make http.get requests", async () => {
+				proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
+				const result = await proc.run(`
           const http = require('http');
           (async () => {
             await new Promise((resolve) => {
@@ -1528,15 +1601,15 @@ describe("NodeProcess", () => {
             });
           })();
         `);
-        expect(result.exports).toMatchObject({
-          status: 200,
-          hasBody: true
-        });
-      });
+				expect(result.exports).toMatchObject({
+					status: 200,
+					hasBody: true,
+				});
+			});
 
-      it("should support http.request with options", async () => {
-        proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
-        const result = await proc.run(`
+			it("should support http.request with options", async () => {
+				proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
+				const result = await proc.run(`
           const http = require('http');
           (async () => {
             await new Promise((resolve) => {
@@ -1561,18 +1634,18 @@ describe("NodeProcess", () => {
             });
           })();
         `);
-        expect(result.exports).toMatchObject({
-          status: 200,
-          statusMessage: "OK",
-          hasHeaders: true
-        });
-      });
-    });
+				expect(result.exports).toMatchObject({
+					status: 200,
+					statusMessage: "OK",
+					hasHeaders: true,
+				});
+			});
+		});
 
-    describe("https", () => {
-      it("should make https.get requests", async () => {
-        proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
-        const result = await proc.run(`
+		describe("https", () => {
+			it("should make https.get requests", async () => {
+				proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
+				const result = await proc.run(`
           const https = require('https');
           (async () => {
             await new Promise((resolve) => {
@@ -1595,17 +1668,17 @@ describe("NodeProcess", () => {
             });
           })();
         `);
-        expect(result.exports).toMatchObject({
-          status: 200,
-          hasBody: true
-        });
-      });
-    });
+				expect(result.exports).toMatchObject({
+					status: 200,
+					hasBody: true,
+				});
+			});
+		});
 
-    describe("Headers, Request, Response classes", () => {
-      it("should provide Headers class", async () => {
-        proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
-        const result = await proc.run(`
+		describe("Headers, Request, Response classes", () => {
+			it("should provide Headers class", async () => {
+				proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
+				const result = await proc.run(`
           const headers = new Headers({ 'Content-Type': 'application/json' });
           headers.set('X-Custom', 'test');
           module.exports = {
@@ -1614,16 +1687,16 @@ describe("NodeProcess", () => {
             custom: headers.get('x-custom')
           };
         `);
-        expect(result.exports).toEqual({
-          hasGet: true,
-          contentType: "application/json",
-          custom: "test"
-        });
-      });
+				expect(result.exports).toEqual({
+					hasGet: true,
+					contentType: "application/json",
+					custom: "test",
+				});
+			});
 
-      it("should provide Request class", async () => {
-        proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
-        const result = await proc.run(`
+			it("should provide Request class", async () => {
+				proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
+				const result = await proc.run(`
           const request = new Request('https://example.com/api', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
@@ -1634,16 +1707,16 @@ describe("NodeProcess", () => {
             hasHeaders: request.headers instanceof Headers
           };
         `);
-        expect(result.exports).toEqual({
-          url: "https://example.com/api",
-          method: "POST",
-          hasHeaders: true
-        });
-      });
+				expect(result.exports).toEqual({
+					url: "https://example.com/api",
+					method: "POST",
+					hasHeaders: true,
+				});
+			});
 
-      it("should provide Response class", async () => {
-        proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
-        const result = await proc.run(`
+			it("should provide Response class", async () => {
+				proc = new NodeProcess({ networkAdapter: mockNetworkAdapter });
+				const result = await proc.run(`
           (async () => {
             const response = new Response('{"test": "data"}', {
               status: 201,
@@ -1659,83 +1732,83 @@ describe("NodeProcess", () => {
             };
           })();
         `);
-        expect(result.exports).toEqual({
-          ok: true,
-          status: 201,
-          statusText: "Created",
-          json: { test: "data" }
-        });
-      });
-    });
-  });
+				expect(result.exports).toEqual({
+					ok: true,
+					status: 201,
+					statusText: "Created",
+					json: { test: "data" },
+				});
+			});
+		});
+	});
 
-  describe("Phase 5: OS Module", () => {
-    it("should have os.platform()", async () => {
-      proc = new NodeProcess();
-      const result = await proc.run(`
+	describe("Phase 5: OS Module", () => {
+		it("should have os.platform()", async () => {
+			proc = new NodeProcess();
+			const result = await proc.run(`
         const os = require('os');
         module.exports = os.platform();
       `);
-      expect(result.exports).toBe("linux");
-    });
+			expect(result.exports).toBe("linux");
+		});
 
-    it("should have os.arch()", async () => {
-      proc = new NodeProcess();
-      const result = await proc.run(`
+		it("should have os.arch()", async () => {
+			proc = new NodeProcess();
+			const result = await proc.run(`
         const os = require('os');
         module.exports = os.arch();
       `);
-      expect(result.exports).toBe("x64");
-    });
+			expect(result.exports).toBe("x64");
+		});
 
-    it("should have os.type()", async () => {
-      proc = new NodeProcess();
-      const result = await proc.run(`
+		it("should have os.type()", async () => {
+			proc = new NodeProcess();
+			const result = await proc.run(`
         const os = require('os');
         module.exports = os.type();
       `);
-      expect(result.exports).toBe("Linux");
-    });
+			expect(result.exports).toBe("Linux");
+		});
 
-    it("should have os.release()", async () => {
-      proc = new NodeProcess();
-      const result = await proc.run(`
+		it("should have os.release()", async () => {
+			proc = new NodeProcess();
+			const result = await proc.run(`
         const os = require('os');
         module.exports = os.release();
       `);
-      expect(result.exports).toBe("5.15.0");
-    });
+			expect(result.exports).toBe("5.15.0");
+		});
 
-    it("should have os.homedir()", async () => {
-      proc = new NodeProcess();
-      const result = await proc.run(`
+		it("should have os.homedir()", async () => {
+			proc = new NodeProcess();
+			const result = await proc.run(`
         const os = require('os');
         module.exports = os.homedir();
       `);
-      expect(result.exports).toBe("/root");
-    });
+			expect(result.exports).toBe("/root");
+		});
 
-    it("should have os.tmpdir()", async () => {
-      proc = new NodeProcess();
-      const result = await proc.run(`
+		it("should have os.tmpdir()", async () => {
+			proc = new NodeProcess();
+			const result = await proc.run(`
         const os = require('os');
         module.exports = os.tmpdir();
       `);
-      expect(result.exports).toBe("/tmp");
-    });
+			expect(result.exports).toBe("/tmp");
+		});
 
-    it("should have os.hostname()", async () => {
-      proc = new NodeProcess();
-      const result = await proc.run(`
+		it("should have os.hostname()", async () => {
+			proc = new NodeProcess();
+			const result = await proc.run(`
         const os = require('os');
         module.exports = os.hostname();
       `);
-      expect(result.exports).toBe("sandbox");
-    });
+			expect(result.exports).toBe("sandbox");
+		});
 
-    it("should have os.userInfo()", async () => {
-      proc = new NodeProcess();
-      const result = await proc.run(`
+		it("should have os.userInfo()", async () => {
+			proc = new NodeProcess();
+			const result = await proc.run(`
         const os = require('os');
         const info = os.userInfo();
         module.exports = {
@@ -1745,17 +1818,17 @@ describe("NodeProcess", () => {
           hasHomedir: typeof info.homedir === 'string'
         };
       `);
-      expect(result.exports).toEqual({
-        hasUsername: true,
-        hasUid: true,
-        hasGid: true,
-        hasHomedir: true
-      });
-    });
+			expect(result.exports).toEqual({
+				hasUsername: true,
+				hasUid: true,
+				hasGid: true,
+				hasHomedir: true,
+			});
+		});
 
-    it("should have os.cpus()", async () => {
-      proc = new NodeProcess();
-      const result = await proc.run(`
+		it("should have os.cpus()", async () => {
+			proc = new NodeProcess();
+			const result = await proc.run(`
         const os = require('os');
         const cpus = os.cpus();
         module.exports = {
@@ -1764,31 +1837,31 @@ describe("NodeProcess", () => {
           hasTimes: cpus.length > 0 && typeof cpus[0].times === 'object'
         };
       `);
-      expect(result.exports).toEqual({
-        isArray: true,
-        hasModel: true,
-        hasTimes: true
-      });
-    });
+			expect(result.exports).toEqual({
+				isArray: true,
+				hasModel: true,
+				hasTimes: true,
+			});
+		});
 
-    it("should have os.totalmem() and os.freemem()", async () => {
-      proc = new NodeProcess();
-      const result = await proc.run(`
+		it("should have os.totalmem() and os.freemem()", async () => {
+			proc = new NodeProcess();
+			const result = await proc.run(`
         const os = require('os');
         module.exports = {
           totalmem: os.totalmem(),
           freemem: os.freemem()
         };
       `);
-      expect(result.exports).toMatchObject({
-        totalmem: 1073741824,  // 1GB
-        freemem: 536870912     // 512MB
-      });
-    });
+			expect(result.exports).toMatchObject({
+				totalmem: 1073741824, // 1GB
+				freemem: 536870912, // 512MB
+			});
+		});
 
-    it("should have os.loadavg()", async () => {
-      proc = new NodeProcess();
-      const result = await proc.run(`
+		it("should have os.loadavg()", async () => {
+			proc = new NodeProcess();
+			const result = await proc.run(`
         const os = require('os');
         const load = os.loadavg();
         module.exports = {
@@ -1796,43 +1869,43 @@ describe("NodeProcess", () => {
           hasThreeItems: load.length === 3
         };
       `);
-      expect(result.exports).toEqual({
-        isArray: true,
-        hasThreeItems: true
-      });
-    });
+			expect(result.exports).toEqual({
+				isArray: true,
+				hasThreeItems: true,
+			});
+		});
 
-    it("should have os.EOL", async () => {
-      proc = new NodeProcess();
-      const result = await proc.run(`
+		it("should have os.EOL", async () => {
+			proc = new NodeProcess();
+			const result = await proc.run(`
         const os = require('os');
         module.exports = os.EOL;
       `);
-      expect(result.exports).toBe("\n");
-    });
+			expect(result.exports).toBe("\n");
+		});
 
-    it("should have os.endianness()", async () => {
-      proc = new NodeProcess();
-      const result = await proc.run(`
+		it("should have os.endianness()", async () => {
+			proc = new NodeProcess();
+			const result = await proc.run(`
         const os = require('os');
         module.exports = os.endianness();
       `);
-      expect(result.exports).toBe("LE");
-    });
+			expect(result.exports).toBe("LE");
+		});
 
-    it("should have os.networkInterfaces()", async () => {
-      proc = new NodeProcess();
-      const result = await proc.run(`
+		it("should have os.networkInterfaces()", async () => {
+			proc = new NodeProcess();
+			const result = await proc.run(`
         const os = require('os');
         const interfaces = os.networkInterfaces();
         module.exports = typeof interfaces === 'object';
       `);
-      expect(result.exports).toBe(true);
-    });
+			expect(result.exports).toBe(true);
+		});
 
-    it("should have os.constants", async () => {
-      proc = new NodeProcess();
-      const result = await proc.run(`
+		it("should have os.constants", async () => {
+			proc = new NodeProcess();
+			const result = await proc.run(`
         const os = require('os');
         module.exports = {
           hasSignals: typeof os.constants.signals === 'object',
@@ -1840,32 +1913,32 @@ describe("NodeProcess", () => {
           hasSIGINT: os.constants.signals.SIGINT === 2
         };
       `);
-      expect(result.exports).toEqual({
-        hasSignals: true,
-        hasErrno: true,
-        hasSIGINT: true
-      });
-    });
+			expect(result.exports).toEqual({
+				hasSignals: true,
+				hasErrno: true,
+				hasSIGINT: true,
+			});
+		});
 
-    it("should have os.devNull", async () => {
-      proc = new NodeProcess();
-      const result = await proc.run(`
+		it("should have os.devNull", async () => {
+			proc = new NodeProcess();
+			const result = await proc.run(`
         const os = require('os');
         module.exports = os.devNull;
       `);
-      expect(result.exports).toBe("/dev/null");
-    });
+			expect(result.exports).toBe("/dev/null");
+		});
 
-    it("should use osConfig for custom values", async () => {
-      proc = new NodeProcess({
-        osConfig: {
-          platform: "darwin",
-          arch: "arm64",
-          homedir: "/Users/test",
-          hostname: "testhost"
-        }
-      });
-      const result = await proc.run(`
+		it("should use osConfig for custom values", async () => {
+			proc = new NodeProcess({
+				osConfig: {
+					platform: "darwin",
+					arch: "arm64",
+					homedir: "/Users/test",
+					hostname: "testhost",
+				},
+			});
+			const result = await proc.run(`
         const os = require('os');
         module.exports = {
           platform: os.platform(),
@@ -1874,19 +1947,19 @@ describe("NodeProcess", () => {
           hostname: os.hostname()
         };
       `);
-      expect(result.exports).toEqual({
-        platform: "darwin",
-        arch: "arm64",
-        homedir: "/Users/test",
-        hostname: "testhost"
-      });
-    });
-  });
+			expect(result.exports).toEqual({
+				platform: "darwin",
+				arch: "arm64",
+				homedir: "/Users/test",
+				hostname: "testhost",
+			});
+		});
+	});
 
-  describe("Phase 6: module.createRequire", () => {
-    it("should load module module", async () => {
-      proc = new NodeProcess();
-      const result = await proc.run(`
+	describe("Phase 6: module.createRequire", () => {
+		it("should load module module", async () => {
+			proc = new NodeProcess();
+			const result = await proc.run(`
         const m = require('module');
         module.exports = {
           hasCreateRequire: typeof m.createRequire === 'function',
@@ -1894,60 +1967,63 @@ describe("NodeProcess", () => {
           hasIsBuiltin: typeof m.isBuiltin === 'function'
         };
       `);
-      expect(result.exports).toEqual({
-        hasCreateRequire: true,
-        hasBuiltinModules: true,
-        hasIsBuiltin: true
-      });
-    });
+			expect(result.exports).toEqual({
+				hasCreateRequire: true,
+				hasBuiltinModules: true,
+				hasIsBuiltin: true,
+			});
+		});
 
-    it("should create require from filename", async () => {
-      const dir = new Directory();
-      const directory = dir;
-      // Create directories first (wasmer Directory doesn't auto-create parents)
-      await directory.createDir("/app");
-      await mkdirp(directory, "/app/lib");
-      await directory.writeFile("/app/lib/util.js", "module.exports = { name: 'util' };");
-      await directory.writeFile("/app/package.json", "{}");
+		it("should create require from filename", async () => {
+			const dir = new Directory();
+			const directory = dir;
+			// Create directories first (wasmer Directory doesn't auto-create parents)
+			await directory.createDir("/app");
+			await mkdirp(directory, "/app/lib");
+			await directory.writeFile(
+				"/app/lib/util.js",
+				"module.exports = { name: 'util' };",
+			);
+			await directory.writeFile("/app/package.json", "{}");
 
-      proc = new NodeProcess({ directory });
+			proc = new NodeProcess({ directory });
 
-      const result = await proc.run(`
+			const result = await proc.run(`
         const { createRequire } = require('module');
         const requireFromApp = createRequire('/app/package.json');
         const util = requireFromApp('./lib/util');
         module.exports = util.name;
       `);
-      expect(result.exports).toBe("util");
-    });
+			expect(result.exports).toBe("util");
+		});
 
-    it("should support file:// URLs", async () => {
-      const dir = new Directory();
-      const directory = dir;
-      await directory.createDir("/app");
-      await directory.writeFile("/app/mod.js", "module.exports = 42;");
+		it("should support file:// URLs", async () => {
+			const dir = new Directory();
+			const directory = dir;
+			await directory.createDir("/app");
+			await directory.writeFile("/app/mod.js", "module.exports = 42;");
 
-      proc = new NodeProcess({ directory });
+			proc = new NodeProcess({ directory });
 
-      const result = await proc.run(`
+			const result = await proc.run(`
         const { createRequire } = require('module');
         const req = createRequire('file:///app/index.js');
         module.exports = req('./mod');
       `);
-      expect(result.exports).toBe(42);
-    });
+			expect(result.exports).toBe(42);
+		});
 
-    it("should share module cache", async () => {
-      const dir = new Directory();
-      const directory = dir;
-      await directory.createDir("/a");
-      await directory.createDir("/b");
-      await directory.writeFile("/a/mod.js", "module.exports = { count: 0 };");
-      await directory.writeFile("/b/index.js", "");
+		it("should share module cache", async () => {
+			const dir = new Directory();
+			const directory = dir;
+			await directory.createDir("/a");
+			await directory.createDir("/b");
+			await directory.writeFile("/a/mod.js", "module.exports = { count: 0 };");
+			await directory.writeFile("/b/index.js", "");
 
-      proc = new NodeProcess({ directory });
+			proc = new NodeProcess({ directory });
 
-      const result = await proc.run(`
+			const result = await proc.run(`
         const { createRequire } = require('module');
         const reqA = createRequire('/a/index.js');
         const reqB = createRequire('/b/index.js');
@@ -1958,29 +2034,29 @@ describe("NodeProcess", () => {
         const mod2 = reqB('../a/mod');
         module.exports = mod2.count; // Should be 1 if cache is shared
       `);
-      expect(result.exports).toBe(1);
-    });
+			expect(result.exports).toBe(1);
+		});
 
-    it("should have require.resolve", async () => {
-      const dir = new Directory();
-      const directory = dir;
-      await directory.createDir("/app");
-      await mkdirp(directory, "/app/lib");
-      await directory.writeFile("/app/lib/util.js", "module.exports = {};");
+		it("should have require.resolve", async () => {
+			const dir = new Directory();
+			const directory = dir;
+			await directory.createDir("/app");
+			await mkdirp(directory, "/app/lib");
+			await directory.writeFile("/app/lib/util.js", "module.exports = {};");
 
-      proc = new NodeProcess({ directory });
+			proc = new NodeProcess({ directory });
 
-      const result = await proc.run(`
+			const result = await proc.run(`
         const { createRequire } = require('module');
         const req = createRequire('/app/index.js');
         module.exports = req.resolve('./lib/util');
       `);
-      expect(result.exports).toBe("/app/lib/util.js");
-    });
+			expect(result.exports).toBe("/app/lib/util.js");
+		});
 
-    it("should have require.resolve.paths", async () => {
-      proc = new NodeProcess();
-      const result = await proc.run(`
+		it("should have require.resolve.paths", async () => {
+			proc = new NodeProcess();
+			const result = await proc.run(`
         const { createRequire } = require('module');
         const req = createRequire('/app/index.js');
 
@@ -1990,27 +2066,29 @@ describe("NodeProcess", () => {
           barePaths: req.resolve.paths('lodash')
         };
       `);
-      expect(result.exports).toMatchObject({
-        builtinPaths: null,
-        relativePaths: ["/app"]
-      });
-      // barePaths should include node_modules paths
-      expect((result.exports as { barePaths: string[] }).barePaths).toContain("/app/node_modules");
-    });
+			expect(result.exports).toMatchObject({
+				builtinPaths: null,
+				relativePaths: ["/app"],
+			});
+			// barePaths should include node_modules paths
+			expect((result.exports as { barePaths: string[] }).barePaths).toContain(
+				"/app/node_modules",
+			);
+		});
 
-    it("should have require.cache reference", async () => {
-      proc = new NodeProcess();
-      const result = await proc.run(`
+		it("should have require.cache reference", async () => {
+			proc = new NodeProcess();
+			const result = await proc.run(`
         const { createRequire } = require('module');
         const req = createRequire('/app/index.js');
         module.exports = typeof req.cache === 'object';
       `);
-      expect(result.exports).toBe(true);
-    });
+			expect(result.exports).toBe(true);
+		});
 
-    it("should have module.isBuiltin", async () => {
-      proc = new NodeProcess();
-      const result = await proc.run(`
+		it("should have module.isBuiltin", async () => {
+			proc = new NodeProcess();
+			const result = await proc.run(`
         const m = require('module');
         module.exports = {
           fsIsBuiltin: m.isBuiltin('fs'),
@@ -2018,16 +2096,16 @@ describe("NodeProcess", () => {
           lodashIsBuiltin: m.isBuiltin('lodash')
         };
       `);
-      expect(result.exports).toEqual({
-        fsIsBuiltin: true,
-        nodefsIsBuiltin: true,
-        lodashIsBuiltin: false
-      });
-    });
+			expect(result.exports).toEqual({
+				fsIsBuiltin: true,
+				nodefsIsBuiltin: true,
+				lodashIsBuiltin: false,
+			});
+		});
 
-    it("should have module.builtinModules", async () => {
-      proc = new NodeProcess();
-      const result = await proc.run(`
+		it("should have module.builtinModules", async () => {
+			proc = new NodeProcess();
+			const result = await proc.run(`
         const m = require('module');
         module.exports = {
           hasFs: m.builtinModules.includes('fs'),
@@ -2035,16 +2113,16 @@ describe("NodeProcess", () => {
           hasOs: m.builtinModules.includes('os')
         };
       `);
-      expect(result.exports).toEqual({
-        hasFs: true,
-        hasPath: true,
-        hasOs: true
-      });
-    });
+			expect(result.exports).toEqual({
+				hasFs: true,
+				hasPath: true,
+				hasOs: true,
+			});
+		});
 
-    it("should require built-in modules via createRequire", async () => {
-      proc = new NodeProcess();
-      const result = await proc.run(`
+		it("should require built-in modules via createRequire", async () => {
+			proc = new NodeProcess();
+			const result = await proc.run(`
         const { createRequire } = require('module');
         const req = createRequire('/app/index.js');
 
@@ -2057,33 +2135,33 @@ describe("NodeProcess", () => {
           hasEventEmitter: typeof events.EventEmitter === 'function'
         };
       `);
-      expect(result.exports).toEqual({
-        hasJoin: true,
-        hasEventEmitter: true
-      });
-    });
-  });
+			expect(result.exports).toEqual({
+				hasJoin: true,
+				hasEventEmitter: true,
+			});
+		});
+	});
 
-  describe("Phase 7: npm integration tests", () => {
-    // These tests verify all npm compatibility features work together
+	describe("Phase 7: npm integration tests", () => {
+		// These tests verify all npm compatibility features work together
 
-    it("should handle npm-style environment setup", async () => {
-      proc = new NodeProcess({
-        processConfig: {
-          env: {
-            HOME: "/root",
-            PATH: "/usr/bin:/bin",
-            NODE_ENV: "production",
-            npm_config_registry: "https://registry.npmjs.org/",
-            npm_package_name: "test-package",
-            npm_package_version: "1.0.0"
-          },
-          cwd: "/app",
-          argv: ["node", "/app/index.js"]
-        }
-      });
+		it("should handle npm-style environment setup", async () => {
+			proc = new NodeProcess({
+				processConfig: {
+					env: {
+						HOME: "/root",
+						PATH: "/usr/bin:/bin",
+						NODE_ENV: "production",
+						npm_config_registry: "https://registry.npmjs.org/",
+						npm_package_name: "test-package",
+						npm_package_version: "1.0.0",
+					},
+					cwd: "/app",
+					argv: ["node", "/app/index.js"],
+				},
+			});
 
-      const result = await proc.run(`
+			const result = await proc.run(`
         module.exports = {
           home: process.env.HOME,
           nodeEnv: process.env.NODE_ENV,
@@ -2094,29 +2172,29 @@ describe("NodeProcess", () => {
           argv: process.argv
         };
       `);
-      expect(result.exports).toEqual({
-        home: "/root",
-        nodeEnv: "production",
-        npmRegistry: "https://registry.npmjs.org/",
-        pkgName: "test-package",
-        pkgVersion: "1.0.0",
-        cwd: "/app",
-        argv: ["node", "/app/index.js"]
-      });
-    });
+			expect(result.exports).toEqual({
+				home: "/root",
+				nodeEnv: "production",
+				npmRegistry: "https://registry.npmjs.org/",
+				pkgName: "test-package",
+				pkgVersion: "1.0.0",
+				cwd: "/app",
+				argv: ["node", "/app/index.js"],
+			});
+		});
 
-    it("should handle npm-style platform detection", async () => {
-      proc = new NodeProcess({
-        osConfig: {
-          platform: "linux",
-          arch: "x64",
-          type: "Linux",
-          release: "5.15.0",
-          hostname: "ci-runner"
-        }
-      });
+		it("should handle npm-style platform detection", async () => {
+			proc = new NodeProcess({
+				osConfig: {
+					platform: "linux",
+					arch: "x64",
+					type: "Linux",
+					release: "5.15.0",
+					hostname: "ci-runner",
+				},
+			});
 
-      const result = await proc.run(`
+			const result = await proc.run(`
         const os = require('os');
         module.exports = {
           platform: os.platform(),
@@ -2127,59 +2205,71 @@ describe("NodeProcess", () => {
           eol: os.EOL
         };
       `);
-      expect(result.exports).toEqual({
-        platform: "linux",
-        arch: "x64",
-        type: "Linux",
-        release: "5.15.0",
-        hostname: "ci-runner",
-        eol: "\n"
-      });
-    });
+			expect(result.exports).toEqual({
+				platform: "linux",
+				arch: "x64",
+				type: "Linux",
+				release: "5.15.0",
+				hostname: "ci-runner",
+				eol: "\n",
+			});
+		});
 
-    it("should support npm-style module loading patterns", async () => {
-      const dir = new Directory();
-      const directory = dir;
+		it("should support npm-style module loading patterns", async () => {
+			const dir = new Directory();
+			const directory = dir;
 
-      // Create a typical npm package structure
-      await directory.createDir("/app");
-      await mkdirp(directory, "/app/node_modules");
-      await mkdirp(directory, "/app/node_modules/my-lib");
-      await mkdirp(directory, "/app/lib");
+			// Create a typical npm package structure
+			await directory.createDir("/app");
+			await mkdirp(directory, "/app/node_modules");
+			await mkdirp(directory, "/app/node_modules/my-lib");
+			await mkdirp(directory, "/app/lib");
 
-      // package.json
-      await directory.writeFile("/app/package.json", JSON.stringify({
-        name: "my-app",
-        version: "1.0.0",
-        main: "index.js"
-      }));
+			// package.json
+			await directory.writeFile(
+				"/app/package.json",
+				JSON.stringify({
+					name: "my-app",
+					version: "1.0.0",
+					main: "index.js",
+				}),
+			);
 
-      // node_modules package - use simpler main path
-      await directory.writeFile("/app/node_modules/my-lib/package.json", JSON.stringify({
-        name: "my-lib",
-        version: "2.0.0",
-        main: "index.js"
-      }));
-      await directory.writeFile("/app/node_modules/my-lib/index.js", `
+			// node_modules package - use simpler main path
+			await directory.writeFile(
+				"/app/node_modules/my-lib/package.json",
+				JSON.stringify({
+					name: "my-lib",
+					version: "2.0.0",
+					main: "index.js",
+				}),
+			);
+			await directory.writeFile(
+				"/app/node_modules/my-lib/index.js",
+				`
         module.exports = {
           version: '2.0.0',
           greet: function(name) { return 'Hello, ' + name + '!'; }
         };
-      `);
+      `,
+			);
 
-      // local module
-      await directory.writeFile("/app/lib/utils.js", `
+			// local module
+			await directory.writeFile(
+				"/app/lib/utils.js",
+				`
         module.exports = {
           formatName: function(name) { return name.toUpperCase(); }
         };
-      `);
+      `,
+			);
 
-      proc = new NodeProcess({
-        directory,
-        processConfig: { cwd: "/app" }
-      });
+			proc = new NodeProcess({
+				directory,
+				processConfig: { cwd: "/app" },
+			});
 
-      const result = await proc.run(`
+			const result = await proc.run(`
         const myLib = require('my-lib');
         const utils = require('./lib/utils');
 
@@ -2192,16 +2282,16 @@ describe("NodeProcess", () => {
         };
       `);
 
-      expect(result.exports).toEqual({
-        libVersion: "2.0.0",
-        greeting: "Hello, WORLD!"
-      });
-    });
+			expect(result.exports).toEqual({
+				libVersion: "2.0.0",
+				greeting: "Hello, WORLD!",
+			});
+		});
 
-    it("should handle npm-style EventEmitter patterns", async () => {
-      proc = new NodeProcess();
+		it("should handle npm-style EventEmitter patterns", async () => {
+			proc = new NodeProcess();
 
-      const result = await proc.run(`
+			const result = await proc.run(`
         const { EventEmitter } = require('events');
 
         class MyEmitter extends EventEmitter {}
@@ -2224,16 +2314,16 @@ describe("NodeProcess", () => {
         };
       `);
 
-      expect(result.exports).toEqual({
-        received: ["chunk1", "chunk2", "END"],
-        listenerCount: 1
-      });
-    });
+			expect(result.exports).toEqual({
+				received: ["chunk1", "chunk2", "END"],
+				listenerCount: 1,
+			});
+		});
 
-    it("should handle npm-style process events", async () => {
-      proc = new NodeProcess();
+		it("should handle npm-style process events", async () => {
+			proc = new NodeProcess();
 
-      const result = await proc.run(`
+			const result = await proc.run(`
         const received = [];
 
         // npm often uses process event handlers
@@ -2258,20 +2348,20 @@ describe("NodeProcess", () => {
         };
       `);
 
-      expect(result.exports).toEqual({
-        hasOn: true,
-        hasEmit: true,
-        hasOnce: true,
-        isProcess: true
-      });
-    });
+			expect(result.exports).toEqual({
+				hasOn: true,
+				hasEmit: true,
+				hasOnce: true,
+				isProcess: true,
+			});
+		});
 
-    it("should handle npm-style path operations", async () => {
-      proc = new NodeProcess({
-        processConfig: { cwd: "/home/user/project" }
-      });
+		it("should handle npm-style path operations", async () => {
+			proc = new NodeProcess({
+				processConfig: { cwd: "/home/user/project" },
+			});
 
-      const result = await proc.run(`
+			const result = await proc.run(`
         const path = require('path');
 
         // npm commonly does these operations
@@ -2288,17 +2378,29 @@ describe("NodeProcess", () => {
         };
       `);
 
-      expect((result.exports as { normalized: string }).normalized).toBe("lib/utils.js");
-      expect((result.exports as { resolved: string }).resolved).toBe("/home/user/project/lib/index.js");
-      expect((result.exports as { relative: string }).relative).toBe("project/lib");
-      expect((result.exports as { parsed: { name: string, ext: string } }).parsed.name).toBe("package");
-      expect((result.exports as { parsed: { name: string, ext: string } }).parsed.ext).toBe(".json");
-    });
+			expect((result.exports as { normalized: string }).normalized).toBe(
+				"lib/utils.js",
+			);
+			expect((result.exports as { resolved: string }).resolved).toBe(
+				"/home/user/project/lib/index.js",
+			);
+			expect((result.exports as { relative: string }).relative).toBe(
+				"project/lib",
+			);
+			expect(
+				(result.exports as { parsed: { name: string; ext: string } }).parsed
+					.name,
+			).toBe("package");
+			expect(
+				(result.exports as { parsed: { name: string; ext: string } }).parsed
+					.ext,
+			).toBe(".json");
+		});
 
-    it("should handle npm-style util operations", async () => {
-      proc = new NodeProcess();
+		it("should handle npm-style util operations", async () => {
+			proc = new NodeProcess();
 
-      const result = await proc.run(`
+			const result = await proc.run(`
         const util = require('util');
 
         // npm uses util extensively
@@ -2315,35 +2417,46 @@ describe("NodeProcess", () => {
         };
       `);
 
-      expect((result.exports as { formatted: string }).formatted).toBe("package@1.0.0");
-      expect((result.exports as { hasInspected: boolean }).hasInspected).toBe(true);
-    });
+			expect((result.exports as { formatted: string }).formatted).toBe(
+				"package@1.0.0",
+			);
+			expect((result.exports as { hasInspected: boolean }).hasInspected).toBe(
+				true,
+			);
+		});
 
-    it("should handle npm-style fs operations with package.json", async () => {
-      const dir = new Directory();
-      const directory = dir;
+		it("should handle npm-style fs operations with package.json", async () => {
+			const dir = new Directory();
+			const directory = dir;
 
-      await directory.createDir("/app");
-      await directory.writeFile("/app/package.json", JSON.stringify({
-        name: "my-package",
-        version: "1.2.3",
-        description: "A test package",
-        main: "index.js",
-        scripts: {
-          test: "echo 'test'",
-          build: "echo 'build'"
-        },
-        dependencies: {
-          lodash: "^4.0.0"
-        }
-      }, null, 2));
+			await directory.createDir("/app");
+			await directory.writeFile(
+				"/app/package.json",
+				JSON.stringify(
+					{
+						name: "my-package",
+						version: "1.2.3",
+						description: "A test package",
+						main: "index.js",
+						scripts: {
+							test: "echo 'test'",
+							build: "echo 'build'",
+						},
+						dependencies: {
+							lodash: "^4.0.0",
+						},
+					},
+					null,
+					2,
+				),
+			);
 
-      proc = new NodeProcess({
-        directory,
-        processConfig: { cwd: "/app" }
-      });
+			proc = new NodeProcess({
+				directory,
+				processConfig: { cwd: "/app" },
+			});
 
-      const result = await proc.run(`
+			const result = await proc.run(`
         const fs = require('fs');
         const path = require('path');
 
@@ -2362,38 +2475,47 @@ describe("NodeProcess", () => {
         };
       `);
 
-      expect(result.exports).toEqual({
-        name: "my-package",
-        version: "1.2.3",
-        hasScripts: true,
-        hasDeps: true,
-        testScript: "echo 'test'"
-      });
-    });
+			expect(result.exports).toEqual({
+				name: "my-package",
+				version: "1.2.3",
+				hasScripts: true,
+				hasDeps: true,
+				testScript: "echo 'test'",
+			});
+		});
 
-    it("should handle npm-style createRequire for dynamic loading", async () => {
-      const dir = new Directory();
-      const directory = dir;
+		it("should handle npm-style createRequire for dynamic loading", async () => {
+			const dir = new Directory();
+			const directory = dir;
 
-      // Create plugins in /app/plugins (relative to /app/config.json)
-      await directory.createDir("/app");
-      await mkdirp(directory, "/app/plugins");
-      await directory.writeFile("/app/plugins/plugin-a.js", `
+			// Create plugins in /app/plugins (relative to /app/config.json)
+			await directory.createDir("/app");
+			await mkdirp(directory, "/app/plugins");
+			await directory.writeFile(
+				"/app/plugins/plugin-a.js",
+				`
         module.exports = { name: 'plugin-a', type: 'a' };
-      `);
-      await directory.writeFile("/app/plugins/plugin-b.js", `
+      `,
+			);
+			await directory.writeFile(
+				"/app/plugins/plugin-b.js",
+				`
         module.exports = { name: 'plugin-b', type: 'b' };
-      `);
-      await directory.writeFile("/app/config.json", JSON.stringify({
-        plugins: ['./plugins/plugin-a', './plugins/plugin-b']
-      }));
+      `,
+			);
+			await directory.writeFile(
+				"/app/config.json",
+				JSON.stringify({
+					plugins: ["./plugins/plugin-a", "./plugins/plugin-b"],
+				}),
+			);
 
-      proc = new NodeProcess({
-        directory,
-        processConfig: { cwd: "/app" }
-      });
+			proc = new NodeProcess({
+				directory,
+				processConfig: { cwd: "/app" },
+			});
 
-      const result = await proc.run(`
+			const result = await proc.run(`
         const { createRequire } = require('module');
         const fs = require('fs');
 
@@ -2410,41 +2532,52 @@ describe("NodeProcess", () => {
         };
       `);
 
-      expect(result.exports).toEqual({
-        pluginCount: 2,
-        pluginNames: ["plugin-a", "plugin-b"],
-        pluginTypes: ["a", "b"]
-      });
-    });
+			expect(result.exports).toEqual({
+				pluginCount: 2,
+				pluginNames: ["plugin-a", "plugin-b"],
+				pluginTypes: ["a", "b"],
+			});
+		});
 
-    it("should handle combined module operations (integration)", async () => {
-      const dir = new Directory();
-      const directory = dir;
+		it("should handle combined module operations (integration)", async () => {
+			const dir = new Directory();
+			const directory = dir;
 
-      // Setup a simpler package structure
-      await directory.createDir("/project");
-      await mkdirp(directory, "/project/node_modules");
-      await mkdirp(directory, "/project/node_modules/chalk");
+			// Setup a simpler package structure
+			await directory.createDir("/project");
+			await mkdirp(directory, "/project/node_modules");
+			await mkdirp(directory, "/project/node_modules/chalk");
 
-      await directory.writeFile("/project/package.json", JSON.stringify({
-        name: "integration-test",
-        version: "1.0.0"
-      }));
+			await directory.writeFile(
+				"/project/package.json",
+				JSON.stringify({
+					name: "integration-test",
+					version: "1.0.0",
+				}),
+			);
 
-      // Fake chalk module
-      await directory.writeFile("/project/node_modules/chalk/package.json", JSON.stringify({
-        name: "chalk",
-        main: "index.js"
-      }));
-      await directory.writeFile("/project/node_modules/chalk/index.js", `
+			// Fake chalk module
+			await directory.writeFile(
+				"/project/node_modules/chalk/package.json",
+				JSON.stringify({
+					name: "chalk",
+					main: "index.js",
+				}),
+			);
+			await directory.writeFile(
+				"/project/node_modules/chalk/index.js",
+				`
         module.exports = {
           green: function(s) { return '[green]' + s + '[/green]'; },
           red: function(s) { return '[red]' + s + '[/red]'; }
         };
-      `);
+      `,
+			);
 
-      // Put utils directly in project (simpler path resolution)
-      await directory.writeFile("/project/utils.js", `
+			// Put utils directly in project (simpler path resolution)
+			await directory.writeFile(
+				"/project/utils.js",
+				`
         const chalk = require('chalk');
         const path = require('path');
         const os = require('os');
@@ -2457,15 +2590,16 @@ describe("NodeProcess", () => {
             return chalk.red(os.platform() + '-' + os.arch());
           }
         };
-      `);
+      `,
+			);
 
-      proc = new NodeProcess({
-        directory,
-        processConfig: { cwd: "/project" },
-        osConfig: { platform: "darwin", arch: "arm64" }
-      });
+			proc = new NodeProcess({
+				directory,
+				processConfig: { cwd: "/project" },
+				osConfig: { platform: "darwin", arch: "arm64" },
+			});
 
-      const result = await proc.run(`
+			const result = await proc.run(`
         const utils = require('./utils');
 
         module.exports = {
@@ -2474,34 +2608,42 @@ describe("NodeProcess", () => {
         };
       `);
 
-      // Built-in chalk stub provides passthrough (no color) for sandbox safety
-      // The local chalk module in node_modules is bypassed to ensure consistent behavior
-      expect((result.exports as { formattedPath: string }).formattedPath).toBe("bar/baz");
-      expect((result.exports as { platformInfo: string }).platformInfo).toBe("darwin-arm64");
-    });
+			// Built-in chalk stub provides passthrough (no color) for sandbox safety
+			// The local chalk module in node_modules is bypassed to ensure consistent behavior
+			expect((result.exports as { formattedPath: string }).formattedPath).toBe(
+				"bar/baz",
+			);
+			expect((result.exports as { platformInfo: string }).platformInfo).toBe(
+				"darwin-arm64",
+			);
+		});
 
-    it("should handle npm-style child_process for scripts", async () => {
-      // Mock command executor that simulates npm script execution
-      const mockExecutor: CommandExecutor = {
-        exec: async (command: string) => {
-          if (command.includes("echo")) {
-            const match = command.match(/echo ['"]?(.+?)['"]?$/);
-            const msg = match ? match[1] : "";
-            return { stdout: msg + "\n", stderr: "", code: 0 };
-          }
-          return { stdout: "", stderr: "command not found", code: 127 };
-        },
-        run: async (cmd: string, args?: string[]) => {
-          if (cmd === "echo") {
-            return { stdout: (args || []).join(" ") + "\n", stderr: "", code: 0 };
-          }
-          return { stdout: "", stderr: "command not found", code: 127 };
-        }
-      };
+		it("should handle npm-style child_process for scripts", async () => {
+			// Mock command executor that simulates npm script execution
+			const mockExecutor: CommandExecutor = {
+				exec: async (command: string) => {
+					if (command.includes("echo")) {
+						const match = command.match(/echo ['"]?(.+?)['"]?$/);
+						const msg = match ? match[1] : "";
+						return { stdout: `${msg}\n`, stderr: "", code: 0 };
+					}
+					return { stdout: "", stderr: "command not found", code: 127 };
+				},
+				run: async (cmd: string, args?: string[]) => {
+					if (cmd === "echo") {
+						return {
+							stdout: `${(args || []).join(" ")}\n`,
+							stderr: "",
+							code: 0,
+						};
+					}
+					return { stdout: "", stderr: "command not found", code: 127 };
+				},
+			};
 
-      proc = new NodeProcess({ commandExecutor: mockExecutor });
+			proc = new NodeProcess({ commandExecutor: mockExecutor });
 
-      const result = await proc.run(`
+			const result = await proc.run(`
         const { exec, execSync, spawn } = require('child_process');
         const results = [];
 
@@ -2518,18 +2660,20 @@ describe("NodeProcess", () => {
         module.exports = results;
       `);
 
-      const exports = result.exports as Array<{ type: string; stdout: string }>;
-      expect(exports.some(r => r.type === "execSync" && r.stdout === "sync-test")).toBe(true);
-    });
+			const exports = result.exports as Array<{ type: string; stdout: string }>;
+			expect(
+				exports.some((r) => r.type === "execSync" && r.stdout === "sync-test"),
+			).toBe(true);
+		});
 
-    it("should handle npm-style process.version and versions", async () => {
-      proc = new NodeProcess({
-        processConfig: {
-          version: "v20.10.0"
-        }
-      });
+		it("should handle npm-style process.version and versions", async () => {
+			proc = new NodeProcess({
+				processConfig: {
+					version: "v20.10.0",
+				},
+			});
 
-      const result = await proc.run(`
+			const result = await proc.run(`
         module.exports = {
           version: process.version,
           nodeVersion: process.versions.node,
@@ -2539,19 +2683,19 @@ describe("NodeProcess", () => {
         };
       `);
 
-      expect(result.exports).toEqual({
-        version: "v20.10.0",
-        nodeVersion: "20.10.0",
-        hasV8: true,
-        hasVersions: true,
-        hasModules: true
-      });
-    });
+			expect(result.exports).toEqual({
+				version: "v20.10.0",
+				nodeVersion: "20.10.0",
+				hasV8: true,
+				hasVersions: true,
+				hasModules: true,
+			});
+		});
 
-    it("should handle all required npm modules together", async () => {
-      proc = new NodeProcess();
+		it("should handle all required npm modules together", async () => {
+			proc = new NodeProcess();
 
-      const result = await proc.run(`
+			const result = await proc.run(`
         // npm requires all these modules
         const modules = {};
 
@@ -2569,13 +2713,13 @@ describe("NodeProcess", () => {
         module.exports = modules;
       `);
 
-      const modules = result.exports as Record<string, boolean>;
-      // Verify core modules are available
-      expect(modules.path).toBe(true);
-      expect(modules.events).toBe(true);
-      expect(modules.util).toBe(true);
-      expect(modules.module).toBe(true);
-      expect(modules.os).toBe(true);
-    });
-  });
+			const modules = result.exports as Record<string, boolean>;
+			// Verify core modules are available
+			expect(modules.path).toBe(true);
+			expect(modules.events).toBe(true);
+			expect(modules.util).toBe(true);
+			expect(modules.module).toBe(true);
+			expect(modules.os).toBe(true);
+		});
+	});
 });
