@@ -31,6 +31,21 @@ export interface WasixInstanceOptions {
 
 const POLL_INTERVAL_MS = 20;
 
+/**
+ * Mount path for the user's Directory in the WASM filesystem.
+ * Using a subpath avoids a wasmer-sdk bug where files in directories
+ * created via createDir() aren't accessible when mounted at "/".
+ *
+ * Files written to the Directory at "/foo.txt" will be accessible at "/data/foo.txt"
+ */
+export const DATA_MOUNT_PATH = "/data";
+
+/**
+ * Mount path for IPC communication between WASM and NodeProcess.
+ * Used for request/response files when executing node commands.
+ */
+export const IPC_MOUNT_PATH = "/ipc";
+
 let wasmerInitialized = false;
 let wasixRuntime: Awaited<ReturnType<typeof Wasmer.fromFile>> | null = null;
 
@@ -134,7 +149,7 @@ export class WasixInstance {
 		try {
 			const instance = await cmd.run({
 				args,
-				mount: { "/": this.directory },
+				mount: { [DATA_MOUNT_PATH]: this.directory },
 			});
 
 			const result = await instance.wait();
@@ -230,8 +245,8 @@ export class WasixInstance {
 			const instance = await cmd.run({
 				args,
 				mount: {
-					"/": this.directory,
-					"/ipc": ipcDir,
+					[DATA_MOUNT_PATH]: this.directory,
+					[IPC_MOUNT_PATH]: ipcDir,
 				},
 			});
 
@@ -322,8 +337,8 @@ export class WasixInstance {
 		const instance = await cmd.run({
 			args,
 			mount: {
-				"/": this.directory,
-				"/ipc": ipcDir,
+				[DATA_MOUNT_PATH]: this.directory,
+				[IPC_MOUNT_PATH]: ipcDir,
 			},
 		});
 

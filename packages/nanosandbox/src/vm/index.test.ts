@@ -2,6 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { DATA_MOUNT_PATH } from "../wasix/index.js";
 import { VirtualMachine } from "./index";
 
 describe("VirtualMachine", () => {
@@ -181,7 +182,8 @@ describe("VirtualMachine", () => {
 				await vm.init();
 				vm.writeFile("/test.txt", "content");
 
-				const result = await vm.spawn("ls", ["/"]);
+				// Files are mounted at DATA_MOUNT_PATH
+				const result = await vm.spawn("ls", [DATA_MOUNT_PATH]);
 				expect(result.stdout).toContain("test.txt");
 			} finally {
 				vm.dispose();
@@ -206,9 +208,10 @@ describe("VirtualMachine", () => {
 				vm.writeFile("/script.js", 'console.log("from node")');
 
 				// bash runs in WASM, node call bridges via IPC to NodeProcess
+				// Script is at DATA_MOUNT_PATH
 				const result = await vm.spawn("bash", [
 					"-c",
-					"echo before && node /script.js && echo after",
+					`echo before && node ${DATA_MOUNT_PATH}/script.js && echo after`,
 				]);
 				expect(result.stdout).toContain("before");
 				expect(result.stdout).toContain("from node");
@@ -328,5 +331,49 @@ describe("VirtualMachine", () => {
 				vm.dispose();
 			}
 		});
+	});
+
+	describe("npm accessibility", () => {
+		it("should have npm accessible via bash ls", async () => {
+			const vm = new VirtualMachine();
+			try {
+				await vm.init();
+
+				// Check npm path is accessible via bash
+				const npmPath = vm.getNpmPath();
+				expect(npmPath).toBe(`${DATA_MOUNT_PATH}/opt/npm`);
+
+				// Verify we can ls the npm directory
+				if (!npmPath) throw new Error("npm path should not be null");
+				const result = await vm.spawn("ls", [npmPath]);
+				expect(result.code).toBe(0);
+				// npm should have bin, lib directories
+				expect(result.stdout).toContain("bin");
+				expect(result.stdout).toContain("lib");
+			} finally {
+				vm.dispose();
+			}
+		});
+
+		it("should be able to cat npm-cli.js via bash", async () => {
+			const vm = new VirtualMachine();
+			try {
+				await vm.init();
+
+				const npmPath = vm.getNpmPath();
+				if (!npmPath) throw new Error("npm path should not be null");
+				// Verify we can read the npm-cli.js file
+				const result = await vm.spawn("cat", [`${npmPath}/bin/npm-cli.js`]);
+				expect(result.code).toBe(0);
+				expect(result.stdout).toContain("lib/cli.js");
+			} finally {
+				vm.dispose();
+			}
+		});
+
+		// Note: Running npm via node spawn doesn't work yet because npm uses
+		// relative requires (../lib/cli.js) that depend on __dirname being set
+		// correctly, which the sandboxed-node fs bridge doesn't fully support.
+		// The npm files ARE accessible in the filesystem though.
 	});
 });

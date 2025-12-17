@@ -36,6 +36,13 @@ _Available for portability._
 
 TODO
 
+Supports any platform that supports Node.js, such as:
+
+- Vercel Fluid Compute
+- Railway
+- AWS Lambda
+- Google Cloud Run
+
 ### Interactive Shell
 
 TODO
@@ -97,7 +104,9 @@ Measuring: idle memory, idle CPU
 
 ## Future Work
 
-- TODO
+- Browser support vs ServiceWorkers
+    - Requires tunneling for network traffic
+- Bun support (TBD)
 
 ## License
 

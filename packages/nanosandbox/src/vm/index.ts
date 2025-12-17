@@ -4,9 +4,13 @@ import { fileURLToPath } from "node:url";
 import { Directory, init } from "@wasmer/sdk/node";
 import { NodeProcess } from "sandboxed-node";
 import { SystemBridge } from "../system-bridge/index.js";
-import { InteractiveSession, WasixInstance } from "../wasix/index.js";
+import {
+	DATA_MOUNT_PATH,
+	InteractiveSession,
+	WasixInstance,
+} from "../wasix/index.js";
 
-export { WasixInstance, InteractiveSession, Directory };
+export { WasixInstance, InteractiveSession, Directory, DATA_MOUNT_PATH };
 
 export interface SpawnResult {
 	stdout: string;
@@ -102,16 +106,30 @@ cache=/tmp/.npm
 `,
 		);
 
-		// Note: npm is NOT accessible as a shell command in bash because the
-		// wasmer-sdk Directory mounts don't properly integrate with the webc
-		// filesystem. Files written via Directory API are not visible to wasix.
+		// npm is accessible at DATA_MOUNT_PATH + /opt/npm (e.g., /data/opt/npm)
+		// To run npm: node /data/opt/npm/lib/node_modules/npm/bin/npm-cli.js
 	}
 
 	/**
-	 * Get the path where npm is installed in the virtual filesystem
-	 * Returns null if npm is not loaded
+	 * Get the path where npm is installed in the WASM virtual filesystem (bash/wasix).
+	 * Returns the full path including the DATA_MOUNT_PATH prefix.
+	 * Use this path for shell commands like: bash -c "ls ${getNpmPath()}"
+	 * Returns null if npm is not loaded.
 	 */
 	getNpmPath(): string | null {
+		if (this.options.loadNpm === false) {
+			return null;
+		}
+		return `${DATA_MOUNT_PATH}/opt/npm`;
+	}
+
+	/**
+	 * Get the path where npm is installed in the Directory (node/filesystem API).
+	 * Returns the path without DATA_MOUNT_PATH prefix.
+	 * Use this path for node commands like: node ${getNpmDirectoryPath()}/lib/node_modules/npm/bin/npm-cli.js
+	 * Returns null if npm is not loaded.
+	 */
+	getNpmDirectoryPath(): string | null {
 		if (this.options.loadNpm === false) {
 			return null;
 		}
