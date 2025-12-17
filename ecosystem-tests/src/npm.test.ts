@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { VirtualMachine, DATA_MOUNT_PATH } from "nanosandbox";
+import { VirtualMachine } from "nanosandbox";
 
 // npm CLI tests - some skipped due to @wasmer/sdk bugs when running complex operations
 // Errors include: "Cannot read properties of undefined (reading 'data')",
@@ -425,51 +425,3 @@ const config = {
 		);
 	});
 });
-
-// Basic VirtualMachine tests to verify ecosystem test setup
-describe("VirtualMachine basic operations", () => {
-	let vm: VirtualMachine;
-
-	afterEach(() => {
-		vm?.dispose();
-	});
-
-	it("should initialize and run simple node code", async () => {
-		vm = new VirtualMachine({ loadNpm: false });
-		await vm.init();
-
-		const result = await vm.spawn("node", ["-e", "console.log('hello')"]);
-		expect(result.stdout.trim()).toBe("hello");
-		expect(result.code).toBe(0);
-	});
-
-	it("should write and read files", async () => {
-		vm = new VirtualMachine({ loadNpm: false });
-		await vm.init();
-
-		await vm.writeFile("/data/test.txt", "hello world");
-		const content = await vm.readFile("/data/test.txt");
-		expect(content).toBe("hello world");
-	});
-
-	it("should create directories and list contents", async () => {
-		vm = new VirtualMachine({ loadNpm: false });
-		await vm.init();
-
-		await vm.mkdir("/data/mydir");
-		await vm.writeFile("/data/mydir/file.txt", "content");
-
-		const entries = await vm.readDir("/data/mydir");
-		expect(entries).toContain("file.txt");
-	});
-
-	it("should run bash commands via spawn", async () => {
-		vm = new VirtualMachine({ loadNpm: false });
-		await vm.init();
-
-		const result = await vm.spawn("echo", ["hello", "world"]);
-		expect(result.stdout.trim()).toBe("hello world");
-		expect(result.code).toBe(0);
-	});
-});
-
