@@ -59,6 +59,11 @@ interface FetchResponse {
 
 // Fetch polyfill
 export async function fetch(url: string | URL, options: FetchOptions = {}): Promise<FetchResponse> {
+  if (typeof _networkFetchRaw === 'undefined') {
+    console.error('fetch requires NetworkAdapter to be configured');
+    throw new Error('fetch requires NetworkAdapter to be configured');
+  }
+
   const optionsJson = JSON.stringify({
     method: options.method || "GET",
     headers: options.headers || {},
@@ -635,6 +640,11 @@ export class ClientRequest {
 
   private async _execute(): Promise<void> {
     try {
+      if (typeof _networkHttpRequestRaw === 'undefined') {
+        console.error('http/https request requires NetworkAdapter to be configured');
+        throw new Error('http/https request requires NetworkAdapter to be configured');
+      }
+
       const url = this._buildUrl();
       const optionsJson = JSON.stringify({
         method: this._options.method || "GET",

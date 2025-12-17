@@ -1,6 +1,6 @@
 # NanoSandbox
 
-**X% more efficient Linux sandboxes** (compared to microVMs)
+**X% more efficient Linux sandboxes & runs anywhere Node.js runs** (compared to microVMs)
 
 Sandboxes requires full Linux environments without compromise. Most Linux sandboxes are powered by microVMs today. However, these sandboxes are expensive to run due to idle resources and wasted virtual machine overhead.
 

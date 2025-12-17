@@ -7734,6 +7734,10 @@ var bridge = (() => {
     https: () => https
   });
   async function fetch(url, options = {}) {
+    if (typeof _networkFetchRaw === "undefined") {
+      console.error("fetch requires NetworkAdapter to be configured");
+      throw new Error("fetch requires NetworkAdapter to be configured");
+    }
     const optionsJson = JSON.stringify({
       method: options.method || "GET",
       headers: options.headers || {},
@@ -8212,6 +8216,10 @@ var bridge = (() => {
     }
     async _execute() {
       try {
+        if (typeof _networkHttpRequestRaw === "undefined") {
+          console.error("http/https request requires NetworkAdapter to be configured");
+          throw new Error("http/https request requires NetworkAdapter to be configured");
+        }
         const url = this._buildUrl();
         const optionsJson = JSON.stringify({
           method: this._options.method || "GET",
