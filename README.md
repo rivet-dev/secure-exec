@@ -12,8 +12,14 @@ TODO: Before diagram
 
 TODO: After diagram
 
+TODO: What sandboxes care about:
+- speed
+- it just works
+- cost
+
 ## Features
 
+- Suitable for short-lived code execution or long-lived sandboxes
 - No microVMs, just V8 isolates & WASM
 - Runs anywhere Node.js can run (Vercel Fluid Compute, Railway, Fly.io, Lambda, Cloud Run, etc)
 - Available as a library or MCP server
@@ -134,6 +140,9 @@ TODO
 - Browser support vs ServiceWorkers
     - Requires tunneling for network traffic
 - Bun support (TBD)
+- Lazy FS loading
+- VS Code server support
+- Publish WASIX patches for popular native libraries (esbuild, turbopack, etc)
 
 ## License
 

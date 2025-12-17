@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Directory, init } from "@wasmer/sdk/node";
-import { NodeProcess, type VirtualFileSystem } from "sandboxed-node";
+import { NodeProcess, createDefaultNetworkAdapter, type VirtualFileSystem } from "sandboxed-node";
 import {
 	DATA_MOUNT_PATH,
 	InteractiveSession,
@@ -93,6 +93,7 @@ export class VirtualMachine {
 			memoryLimit: this.options.memoryLimit,
 			filesystem: this.vfs,
 			osConfig: { homedir: "/data/root" },
+			networkAdapter: createDefaultNetworkAdapter(),
 		});
 
 		// Create WasixInstance sharing the same filesystem

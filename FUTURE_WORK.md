@@ -5,6 +5,7 @@
 - impl process.cwd & integration with subprocesses
 - get npm working in terminal
 - remove use of runCommand, make it all run with ipc
+- clean up polyfills to get compiled in bridge
 
 ## fs-polyfill
 - inline compiled code at build time instead of runtime fs.readFileSync()

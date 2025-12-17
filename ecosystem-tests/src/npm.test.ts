@@ -225,7 +225,7 @@ describe("NPM CLI Integration", () => {
 		);
 	});
 
-	describe.skip("Step 5: npm ping", () => {
+	describe("Step 5: npm ping", () => {
 		it(
 			"should run npm ping and verify registry connectivity",
 			async () => {
