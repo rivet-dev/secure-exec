@@ -114,108 +114,94 @@ describe("NPM CLI Integration", () => {
 	}
 
 	describe("Step 1: npm --version", () => {
-		it(
-			"should run npm --version and return version string",
-			async () => {
-				vm = new VirtualMachine();
-				await vm.init();
+		it("should run npm --version and return version string", { timeout: 60000 }, async () => {
+			vm = new VirtualMachine();
+			await vm.init();
 
-				await setupNpmEnvironment(vm);
-				await vm.writeFile(
-					"/data/app/package.json",
-					JSON.stringify({ name: "test-app", version: "1.0.0" }),
-				);
+			await setupNpmEnvironment(vm);
+			await vm.writeFile(
+				"/data/app/package.json",
+				JSON.stringify({ name: "test-app", version: "1.0.0" }),
+			);
 
-				const result = await runNpm(vm, ["--version"]);
+			const result = await runNpm(vm, ["--version"]);
 
-				console.log("stdout:", result.stdout);
-				console.log("stderr:", result.stderr);
-				console.log("code:", result.code);
+			console.log("stdout:", result.stdout);
+			console.log("stderr:", result.stderr);
+			console.log("code:", result.code);
 
-				// Should output version number
-				expect(result.stdout).toMatch(/\d+\.\d+\.\d+/);
-			},
-			{ timeout: 60000 },
-		);
+			// Should output version number
+			expect(result.stdout).toMatch(/\d+\.\d+\.\d+/);
+		});
 	});
 
 	describe("Step 2: npm config list", () => {
-		it(
-			"should run npm config list and show configuration",
-			async () => {
-				vm = new VirtualMachine();
-				await vm.init();
+		it("should run npm config list and show configuration", { timeout: 60000 }, async () => {
+			vm = new VirtualMachine();
+			await vm.init();
 
-				await setupNpmEnvironment(vm);
-				await vm.writeFile(
-					"/data/app/package.json",
-					JSON.stringify({ name: "test-app", version: "1.0.0" }),
-				);
+			await setupNpmEnvironment(vm);
+			await vm.writeFile(
+				"/data/app/package.json",
+				JSON.stringify({ name: "test-app", version: "1.0.0" }),
+			);
 
-				const result = await runNpm(vm, ["config", "list"]);
+			const result = await runNpm(vm, ["config", "list"]);
 
-				console.log("stdout:", result.stdout);
-				console.log("stderr:", result.stderr);
-				console.log("code:", result.code);
+			console.log("stdout:", result.stdout);
+			console.log("stderr:", result.stderr);
+			console.log("code:", result.code);
 
-				// Should output some config info (HOME, cwd, etc.)
-				expect(result.stdout).toContain("HOME");
-			},
-			{ timeout: 60000 },
-		);
+			// Should output some config info (HOME, cwd, etc.)
+			expect(result.stdout).toContain("HOME");
+		});
 	});
 
 	describe("Step 3: npm ls", () => {
-		it(
-			"should run npm ls and show package tree",
-			async () => {
-				vm = new VirtualMachine();
-				await vm.init();
+		it("should run npm ls and show package tree", { timeout: 60000 }, async () => {
+			vm = new VirtualMachine();
+			await vm.init();
 
-				await setupNpmEnvironment(vm);
+			await setupNpmEnvironment(vm);
 
-				// Create app directory structure with dependencies
-				await vm.mkdir("/data/app/node_modules");
-				await vm.mkdir("/data/app/node_modules/lodash");
-				await vm.writeFile(
-					"/data/app/package.json",
-					JSON.stringify({
-						name: "test-app",
-						version: "1.0.0",
-						dependencies: {
-							lodash: "^4.17.21",
-						},
-					}),
-				);
-				await vm.writeFile(
-					"/data/app/node_modules/lodash/package.json",
-					JSON.stringify({
-						name: "lodash",
-						version: "4.17.21",
-					}),
-				);
+			// Create app directory structure with dependencies
+			await vm.mkdir("/data/app/node_modules");
+			await vm.mkdir("/data/app/node_modules/lodash");
+			await vm.writeFile(
+				"/data/app/package.json",
+				JSON.stringify({
+					name: "test-app",
+					version: "1.0.0",
+					dependencies: {
+						lodash: "^4.17.21",
+					},
+				}),
+			);
+			await vm.writeFile(
+				"/data/app/node_modules/lodash/package.json",
+				JSON.stringify({
+					name: "lodash",
+					version: "4.17.21",
+				}),
+			);
 
-				const result = await runNpm(vm, ["ls", "--prefix", "/data/app"]);
+			const result = await runNpm(vm, ["ls", "--prefix", "/data/app"]);
 
-				console.log("stdout:", result.stdout);
-				console.log("stderr:", result.stderr);
-				console.log("code:", result.code);
+			console.log("stdout:", result.stdout);
+			console.log("stderr:", result.stderr);
+			console.log("code:", result.code);
 
-				// Should output the package tree
-				expect(result.stdout).toContain("test-app@1.0.0");
-				expect(result.stdout).toContain("lodash@4.17.21");
-			},
-			{ timeout: 60000 },
-		);
+			// Should output the package tree
+			expect(result.stdout).toContain("test-app@1.0.0");
+			expect(result.stdout).toContain("lodash@4.17.21");
+		});
 	});
 
 	// npm init -y creates package.json using init-package-json via proc-log's input.read
 	// Note: npm.exec('init') triggers a wasmer SDK bug, so we call Init.template() directly
 	// which is what npm.exec does internally but without the command routing overhead
 	describe("Step 4: npm init -y", () => {
-		it(
-			"should run npm init -y and create package.json",
-			async () => {
+		it("should run npm init -y and create package.json", { timeout: 60000 }, async () => {
 				vm = new VirtualMachine();
 				await vm.init();
 
@@ -283,15 +269,11 @@ describe("NPM CLI Integration", () => {
 				const pkgJson = JSON.parse(pkgJsonContent);
 				expect(pkgJson.name).toBe("app");
 				expect(pkgJson.version).toBe("1.0.0");
-			},
-			{ timeout: 60000 },
-		);
+		});
 	});
 
 	describe("Step 5: npm ping", () => {
-		it(
-			"should run npm ping and verify registry connectivity",
-			async () => {
+		it("should run npm ping and verify registry connectivity", { timeout: 60000 }, async () => {
 				vm = new VirtualMachine();
 				await vm.init();
 
@@ -309,15 +291,11 @@ describe("NPM CLI Integration", () => {
 
 				// npm ping should succeed and show PONG response
 				expect(result.stderr).toContain("PONG");
-			},
-			{ timeout: 60000 },
-		);
+		});
 	});
 
 	describe("Step 6: npm view", () => {
-		it(
-			"should run npm view <package> and display package info",
-			async () => {
+		it("should run npm view <package> and display package info", { timeout: 60000 }, async () => {
 				vm = new VirtualMachine();
 				await vm.init();
 
@@ -338,15 +316,11 @@ describe("NPM CLI Integration", () => {
 				// Should contain lodash package info
 				expect(result.stdout).toContain("lodash");
 				expect(result.stdout).toContain('"name":');
-			},
-			{ timeout: 60000 },
-		);
+		});
 	});
 
 	describe("Step 7: npm pack", () => {
-		it(
-			"should run npm pack and create a tarball",
-			async () => {
+		it("should run npm pack and create a tarball", { timeout: 60000 }, async () => {
 				vm = new VirtualMachine();
 				await vm.init();
 
@@ -382,15 +356,11 @@ describe("NPM CLI Integration", () => {
 				// npm pack should complete without error
 				// Full tarball creation may not work due to stream handling
 				expect(result.code).toBe(0);
-			},
-			{ timeout: 60000 },
-		);
+		});
 	});
 
 	describe("Step 8: npm install", () => {
-		it(
-			"should run npm install and fetch packages from registry",
-			async () => {
+		it("should run npm install and fetch packages from registry", { timeout: 60000 }, async () => {
 				vm = new VirtualMachine();
 				await vm.init();
 
@@ -437,8 +407,6 @@ describe("NPM CLI Integration", () => {
 
 				// npm install completes successfully
 				expect(result.code).toBe(0);
-			},
-			{ timeout: 60000 },
-		);
+		});
 	});
 });
