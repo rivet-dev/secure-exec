@@ -73,10 +73,11 @@ export class WasixInstance {
 		if (this.initialized) return;
 
 		if (!wasmerInitialized) {
+			await init();
 			// Enable wasmer debug logging (uses Rust tracing-subscriber EnvFilter format)
 			// Note: "debug"/"info" levels cause OOM or log binary data - use "warn" or higher
+			// Must be called AFTER init() in SDK v0.10+
 			initializeLogger("warn");
-			await init();
 			wasmerInitialized = true;
 		}
 
