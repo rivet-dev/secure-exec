@@ -2,7 +2,7 @@
  * Test utilities for sandboxed-node
  */
 import type { Directory } from "@wasmer/sdk/node";
-import type { VirtualFileSystem } from "./types.js";
+import type { VirtualFileSystem } from "../src/types.js";
 
 /**
  * Wrap a wasmer Directory as VirtualFileSystem for testing

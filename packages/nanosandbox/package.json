@@ -15,7 +15,7 @@
     "build:wasix": "./wasix-runtime/build.sh",
     "build:npm": "./scripts/archive-npm.sh",
     "build": "tsc",
-    "test": "node --test dist/**/*.test.js"
+    "test": "node --import tsx --test tests/**/*.test.ts"
   },
   "dependencies": {
     "@wasmer/sdk": "^0.10.0",

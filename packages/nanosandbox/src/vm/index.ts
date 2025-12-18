@@ -5,13 +5,13 @@ import { Directory, init } from "@wasmer/sdk/node";
 import { NodeProcess, createDefaultNetworkAdapter, type VirtualFileSystem } from "sandboxed-node";
 import {
 	DATA_MOUNT_PATH,
-	InteractiveSession,
 	WasixInstance,
+	type InteractiveSession,
 } from "../wasix/index.js";
 import { createVirtualFileSystem } from "./virtual-filesystem.js";
 
-export { WasixInstance, InteractiveSession, Directory, DATA_MOUNT_PATH };
-export type { VirtualFileSystem };
+export { WasixInstance, Directory, DATA_MOUNT_PATH };
+export type { InteractiveSession, VirtualFileSystem };
 
 export interface SpawnResult {
 	stdout: string;

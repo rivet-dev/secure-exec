@@ -4,7 +4,7 @@ import {
 	type CommandExecutor,
 	type NetworkAdapter,
 	NodeProcess,
-} from "./index.js";
+} from "../src/index.js";
 import { wrapDirectory } from "./test-utils.js";
 
 /**

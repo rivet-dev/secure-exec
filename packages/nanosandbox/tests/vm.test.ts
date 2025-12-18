@@ -3,8 +3,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert";
-import { DATA_MOUNT_PATH } from "../wasix/index.js";
-import { VirtualMachine } from "./index.js";
+import { DATA_MOUNT_PATH } from "../src/wasix/index.js";
+import { VirtualMachine } from "../src/vm/index.js";
 
 describe("VirtualMachine", () => {
 	describe("Step 4: Basic filesystem", () => {

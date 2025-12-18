@@ -2,7 +2,7 @@ import { Directory, init } from "@wasmer/sdk/node";
 import { NodeProcess } from "sandboxed-node";
 import { before, describe, it } from "node:test";
 import assert from "node:assert";
-import { DATA_MOUNT_PATH, WasixInstance } from "./index.js";
+import { DATA_MOUNT_PATH, WasixInstance } from "../src/wasix/index.js";
 
 describe("WasixInstance", () => {
 	before(async () => {

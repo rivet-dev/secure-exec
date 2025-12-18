@@ -1,7 +1,7 @@
 import { afterEach, describe, it } from "node:test";
 import assert from "node:assert";
-import { VirtualMachine } from "./index.js";
-import { DATA_MOUNT_PATH } from "../wasix/index.js";
+import { VirtualMachine } from "../src/vm/index.js";
+import { DATA_MOUNT_PATH } from "../src/wasix/index.js";
 
 describe("VirtualFileSystem", () => {
 	let vm: VirtualMachine;
