@@ -73,8 +73,7 @@ export class WasixInstance {
 		if (this.initialized) return;
 
 		if (!wasmerInitialized) {
-			// Enable wasmer debug logging via init options (SDK v0.10+)
-			// Note: "debug"/"info" levels cause OOM or log binary data - use "warn" or higher
+			// SDK v0.10 expects an options object
 			await init({ log: "warn" });
 			wasmerInitialized = true;
 		}

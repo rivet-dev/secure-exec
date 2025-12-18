@@ -4,15 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "node --import tsx --test src/**/*.test.ts"
   },
   "dependencies": {
     "nanosandbox": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^22.10.2",
-    "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "@types/node": "^25.0.3",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
   }
 }

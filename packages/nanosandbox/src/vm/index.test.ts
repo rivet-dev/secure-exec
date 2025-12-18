@@ -1,9 +1,10 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { after, before, describe, it } from "node:test";
+import assert from "node:assert";
 import { DATA_MOUNT_PATH } from "../wasix/index.js";
-import { VirtualMachine } from "./index";
+import { VirtualMachine } from "./index.js";
 
 describe("VirtualMachine", () => {
 	describe("Step 4: Basic filesystem", () => {
@@ -12,7 +13,7 @@ describe("VirtualMachine", () => {
 			await vm.init();
 
 			await vm.writeFile("/data/foo.txt", "bar");
-			expect(await vm.readFile("/data/foo.txt")).toBe("bar");
+			assert.strictEqual(await vm.readFile("/data/foo.txt"), "bar");
 		});
 
 		it("should write and read binary files", async () => {
@@ -23,7 +24,7 @@ describe("VirtualMachine", () => {
 			await vm.writeFile("/data/binary.bin", data);
 
 			const result = await vm.readFileBinary("/data/binary.bin");
-			expect(result).toEqual(data);
+			assert.deepStrictEqual(result, data);
 		});
 
 		it("should check if files exist", async () => {
@@ -32,8 +33,8 @@ describe("VirtualMachine", () => {
 
 			await vm.writeFile("/data/exists.txt", "yes");
 
-			expect(await vm.exists("/data/exists.txt")).toBe(true);
-			expect(await vm.exists("/data/notexists.txt")).toBe(false);
+			assert.strictEqual(await vm.exists("/data/exists.txt"), true);
+			assert.strictEqual(await vm.exists("/data/notexists.txt"), false);
 		});
 
 		it("should list directory contents", async () => {
@@ -45,8 +46,8 @@ describe("VirtualMachine", () => {
 			await vm.writeFile("/data/mydir/b.txt", "b");
 
 			const entries = await vm.readDir("/data/mydir");
-			expect(entries).toContain("a.txt");
-			expect(entries).toContain("b.txt");
+			assert.ok(entries.includes("a.txt"));
+			assert.ok(entries.includes("b.txt"));
 		});
 
 		it("should remove files", async () => {
@@ -54,24 +55,24 @@ describe("VirtualMachine", () => {
 			await vm.init();
 
 			await vm.writeFile("/data/remove.txt", "delete me");
-			expect(await vm.exists("/data/remove.txt")).toBe(true);
+			assert.strictEqual(await vm.exists("/data/remove.txt"), true);
 
 			await vm.remove("/data/remove.txt");
-			expect(await vm.exists("/data/remove.txt")).toBe(false);
+			assert.strictEqual(await vm.exists("/data/remove.txt"), false);
 		});
 
 		it("should expose underlying Directory", async () => {
 			const vm = new VirtualMachine();
 			await vm.init();
 
-			expect(vm.getDirectory()).toBeDefined();
+			assert.ok(vm.getDirectory() !== undefined);
 		});
 
 		it("should expose VirtualFileSystem", async () => {
 			const vm = new VirtualMachine();
 			await vm.init();
 
-			expect(vm.getVirtualFileSystem()).toBeDefined();
+			assert.ok(vm.getVirtualFileSystem() !== undefined);
 		});
 
 		it("should initialize only once", async () => {
@@ -80,15 +81,16 @@ describe("VirtualMachine", () => {
 			await vm.init(); // Should not throw
 
 			await vm.writeFile("/data/test.txt", "ok");
-			expect(await vm.readFile("/data/test.txt")).toBe("ok");
+			assert.strictEqual(await vm.readFile("/data/test.txt"), "ok");
 		});
 
 		it("should reject writes to non-/data paths", async () => {
 			const vm = new VirtualMachine();
 			await vm.init();
 
-			await expect(vm.writeFile("/foo.txt", "bar")).rejects.toThrow(
-				"Cannot write to path outside /data",
+			await assert.rejects(
+				vm.writeFile("/foo.txt", "bar"),
+				/Cannot write to path outside \/data/,
 			);
 		});
 	});
@@ -96,7 +98,7 @@ describe("VirtualMachine", () => {
 	describe("Step 5: Host filesystem loading", () => {
 		let tempDir: string;
 
-		beforeAll(async () => {
+		before(async () => {
 			// Create a temp directory with some test files
 			tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "vm-test-"));
 			await fs.writeFile(path.join(tempDir, "hello.txt"), "Hello World");
@@ -112,7 +114,7 @@ describe("VirtualMachine", () => {
 			);
 		});
 
-		afterAll(async () => {
+		after(async () => {
 			// Cleanup temp directory
 			await fs.rm(tempDir, { recursive: true, force: true });
 		});
@@ -123,7 +125,7 @@ describe("VirtualMachine", () => {
 			// loadFromHost takes path in Directory (without /data), files accessible at /data/*
 			await vm.loadFromHost(tempDir);
 
-			expect(await vm.readFile("/data/hello.txt")).toBe("Hello World");
+			assert.strictEqual(await vm.readFile("/data/hello.txt"), "Hello World");
 		});
 
 		it("should load nested directories", async () => {
@@ -131,7 +133,8 @@ describe("VirtualMachine", () => {
 			await vm.init();
 			await vm.loadFromHost(tempDir);
 
-			expect(await vm.readFile("/data/subdir/nested.txt")).toBe(
+			assert.strictEqual(
+				await vm.readFile("/data/subdir/nested.txt"),
 				"Nested content",
 			);
 		});
@@ -142,7 +145,7 @@ describe("VirtualMachine", () => {
 			await vm.loadFromHost(tempDir);
 
 			const pkgJson = await vm.readFile("/data/node_modules/package.json");
-			expect(pkgJson).toContain("test-pkg");
+			assert.ok(pkgJson.includes("test-pkg"));
 		});
 
 		it("should list loaded directories", async () => {
@@ -151,9 +154,9 @@ describe("VirtualMachine", () => {
 			await vm.loadFromHost(tempDir);
 
 			const entries = await vm.readDir("/data");
-			expect(entries).toContain("hello.txt");
-			expect(entries).toContain("subdir");
-			expect(entries).toContain("node_modules");
+			assert.ok(entries.includes("hello.txt"));
+			assert.ok(entries.includes("subdir"));
+			assert.ok(entries.includes("node_modules"));
 		});
 
 		it("should load to custom virtual base path", async () => {
@@ -162,7 +165,10 @@ describe("VirtualMachine", () => {
 			// loadFromHost to /project in Directory, accessible at /data/project
 			await vm.loadFromHost(tempDir, "/project");
 
-			expect(await vm.readFile("/data/project/hello.txt")).toBe("Hello World");
+			assert.strictEqual(
+				await vm.readFile("/data/project/hello.txt"),
+				"Hello World",
+			);
 		});
 	});
 
@@ -173,8 +179,8 @@ describe("VirtualMachine", () => {
 				const result = await vm.spawn("node", {
 					args: ["-e", 'console.log("hello from node")'],
 				});
-				expect(result.stdout).toContain("hello from node");
-				expect(result.code).toBe(0);
+				assert.ok(result.stdout.includes("hello from node"));
+				assert.strictEqual(result.code, 0);
 			} finally {
 				vm.dispose();
 			}
@@ -187,8 +193,8 @@ describe("VirtualMachine", () => {
 				await vm.writeFile("/data/script.js", 'console.log("script output")');
 
 				const result = await vm.spawn("node", { args: ["/data/script.js"] });
-				expect(result.stdout).toContain("script output");
-				expect(result.code).toBe(0);
+				assert.ok(result.stdout.includes("script output"));
+				assert.strictEqual(result.code, 0);
 			} finally {
 				vm.dispose();
 			}
@@ -202,7 +208,7 @@ describe("VirtualMachine", () => {
 
 				// Files are mounted at DATA_MOUNT_PATH
 				const result = await vm.spawn("ls", { args: [DATA_MOUNT_PATH] });
-				expect(result.stdout).toContain("test.txt");
+				assert.ok(result.stdout.includes("test.txt"));
 			} finally {
 				vm.dispose();
 			}
@@ -212,8 +218,8 @@ describe("VirtualMachine", () => {
 			const vm = new VirtualMachine();
 			try {
 				const result = await vm.spawn("echo", { args: ["hello world"] });
-				expect(result.stdout.trim()).toBe("hello world");
-				expect(result.code).toBe(0);
+				assert.strictEqual(result.stdout.trim(), "hello world");
+				assert.strictEqual(result.code, 0);
 			} finally {
 				vm.dispose();
 			}
@@ -230,9 +236,9 @@ describe("VirtualMachine", () => {
 				const result = await vm.spawn("bash", {
 					args: ["-c", `echo before && node ${DATA_MOUNT_PATH}/script.js && echo after`],
 				});
-				expect(result.stdout).toContain("before");
-				expect(result.stdout).toContain("from node");
-				expect(result.stdout).toContain("after");
+				assert.ok(result.stdout.includes("before"));
+				assert.ok(result.stdout.includes("from node"));
+				assert.ok(result.stdout.includes("after"));
 			} finally {
 				vm.dispose();
 			}
@@ -244,8 +250,8 @@ describe("VirtualMachine", () => {
 				const result = await vm.spawn("node", {
 					args: ["-e", "throw new Error('oops')"],
 				});
-				expect(result.code).toBe(1);
-				expect(result.stderr).toContain("oops");
+				assert.strictEqual(result.code, 1);
+				assert.ok(result.stderr.includes("oops"));
 			} finally {
 				vm.dispose();
 			}
@@ -255,8 +261,8 @@ describe("VirtualMachine", () => {
 			const vm = new VirtualMachine();
 			try {
 				const result = await vm.spawn("node", { args: ["/data/nonexistent.js"] });
-				expect(result.code).toBe(1);
-				expect(result.stderr).toContain("Cannot find module");
+				assert.strictEqual(result.code, 1);
+				assert.ok(result.stderr.includes("Cannot find module"));
 			} finally {
 				vm.dispose();
 			}
@@ -286,10 +292,10 @@ describe("VirtualMachine", () => {
 				);
 
 				const result = await vm.spawn("node", { args: ["/data/test-ms.js"] });
-				expect(result.code).toBe(0);
-				expect(result.stdout).toContain("3600000"); // 1h in ms
-				expect(result.stdout).toContain("172800000"); // 2d in ms
-				expect(result.stdout).toContain("1h"); // reverse conversion
+				assert.strictEqual(result.code, 0);
+				assert.ok(result.stdout.includes("3600000")); // 1h in ms
+				assert.ok(result.stdout.includes("172800000")); // 2d in ms
+				assert.ok(result.stdout.includes("1h")); // reverse conversion
 			} finally {
 				vm.dispose();
 			}
@@ -314,12 +320,12 @@ describe("VirtualMachine", () => {
 				);
 
 				const result = await vm.spawn("node", { args: ["/data/test-fs.js"] });
-				expect(result.code).toBe(0);
-				expect(result.stdout).toContain('{"hello":"world"}');
+				assert.strictEqual(result.code, 0);
+				assert.ok(result.stdout.includes('{"hello":"world"}'));
 
 				// Verify the file was actually written
 				const content = await vm.readFile("/data/output.json");
-				expect(JSON.parse(content)).toEqual({ hello: "world" });
+				assert.deepStrictEqual(JSON.parse(content), { hello: "world" });
 			} finally {
 				vm.dispose();
 			}
@@ -342,11 +348,11 @@ describe("VirtualMachine", () => {
 				);
 
 				const result = await vm.spawn("node", { args: ["/data/test-path.js"] });
-				expect(result.code).toBe(0);
-				expect(result.stdout).toContain("/foo/bar/baz.txt");
-				expect(result.stdout).toContain("/foo/bar");
-				expect(result.stdout).toContain("baz.txt");
-				expect(result.stdout).toContain(".txt");
+				assert.strictEqual(result.code, 0);
+				assert.ok(result.stdout.includes("/foo/bar/baz.txt"));
+				assert.ok(result.stdout.includes("/foo/bar"));
+				assert.ok(result.stdout.includes("baz.txt"));
+				assert.ok(result.stdout.includes(".txt"));
 			} finally {
 				vm.dispose();
 			}
@@ -361,15 +367,15 @@ describe("VirtualMachine", () => {
 
 				// Check npm path is accessible via bash
 				const npmPath = vm.getNpmPath();
-				expect(npmPath).toBe(`${DATA_MOUNT_PATH}/opt/npm`);
+				assert.strictEqual(npmPath, `${DATA_MOUNT_PATH}/opt/npm`);
 
 				// Verify we can ls the npm directory
 				if (!npmPath) throw new Error("npm path should not be null");
 				const result = await vm.spawn("ls", { args: [npmPath] });
-				expect(result.code).toBe(0);
+				assert.strictEqual(result.code, 0);
 				// npm should have bin, lib directories
-				expect(result.stdout).toContain("bin");
-				expect(result.stdout).toContain("lib");
+				assert.ok(result.stdout.includes("bin"));
+				assert.ok(result.stdout.includes("lib"));
 			} finally {
 				vm.dispose();
 			}
@@ -384,8 +390,8 @@ describe("VirtualMachine", () => {
 				if (!npmPath) throw new Error("npm path should not be null");
 				// Verify we can read the npm-cli.js file
 				const result = await vm.spawn("cat", { args: [`${npmPath}/bin/npm-cli.js`] });
-				expect(result.code).toBe(0);
-				expect(result.stdout).toContain("lib/cli.js");
+				assert.strictEqual(result.code, 0);
+				assert.ok(result.stdout.includes("lib/cli.js"));
 			} finally {
 				vm.dispose();
 			}
@@ -398,8 +404,8 @@ describe("VirtualMachine", () => {
 
 				// Check that the wrapper exists
 				const result = await vm.spawn("cat", { args: [`${DATA_MOUNT_PATH}/bin/npm`] });
-				expect(result.code).toBe(0);
-				expect(result.stdout).toContain("npm-cli.js");
+				assert.strictEqual(result.code, 0);
+				assert.ok(result.stdout.includes("npm-cli.js"));
 			} finally {
 				vm.dispose();
 			}

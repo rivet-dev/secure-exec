@@ -7,9 +7,8 @@ i need to impl a test suite of common tools using the virtual machine. add a fol
 - yarn
 - pnpm
 - tsc
-- esbuild
-- tsup
 - gh (the gh cli)
 - @anthropic-ai/claude-code
+- rivet
 
 implement these tests. fix errors specific to npm, do not fix errors for others. report back with the reuslts.

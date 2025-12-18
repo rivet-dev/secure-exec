@@ -27,7 +27,7 @@ describe("NodeProcess", () => {
 	let proc: NodeProcess;
 
 	beforeAll(async () => {
-		await init();
+		await init({ log: "warn" });
 	});
 
 	afterEach(() => {

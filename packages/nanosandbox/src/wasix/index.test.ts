@@ -1,11 +1,12 @@
 import { Directory, init } from "@wasmer/sdk/node";
 import { NodeProcess } from "sandboxed-node";
-import { beforeAll, describe, expect, it } from "vitest";
+import { before, describe, it } from "node:test";
+import assert from "node:assert";
 import { DATA_MOUNT_PATH, WasixInstance } from "./index.js";
 
 describe("WasixInstance", () => {
-	beforeAll(async () => {
-		await init();
+	before(async () => {
+		await init({ log: "warn" });
 	});
 
 	describe("Step 6: Basic WASM shell", () => {
@@ -14,8 +15,8 @@ describe("WasixInstance", () => {
 			// Test 1: Direct echo command
 			const wasix1 = new WasixInstance();
 			const echoResult = await wasix1.run("echo", ["hello"]);
-			expect(echoResult.stdout.trim()).toBe("hello");
-			expect(echoResult.code).toBe(0);
+			assert.strictEqual(echoResult.stdout.trim(), "hello");
+			assert.strictEqual(echoResult.code, 0);
 		});
 
 		it("should execute ls and cat with directory", async () => {
@@ -25,29 +26,29 @@ describe("WasixInstance", () => {
 
 			const wasix = new WasixInstance({ directory: dir });
 			const lsResult = await wasix.run("ls", [DATA_MOUNT_PATH]);
-			expect(lsResult.stdout).toContain("test.txt");
-			expect(lsResult.code).toBe(0);
+			assert.ok(lsResult.stdout.includes("test.txt"));
+			assert.strictEqual(lsResult.code, 0);
 
 			// Test 3: cat with same directory
 			dir.writeFile("/hello.txt", "Hello World");
 			const catResult = await wasix.run("cat", [
 				`${DATA_MOUNT_PATH}/hello.txt`,
 			]);
-			expect(catResult.stdout).toBe("Hello World");
-			expect(catResult.code).toBe(0);
+			assert.strictEqual(catResult.stdout, "Hello World");
+			assert.strictEqual(catResult.code, 0);
 		});
 
 		it("should execute shell command via bash/sh", async () => {
 			const wasix = new WasixInstance();
 			const result = await wasix.exec("echo hello");
 			// Output should contain hello (exit code might be non-zero due to node shim)
-			expect(result.stdout).toContain("hello");
+			assert.ok(result.stdout.includes("hello"));
 		});
 
 		it("should expose getDirectory", async () => {
 			const dir = new Directory();
 			const wasix = new WasixInstance({ directory: dir });
-			expect(wasix.getDirectory()).toBe(dir);
+			assert.strictEqual(wasix.getDirectory(), dir);
 		});
 
 		it("should execute script from mounted directory", async () => {
@@ -60,7 +61,7 @@ describe("WasixInstance", () => {
 			// Try to execute the script via bash - script is at DATA_MOUNT_PATH
 			const result = await wasix.exec(`bash ${DATA_MOUNT_PATH}/myscript.sh`);
 			console.log("Script result:", result);
-			expect(result.stdout).toContain("script ran");
+			assert.ok(result.stdout.includes("script ran"));
 		});
 
 		it("should test mount at subpath", async () => {
@@ -75,7 +76,7 @@ describe("WasixInstance", () => {
 			const result = await wasix.run("ls", [DATA_MOUNT_PATH]);
 			console.log(`ls ${DATA_MOUNT_PATH}:`, result);
 
-			expect(result.stdout).toContain("test.txt");
+			assert.ok(result.stdout.includes("test.txt"));
 		});
 
 		it("should test subpath mount with nested dirs via runCommand", async () => {
@@ -126,7 +127,7 @@ describe("WasixInstance", () => {
 			).wait();
 			console.log("cat /mnt/mydir/nested.txt:", catResult);
 
-			expect(catResult.stdout).toContain("nested content");
+			assert.ok(catResult.stdout.includes("nested content"));
 		});
 
 		it("should run bash script from subpath mount", async () => {
@@ -159,7 +160,7 @@ describe("WasixInstance", () => {
 			).wait();
 			console.log("bash script result:", result);
 
-			expect(result.stdout).toContain("Hello from subpath mount!");
+			assert.ok(result.stdout.includes("Hello from subpath mount!"));
 		});
 	});
 
@@ -170,7 +171,7 @@ describe("WasixInstance", () => {
 			// Run node directly via IPC polling (uses real node as fallback)
 			const result = await wasix.runWithIpc("node", ["-e", "console.log(2+2)"]);
 
-			expect(result.stdout).toContain("4");
+			assert.ok(result.stdout.includes("4"));
 		});
 
 		it("should run node command via IPC with NodeProcess", async () => {
@@ -186,7 +187,7 @@ describe("WasixInstance", () => {
 					"console.log('Hello from NodeProcess')",
 				]);
 
-				expect(result.stdout).toContain("Hello from NodeProcess");
+				assert.ok(result.stdout.includes("Hello from NodeProcess"));
 			} finally {
 				nodeProcess.dispose();
 			}
@@ -206,9 +207,9 @@ describe("WasixInstance", () => {
 					"echo 'Before node' && node -e \"console.log('From node')\" && echo 'After node'",
 				]);
 
-				expect(result.stdout).toContain("Before node");
-				expect(result.stdout).toContain("From node");
-				expect(result.stdout).toContain("After node");
+				assert.ok(result.stdout.includes("Before node"));
+				assert.ok(result.stdout.includes("From node"));
+				assert.ok(result.stdout.includes("After node"));
 			} finally {
 				nodeProcess.dispose();
 			}

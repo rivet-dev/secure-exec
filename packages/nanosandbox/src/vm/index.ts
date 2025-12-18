@@ -67,7 +67,8 @@ export class VirtualMachine {
 		if (this.initialized) return;
 
 		if (!wasmerInitialized) {
-			await init();
+			// SDK v0.10 expects an options object
+			await init({ log: "warn" });
 			wasmerInitialized = true;
 		}
 

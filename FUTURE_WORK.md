@@ -6,6 +6,7 @@
 - get npm working in terminal
 - remove use of runCommand, make it all run with ipc
 - clean up polyfills to get compiled in bridge
+- check if there is an issue running multiple wasix instances in the same machine
 
 ## fs-polyfill
 - inline compiled code at build time instead of runtime fs.readFileSync()
@@ -48,3 +49,8 @@
 - replace isolated-vm with our own rust implementation that's integrated with WASIX
 - why does chmod not work
 - integrate pino
+- snapshots/live migration
+
+## better isolation
+
+- share the same virtual network/io/fs between js and wasm

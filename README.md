@@ -114,7 +114,7 @@ Measuring: idle memory, idle CPU
 
 ### TL;DR
 
-This is based on the same technology (V8 isolates & WASM) that provides secure code execution to Chromium browsers and to Cloudflare Workers. By default, V8 isolates and WASM modules cannot execute any dangerous functionality outside of their respective sandboxes. This maeks auditing them simple: you can see the extensions that NanoSandbox provides here (TODO).
+This is based on the same technology (V8 isolates & WASM) that provides secure code execution to Chromium browsers and to Cloudflare Workers. By default, V8 isolates and WASM modules cannot execute any dangerous functionality outside of their respective sandboxes. This maeks auditing them simple: you can see the bridges that NanoSandbox provides here (TODO).
 
 ### Thread Model
 

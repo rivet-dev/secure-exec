@@ -63,3 +63,7 @@ You're correct that V8 isolates are production-grade for untrusted JS. My origin
 3. **Do you want defense-in-depth?** (For most use cases, probably not necessary)
 
 For a typical AI coding assistant, NanoSandbox's isolation model is probably fine. The microVM vendors are selling defense-in-depth that matters more for compliance checkboxes and worst-case scenarios than day-to-day security.
+
+---
+
+more comparison: https://claude.ai/share/01085ee5-53a1-4cc4-9e9f-33da98319485

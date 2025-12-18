@@ -5,3 +5,5 @@
 - wasmer sdk docs at https://wasmerio.github.io/wasmer-js/
 - all bridge types that get injected in to ivm (isolated-vm) need to be defined in packages/nanosandbox/src/bridge/. they also need to be fully type checked agianst @tyeps/node with either `impelments` or `satisfies` or the equivalent
 - do not implement polyfills yourself if it already exists in node-stdlib-browser (in node-process/polyfills.ts)
+- when running tests, always write tests to a file then cat/grep/etc the file. this lets you read from the file multiple times while only running the expensive test once.
+- use timeouts 1 minute or less. do not run all tests at once unless you're testing a large set of changes -- assume tests are slow.
