@@ -1,5 +1,6 @@
 ## tools
 
+- expose syscalls for spawning commands from node (since command.create doesn't work)
 - clean up compression base64 hacks for network requests to gzipped data
 - move node-standbox to a separate package: sandboxed-node
 - add comprenesive per-package tests
