@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::env;
 use std::io::{self, Read, Write};
-use std::process::exit;
+use std::process::{exit, Child, Command, Stdio};
 
 // Syscall imports for host_exec
 #[link(wasm_import_module = "wasix_32v1")]
@@ -32,6 +32,15 @@ extern "C" {
     fn host_exec_poll(
         session: u64,
         ready_ptr: *mut u32,
+    ) -> i32;
+
+    // Send child process output back to host
+    fn host_exec_child_output(
+        session: u64,
+        child_id: u64,
+        msg_type: u32,
+        data_ptr: *const u8,
+        data_len: usize,
     ) -> i32;
 }
 
@@ -100,10 +109,21 @@ struct EventFdReadwrite {
     _pad: [u8; 6],
 }
 
-// Message type constants
+// Message type constants - Host to WASM (stdout/stderr/exit from Node.js)
 const HOST_EXEC_STDOUT: u32 = 1;
 const HOST_EXEC_STDERR: u32 = 2;
 const HOST_EXEC_EXIT: u32 = 3;
+
+// Message type constants - Node to WASM (child process requests)
+const MSG_TYPE_SPAWN_REQUEST: u32 = 10;
+const MSG_TYPE_SPAWN_STDIN: u32 = 11;
+const MSG_TYPE_SPAWN_CLOSE_STDIN: u32 = 12;
+const MSG_TYPE_SPAWN_KILL: u32 = 13;
+
+// Message type constants - WASM to Node (child process output)
+const MSG_TYPE_CHILD_STDOUT: u32 = 20;
+const MSG_TYPE_CHILD_STDERR: u32 = 21;
+const MSG_TYPE_CHILD_EXIT: u32 = 22;
 
 // WASI errno
 const ERRNO_AGAIN: i32 = 6;  // EAGAIN - try again
@@ -114,6 +134,20 @@ struct Request {
     args: Vec<String>,
     env: HashMap<String, String>,
     cwd: String,
+}
+
+#[derive(serde::Deserialize)]
+struct SpawnRequest {
+    child_id: u64,
+    command: String,
+    args: Vec<String>,
+    env: HashMap<String, String>,
+    cwd: String,
+}
+
+/// Information about a running child process
+struct ChildProcess {
+    child: Child,
 }
 
 fn main() {
@@ -167,6 +201,10 @@ fn run_event_loop(session: u64) {
     let mut host_buf = vec![0u8; 64 * 1024]; // 64KB buffer for host output
     let mut stdin_buf = vec![0u8; 4096];     // 4KB buffer for stdin
     let mut stdin_closed = false;
+
+    // Child process management
+    let mut children: HashMap<u64, ChildProcess> = HashMap::new();
+    let mut child_output_buf = vec![0u8; 8192]; // Buffer for reading child output
 
     // Subscriptions for poll_oneoff:
     // [0] = stdin (fd 0) for reading
@@ -268,12 +306,27 @@ fn run_event_loop(session: u64) {
                     eprintln!("[wasix-shim] Exiting with code {}", exit_code);
                     exit(exit_code);
                 }
+                MSG_TYPE_SPAWN_REQUEST => {
+                    handle_spawn_request(session, &host_buf[..data_len], &mut children);
+                }
+                MSG_TYPE_SPAWN_STDIN => {
+                    handle_spawn_stdin(&host_buf[..data_len], &mut children);
+                }
+                MSG_TYPE_SPAWN_CLOSE_STDIN => {
+                    handle_spawn_close_stdin(&host_buf[..data_len], &mut children);
+                }
+                MSG_TYPE_SPAWN_KILL => {
+                    handle_spawn_kill(session, &host_buf[..data_len], &mut children);
+                }
                 _ => {
                     eprintln!("[wasix-shim] Unknown message type: {}", msg_type);
-                    exit(1);
+                    // Don't exit - just ignore unknown messages
                 }
             }
         }
+
+        // Check child processes for output
+        check_child_processes(session, &mut children, &mut child_output_buf);
 
         // Now wait for stdin or timeout using poll_oneoff
         let num_subs = if stdin_closed { 1 } else { 2 };
@@ -347,6 +400,238 @@ fn run_event_loop(session: u64) {
                 }
             }
             // userdata == 1 is just the timeout - we'll check host output at the top of the loop
+        }
+    }
+}
+
+/// Handle a SPAWN_REQUEST message - spawn a new child process
+fn handle_spawn_request(
+    session: u64,
+    data: &[u8],
+    children: &mut HashMap<u64, ChildProcess>,
+) {
+    let spawn_req: SpawnRequest = match serde_json::from_slice(data) {
+        Ok(req) => req,
+        Err(e) => {
+            eprintln!("[wasix-shim] Failed to parse SPAWN_REQUEST: {}", e);
+            return;
+        }
+    };
+
+    eprintln!(
+        "[wasix-shim] Spawning child {}: {} {:?}",
+        spawn_req.child_id, spawn_req.command, spawn_req.args
+    );
+
+    // Build the command
+    let mut cmd = Command::new(&spawn_req.command);
+    cmd.args(&spawn_req.args);
+    cmd.envs(&spawn_req.env);
+
+    // Set up pipes for stdout/stderr/stdin
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+    cmd.stdin(Stdio::piped());
+
+    // Set working directory if specified
+    if !spawn_req.cwd.is_empty() {
+        cmd.current_dir(&spawn_req.cwd);
+    }
+
+    // Spawn the child
+    match cmd.spawn() {
+        Ok(child) => {
+            eprintln!("[wasix-shim] Child {} spawned successfully", spawn_req.child_id);
+            children.insert(spawn_req.child_id, ChildProcess { child });
+        }
+        Err(e) => {
+            eprintln!("[wasix-shim] Failed to spawn child {}: {}", spawn_req.child_id, e);
+            // Send exit with error code
+            let exit_code: i32 = -1;
+            let exit_data = exit_code.to_le_bytes();
+            unsafe {
+                host_exec_child_output(
+                    session,
+                    spawn_req.child_id,
+                    MSG_TYPE_CHILD_EXIT,
+                    exit_data.as_ptr(),
+                    exit_data.len(),
+                );
+            }
+        }
+    }
+}
+
+/// Handle SPAWN_STDIN message - write data to child's stdin
+fn handle_spawn_stdin(data: &[u8], children: &mut HashMap<u64, ChildProcess>) {
+    if data.len() < 8 {
+        eprintln!("[wasix-shim] SPAWN_STDIN data too short");
+        return;
+    }
+
+    let child_id = u64::from_le_bytes(data[0..8].try_into().unwrap());
+    let stdin_data = &data[8..];
+
+    if let Some(child_proc) = children.get_mut(&child_id) {
+        if let Some(ref mut stdin) = child_proc.child.stdin {
+            if let Err(e) = stdin.write_all(stdin_data) {
+                eprintln!("[wasix-shim] Failed to write to child {} stdin: {}", child_id, e);
+            }
+        }
+    } else {
+        eprintln!("[wasix-shim] SPAWN_STDIN for unknown child {}", child_id);
+    }
+}
+
+/// Handle SPAWN_CLOSE_STDIN message - close child's stdin
+fn handle_spawn_close_stdin(data: &[u8], children: &mut HashMap<u64, ChildProcess>) {
+    if data.len() < 8 {
+        eprintln!("[wasix-shim] SPAWN_CLOSE_STDIN data too short");
+        return;
+    }
+
+    let child_id = u64::from_le_bytes(data[0..8].try_into().unwrap());
+
+    if let Some(child_proc) = children.get_mut(&child_id) {
+        // Drop stdin to close it
+        child_proc.child.stdin.take();
+        eprintln!("[wasix-shim] Closed stdin for child {}", child_id);
+    } else {
+        eprintln!("[wasix-shim] SPAWN_CLOSE_STDIN for unknown child {}", child_id);
+    }
+}
+
+/// Handle SPAWN_KILL message - send signal to child
+fn handle_spawn_kill(
+    session: u64,
+    data: &[u8],
+    children: &mut HashMap<u64, ChildProcess>,
+) {
+    if data.len() < 12 {
+        eprintln!("[wasix-shim] SPAWN_KILL data too short");
+        return;
+    }
+
+    let child_id = u64::from_le_bytes(data[0..8].try_into().unwrap());
+    let _signal = u32::from_le_bytes(data[8..12].try_into().unwrap());
+
+    if let Some(child_proc) = children.get_mut(&child_id) {
+        // In WASIX, kill() will send the signal
+        if let Err(e) = child_proc.child.kill() {
+            eprintln!("[wasix-shim] Failed to kill child {}: {}", child_id, e);
+        } else {
+            eprintln!("[wasix-shim] Killed child {}", child_id);
+        }
+    } else {
+        // Child might have already exited - send exit code
+        eprintln!("[wasix-shim] SPAWN_KILL for unknown child {}", child_id);
+        let exit_code: i32 = -1;
+        let exit_data = exit_code.to_le_bytes();
+        unsafe {
+            host_exec_child_output(
+                session,
+                child_id,
+                MSG_TYPE_CHILD_EXIT,
+                exit_data.as_ptr(),
+                exit_data.len(),
+            );
+        }
+    }
+}
+
+/// Check all child processes for output and exit status
+fn check_child_processes(
+    session: u64,
+    children: &mut HashMap<u64, ChildProcess>,
+    buf: &mut [u8],
+) {
+    // Collect child IDs that have exited (can't modify while iterating)
+    let mut exited: Vec<(u64, i32)> = Vec::new();
+
+    for (child_id, child_proc) in children.iter_mut() {
+        // Check for stdout
+        if let Some(ref mut stdout) = child_proc.child.stdout {
+            // Try to read (non-blocking in WASIX)
+            match stdout.read(buf) {
+                Ok(0) => {
+                    // EOF on stdout - might be exiting
+                }
+                Ok(n) => {
+                    // Send stdout data to host
+                    unsafe {
+                        host_exec_child_output(
+                            session,
+                            *child_id,
+                            MSG_TYPE_CHILD_STDOUT,
+                            buf.as_ptr(),
+                            n,
+                        );
+                    }
+                }
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    // No data available, that's OK
+                }
+                Err(e) => {
+                    eprintln!("[wasix-shim] Error reading child {} stdout: {}", child_id, e);
+                }
+            }
+        }
+
+        // Check for stderr
+        if let Some(ref mut stderr) = child_proc.child.stderr {
+            match stderr.read(buf) {
+                Ok(0) => {
+                    // EOF on stderr
+                }
+                Ok(n) => {
+                    // Send stderr data to host
+                    unsafe {
+                        host_exec_child_output(
+                            session,
+                            *child_id,
+                            MSG_TYPE_CHILD_STDERR,
+                            buf.as_ptr(),
+                            n,
+                        );
+                    }
+                }
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    // No data available
+                }
+                Err(e) => {
+                    eprintln!("[wasix-shim] Error reading child {} stderr: {}", child_id, e);
+                }
+            }
+        }
+
+        // Check if child has exited
+        match child_proc.child.try_wait() {
+            Ok(Some(status)) => {
+                let exit_code = status.code().unwrap_or(-1);
+                eprintln!("[wasix-shim] Child {} exited with code {}", child_id, exit_code);
+                exited.push((*child_id, exit_code));
+            }
+            Ok(None) => {
+                // Still running
+            }
+            Err(e) => {
+                eprintln!("[wasix-shim] Error checking child {} status: {}", child_id, e);
+            }
+        }
+    }
+
+    // Remove exited children and send exit notifications
+    for (child_id, exit_code) in exited {
+        children.remove(&child_id);
+        let exit_data = exit_code.to_le_bytes();
+        unsafe {
+            host_exec_child_output(
+                session,
+                child_id,
+                MSG_TYPE_CHILD_EXIT,
+                exit_data.as_ptr(),
+                exit_data.len(),
+            );
         }
     }
 }
