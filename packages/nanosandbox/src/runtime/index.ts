@@ -1,7 +1,7 @@
 import { init } from "@wasmer/sdk/node";
-import { VirtualMachine, VirtualMachineOptions } from "../vm/index.js";
+import { VirtualMachine, VirtualMachineOptions, Process, SpawnOptions, spawn as vmSpawn } from "../vm/index.js";
 
-export { VirtualMachine, VirtualMachineOptions };
+export { VirtualMachine, VirtualMachineOptions, Process, SpawnOptions };
 
 let wasmerInitialized = false;
 
@@ -45,5 +45,28 @@ export class Runtime {
 		const vm = new VirtualMachine(command, options);
 		await vm.setup();
 		return vm;
+	}
+
+	/**
+	 * Spawn a command with streaming stdin/stdout.
+	 *
+	 * @param command - The command to spawn (e.g., "bash", "node")
+	 * @param options - Options including args, env, cwd
+	 * @returns A Process handle for streaming I/O
+	 *
+	 * @example
+	 * ```typescript
+	 * const proc = await runtime.spawn("node", { args: ["-e", "..."] });
+	 * await proc.writeStdin("hello\n");
+	 * const output = await proc.readStdout();
+	 * await proc.closeStdin();
+	 * const result = await proc.wait();
+	 * ```
+	 */
+	async spawn(
+		command: string,
+		options: SpawnOptions = {},
+	): Promise<Process> {
+		return vmSpawn(command, options);
 	}
 }

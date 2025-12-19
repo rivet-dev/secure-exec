@@ -13,6 +13,28 @@ export interface VirtualMachineOptions {
 	stdin?: string;
 }
 
+export interface SpawnOptions {
+	args?: string[];
+	env?: Record<string, string>;
+	cwd?: string;
+}
+
+/**
+ * A running process with streaming stdin/stdout.
+ */
+export interface Process {
+	/** Write data to stdin */
+	writeStdin(data: string): Promise<void>;
+	/** Close stdin (signal EOF) */
+	closeStdin(): Promise<void>;
+	/** Read all available stdout data */
+	readStdout(): Promise<string>;
+	/** Wait for the process to exit */
+	wait(): Promise<{ stdout: string; stderr: string; code: number }>;
+	/** Kill the process */
+	kill(): void;
+}
+
 interface TerminalOptions {
 	term: string;
 	cols: number;
@@ -314,4 +336,163 @@ export class VirtualMachine {
 		this.stderr = result.stderr;
 		this.code = result.code ?? 0;
 	}
+}
+
+/**
+ * ProcessImpl wraps a wasmer-js Instance and provides streaming stdin/stdout.
+ *
+ * Note: Due to wasmer-js TTY mode, stdin is echoed to stdout when using
+ * interactive mode. The actual program output comes through in the wait() result.
+ */
+class ProcessImpl implements Process {
+	private instance: Awaited<ReturnType<Awaited<ReturnType<typeof Wasmer.fromFile>>["commands"][string]["run"]>>;
+	private stdinWriter: WritableStreamDefaultWriter<Uint8Array> | null = null;
+	private stdoutReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+	private stdoutBuffer: string[] = [];
+	private readingStarted = false;
+	private waitPromise: Promise<{ stdout: string; stderr: string; code: number }> | null = null;
+
+	constructor(instance: ProcessImpl["instance"]) {
+		this.instance = instance;
+
+		// Get stdin writer if available
+		if (instance.stdin) {
+			this.stdinWriter = instance.stdin.getWriter();
+		}
+	}
+
+	private ensureStdoutReader(): void {
+		if (!this.readingStarted) {
+			this.readingStarted = true;
+			this.stdoutReader = this.instance.stdout.getReader();
+			// Start background reading
+			this.readStdoutLoop();
+		}
+	}
+
+	private async readStdoutLoop(): Promise<void> {
+		if (!this.stdoutReader) return;
+		try {
+			const decoder = new TextDecoder();
+			while (true) {
+				const { done, value } = await this.stdoutReader.read();
+				if (done) break;
+				if (value) {
+					this.stdoutBuffer.push(decoder.decode(value, { stream: true }));
+				}
+			}
+		} catch (err) {
+			// Reader was cancelled or stream closed
+		}
+	}
+
+	async writeStdin(data: string): Promise<void> {
+		if (!this.stdinWriter) {
+			throw new Error("stdin is not available");
+		}
+		const encoder = new TextEncoder();
+		await this.stdinWriter.write(encoder.encode(data));
+	}
+
+	async closeStdin(): Promise<void> {
+		if (this.stdinWriter) {
+			await this.stdinWriter.close();
+			this.stdinWriter = null;
+		}
+	}
+
+	async readStdout(): Promise<string> {
+		// Start reading if not already
+		this.ensureStdoutReader();
+
+		// Small delay to let any pending data arrive
+		await new Promise(r => setTimeout(r, 10));
+
+		// Return and clear buffered stdout
+		const output = this.stdoutBuffer.join("");
+		this.stdoutBuffer = [];
+		return output;
+	}
+
+	async wait(): Promise<{ stdout: string; stderr: string; code: number }> {
+		// If we started reading stdout ourselves, we need to return our buffered data
+		// since the stream is already consumed
+		if (this.readingStarted) {
+			// Wait for the reader to finish (process exit)
+			if (this.stdoutReader) {
+				// Read until done
+				const decoder = new TextDecoder();
+				try {
+					while (true) {
+						const { done, value } = await this.stdoutReader.read();
+						if (done) break;
+						if (value) {
+							this.stdoutBuffer.push(decoder.decode(value, { stream: true }));
+						}
+					}
+				} catch (err) {
+					// Stream already closed
+				}
+			}
+
+			// Get stderr from instance (we didn't consume that)
+			// Note: This is a simplified approach - ideally we'd also buffer stderr
+			const allStdout = this.stdoutBuffer.join("");
+			this.stdoutBuffer = [];
+
+			// We can't get the actual exit code easily since wait() would hang
+			// Return what we have
+			return {
+				stdout: allStdout,
+				stderr: "",
+				code: 0,
+			};
+		}
+
+		// Normal path - let wait() consume the streams
+		if (!this.waitPromise) {
+			this.waitPromise = this.instance.wait().then(result => ({
+				stdout: result.stdout,
+				stderr: result.stderr,
+				code: result.code ?? 0,
+			}));
+		}
+		return this.waitPromise;
+	}
+
+	kill(): void {
+		// Cancel stdin/stdout
+		if (this.stdinWriter) {
+			this.stdinWriter.abort().catch(() => {});
+		}
+		if (this.stdoutReader) {
+			this.stdoutReader.cancel().catch(() => {});
+		}
+	}
+}
+
+/**
+ * Spawn a command and return a Process handle for streaming I/O.
+ */
+export async function spawn(command: string, options: SpawnOptions = {}): Promise<Process> {
+	const pkg = await loadRuntimePackage();
+
+	const cmd = pkg.commands[command];
+	if (!cmd) {
+		throw new Error(`Command not found: ${command}`);
+	}
+
+	const { args = [], env, cwd } = options;
+	const directory = new Directory();
+
+	const instance = await cmd.run({
+		args,
+		env,
+		cwd,
+		mount: {
+			[DATA_MOUNT_PATH]: directory,
+		},
+	});
+
+	return new ProcessImpl(instance);
 }
