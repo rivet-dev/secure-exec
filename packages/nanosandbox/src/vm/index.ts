@@ -74,8 +74,25 @@ interface HostExecContext {
 	setKillFunction?: (killFn: (signal: number) => void) => void;
 	// Terminal options (if set, apply TERM/COLUMNS/LINES to env)
 	terminal?: TerminalOptions;
-	// Child process spawning (for nested spawns from sandboxed code)
-	// Provided by wasmer-js scheduler - routes through host_exec infrastructure
+
+	// NEW: Child process spawning via WASM IPC (routes to wasix-runtime)
+	// These callbacks are provided by wasmer-js scheduler
+	requestSpawn?: (
+		childId: number,
+		command: string,
+		argsJson: string,
+		envJson: string,
+		cwd: string,
+		onStdout: (data: Uint8Array) => void,
+		onStderr: (data: Uint8Array) => void,
+		onExit: (code: number) => void,
+	) => void;
+	spawnWriteStdin?: (childId: number, data: Uint8Array) => void;
+	spawnCloseStdin?: (childId: number) => void;
+	spawnKill?: (childId: number, signal: number) => void;
+
+	// Legacy: Child process spawning (for nested spawns from sandboxed code)
+	// This is now implemented using the above callbacks
 	spawnChildStreaming?(
 		command: string,
 		args: string[],
@@ -93,146 +110,89 @@ const DATA_MOUNT_PATH = "/data";
 let runtimePackage: Awaited<ReturnType<typeof Wasmer.fromFile>> | null = null;
 let wasmerRuntime: Runtime | null = null;
 
+// Counter for generating unique child IDs
+let nextChildId = 1;
+
 /**
- * Create a spawnChildStreaming function that spawns WASM instances.
- * This allows sandboxed Node.js code to spawn child processes that run as WASM.
+ * Create a spawnChildStreaming function that uses the new WASM IPC callbacks.
+ * This allows sandboxed Node.js code to spawn child processes that run as
+ * WASIX processes inside the same VM (sharing filesystem).
+ *
+ * If the new callbacks aren't available, returns null to indicate child
+ * process spawning is not supported.
  */
 function createSpawnChildStreaming(
+	ctx: HostExecContext,
 	parentCwd: string,
 	parentEnv: Record<string, string>,
-): HostExecContext["spawnChildStreaming"] {
+): HostExecContext["spawnChildStreaming"] | null {
+	// Check if the new WASM IPC callbacks are available
+	if (!ctx.requestSpawn || !ctx.spawnWriteStdin || !ctx.spawnCloseStdin || !ctx.spawnKill) {
+		console.error("[spawnChildStreaming] WASM IPC callbacks not available");
+		return null;
+	}
+
+	const { requestSpawn, spawnWriteStdin, spawnCloseStdin, spawnKill } = ctx;
+
 	return (command, args, options) => {
+		// Generate unique child ID
+		const childId = nextChildId++;
+
 		// Track state
 		let exited = false;
 		let exitCode = 0;
 		let exitResolve: ((code: number) => void) | null = null;
-		let killed = false;
-		let instance: Awaited<ReturnType<Awaited<ReturnType<typeof Wasmer.fromFile>>["commands"][string]["run"]>> | null = null;
-		let stdinWriter: WritableStreamDefaultWriter<Uint8Array> | null = null;
 
-		// Start the process asynchronously
-		const startProcess = async () => {
-			const pkg = await loadRuntimePackage();
-			const cmd = pkg.commands[command];
-			if (!cmd) {
-				// Command not found - report error and exit
-				const errorMsg = `Error: Command '${command}' not found\n`;
-				if (options.onStderr) {
-					options.onStderr(new TextEncoder().encode(errorMsg));
-				}
-				exitCode = 127;
-				exited = true;
-				if (exitResolve) {
-					exitResolve(exitCode);
-				}
-				return;
-			}
+		// Merge environment: parent env + child options env
+		const mergedEnv = { ...parentEnv, ...options.env };
 
-			// Merge environment: parent env + child options env
-			const mergedEnv = { ...parentEnv, ...options.env };
-
-			// Create a new Directory for the child process
-			const directory = new Directory();
-
-			// Spawn the instance
-			instance = await cmd.run({
-				args,
-				env: mergedEnv,
-				cwd: options.cwd || parentCwd,
-				mount: {
-					[DATA_MOUNT_PATH]: directory,
-				},
-			});
-
-			// Get stdin writer for streaming
-			if (instance.stdin) {
-				stdinWriter = instance.stdin.getWriter();
-			}
-
-			// Stream stdout
-			if (options.onStdout && instance.stdout) {
-				const reader = instance.stdout.getReader();
-				(async () => {
-					try {
-						while (true) {
-							const { done, value } = await reader.read();
-							if (done || killed) break;
-							if (value && options.onStdout) {
-								options.onStdout(value);
-							}
-						}
-					} catch (err) {
-						// Stream closed
-					}
-				})();
-			}
-
-			// Stream stderr
-			if (options.onStderr && instance.stderr) {
-				const reader = instance.stderr.getReader();
-				(async () => {
-					try {
-						while (true) {
-							const { done, value } = await reader.read();
-							if (done || killed) break;
-							if (value && options.onStderr) {
-								options.onStderr(value);
-							}
-						}
-					} catch (err) {
-						// Stream closed
-					}
-				})();
-			}
-
-			// Wait for process to complete
-			try {
-				const result = await instance.wait();
-				exitCode = result.code ?? 0;
-			} catch (err) {
-				exitCode = 1;
-			}
-			exited = true;
-			if (exitResolve) {
-				exitResolve(exitCode);
+		// Create callbacks for stdout/stderr/exit
+		const onStdout = (data: Uint8Array) => {
+			if (options.onStdout) {
+				options.onStdout(data);
 			}
 		};
 
-		// Start the process
-		startProcess().catch((err) => {
-			const errorMsg = `Error spawning ${command}: ${err instanceof Error ? err.message : String(err)}\n`;
+		const onStderr = (data: Uint8Array) => {
 			if (options.onStderr) {
-				options.onStderr(new TextEncoder().encode(errorMsg));
+				options.onStderr(data);
 			}
-			exitCode = 1;
+		};
+
+		const onExit = (code: number) => {
+			exitCode = code;
 			exited = true;
 			if (exitResolve) {
-				exitResolve(exitCode);
+				exitResolve(code);
 			}
-		});
+		};
+
+		// Request spawn via WASM IPC
+		// This queues a SPAWN_REQUEST message that the wasix-runtime will read
+		requestSpawn(
+			childId,
+			command,
+			JSON.stringify(args),
+			JSON.stringify(mergedEnv),
+			options.cwd || parentCwd,
+			onStdout,
+			onStderr,
+			onExit,
+		);
+
+		console.error(`[spawnChildStreaming] Spawned child ${childId}: ${command} ${args.join(" ")}`);
 
 		// Return SpawnedProcess handle
 		return {
 			writeStdin(data: Uint8Array | string): void {
-				if (stdinWriter && !killed) {
-					const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
-					stdinWriter.write(bytes).catch(() => {});
-				}
+				const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
+				spawnWriteStdin(childId, bytes);
 			},
 			closeStdin(): void {
-				if (stdinWriter) {
-					stdinWriter.close().catch(() => {});
-					stdinWriter = null;
-				}
+				spawnCloseStdin(childId);
 			},
-			kill(_signal?: number): void {
-				killed = true;
-				// Note: wasmer-js doesn't have a direct kill API for instances
-				// Closing stdin is the best we can do
-				if (stdinWriter) {
-					stdinWriter.abort().catch(() => {});
-					stdinWriter = null;
-				}
+			kill(signal?: number): void {
+				spawnKill(childId, signal ?? 15); // Default to SIGTERM
 			},
 			wait(): Promise<number> {
 				if (exited) {
@@ -382,10 +342,11 @@ async function handleNodeCommand(ctx: HostExecContext): Promise<number> {
 		: undefined;
 
 	// Add spawnChildStreaming to the context for child process support
-	// This allows sandboxed Node.js to spawn child processes that run as WASM instances
+	// This allows sandboxed Node.js to spawn child processes via WASM IPC
+	const spawnChildFn = createSpawnChildStreaming(ctx, ctx.cwd || "/", ctx.env || {});
 	const ctxWithChildSpawn: HostExecContext = {
 		...ctx,
-		spawnChildStreaming: createSpawnChildStreaming(ctx.cwd || "/", ctx.env || {}),
+		spawnChildStreaming: spawnChildFn ?? undefined,
 	};
 
 	// Create CommandExecutor for child process support
