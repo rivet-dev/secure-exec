@@ -212,3 +212,93 @@ The wasmer-js setTimeout bug must be fixed before the PATH resolution bug can be
 1. Fix the setTimeout bug in wasmer-js (complex - Node.js worker thread compatibility)
 2. Test PATH resolution using a different approach (e.g., Rust unit tests)
 3. Add a mock/polyfill for setTimeout in Node.js worker context
+
+---
+
+## Major Finding: PATH Resolution Works in Native Wasmer (2024-12-20)
+
+### Native Wasmer Test Results
+
+Created a Rust test program at `~/misc/wasix-cp-test` that directly tests `posix_spawnp`:
+
+```rust
+extern "C" {
+    fn posix_spawnp(pid: *mut i32, file: *const i8, ...);
+}
+
+fn test_spawnp(cmd: &str, args: &[&str]) {
+    let result = unsafe { posix_spawnp(&mut pid, cmd_cstr.as_ptr(), ...) };
+    // ...
+}
+```
+
+**All tests PASSED with native wasmer CLI:**
+
+```
+$ wasmer run . --command test-posix-spawnp --env PATH=/bin
+
+=== Testing posix_spawnp PATH resolution ===
+
+--- Test 1: posix_spawnp("echo") ---
+SUCCESS: Spawned with PID: 2
+hello from posix_spawnp
+
+--- Test 2: posix_spawnp("ls") ---
+SUCCESS: Spawned with PID: 3
+bin dev etc tmp usr
+
+--- Test 3: posix_spawnp("/bin/echo") - absolute path ---
+SUCCESS: Spawned with PID: 4
+hello with absolute path
+```
+
+### Conclusion: The Bug is Wasmer-JS Specific
+
+The PATH resolution works correctly in native wasmer. The bug is somewhere in the wasmer-js integration layer:
+
+1. **Native wasmer CLI** (Rust) → `posix_spawnp` → `proc_spawn2` → ✅ Works
+2. **Wasmer-JS** (WASM in Node.js) → Same code path → ❌ Fails
+
+### setTimeout Bug Fix
+
+Fixed the Node.js setTimeout compatibility issue in wasmer-js:
+
+**Before (broken in Node.js):**
+```javascript
+const ret = arg0.setTimeout(arg1, arg2);
+_assertNum(ret);  // Fails: Node.js returns Timeout object
+return ret;
+```
+
+**After (works in Node.js):**
+```javascript
+const ret = arg0.setTimeout(arg1, arg2);
+// Node.js returns Timeout object, browser returns number. Coerce to number.
+const retNum = typeof ret === 'number' ? ret :
+    (ret[Symbol.toPrimitive] ? ret[Symbol.toPrimitive]('number') : 0);
+_assertNum(retNum);
+return retNum;
+```
+
+This fix is applied to `wasmer-js/dist/index.mjs` lines 3201-3214.
+
+### Remaining Issues
+
+After the setTimeout fix, subprocess spawning partially works:
+
+| Command | Result | Notes |
+|---------|--------|-------|
+| `spawnSync('ls', [...])` with which hack | ✅ Works | Absolute path used |
+| `spawnSync('echo', [...])` with which hack | ✅ Works | Absolute path used |
+| `spawnSync('sh', ['-c', ...])` | ❌ Exits code 1 | coreutils sh is multi-call binary |
+| `spawnSync('nowhich:echo', [...])` | ❌ Hangs | PATH resolution path |
+| `spawnSync('nowhich:/bin/echo', [...])` | ⚠️ Completes code 0 but times out | IPC delivery issue |
+
+The last test shows the spawn actually succeeds (exit code 0) but the result isn't delivered back to the waiting spawnSync. This is an IPC/callback delivery issue in the wasix-runtime or sandboxed-node integration.
+
+### Next Steps
+
+1. ✅ PATH resolution is confirmed working in native wasmer
+2. ✅ setTimeout bug is fixed
+3. 🔄 Need to debug why child spawn results aren't delivered to spawnSync
+4. Consider if the nanosandbox architecture needs redesign for subprocess support
