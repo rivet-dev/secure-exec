@@ -141,8 +141,9 @@ describe("Child Process from Sandboxed Node", () => {
 		}, 30000);
 	});
 
-	// exec callback tests work with active handles, but bash returns wrong exit codes
+	// exec callback tests work with active handles, but bash -c returns wrong exit codes
 	// in WASIX (code 45 instead of 0). Skipped until bash issue is fixed.
+	// See tests/debug-bash-exit.test.ts for investigation details.
 	describe.skip("exec (callback style)", () => {
 		it("should execute command with callback", async () => {
 			const script = `
