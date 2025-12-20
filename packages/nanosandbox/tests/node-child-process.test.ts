@@ -83,9 +83,9 @@ describe("Child Process from Sandboxed Node", () => {
 		}, 30000);
 	});
 
-	// Async streaming tests are skipped because the sandboxed Node.js event loop
-	// exits before async callbacks fire. spawnSync works correctly.
-	describe.skip("spawn (streaming)", () => {
+	// Async streaming tests now work with the active handles mechanism
+	// See: packages/sandboxed-node/docs/ACTIVE_HANDLES.md
+	describe("spawn (streaming)", () => {
 		it("should spawn and stream stdout via events", async () => {
 			const script = `
 				const { spawn } = require('child_process');
@@ -141,8 +141,8 @@ describe("Child Process from Sandboxed Node", () => {
 		}, 30000);
 	});
 
-	// exec callback tests are skipped because they rely on async callbacks
-	// which don't fire before the sandbox exits. Use execSync instead.
+	// exec callback tests work with active handles, but bash returns wrong exit codes
+	// in WASIX (code 45 instead of 0). Skipped until bash issue is fixed.
 	describe.skip("exec (callback style)", () => {
 		it("should execute command with callback", async () => {
 			const script = `
