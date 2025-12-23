@@ -152,10 +152,16 @@ struct ChildProcess {
 }
 
 fn main() {
+    // Debug: very first thing - flush to ensure output is visible
+    use std::io::Write;
+    eprintln!("[wasix-shim] MAIN ENTRY");
+    let _ = io::stderr().flush();
+
     let args: Vec<String> = env::args().collect();
     let command = env::var("HOST_EXEC_COMMAND").unwrap_or_else(|_| "node".to_string());
 
     eprintln!("[wasix-shim] Starting with command: {} args: {:?}", command, &args[1..]);
+    let _ = io::stderr().flush();
 
     // Build request
     let request = Request {
@@ -187,10 +193,12 @@ fn main() {
 
     if errno != 0 {
         eprintln!("[wasix-shim] host_exec_start failed with errno {}", errno);
+        let _ = io::stderr().flush();
         exit(1);
     }
 
     eprintln!("[wasix-shim] Session started: {}", session);
+    let _ = io::stderr().flush();
 
     // Main event loop using poll_oneoff for stdin multiplexing
     run_event_loop(session);
@@ -201,11 +209,16 @@ fn run_event_loop(session: u64) {
     let mut stderr = io::stderr();
     let mut host_buf = vec![0u8; 64 * 1024]; // 64KB buffer for host output
     let mut stdin_buf = vec![0u8; 4096];     // 4KB buffer for stdin
-    let mut stdin_closed = false;
 
     // Child process management (spawned natively in WASIX)
     let mut children: HashMap<u64, ChildProcess> = HashMap::new();
     let mut child_output_buf = vec![0u8; 8192]; // Buffer for reading child output
+
+    // In host_exec mode, stdin is not used - the IPC channel is separate.
+    // Skip the stdin availability check which can hang due to poll_oneoff issues
+    // with timeout=0 in the JS environment.
+    #[allow(unused_mut)]
+    let mut stdin_closed = true;
 
     // Subscriptions for poll_oneoff:
     // [0] = stdin (fd 0) for reading
@@ -252,6 +265,8 @@ fn run_event_loop(session: u64) {
         },
     }; 2];
 
+    eprintln!("[wasix-shim] Entering event loop, stdin_closed={}", stdin_closed);
+
     loop {
         // First, always check for host output (non-blocking)
         loop {
@@ -262,6 +277,8 @@ fn run_event_loop(session: u64) {
                 eprintln!("[wasix-shim] host_exec_poll failed with errno {}", errno);
                 break;
             }
+
+            eprintln!("[wasix-shim] poll ready={}", ready);
 
             if ready == 0 {
                 // No data available from host
@@ -337,6 +354,8 @@ fn run_event_loop(session: u64) {
             &subscriptions[0] as *const Subscription  // stdin + timeout
         };
 
+        eprintln!("[wasix-shim] calling poll_oneoff with {} subscriptions", num_subs);
+
         let mut nevents: u32 = 0;
         let errno = unsafe {
             poll_oneoff(
@@ -346,6 +365,8 @@ fn run_event_loop(session: u64) {
                 &mut nevents,
             )
         };
+
+        eprintln!("[wasix-shim] poll_oneoff returned errno={}, nevents={}", errno, nevents);
 
         if errno != 0 {
             eprintln!("[wasix-shim] poll_oneoff failed with errno {}", errno);
