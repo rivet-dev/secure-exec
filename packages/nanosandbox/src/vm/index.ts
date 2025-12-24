@@ -170,12 +170,13 @@ function createSpawnChildStreaming(
 
 		// Request spawn via WASM IPC
 		// This queues a SPAWN_REQUEST message that the wasix-runtime will read
+		const effectiveCwd = options.cwd || parentCwd;
 		requestSpawn(
 			childId,
 			command,
 			JSON.stringify(args),
 			JSON.stringify(mergedEnv),
-			options.cwd || parentCwd,
+			effectiveCwd,
 			onStdout,
 			onStderr,
 			onExit,

@@ -439,11 +439,15 @@ function spawn(
 
   // Check if streaming mode is available
   if (typeof _childProcessSpawnStart !== "undefined") {
+    // Use process.cwd() as default if no cwd specified
+    // This ensures process.chdir() changes are reflected in child processes
+    const effectiveCwd = opts.cwd ?? (typeof process !== "undefined" ? process.cwd() : "/");
+
     // Streaming mode - spawn immediately
     const sessionId = _childProcessSpawnStart.applySync(undefined, [
       command,
       JSON.stringify(argsArray),
-      JSON.stringify({ cwd: opts.cwd, env: opts.env }),
+      JSON.stringify({ cwd: effectiveCwd, env: opts.env }),
     ]);
 
     activeChildren.set(sessionId, child);
@@ -543,11 +547,15 @@ function spawnSync(
   }
 
   try {
+    // Use process.cwd() as default if no cwd specified
+    // This ensures process.chdir() changes are reflected in child processes
+    const effectiveCwd = opts.cwd ?? (typeof process !== "undefined" ? process.cwd() : "/");
+
     // Args passed as JSON string for transferability
     const jsonResult = _childProcessSpawnSync.applySyncPromise(undefined, [
       command,
       JSON.stringify(argsArray),
-      JSON.stringify({ cwd: opts.cwd, env: opts.env as Record<string, string> }),
+      JSON.stringify({ cwd: effectiveCwd, env: opts.env as Record<string, string> }),
     ]);
     const result = JSON.parse(jsonResult) as { stdout: string; stderr: string; code: number };
 

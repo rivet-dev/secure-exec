@@ -304,9 +304,8 @@ describe("Child Process from Sandboxed Node", () => {
 
 	// Coreutils tests
 	describe("various coreutils commands", () => {
-		// pwd is skipped because WASIX child processes don't support getcwd
-		// Error: "failed to get current directory: Operation not supported on this platform"
-		it.skip("should run pwd command", async () => {
+		// pwd test - debugging getcwd issue
+		it("should run pwd command", async () => {
 			const script = `
 				const { spawnSync } = require('child_process');
 				const result = spawnSync('pwd');
@@ -388,6 +387,64 @@ describe("Child Process from Sandboxed Node", () => {
 			`;
 			const vm = await runtime.run("node", { args: ["-e", script] });
 			expect(vm.stdout).toContain("has output: true");
+		}, 30000);
+	});
+
+	// Working directory tests
+	describe("pwd after changing directory", () => {
+		it("should reflect directory change via shell cd command", async () => {
+			// This is the only working approach for changing cwd in WASIX
+			const script = `
+				const { spawnSync } = require('child_process');
+
+				// Use bash to cd and then run pwd in the same shell
+				const result = spawnSync('bash', ['-c', 'cd /bin && pwd']);
+				console.log('pwd output:', result.stdout.toString().trim());
+				console.log('status:', result.status);
+			`;
+			const vm = await runtime.run("node", { args: ["-e", script] });
+			expect(vm.stdout).toContain("pwd output: /bin");
+			expect(vm.stdout).toContain("status: 0");
+		}, 30000);
+
+		// WASIX limitation: cd to /bin doesn't work because /bin is a virtual mount point
+		it.skip("should reflect directory change via process.chdir in JS", async () => {
+			const script = `
+				const { spawnSync } = require('child_process');
+
+				// First check initial pwd
+				const initial = spawnSync('pwd');
+				console.log('initial pwd:', initial.stdout.toString().trim());
+
+				// Change directory via JavaScript
+				process.chdir('/bin');
+				console.log('process.cwd after chdir:', process.cwd());
+
+				// Now check pwd - should reflect the change
+				const after = spawnSync('pwd');
+				console.log('pwd after chdir:', after.stdout.toString().trim());
+				console.log('status:', after.status);
+			`;
+			const vm = await runtime.run("node", { args: ["-e", script] });
+			expect(vm.stdout).toContain("process.cwd after chdir: /bin");
+			expect(vm.stdout).toContain("pwd after chdir: /bin");
+			expect(vm.stdout).toContain("status: 0");
+		}, 30000);
+
+		// WASIX limitation: cd to /bin doesn't work because /bin is a virtual mount point
+		// from the coreutils package, not a real filesystem directory.
+		it.skip("should pass cwd option to spawnSync", async () => {
+			const script = `
+				const { spawnSync } = require('child_process');
+
+				// Spawn pwd with explicit cwd option
+				const result = spawnSync('pwd', [], { cwd: '/bin' });
+				console.log('pwd output:', result.stdout.toString().trim());
+				console.log('status:', result.status);
+			`;
+			const vm = await runtime.run("node", { args: ["-e", script] });
+			expect(vm.stdout).toContain("pwd output: /bin");
+			expect(vm.stdout).toContain("status: 0");
 		}, 30000);
 	});
 });

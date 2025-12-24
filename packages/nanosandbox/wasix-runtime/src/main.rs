@@ -451,8 +451,8 @@ fn handle_spawn_request(
     };
 
     eprintln!(
-        "[wasix-shim] Spawning child {}: {} {:?}",
-        spawn_req.child_id, spawn_req.command, spawn_req.args
+        "[wasix-shim] Spawning child {}: {} {:?} cwd={:?}",
+        spawn_req.child_id, spawn_req.command, spawn_req.args, spawn_req.cwd
     );
 
     // WASIX requires PATH to be set to /bin for subprocess spawning to work
@@ -522,23 +522,24 @@ fn handle_spawn_request(
     // Spawn the command - WASIX provides commands from dependencies (coreutils, bash)
     // as WASM modules that can be executed via Command::new with absolute paths
     //
-    // Note: Command::envs() doesn't work in WASIX - environment variables aren't
-    // passed to child processes. This is a WASIX limitation (proc_spawn doesn't
-    // forward env). Workaround: Use bash with export statements.
-    let result = if spawn_req.env.is_empty() {
-        // No env vars - spawn directly
-        Command::new(&command_path)
-            .args(&spawn_req.args)
-            .current_dir(if spawn_req.cwd.is_empty() { "/" } else { &spawn_req.cwd })
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-    } else {
-        // Use bash with export statements to set env vars
-        // Format: bash -c 'export K1=V1; export K2=V2; exec /path/to/command args...'
-        // Using 'exec' replaces the bash process with the command, preserving the environment
+    // Note: Command::current_dir() and Command::envs() don't work in WASIX -
+    // the working directory and environment variables aren't passed to child processes.
+    // This is a WASIX limitation (proc_spawn doesn't forward these properly).
+    // Workaround: Use bash with 'cd' and 'export' statements.
+    let effective_cwd = if spawn_req.cwd.is_empty() || spawn_req.cwd == "." { "/" } else { &spawn_req.cwd };
+    let needs_bash_wrapper = effective_cwd != "/" || !spawn_req.env.is_empty();
+
+    let result = if needs_bash_wrapper {
+        // Use bash wrapper to handle cwd and/or env vars
+        // Format: bash -c 'cd /path; export K1=V1; exec /path/to/command args...'
         let mut script = String::new();
+
+        // Add cd if not root
+        if effective_cwd != "/" {
+            script.push_str(&format!("cd {} && ", shell_escape(effective_cwd)));
+        }
+
+        // Add exports for env vars
         for (key, value) in &spawn_req.env {
             // Escape single quotes in values by replacing ' with '\''
             let escaped_value = value.replace('\'', "'\\''");
@@ -553,9 +554,18 @@ fn handle_spawn_request(
             script.push_str(&shell_escape(arg));
         }
 
+        eprintln!("[wasix-shim] Using bash wrapper: {}", script);
+
         Command::new("/bin/bash")
             .args(["-c", &script])
-            .current_dir(if spawn_req.cwd.is_empty() { "/" } else { &spawn_req.cwd })
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+    } else {
+        // No env vars and root cwd - spawn directly (fastest path)
+        Command::new(&command_path)
+            .args(&spawn_req.args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
