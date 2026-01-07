@@ -507,6 +507,7 @@ class ProcessImpl implements Process {
 	private stdoutReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 	private stdoutBuffer: string[] = [];
 	private readingStarted = false;
+	private readLoopPromise: Promise<void> | null = null;
 	private waitPromise: Promise<{ stdout: string; stderr: string; code: number }> | null = null;
 
 	constructor(instance: ProcessImpl["instance"]) {
@@ -522,8 +523,8 @@ class ProcessImpl implements Process {
 		if (!this.readingStarted) {
 			this.readingStarted = true;
 			this.stdoutReader = this.instance.stdout.getReader();
-			// Start background reading
-			this.readStdoutLoop();
+			// Start background reading and track when it's done
+			this.readLoopPromise = this.readStdoutLoop();
 		}
 	}
 
@@ -572,33 +573,18 @@ class ProcessImpl implements Process {
 	}
 
 	async wait(): Promise<{ stdout: string; stderr: string; code: number }> {
-		// If we started reading stdout ourselves, we need to return our buffered data
-		// since the stream is already consumed
+		// If we started reading stdout ourselves, wait for the read loop to finish
+		// (don't try to read ourselves - that would race with the loop)
 		if (this.readingStarted) {
-			// Wait for the reader to finish (process exit)
-			if (this.stdoutReader) {
-				// Read until done
-				const decoder = new TextDecoder();
-				try {
-					while (true) {
-						const { done, value } = await this.stdoutReader.read();
-						if (done) break;
-						if (value) {
-							this.stdoutBuffer.push(decoder.decode(value, { stream: true }));
-						}
-					}
-				} catch (err) {
-					// Stream already closed
-				}
+			// Wait for the read loop to complete (happens when process exits and stdout closes)
+			if (this.readLoopPromise) {
+				await this.readLoopPromise;
 			}
 
-			// Get stderr from instance (we didn't consume that)
-			// Note: This is a simplified approach - ideally we'd also buffer stderr
+			// Return all buffered stdout
 			const allStdout = this.stdoutBuffer.join("");
 			this.stdoutBuffer = [];
 
-			// We can't get the actual exit code easily since wait() would hang
-			// Return what we have
 			return {
 				stdout: allStdout,
 				stderr: "",

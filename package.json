@@ -11,6 +11,7 @@
 		"test:watch": "turbo run test:watch",
 		"dev": "turbo run dev",
 		"exec": "pnpm build -F @nanosandbox/terminal && node packages/terminal/dist/cli.js",
+		"shell": "pnpm build -F @nanosandbox/terminal && node packages/terminal/dist/cli.js -i bash",
 		"lint": "biome check",
 		"lint:fix": "biome check --write"
 	},

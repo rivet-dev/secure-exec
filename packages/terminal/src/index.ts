@@ -53,15 +53,21 @@ export async function runCommand(
 /**
  * Connect terminal streams to spawned process
  */
-function connectStreams(proc: Process): void {
+function connectStreams(proc: Process, debug: boolean = false): void {
+	const log = (msg: string) => {
+		if (debug) console.error(`[connectStreams] ${msg}`);
+	};
+
 	// Set up stdin from process.stdin
 	if (process.stdin.isTTY) {
+		log("TTY mode enabled");
 		// Enable raw mode for character-by-character input
 		process.stdin.setRawMode(true);
 		process.stdin.resume();
 		process.stdin.setEncoding("utf8");
 
 		process.stdin.on("data", async (data: string) => {
+			log(`stdin data: ${JSON.stringify(data)}`);
 			// Handle Ctrl+C
 			if (data === "\x03") {
 				console.log("\n^C");
@@ -70,40 +76,48 @@ function connectStreams(proc: Process): void {
 			}
 			// Handle Ctrl+D (EOF)
 			if (data === "\x04") {
+				log("Ctrl+D received, closing stdin");
 				await proc.closeStdin();
 				return;
 			}
 			await proc.writeStdin(data);
 		});
 	} else {
+		log("Non-TTY mode (piped input)");
 		// Non-TTY mode (piped input)
 		process.stdin.on("data", async (chunk: Buffer) => {
+			log(`stdin chunk: ${JSON.stringify(chunk.toString())}`);
 			await proc.writeStdin(chunk.toString());
 		});
 		process.stdin.on("end", async () => {
+			log("stdin end received, closing stdin");
 			await proc.closeStdin();
 		});
 	}
 
 	// Poll stdout in background
 	(async () => {
+		log("Starting stdout poll loop");
 		while (true) {
 			try {
 				const output = await proc.readStdout();
 				if (output) {
+					log(`stdout: ${JSON.stringify(output)}`);
 					// Convert \n to \r\n for proper terminal display
 					process.stdout.write(output.replace(/\n/g, "\r\n"));
 				}
 				await new Promise(r => setTimeout(r, 10));
-			} catch {
+			} catch (e) {
+				log(`stdout error: ${e}`);
 				break;
 			}
 		}
+		log("stdout poll loop ended");
 	})();
 }
 
 /**
- * Start an interactive terminal session (currently broken due to wasmer-js stdin limitation)
+ * Start an interactive terminal session with streaming stdin/stdout.
  */
 export async function startTerminal(
 	options: TerminalOptions = {},
@@ -132,12 +146,20 @@ export async function startTerminal(
 
 	// Connect streams
 	logTiming("Connecting streams...");
-	connectStreams(proc);
+	connectStreams(proc, debug);
 	logTiming("Streams connected - terminal ready");
 
 	// Wait for the command to complete
 	const result = await proc.wait();
 	logTiming("Command completed");
+
+	// Print any remaining buffered output that wasn't printed by the poll loop
+	if (result.stdout) {
+		process.stdout.write(result.stdout.replace(/\n/g, "\r\n"));
+	}
+	if (result.stderr) {
+		process.stderr.write(result.stderr.replace(/\n/g, "\r\n"));
+	}
 
 	// Restore terminal settings
 	if (process.stdin.isTTY) {
