@@ -95,25 +95,31 @@ function connectStreams(proc: Process, debug: boolean = false): void {
 		});
 	}
 
-	// Poll stdout in background
-	(async () => {
-		log("Starting stdout poll loop");
+	// Poll stdout and stderr in background
+	// Stderr contains bash prompt and input echo
+	// Stdout contains command output
+	const pollStream = async (name: string, readFn: () => Promise<string>) => {
+		log(`Starting ${name} poll loop`);
 		while (true) {
 			try {
-				const output = await proc.readStdout();
+				const output = await readFn();
 				if (output) {
-					log(`stdout: ${JSON.stringify(output)}`);
+					log(`${name}: ${JSON.stringify(output)}`);
 					// Convert \n to \r\n for proper terminal display
 					process.stdout.write(output.replace(/\n/g, "\r\n"));
 				}
 				await new Promise(r => setTimeout(r, 10));
 			} catch (e) {
-				log(`stdout error: ${e}`);
+				log(`${name} error: ${e}`);
 				break;
 			}
 		}
-		log("stdout poll loop ended");
-	})();
+		log(`${name} poll loop ended`);
+	};
+
+	// Start both poll loops
+	pollStream("stdout", () => proc.readStdout());
+	pollStream("stderr", () => proc.readStderr());
 }
 
 /**

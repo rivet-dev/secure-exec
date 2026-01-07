@@ -22,7 +22,7 @@ export interface SpawnOptions {
 }
 
 /**
- * A running process with streaming stdin/stdout.
+ * A running process with streaming stdin/stdout/stderr.
  */
 export interface Process {
 	/** Write data to stdin */
@@ -31,6 +31,8 @@ export interface Process {
 	closeStdin(): Promise<void>;
 	/** Read all available stdout data */
 	readStdout(): Promise<string>;
+	/** Read all available stderr data (includes bash prompt and input echo) */
+	readStderr(): Promise<string>;
 	/** Wait for the process to exit */
 	wait(): Promise<{ stdout: string; stderr: string; code: number }>;
 	/** Kill the process */
@@ -505,9 +507,13 @@ class ProcessImpl implements Process {
 	private instance: Awaited<ReturnType<Awaited<ReturnType<typeof Wasmer.fromFile>>["commands"][string]["run"]>>;
 	private stdinWriter: WritableStreamDefaultWriter<Uint8Array> | null = null;
 	private stdoutReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+	private stderrReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 	private stdoutBuffer: string[] = [];
-	private readingStarted = false;
-	private readLoopPromise: Promise<void> | null = null;
+	private stderrBuffer: string[] = [];
+	private stdoutReadingStarted = false;
+	private stderrReadingStarted = false;
+	private stdoutLoopPromise: Promise<void> | null = null;
+	private stderrLoopPromise: Promise<void> | null = null;
 	private waitPromise: Promise<{ stdout: string; stderr: string; code: number }> | null = null;
 
 	constructor(instance: ProcessImpl["instance"]) {
@@ -520,23 +526,32 @@ class ProcessImpl implements Process {
 	}
 
 	private ensureStdoutReader(): void {
-		if (!this.readingStarted) {
-			this.readingStarted = true;
+		if (!this.stdoutReadingStarted) {
+			this.stdoutReadingStarted = true;
 			this.stdoutReader = this.instance.stdout.getReader();
-			// Start background reading and track when it's done
-			this.readLoopPromise = this.readStdoutLoop();
+			this.stdoutLoopPromise = this.readStreamLoop(this.stdoutReader, this.stdoutBuffer);
 		}
 	}
 
-	private async readStdoutLoop(): Promise<void> {
-		if (!this.stdoutReader) return;
+	private ensureStderrReader(): void {
+		if (!this.stderrReadingStarted) {
+			this.stderrReadingStarted = true;
+			this.stderrReader = this.instance.stderr.getReader();
+			this.stderrLoopPromise = this.readStreamLoop(this.stderrReader, this.stderrBuffer);
+		}
+	}
+
+	private async readStreamLoop(
+		reader: ReadableStreamDefaultReader<Uint8Array>,
+		buffer: string[]
+	): Promise<void> {
 		try {
 			const decoder = new TextDecoder();
 			while (true) {
-				const { done, value } = await this.stdoutReader.read();
+				const { done, value } = await reader.read();
 				if (done) break;
 				if (value) {
-					this.stdoutBuffer.push(decoder.decode(value, { stream: true }));
+					buffer.push(decoder.decode(value, { stream: true }));
 				}
 			}
 		} catch (err) {
@@ -563,31 +578,54 @@ class ProcessImpl implements Process {
 		// Start reading if not already
 		this.ensureStdoutReader();
 
-		// Small delay to let any pending data arrive
-		await new Promise(r => setTimeout(r, 10));
+		// Wait for data to arrive, checking buffer periodically (up to 100ms)
+		for (let i = 0; i < 20; i++) {
+			if (this.stdoutBuffer.length > 0) break;
+			await new Promise(r => setTimeout(r, 5));
+		}
 
-		// Return and clear buffered stdout
+		// Return and clear buffered stdout (use splice to keep same array reference)
 		const output = this.stdoutBuffer.join("");
-		this.stdoutBuffer = [];
+		this.stdoutBuffer.length = 0;
+		return output;
+	}
+
+	async readStderr(): Promise<string> {
+		// Start reading if not already
+		this.ensureStderrReader();
+
+		// Wait for data to arrive, checking buffer periodically (up to 100ms)
+		for (let i = 0; i < 20; i++) {
+			if (this.stderrBuffer.length > 0) break;
+			await new Promise(r => setTimeout(r, 5));
+		}
+
+		// Return and clear buffered stderr (use length=0 to keep same array reference)
+		const output = this.stderrBuffer.join("");
+		this.stderrBuffer.length = 0;
 		return output;
 	}
 
 	async wait(): Promise<{ stdout: string; stderr: string; code: number }> {
-		// If we started reading stdout ourselves, wait for the read loop to finish
-		// (don't try to read ourselves - that would race with the loop)
-		if (this.readingStarted) {
-			// Wait for the read loop to complete (happens when process exits and stdout closes)
-			if (this.readLoopPromise) {
-				await this.readLoopPromise;
-			}
+		// If we started reading streams ourselves, wait for the read loops to finish
+		const streamingMode = this.stdoutReadingStarted || this.stderrReadingStarted;
 
-			// Return all buffered stdout
+		if (streamingMode) {
+			// Wait for read loops to complete (happens when process exits and streams close)
+			await Promise.all([
+				this.stdoutLoopPromise,
+				this.stderrLoopPromise,
+			].filter(Boolean));
+
+			// Return all buffered data
 			const allStdout = this.stdoutBuffer.join("");
+			const allStderr = this.stderrBuffer.join("");
 			this.stdoutBuffer = [];
+			this.stderrBuffer = [];
 
 			return {
 				stdout: allStdout,
-				stderr: "",
+				stderr: allStderr,
 				code: 0,
 			};
 		}
@@ -604,12 +642,15 @@ class ProcessImpl implements Process {
 	}
 
 	kill(): void {
-		// Cancel stdin/stdout
+		// Cancel stdin/stdout/stderr
 		if (this.stdinWriter) {
 			this.stdinWriter.abort().catch(() => {});
 		}
 		if (this.stdoutReader) {
 			this.stdoutReader.cancel().catch(() => {});
+		}
+		if (this.stderrReader) {
+			this.stderrReader.cancel().catch(() => {});
 		}
 	}
 }
