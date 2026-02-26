@@ -1,7 +1,10 @@
-## ADDED Requirements
+# runtime-execution-model Specification
 
+## Purpose
+Define the runtime execution contract for sandbox interfaces, module loading behavior, and completion semantics.
+## Requirements
 ### Requirement: Unified Sandbox Execution Interface
-The project SHALL provide a stable sandbox execution interface for both Node and browser runtimes, with each runtime exposing an `exec` path for running untrusted code and returning structured execution results, and a `run` path that returns module exports.
+The project SHALL provide a stable sandbox execution interface for both Node and browser runtimes, with each runtime exposing an `exec` path for running untrusted code and returning structured execution results. Dynamic `import()` expressions within executed code SHALL evaluate lazily at call time rather than eagerly during setup.
 
 #### Scenario: Execute code in Node runtime
 - **WHEN** a caller creates `NodeProcess` with a valid driver and invokes `exec`
@@ -11,21 +14,9 @@ The project SHALL provide a stable sandbox execution interface for both Node and
 - **WHEN** a caller creates `BrowserSandbox` and invokes `exec`
 - **THEN** the sandbox MUST execute code in a Worker-backed isolated context and return structured output for the caller
 
-#### Scenario: Run CJS module and retrieve exports
-- **WHEN** a caller invokes `run()` with CommonJS code that assigns to `module.exports`
-- **THEN** the result's `exports` field MUST contain the value of `module.exports`
-
-#### Scenario: Run ESM module and retrieve namespace exports
-- **WHEN** a caller invokes `run()` with ESM code that uses `export` declarations
-- **THEN** the result's `exports` field MUST contain the module namespace object with all named exports and the `default` export (if declared)
-
-#### Scenario: Run ESM module with only a default export
-- **WHEN** a caller invokes `run()` with ESM code containing `export default <value>`
-- **THEN** the result's `exports` field MUST be an object with a `default` property holding that value
-
-#### Scenario: Run ESM module with named and default exports
-- **WHEN** a caller invokes `run()` with ESM code containing both `export default` and named `export` declarations
-- **THEN** the result's `exports` field MUST be an object containing both the `default` property and all named export properties
+#### Scenario: Dynamic imports in executed code evaluate lazily
+- **WHEN** a caller invokes `exec` with code containing `import()` expressions
+- **THEN** the execution pipeline MUST defer module evaluation until the `import()` expression is reached during code execution, preserving correct side-effect ordering
 
 ### Requirement: Driver-Based Capability Composition
 Runtime capabilities SHALL be composed through host-provided drivers so filesystem, network, and child-process behavior are controlled by configured adapters rather than hardcoded runtime behavior.
@@ -51,3 +42,4 @@ The Node runtime SHALL expose a host-side request path for sandboxed HTTP server
 #### Scenario: Host fetches sandbox server endpoint
 - **WHEN** sandboxed code starts an HTTP server through the bridged server APIs
 - **THEN** host code MUST be able to issue requests through the runtime network facade and receive the sandbox server response
+
