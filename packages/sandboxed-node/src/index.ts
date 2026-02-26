@@ -437,8 +437,24 @@ export class NodeProcess {
 		// Instantiate with resolver (this resolves all dependencies)
 		await entryModule.instantiate(context, this.createESMResolver(context));
 
-		// Evaluate and return
-		return entryModule.evaluate({ promise: true });
+		// Evaluate before reading exports so namespace bindings are initialized.
+		await entryModule.evaluate({ promise: true });
+
+		// Set namespace on the isolate global so we can serialize a plain object.
+		const jail = context.global;
+		const namespaceGlobalKey = "__entryNamespace__";
+		await jail.set(namespaceGlobalKey, entryModule.namespace.derefInto());
+
+		try {
+			// Get namespace exports for run() to mirror module.exports semantics.
+			return context.eval(
+				`Object.fromEntries(Object.entries(globalThis.${namespaceGlobalKey}))`,
+				{ copy: true },
+			);
+		} finally {
+			// Clean up temporary namespace binding after copying exports.
+			await jail.delete(namespaceGlobalKey);
+		}
 	}
 
 	// Cache for pre-compiled dynamic import modules (namespace references)
@@ -1037,8 +1053,9 @@ export class NodeProcess {
 	}
 
 	/**
-	 * Run code and return the value of module.exports (CJS) or default export (ESM)
-	 * along with exit code and captured stdout/stderr.
+	 * Run code and return the value of module.exports (CJS) or the ESM namespace
+	 * object (including default and named exports), along with exit code and
+	 * captured stdout/stderr.
 	 */
 	async run<T = unknown>(
 		code: string,

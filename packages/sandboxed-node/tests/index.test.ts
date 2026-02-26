@@ -33,6 +33,36 @@ describe("NodeProcess", () => {
 		expect(result.exports).toBe(2);
 	});
 
+	it("returns ESM default export namespace from run()", async () => {
+		proc = new NodeProcess();
+		const result = await proc.run(`export default 42;`, "/entry.mjs");
+		expect(result.exports).toEqual({ default: 42 });
+	});
+
+	it("returns ESM named exports from run()", async () => {
+		proc = new NodeProcess();
+		const result = await proc.run(
+			`
+	      export const message = 'hello';
+	      export const count = 3;
+	    `,
+			"/entry.mjs",
+		);
+		expect(result.exports).toEqual({ count: 3, message: "hello" });
+	});
+
+	it("returns mixed ESM default and named exports from run()", async () => {
+		proc = new NodeProcess();
+		const result = await proc.run(
+			`
+	      export const named = 'value';
+	      export default 99;
+	    `,
+			"/entry.mjs",
+		);
+		expect(result.exports).toEqual({ default: 99, named: "value" });
+	});
+
 	it("captures stdout and stderr", async () => {
 		proc = new NodeProcess();
 		const result = await proc.exec(`console.log('hello'); console.error('oops');`);

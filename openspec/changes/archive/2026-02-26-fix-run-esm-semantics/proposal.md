@@ -4,7 +4,7 @@
 
 ## What Changes
 
-- Fix `runESM()` to return the module namespace (exported bindings) after evaluation, using `entryModule.namespace` instead of the `evaluate()` return value.
+- Fix `runESM()` to return the module namespace (exported bindings) after evaluation by materializing a plain object from `entryModule.namespace` instead of returning the `evaluate()` result.
 - Update the `run()` doc comment to clarify the ESM return shape (namespace object with `default` and named exports).
 - Add test coverage for ESM `run()` return values (default export, named exports, mixed).
 

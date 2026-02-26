@@ -18,6 +18,10 @@
    - Symptom: requests reached the sandbox server but responded `400`; root cause was `instanceof http2.Http2ServerRequest` checks throwing when `http2` constructors were undefined.
    - Fix: added built-in `http2` compatibility stubs (`Http2ServerRequest`/`Http2ServerResponse`) and routed `require('http2')` / ESM `import 'http2'` to that stub module.
 
+5. **[resolved]** Direct cloning of ESM module namespace objects failed in `isolated-vm`.
+   - Symptom: using `entryModule.namespace.copy()` for `run()` exports failed with `[object Module] could not be cloned`.
+   - Fix: after ESM evaluation, bind the namespace in isolate scope and copy `Object.fromEntries(Object.entries(namespace))` to the host.
+
 ## 2026-02-25
 
 1. **[resolved]** Package resolution for `node_modules` was too limited.

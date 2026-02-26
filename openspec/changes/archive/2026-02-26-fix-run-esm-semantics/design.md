@@ -26,13 +26,13 @@ The `isolated-vm` library provides `module.namespace` on a compiled/evaluated ES
 
 **Alternative considered:** Return `namespace.default ?? namespace`. Rejected because it silently discards named exports and makes the return type unpredictable.
 
-### Use `module.namespace.copy()` for value transfer
+### Materialize namespace to a plain object for value transfer
 
-**Decision:** Use `entryModule.namespace.copy()` (async copy from isolate to host) to extract the namespace as a plain object.
+**Decision:** Evaluate the module, bind `entryModule.namespace` into isolate scope, then return `Object.fromEntries(Object.entries(namespace))` with `{ copy: true }` so the host receives a plain object.
 
-**Rationale:** The namespace `Reference` lives inside the isolate. `.copy()` produces a transferable plain object on the host side, which is what `RunResult.exports` expects. `.copySync()` would also work but `.copy()` is consistent with the async evaluation pipeline.
+**Rationale:** `isolated-vm` cannot directly clone module namespace exotic objects (`[object Module] could not be cloned`). Converting the namespace to a plain object inside the isolate preserves export bindings and uses the same host transfer mechanism already used by the CJS path.
 
 ## Risks / Trade-offs
 
-- **[Serialization limits]** `namespace.copy()` deep-copies all exported values. Functions and class instances won't transfer meaningfully (they become `{}` or throw). This matches the existing CJS behavior where `module.exports` is also copied out via `context.eval(..., { copy: true })`. No mitigation needed - this is inherent to the isolate boundary.
+- **[Serialization limits]** Plain-object copy still deep-copies exported values. Functions and class instances won't transfer meaningfully (they become `{}` or throw). This matches the existing CJS behavior where `module.exports` is also copied out via `context.eval(..., { copy: true })`. No mitigation needed - this is inherent to the isolate boundary.
 - **[Return shape change]** Callers that previously received `undefined` from ESM `run()` will now receive a namespace object. This is the intended fix, but any code accidentally relying on `undefined` will see a behavior change.

@@ -20,7 +20,7 @@ Use this workflow when the user wants a full Git sync sequence: commit all local
 ## Required Behavior
 - Use only non-interactive Git commands.
 - If the user provided a commit message, use it exactly.
-- If no message was provided and a commit is needed, ask for one.
+- If no message was provided and a commit is needed, create one yourself using a one-line Conventional Commit message that reflects the staged changes.
 - If there is nothing to commit, continue with pull/rebase + push only if that still matches the user request.
 - Prefer `git pull --rebase` over merge pulls.
 - If rebase conflicts:
