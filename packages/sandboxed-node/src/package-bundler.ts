@@ -26,6 +26,16 @@ function join(...parts: string[]): string {
 	return `/${segments.join("/")}`;
 }
 
+type ResolveMode = "require" | "import";
+
+interface PackageJson {
+	main?: string;
+	module?: string;
+	exports?: unknown;
+}
+
+const FILE_EXTENSIONS = [".js", ".json", ".mjs", ".cjs"];
+
 /**
  * Resolve a module request to an absolute path in the virtual filesystem
  */
@@ -33,10 +43,11 @@ export async function resolveModule(
 	request: string,
 	fromDir: string,
 	fs: VirtualFileSystem,
+	mode: ResolveMode = "require",
 ): Promise<string | null> {
 	// Absolute paths - resolve directly
 	if (request.startsWith("/")) {
-		return resolveAbsolute(request, fs);
+		return resolveAbsolute(request, fs, mode);
 	}
 
 	// Relative imports (including bare '.' and '..')
@@ -46,11 +57,11 @@ export async function resolveModule(
 		request === "." ||
 		request === ".."
 	) {
-		return resolveRelative(request, fromDir, fs);
+		return resolveRelative(request, fromDir, fs, mode);
 	}
 
 	// Bare imports - walk up node_modules
-	return resolveNodeModules(request, fromDir, fs);
+	return resolveNodeModules(request, fromDir, fs, mode);
 }
 
 /**
@@ -59,46 +70,9 @@ export async function resolveModule(
 async function resolveAbsolute(
 	request: string,
 	fs: VirtualFileSystem,
+	mode: ResolveMode,
 ): Promise<string | null> {
-	// First check if the exact path exists and is a file
-	try {
-		const statInfo = await stat(fs, request);
-		if (!statInfo.isDirectory) {
-			return request;
-		}
-		// It's a directory - look for main entry
-		const pkgJsonPath = join(request, "package.json");
-		if (await exists(fs, pkgJsonPath)) {
-			const pkgJson = JSON.parse(await fs.readTextFile(pkgJsonPath));
-			const main = pkgJson.main || "index.js";
-			const mainPath = join(request, main);
-			if (await exists(fs, mainPath)) {
-				return mainPath;
-			}
-		}
-		// Check for index.js
-		const indexPath = join(request, "index.js");
-		if (await exists(fs, indexPath)) {
-			return indexPath;
-		}
-		const indexJsonPath = join(request, "index.json");
-		if (await exists(fs, indexJsonPath)) {
-			return indexJsonPath;
-		}
-	} catch {
-		// Path doesn't exist - try with extensions
-	}
-
-	// Try with extensions
-	const extensions = [".js", ".json"];
-	for (const ext of extensions) {
-		const withExt = request + ext;
-		if (await exists(fs, withExt)) {
-			return withExt;
-		}
-	}
-
-	return null;
+	return resolvePath(request, fs, mode);
 }
 
 /**
@@ -108,48 +82,10 @@ async function resolveRelative(
 	request: string,
 	fromDir: string,
 	fs: VirtualFileSystem,
+	mode: ResolveMode,
 ): Promise<string | null> {
 	const basePath = join(fromDir, request);
-
-	// First check if the exact path exists and is a file
-	try {
-		const statInfo = await stat(fs, basePath);
-		if (!statInfo.isDirectory) {
-			return basePath;
-		}
-		// It's a directory - look for main entry
-		const pkgJsonPath = join(basePath, "package.json");
-		if (await exists(fs, pkgJsonPath)) {
-			const pkgJson = JSON.parse(await fs.readTextFile(pkgJsonPath));
-			const main = pkgJson.main || "index.js";
-			const mainPath = join(basePath, main);
-			if (await exists(fs, mainPath)) {
-				return mainPath;
-			}
-		}
-		// Check for index.js
-		const indexPath = join(basePath, "index.js");
-		if (await exists(fs, indexPath)) {
-			return indexPath;
-		}
-		const indexJsonPath = join(basePath, "index.json");
-		if (await exists(fs, indexJsonPath)) {
-			return indexJsonPath;
-		}
-	} catch {
-		// Path doesn't exist - try with extensions
-	}
-
-	// Try with extensions
-	const extensions = [".js", ".json"];
-	for (const ext of extensions) {
-		const withExt = basePath + ext;
-		if (await exists(fs, withExt)) {
-			return withExt;
-		}
-	}
-
-	return null;
+	return resolvePath(basePath, fs, mode);
 }
 
 /**
@@ -159,6 +95,7 @@ async function resolveNodeModules(
 	request: string,
 	fromDir: string,
 	fs: VirtualFileSystem,
+	mode: ResolveMode,
 ): Promise<string | null> {
 	// Handle scoped packages: @scope/package
 	let packageName: string;
@@ -186,111 +123,233 @@ async function resolveNodeModules(
 	}
 
 	let dir = fromDir;
-	while (dir !== "/" && dir !== "") {
+	while (dir !== "" && dir !== ".") {
 		const packageDir = join(dir, "node_modules", packageName);
-		const pkgJsonPath = join(packageDir, "package.json");
-
-		if (await exists(fs, pkgJsonPath)) {
-			if (subpath) {
-				// Direct file reference: require("lodash/get")
-				return resolveRelative(`./${subpath}`, packageDir, fs);
-			}
-
-			// Main entry point
-			const pkgJson = JSON.parse(await fs.readTextFile(pkgJsonPath));
-			const main = pkgJson.main || "index.js";
-
-			// Normalize main path (remove leading ./ and trailing /)
-			const normalizedMain = main.replace(/^\.\//, "").replace(/\/$/, "");
-			const mainPath = join(packageDir, normalizedMain);
-
-			// Check if mainPath is a directory
-			try {
-				const statInfo = await stat(fs, mainPath);
-				if (statInfo.isDirectory) {
-					// It's a directory - look for index.js
-					const indexPath = join(mainPath, "index.js");
-					if (await exists(fs, indexPath)) {
-						return indexPath;
-					}
-					const indexJsonPath = join(mainPath, "index.json");
-					if (await exists(fs, indexJsonPath)) {
-						return indexJsonPath;
-					}
-				} else {
-					// It's a file
-					return mainPath;
-				}
-			} catch {
-				// Path doesn't exist - try with extensions
-			}
-
-			// Try the main path with extensions
-			const mainCandidates = [
-				`${mainPath}.js`,
-				`${mainPath}.json`,
-				`${mainPath}/index.js`,
-				`${mainPath}/index.json`,
-			];
-
-			// If main was defaulted to index.js, also try just index.json at package root
-			if (!pkgJson.main) {
-				const indexJsonPath = join(packageDir, "index.json");
-				mainCandidates.unshift(indexJsonPath);
-			}
-
-			for (const candidate of mainCandidates) {
-				if (await exists(fs, candidate)) {
-					return candidate;
-				}
-			}
+		const entry = await resolvePackageEntryFromDir(packageDir, subpath, fs, mode);
+		if (entry) {
+			return entry;
 		}
 
+		if (dir === "/") break;
 		dir = dirname(dir);
 	}
 
 	// Also check root node_modules
 	const rootPackageDir = join("/node_modules", packageName);
-	const rootPkgJsonPath = join(rootPackageDir, "package.json");
+	const rootEntry = await resolvePackageEntryFromDir(
+		rootPackageDir,
+		subpath,
+		fs,
+		mode,
+	);
+	if (rootEntry) {
+		return rootEntry;
+	}
 
-	if (await exists(fs, rootPkgJsonPath)) {
-		if (subpath) {
-			return resolveRelative(`./${subpath}`, rootPackageDir, fs);
+	return null;
+}
+
+async function resolvePackageEntryFromDir(
+	packageDir: string,
+	subpath: string,
+	fs: VirtualFileSystem,
+	mode: ResolveMode,
+): Promise<string | null> {
+	const pkgJsonPath = join(packageDir, "package.json");
+	const pkgJson = await readPackageJson(fs, pkgJsonPath);
+
+	if (!pkgJson && !(await exists(fs, packageDir))) {
+		return null;
+	}
+
+	// If package uses "exports", follow it and do not fall back to main/subpath
+	if (pkgJson?.exports !== undefined) {
+		const exportsTarget = resolveExportsTarget(
+			pkgJson.exports,
+			subpath ? `./${subpath}` : ".",
+			mode,
+		);
+		if (!exportsTarget) {
+			return null;
 		}
+		const targetPath = join(packageDir, normalizePackagePath(exportsTarget));
+		return resolvePath(targetPath, fs, mode);
+	}
 
-		const pkgJson = JSON.parse(await fs.readTextFile(rootPkgJsonPath));
-		const main = pkgJson.main || "index.js";
+	// Bare subpath import without exports map: package/sub/path
+	if (subpath) {
+		return resolvePath(join(packageDir, subpath), fs, mode);
+	}
 
-		// Normalize main path (remove leading ./ and trailing /)
-		const normalizedMain = main.replace(/^\.\//, "").replace(/\/$/, "");
-		const mainPath = join(rootPackageDir, normalizedMain);
+	// Root package import
+	const entryField = getPackageEntryField(pkgJson, mode);
+	if (entryField) {
+		const entryPath = join(packageDir, normalizePackagePath(entryField));
+		const resolved = await resolvePath(entryPath, fs, mode);
+		if (resolved) return resolved;
+	}
 
-		// Check if mainPath is a directory
-		try {
-			const statInfo = await stat(fs, mainPath);
-			if (statInfo.isDirectory) {
-				const indexPath = join(mainPath, "index.js");
-				if (await exists(fs, indexPath)) {
-					return indexPath;
-				}
-				const indexJsonPath = join(mainPath, "index.json");
-				if (await exists(fs, indexJsonPath)) {
-					return indexJsonPath;
-				}
-			} else {
-				return mainPath;
+	// Default fallback
+	return resolvePath(join(packageDir, "index"), fs, mode);
+}
+
+async function resolvePath(
+	basePath: string,
+	fs: VirtualFileSystem,
+	mode: ResolveMode,
+): Promise<string | null> {
+	let isDirectory = false;
+
+	try {
+		const statInfo = await stat(fs, basePath);
+		if (!statInfo.isDirectory) {
+			return basePath;
+		}
+		isDirectory = true;
+	} catch {
+		// Path doesn't exist directly
+	}
+
+	// For extensionless specifiers, try files before directory resolution.
+	for (const ext of FILE_EXTENSIONS) {
+		const withExt = `${basePath}${ext}`;
+		if (await exists(fs, withExt)) {
+			return withExt;
+		}
+	}
+
+	if (isDirectory) {
+		const pkgJsonPath = join(basePath, "package.json");
+		const pkgJson = await readPackageJson(fs, pkgJsonPath);
+		const entryField = getPackageEntryField(pkgJson, mode);
+		if (entryField) {
+			const entryPath = join(basePath, normalizePackagePath(entryField));
+			// Avoid directory self-reference loops like "main": "."
+			if (entryPath !== basePath) {
+				const entry = await resolvePath(entryPath, fs, mode);
+				if (entry) return entry;
 			}
-		} catch {
-			// Path doesn't exist - try with extensions
 		}
 
-		const mainCandidates = [`${mainPath}.js`, `${mainPath}/index.js`];
-
-		for (const candidate of mainCandidates) {
-			if (await exists(fs, candidate)) {
-				return candidate;
+		for (const ext of FILE_EXTENSIONS) {
+			const indexPath = join(basePath, `index${ext}`);
+			if (await exists(fs, indexPath)) {
+				return indexPath;
 			}
 		}
+
+	}
+
+	return null;
+}
+
+async function readPackageJson(
+	fs: VirtualFileSystem,
+	pkgJsonPath: string,
+): Promise<PackageJson | null> {
+	if (!(await exists(fs, pkgJsonPath))) {
+		return null;
+	}
+	try {
+		return JSON.parse(await fs.readTextFile(pkgJsonPath)) as PackageJson;
+	} catch {
+		return null;
+	}
+}
+
+function normalizePackagePath(value: string): string {
+	return value.replace(/^\.\//, "").replace(/\/$/, "");
+}
+
+function getPackageEntryField(
+	pkgJson: PackageJson | null,
+	mode: ResolveMode,
+): string | null {
+	if (!pkgJson) return "index.js";
+	if (mode === "import") {
+		if (typeof pkgJson.module === "string") return pkgJson.module;
+		if (typeof pkgJson.main === "string") return pkgJson.main;
+		return "index.js";
+	}
+
+	if (typeof pkgJson.main === "string") return pkgJson.main;
+	if (typeof pkgJson.module === "string") return pkgJson.module;
+	return "index.js";
+}
+
+function resolveExportsTarget(
+	exportsField: unknown,
+	subpath: string,
+	mode: ResolveMode,
+): string | null {
+	// "exports": "./dist/index.js"
+	if (typeof exportsField === "string") {
+		return subpath === "." ? exportsField : null;
+	}
+
+	// "exports": ["./a.js", "./b.js"]
+	if (Array.isArray(exportsField)) {
+		for (const item of exportsField) {
+			const resolved = resolveExportsTarget(item, subpath, mode);
+			if (resolved) return resolved;
+		}
+		return null;
+	}
+
+	if (!exportsField || typeof exportsField !== "object") {
+		return null;
+	}
+
+	const record = exportsField as Record<string, unknown>;
+
+	// Root conditions object (no "./" keys)
+	if (subpath === "." && !Object.keys(record).some((key) => key.startsWith("./"))) {
+		return resolveConditionalTarget(record, mode);
+	}
+
+	// Exact subpath key first
+	if (subpath in record) {
+		return resolveExportsTarget(record[subpath], ".", mode);
+	}
+
+	// Pattern keys like "./*"
+	for (const [key, value] of Object.entries(record)) {
+		if (!key.includes("*")) continue;
+		const [prefix, suffix] = key.split("*");
+		if (!subpath.startsWith(prefix) || !subpath.endsWith(suffix)) continue;
+		const wildcard = subpath.slice(prefix.length, subpath.length - suffix.length);
+		const resolved = resolveExportsTarget(value, ".", mode);
+		if (!resolved) continue;
+		return resolved.replaceAll("*", wildcard);
+	}
+
+	// Root key may still be present in object with subpaths
+	if (subpath === "." && "." in record) {
+		return resolveExportsTarget(record["."], ".", mode);
+	}
+
+	return null;
+}
+
+function resolveConditionalTarget(
+	record: Record<string, unknown>,
+	mode: ResolveMode,
+): string | null {
+	const order =
+		mode === "import"
+			? ["import", "module", "default", "node", "require"]
+			: ["require", "default", "node", "import", "module"];
+
+	for (const key of order) {
+		if (!(key in record)) continue;
+		const resolved = resolveExportsTarget(record[key], ".", mode);
+		if (resolved) return resolved;
+	}
+
+	// Last resort: first key that resolves
+	for (const value of Object.values(record)) {
+		const resolved = resolveExportsTarget(value, ".", mode);
+		if (resolved) return resolved;
 	}
 
 	return null;

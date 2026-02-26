@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { NodeProcess, createInMemoryFileSystem } from "../src/index.js";
+import {
+	NodeFileSystem,
+	NodeProcess,
+	createInMemoryFileSystem,
+	createNodeDriver,
+} from "../src/index.js";
 
 function createFs() {
 	return createInMemoryFileSystem();
@@ -72,7 +77,98 @@ describe("NodeProcess", () => {
 		const result = await proc.run(`
       const fs = require('fs');
       module.exports = fs.readFileSync('/data/hello.txt', 'utf8');
-    `);
+		`);
 		expect(result.exports).toBe("hello world");
+	});
+
+	it("resolves package exports and ESM entrypoints from node_modules", async () => {
+		const fs = createFs();
+		await fs.mkdir("/node_modules/exported");
+		await fs.mkdir("/node_modules/exported/dist");
+		await fs.writeFile(
+			"/node_modules/exported/package.json",
+			JSON.stringify({
+				name: "exported",
+				exports: {
+					".": {
+						import: "./dist/index.mjs",
+						require: "./dist/index.cjs",
+					},
+					"./feature": {
+						import: "./dist/feature.mjs",
+						require: "./dist/feature.cjs",
+					},
+				},
+			}),
+		);
+		await fs.writeFile(
+			"/node_modules/exported/dist/index.cjs",
+			"module.exports = { value: 'cjs-entry' };",
+		);
+		await fs.writeFile(
+			"/node_modules/exported/dist/index.mjs",
+			"export const value = 'esm-entry';",
+		);
+		await fs.writeFile(
+			"/node_modules/exported/dist/feature.cjs",
+			"module.exports = { feature: 'cjs-feature' };",
+		);
+		await fs.writeFile(
+			"/node_modules/exported/dist/feature.mjs",
+			"export const feature = 'esm-feature';",
+		);
+
+		proc = new NodeProcess({ filesystem: fs });
+
+		const cjsResult = await proc.run(`
+      const pkg = require('exported');
+      const feature = require('exported/feature');
+      module.exports = pkg.value + ':' + feature.feature;
+    `);
+		expect(cjsResult.exports).toBe("cjs-entry:cjs-feature");
+
+		const esmResult = await proc.exec(
+			`
+        import { value } from 'exported';
+        import { feature } from 'exported/feature';
+        console.log(value + ':' + feature);
+      `,
+			{ filePath: "/entry.mjs" },
+		);
+		expect(esmResult.code).toBe(0);
+		expect(esmResult.stdout).toContain("esm-entry:esm-feature");
+	});
+
+	it("serves a request via @hono/node-server bridge", async () => {
+		const driver = createNodeDriver({
+			filesystem: new NodeFileSystem(),
+			useDefaultNetwork: true,
+		});
+		proc = new NodeProcess({
+			driver,
+			processConfig: {
+				cwd: "/",
+			},
+		});
+
+		const result = await proc.exec(`
+      const { serve } = require('@hono/node-server');
+      const server = serve({
+        fetch: () => new Response('bridge-ok', { status: 200 }),
+        port: 0,
+        hostname: '127.0.0.1',
+      });
+
+      server.once('listening', async () => {
+        const address = server.address();
+        const res = await fetch('http://127.0.0.1:' + address.port + '/');
+        console.log(await res.text());
+        server.close(() => console.log('closed'));
+      });
+    `);
+
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain("bridge-ok");
+		expect(result.stdout).toContain("closed");
 	});
 });

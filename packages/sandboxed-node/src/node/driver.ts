@@ -1,7 +1,10 @@
 import * as dns from "node:dns";
 import * as fs from "node:fs/promises";
+import type { AddressInfo } from "node:net";
 import * as https from "node:https";
+import type { Server as HttpServer } from "node:http";
 import * as zlib from "node:zlib";
+import { serve as honoServe } from "@hono/node-server";
 import {
 	filterEnv,
 	wrapCommandExecutor,
@@ -68,7 +71,55 @@ export class NodeFileSystem implements VirtualFileSystem {
 }
 
 export function createDefaultNetworkAdapter(): NetworkAdapter {
+	const servers = new Map<number, HttpServer>();
+	let nextServerId = 1;
+
 	return {
+		async honoServe(options) {
+			const server = honoServe({
+				fetch: options.fetch,
+				port: options.port ?? 3000,
+				hostname: options.hostname,
+			});
+
+			await new Promise<void>((resolve, reject) => {
+				const onListening = () => resolve();
+				const onError = (err: Error) => reject(err);
+				server.once("listening", onListening);
+				server.once("error", onError);
+			});
+
+			const rawAddress = server.address();
+			let address: { address: string; family: string; port: number } | null = null;
+
+			if (rawAddress && typeof rawAddress !== "string") {
+				const info = rawAddress as AddressInfo;
+				address = {
+					address: info.address,
+					family: String(info.family),
+					port: info.port,
+				};
+			}
+
+			const serverId = nextServerId++;
+			servers.set(serverId, server);
+			return { serverId, address };
+		},
+
+		async honoClose(serverId) {
+			const server = servers.get(serverId);
+			if (!server) return;
+
+			await new Promise<void>((resolve, reject) => {
+				server.close((err) => {
+					if (err) reject(err);
+					else resolve();
+				});
+			});
+
+			servers.delete(serverId);
+		},
+
 		async fetch(url, options) {
 			const response = await fetch(url, {
 				method: options?.method || "GET",

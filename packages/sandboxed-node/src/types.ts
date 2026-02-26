@@ -80,6 +80,23 @@ export interface CommandExecutor {
 }
 
 export interface NetworkAdapter {
+	honoServe?(
+		options: {
+			port?: number;
+			hostname?: string;
+			fetch: (request: Request) => Promise<Response> | Response;
+		},
+	): Promise<{
+		serverId: number;
+		address:
+			| {
+					address: string;
+					family: string;
+					port: number;
+			  }
+			| null;
+	}>;
+	honoClose?(serverId: number): Promise<void>;
 	fetch(
 		url: string,
 		options: {
@@ -141,7 +158,7 @@ export interface FsAccessRequest {
 }
 
 export interface NetworkAccessRequest {
-	op: "fetch" | "http" | "dns";
+	op: "fetch" | "http" | "dns" | "listen";
 	url?: string;
 	method?: string;
 	hostname?: string;

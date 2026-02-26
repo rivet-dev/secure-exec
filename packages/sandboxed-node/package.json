@@ -24,10 +24,12 @@
     "build:bridge": "esbuild src/bridge/index.ts --bundle --format=iife --global-name=bridge --outfile=dist/bridge.js",
     "build:polyfills": "node scripts/build-polyfills.mjs",
     "build": "pnpm run build:bridge && pnpm run build:polyfills && tsc",
+    "check-types:test": "vitest --typecheck --run tests/types/",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@hono/node-server": "^1.19.6",
     "buffer": "^6.0.3",
     "esbuild": "^0.27.1",
     "isolated-vm": "^6.0.0",

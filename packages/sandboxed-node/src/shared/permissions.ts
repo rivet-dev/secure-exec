@@ -132,6 +132,28 @@ export function wrapNetworkAdapter(
 	permissions?: Permissions,
 ): NetworkAdapter {
 	return {
+		honoServe: adapter.honoServe
+			? async (options) => {
+					checkPermission(
+						permissions?.network,
+						{
+							op: "listen",
+							hostname: options.hostname,
+							url: options.hostname
+								? `http://${options.hostname}:${options.port ?? 3000}`
+								: `http://0.0.0.0:${options.port ?? 3000}`,
+							method: "LISTEN",
+						},
+						(req) => createEaccesError("listen", req.url),
+					);
+					return adapter.honoServe!(options);
+				}
+			: undefined,
+		honoClose: adapter.honoClose
+			? async (serverId) => {
+					return adapter.honoClose!(serverId);
+				}
+			: undefined,
 		fetch: async (url, options) => {
 			checkPermission(
 				permissions?.network,
@@ -206,6 +228,8 @@ export function createNetworkStub(): NetworkAdapter {
 		throw createEnosysError(op, path);
 	};
 	return {
+		honoServe: async () => stub("listen"),
+		honoClose: async () => stub("close"),
 		fetch: async (url) => stub("connect", url),
 		dnsLookup: async (hostname) => stub("connect", hostname),
 		httpRequest: async (url) => stub("connect", url),

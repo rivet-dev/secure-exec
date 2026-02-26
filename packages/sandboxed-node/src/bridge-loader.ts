@@ -67,6 +67,7 @@ export function getFsModuleCode(): string {
 	// We need to wrap it to return the default export (which is the fs module)
 	return `(function() {
 ${code}
+  globalThis.bridge = bridge;
   return bridge.default;
 })()`;
 }
@@ -82,6 +83,7 @@ export function getBridgeModuleCode(): string {
 
 	return `(function() {
 ${code}
+  globalThis.bridge = bridge;
   return bridge;
 })()`;
 }
@@ -131,6 +133,7 @@ export function getBridgeWithConfig(
 	return `(function() {
 ${configSetup}
 ${code}
+  globalThis.bridge = bridge;
   return bridge;
 })()`;
 }

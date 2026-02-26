@@ -90,6 +90,13 @@ export function getRequireSetupCode(): string {
           return globalThis.process;
         }
 
+        // Special handling for @hono/node-server module
+        if (name === '@hono/node-server') {
+          if (_moduleCache['@hono/node-server']) return _moduleCache['@hono/node-server'];
+          _moduleCache['@hono/node-server'] = _honoNodeServerModule;
+          return _honoNodeServerModule;
+        }
+
         // Stub for chalk (ESM module that npm uses for coloring)
         // Provides no-color passthrough functionality
         if (name === 'chalk') {

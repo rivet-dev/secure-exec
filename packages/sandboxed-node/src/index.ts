@@ -170,6 +170,7 @@ export class NodeProcess {
 			"dns",
 			"child_process",
 			"process",
+			"@hono/node-server",
 		];
 		if (hasPolyfill(moduleName) || bridgeModules.includes(moduleName)) {
 			return specifier; // Return as-is, compileESMModule will handle it
@@ -207,7 +208,7 @@ export class NodeProcess {
 			return null;
 		}
 
-		return resolveModule(specifier, referrerDir, this.filesystem);
+		return resolveModule(specifier, referrerDir, this.filesystem, "import");
 	}
 
 	/**
@@ -239,6 +240,7 @@ export class NodeProcess {
 			"dns",
 			"child_process",
 			"process",
+			"@hono/node-server",
 		];
 		const isSpecialModule = specialModules.includes(moduleName);
 
@@ -309,6 +311,15 @@ export class NodeProcess {
 				code = `
           const _proc = globalThis.process || {};
           export default _proc;
+        `;
+			} else if (moduleName === "@hono/node-server") {
+				code = `
+          const _honoNodeServer = globalThis._honoNodeServerModule || globalThis.bridge?.honoNodeServer || {};
+          export default _honoNodeServer;
+          export const serve = _honoNodeServer.serve;
+          export const createAdaptorServer = _honoNodeServer.createAdaptorServer;
+          export const getRequestListener = _honoNodeServer.getRequestListener;
+          export const RequestError = _honoNodeServer.RequestError;
         `;
 			} else {
 				// Get polyfill code and wrap for ESM
@@ -386,15 +397,6 @@ export class NodeProcess {
 			// Compile and return the module
 			const module = await this.compileESMModule(resolved, context);
 
-			// Instantiate if not already (recursive resolution happens automatically)
-			if (module.dependencySpecifiers.length > 0) {
-				try {
-					await module.instantiate(context, this.createESMResolver(context));
-				} catch {
-					// Already instantiated, ignore
-				}
-			}
-
 			return module;
 		};
 	}
@@ -417,7 +419,7 @@ export class NodeProcess {
 		await entryModule.instantiate(context, this.createESMResolver(context));
 
 		// Evaluate and return
-		return entryModule.evaluate({ copy: true });
+		return entryModule.evaluate({ promise: true });
 	}
 
 	// Cache for pre-compiled dynamic import modules (namespace references)
@@ -548,6 +550,11 @@ export class NodeProcess {
 
 				// module is handled specially with our own polyfill
 				if (name === "module") {
+					return null;
+				}
+
+				// @hono/node-server is provided by bridge
+				if (name === "@hono/node-server") {
 					return null;
 				}
 
@@ -869,9 +876,101 @@ export class NodeProcess {
 				},
 			);
 
+			// Lazy dispatcher reference for @hono/node-server fetch callbacks
+			let honoDispatchRef: ivm.Reference<
+				(
+					handlerId: number,
+					requestJson: string,
+				) => Promise<string>
+			> | null = null;
+
+			const getHonoDispatchRef = () => {
+				if (!honoDispatchRef) {
+					honoDispatchRef = context.global.getSync("_honoNodeServerDispatch", {
+						reference: true,
+					}) as ivm.Reference<
+						(
+							handlerId: number,
+							requestJson: string,
+						) => Promise<string>
+					>;
+				}
+				return honoDispatchRef!;
+			};
+
+			// Reference for starting a @hono/node-server server
+			const networkHonoServeRef = new ivm.Reference(
+				async (optionsJson: string): Promise<string> => {
+					if (!adapter.honoServe) {
+						throw new Error(
+							"@hono/node-server requires NetworkAdapter.honoServe support",
+						);
+					}
+
+					const options = JSON.parse(optionsJson) as {
+						handlerId: number;
+						port?: number;
+						hostname?: string;
+					};
+
+					const result = await adapter.honoServe({
+						port: options.port,
+						hostname: options.hostname,
+						fetch: async (request: Request): Promise<Response> => {
+							const headers = Array.from(request.headers.entries());
+							const method = request.method || "GET";
+							const body =
+								method === "GET" || method === "HEAD"
+									? undefined
+									: await request.text();
+
+							const requestJson = JSON.stringify({
+								url: request.url,
+								method,
+								headers,
+								body,
+							});
+
+							const responseJson = await getHonoDispatchRef().apply(
+								undefined,
+								[options.handlerId, requestJson],
+								{ result: { promise: true } },
+							);
+
+							const response = JSON.parse(responseJson) as {
+								status: number;
+								headers?: Array<[string, string]>;
+								body?: string;
+							};
+
+							return new Response(response.body ?? "", {
+								status: response.status ?? 200,
+								headers: response.headers ?? [],
+							});
+						},
+					});
+
+					return JSON.stringify(result);
+				},
+			);
+
+			// Reference for closing a @hono/node-server server
+			const networkHonoCloseRef = new ivm.Reference(
+				async (serverId: number): Promise<void> => {
+					if (!adapter.honoClose) {
+						throw new Error(
+							"@hono/node-server close requires NetworkAdapter.honoClose support",
+						);
+					}
+					await adapter.honoClose(serverId);
+				},
+			);
+
 			await jail.set("_networkFetchRaw", networkFetchRef);
 			await jail.set("_networkDnsLookupRaw", networkDnsLookupRef);
 			await jail.set("_networkHttpRequestRaw", networkHttpRequestRef);
+			await jail.set("_networkHonoServeRaw", networkHonoServeRef);
+			await jail.set("_networkHonoCloseRaw", networkHonoCloseRef);
 		}
 
 		// Set up globals needed by the bridge BEFORE loading it

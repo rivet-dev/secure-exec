@@ -3,3 +3,6 @@
 - bridge types injected into isolated-vm live under packages/sandboxed-node/src/bridge and should stay compatible with @types/node
 - do not implement polyfills yourself if node-stdlib-browser already provides them
 - keep timeouts under 1 minute and avoid running full test suites unless necessary
+- after modifying bridge files, run type conformance tests (`pnpm run check-types:test` in sandboxed-node)
+- keep `docs-internal/node/STDLIB_COMPATIBILITY.md` up to date when changing bridge API surface
+- track issues, workarounds, and unexpected friction encountered during development in the friction log at `docs-internal/friction/`. If an issue gets resolved, mark it as resolved in the log with a note on the fix.

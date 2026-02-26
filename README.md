@@ -52,8 +52,15 @@ console.log(result.stdout);
 
 `child_process` is opt-in. Provide a `CommandExecutor` when running in Node. For a just-bash integration example, see `examples/just-bash/`.
 
+## Hono Example
+
+The Hono end-to-end loader/runner example lives in `examples/hono/`:
+
+- `examples/hono/loader` runs sandboxed code from the runner package
+- `examples/hono/runner` contains a regular Hono app with `node_modules`
+
 ## Repository Layout
 
 - `packages/sandboxed-node/` — core runtime and drivers
 - `examples/just-bash/` — example integration (kept out of core)
-
+- `examples/hono/` — loader/runner Hono HTTP server example
