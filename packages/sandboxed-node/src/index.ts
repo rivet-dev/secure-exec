@@ -260,6 +260,14 @@ export class NodeProcess {
 
 		await this.setupConsole(context, jail, stdout, stderr);
 		await this.setupRequire(context, jail, timingMitigation, frozenTimeMs);
+		await this.setupDynamicImport(
+			context,
+			jail,
+			options.filePath
+				? getPathDir(options.filePath)
+				: (options.cwd ?? this.processConfig.cwd ?? "/"),
+			undefined,
+		);
 		await this.initCommonJsModuleGlobals(context);
 		await this.applyExecutionOverrides(context, options.env, options.cwd, undefined);
 		if (options.filePath) {

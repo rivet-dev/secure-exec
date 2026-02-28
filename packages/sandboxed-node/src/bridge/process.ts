@@ -109,6 +109,42 @@ function getNowMs(): number {
 // Start time for uptime calculation
 const _processStartTime = getNowMs();
 
+const BUFFER_MAX_LENGTH =
+  typeof (BufferPolyfill as unknown as { kMaxLength?: unknown }).kMaxLength ===
+  "number"
+    ? ((BufferPolyfill as unknown as { kMaxLength: number }).kMaxLength as number)
+    : 2147483647;
+const BUFFER_MAX_STRING_LENGTH =
+  typeof (BufferPolyfill as unknown as { kStringMaxLength?: unknown }).kStringMaxLength ===
+  "number"
+    ? ((BufferPolyfill as unknown as { kStringMaxLength: number }).kStringMaxLength as number)
+    : 536870888;
+const BUFFER_CONSTANTS = Object.freeze({
+  MAX_LENGTH: BUFFER_MAX_LENGTH,
+  MAX_STRING_LENGTH: BUFFER_MAX_STRING_LENGTH,
+});
+
+const bufferPolyfillMutable = BufferPolyfill as unknown as {
+  kMaxLength?: number;
+  kStringMaxLength?: number;
+  constants?: Record<string, number>;
+};
+if (typeof bufferPolyfillMutable.kMaxLength !== "number") {
+  bufferPolyfillMutable.kMaxLength = BUFFER_MAX_LENGTH;
+}
+if (typeof bufferPolyfillMutable.kStringMaxLength !== "number") {
+  bufferPolyfillMutable.kStringMaxLength = BUFFER_MAX_STRING_LENGTH;
+}
+if (
+  typeof bufferPolyfillMutable.constants !== "object" ||
+  bufferPolyfillMutable.constants === null
+) {
+  bufferPolyfillMutable.constants = {
+    MAX_LENGTH: BUFFER_MAX_LENGTH,
+    MAX_STRING_LENGTH: BUFFER_MAX_STRING_LENGTH,
+  };
+}
+
 // Exit code tracking
 let _exitCode = 0;
 let _exited = false;
@@ -725,12 +761,21 @@ const process: Partial<typeof nodeProcess> & {
     // Return stub implementations for common bindings
     const stubs: Record<string, Record<string, unknown>> = {
       fs: {},
-      buffer: { Buffer: (globalThis as Record<string, unknown>).Buffer },
+      buffer: {
+        Buffer: (globalThis as Record<string, unknown>).Buffer,
+        constants: BUFFER_CONSTANTS,
+        kMaxLength: BUFFER_MAX_LENGTH,
+        kStringMaxLength: BUFFER_MAX_STRING_LENGTH,
+      },
       process_wrap: {},
       natives: {},
       config: {},
       uv: { UV_UDP_REUSEADDR: 4 },
-      constants: {},
+      constants: {
+        MAX_LENGTH: BUFFER_MAX_LENGTH,
+        MAX_STRING_LENGTH: BUFFER_MAX_STRING_LENGTH,
+        buffer: BUFFER_CONSTANTS,
+      },
       crypto: {},
       string_decoder: {},
       os: {},
@@ -1068,6 +1113,19 @@ export function setupGlobals(): void {
   // Buffer
   if (typeof g.Buffer === "undefined") {
     g.Buffer = Buffer;
+  }
+  const globalBuffer = g.Buffer as Record<string, unknown>;
+  if (typeof globalBuffer.kMaxLength !== "number") {
+    globalBuffer.kMaxLength = BUFFER_MAX_LENGTH;
+  }
+  if (typeof globalBuffer.kStringMaxLength !== "number") {
+    globalBuffer.kStringMaxLength = BUFFER_MAX_STRING_LENGTH;
+  }
+  if (
+    typeof globalBuffer.constants !== "object" ||
+    globalBuffer.constants === null
+  ) {
+    globalBuffer.constants = BUFFER_CONSTANTS;
   }
 
   // Crypto

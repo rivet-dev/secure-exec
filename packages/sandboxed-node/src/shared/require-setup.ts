@@ -4,6 +4,97 @@ export function getRequireSetupCode(): string {
 		return `
       var { exposeCustomGlobal: __requireExposeCustomGlobal } = ${ISOLATE_GLOBAL_EXPOSURE_HELPER_SOURCE};
 
+      if (
+        typeof globalThis.AbortController === 'undefined' ||
+        typeof globalThis.AbortSignal === 'undefined'
+      ) {
+        class AbortSignal {
+          constructor() {
+            this.aborted = false;
+            this.reason = undefined;
+            this.onabort = null;
+            this._listeners = [];
+          }
+
+          addEventListener(type, listener) {
+            if (type !== 'abort' || typeof listener !== 'function') return;
+            this._listeners.push(listener);
+          }
+
+          removeEventListener(type, listener) {
+            if (type !== 'abort' || typeof listener !== 'function') return;
+            const index = this._listeners.indexOf(listener);
+            if (index !== -1) {
+              this._listeners.splice(index, 1);
+            }
+          }
+
+          dispatchEvent(event) {
+            if (!event || event.type !== 'abort') return false;
+            if (typeof this.onabort === 'function') {
+              try {
+                this.onabort.call(this, event);
+              } catch {}
+            }
+            const listeners = this._listeners.slice();
+            for (const listener of listeners) {
+              try {
+                listener.call(this, event);
+              } catch {}
+            }
+            return true;
+          }
+        }
+
+        class AbortController {
+          constructor() {
+            this.signal = new AbortSignal();
+          }
+
+          abort(reason) {
+            if (this.signal.aborted) return;
+            this.signal.aborted = true;
+            this.signal.reason = reason;
+            this.signal.dispatchEvent({ type: 'abort' });
+          }
+        }
+
+        __requireExposeCustomGlobal('AbortSignal', AbortSignal);
+        __requireExposeCustomGlobal('AbortController', AbortController);
+      }
+
+      if (typeof globalThis.structuredClone !== 'function') {
+        function structuredClonePolyfill(value) {
+          if (value === null || typeof value !== 'object') {
+            return value;
+          }
+          if (value instanceof ArrayBuffer) {
+            return value.slice(0);
+          }
+          if (ArrayBuffer.isView(value)) {
+            if (value instanceof Uint8Array) {
+              return new Uint8Array(value);
+            }
+            return new value.constructor(value);
+          }
+          return JSON.parse(JSON.stringify(value));
+        }
+
+        __requireExposeCustomGlobal('structuredClone', structuredClonePolyfill);
+      }
+
+      if (typeof globalThis.btoa !== 'function') {
+        __requireExposeCustomGlobal('btoa', function btoa(input) {
+          return Buffer.from(String(input), 'binary').toString('base64');
+        });
+      }
+
+      if (typeof globalThis.atob !== 'function') {
+        __requireExposeCustomGlobal('atob', function atob(input) {
+          return Buffer.from(String(input), 'base64').toString('binary');
+        });
+      }
+
       // Path utilities
       function _dirname(p) {
         const lastSlash = p.lastIndexOf('/');
@@ -15,6 +106,54 @@ export function getRequireSetupCode(): string {
       // Patch known polyfill gaps in one place after evaluation.
       function _patchPolyfill(name, result) {
         if ((typeof result !== 'object' && typeof result !== 'function') || result === null) {
+          return result;
+        }
+
+        if (name === 'buffer') {
+          const maxLength =
+            typeof result.kMaxLength === 'number'
+              ? result.kMaxLength
+              : 2147483647;
+          const maxStringLength =
+            typeof result.kStringMaxLength === 'number'
+              ? result.kStringMaxLength
+              : 536870888;
+
+          if (typeof result.constants !== 'object' || result.constants === null) {
+            result.constants = {};
+          }
+          if (typeof result.constants.MAX_LENGTH !== 'number') {
+            result.constants.MAX_LENGTH = maxLength;
+          }
+          if (typeof result.constants.MAX_STRING_LENGTH !== 'number') {
+            result.constants.MAX_STRING_LENGTH = maxStringLength;
+          }
+          if (typeof result.kMaxLength !== 'number') {
+            result.kMaxLength = maxLength;
+          }
+          if (typeof result.kStringMaxLength !== 'number') {
+            result.kStringMaxLength = maxStringLength;
+          }
+
+          const BufferCtor = result.Buffer;
+          if (
+            (typeof BufferCtor === 'function' || typeof BufferCtor === 'object') &&
+            BufferCtor !== null
+          ) {
+            if (typeof BufferCtor.kMaxLength !== 'number') {
+              BufferCtor.kMaxLength = maxLength;
+            }
+            if (typeof BufferCtor.kStringMaxLength !== 'number') {
+              BufferCtor.kStringMaxLength = maxStringLength;
+            }
+            if (
+              typeof BufferCtor.constants !== 'object' ||
+              BufferCtor.constants === null
+            ) {
+              BufferCtor.constants = result.constants;
+            }
+          }
+
           return result;
         }
 
@@ -189,7 +328,33 @@ export function getRequireSetupCode(): string {
       };
       globalThis.require.cache = _moduleCache;
 
+      function _debugRequire(phase, moduleName, extra) {
+        if (globalThis.__sandboxRequireDebug !== true) {
+          return;
+        }
+        if (
+          moduleName !== 'rivetkit' &&
+          moduleName !== '@rivetkit/traces' &&
+          moduleName !== '@rivetkit/on-change' &&
+          moduleName !== 'async_hooks' &&
+          !moduleName.startsWith('rivetkit/') &&
+          !moduleName.startsWith('@rivetkit/')
+        ) {
+          return;
+        }
+        if (typeof console !== 'undefined' && typeof console.log === 'function') {
+          console.log(
+            '[sandbox.require] ' +
+              phase +
+              ' ' +
+              moduleName +
+              (extra ? ' ' + extra : ''),
+          );
+        }
+      }
+
       function _requireFrom(moduleName, fromDir) {
+        _debugRequire('start', moduleName, fromDir);
         // Strip node: prefix
         const name = moduleName.replace(/^node:/, '');
 
@@ -203,6 +368,7 @@ export function getRequireSetupCode(): string {
 
         // Get cached modules for bare/absolute specifiers up front.
         if (!isRelative && _moduleCache[name]) {
+          _debugRequire('cache-hit', name, name);
           return _moduleCache[name];
         }
 
@@ -211,6 +377,7 @@ export function getRequireSetupCode(): string {
           if (_moduleCache['fs']) return _moduleCache['fs'];
           const fsModule = eval(_fsModuleCode);
           _moduleCache['fs'] = fsModule;
+          _debugRequire('loaded', name, 'fs-special');
           return fsModule;
         }
 
@@ -220,13 +387,75 @@ export function getRequireSetupCode(): string {
           // Get fs module first, then extract promises
           const fsModule = _requireFrom('fs', fromDir);
           _moduleCache['fs/promises'] = fsModule.promises;
+          _debugRequire('loaded', name, 'fs-promises-special');
           return fsModule.promises;
+        }
+
+        // Special handling for stream/promises module.
+        // Expose promise-based wrappers backed by stream callback APIs.
+        if (name === 'stream/promises') {
+          if (_moduleCache['stream/promises']) return _moduleCache['stream/promises'];
+          const streamModule = _requireFrom('stream', fromDir);
+          const promisesModule = {
+            finished(stream, options) {
+              return new Promise(function(resolve, reject) {
+                if (typeof streamModule.finished !== 'function') {
+                  resolve();
+                  return;
+                }
+
+                if (
+                  options &&
+                  typeof options === 'object' &&
+                  !Array.isArray(options)
+                ) {
+                  streamModule.finished(stream, options, function(error) {
+                    if (error) {
+                      reject(error);
+                      return;
+                    }
+                    resolve();
+                  });
+                  return;
+                }
+
+                streamModule.finished(stream, function(error) {
+                  if (error) {
+                    reject(error);
+                    return;
+                  }
+                  resolve();
+                });
+              });
+            },
+            pipeline() {
+              const args = Array.prototype.slice.call(arguments);
+              return new Promise(function(resolve, reject) {
+                if (typeof streamModule.pipeline !== 'function') {
+                  reject(new Error('stream.pipeline is not supported in sandbox'));
+                  return;
+                }
+                args.push(function(error) {
+                  if (error) {
+                    reject(error);
+                    return;
+                  }
+                  resolve();
+                });
+                streamModule.pipeline.apply(streamModule, args);
+              });
+            },
+          };
+          _moduleCache['stream/promises'] = promisesModule;
+          _debugRequire('loaded', name, 'stream-promises-special');
+          return promisesModule;
         }
 
         // Special handling for child_process module
         if (name === 'child_process') {
           if (_moduleCache['child_process']) return _moduleCache['child_process'];
           _moduleCache['child_process'] = _childProcessModule;
+          _debugRequire('loaded', name, 'child-process-special');
           return _childProcessModule;
         }
 
@@ -234,6 +463,7 @@ export function getRequireSetupCode(): string {
         if (name === 'http') {
           if (_moduleCache['http']) return _moduleCache['http'];
           _moduleCache['http'] = _httpModule;
+          _debugRequire('loaded', name, 'http-special');
           return _httpModule;
         }
 
@@ -241,6 +471,7 @@ export function getRequireSetupCode(): string {
         if (name === 'https') {
           if (_moduleCache['https']) return _moduleCache['https'];
           _moduleCache['https'] = _httpsModule;
+          _debugRequire('loaded', name, 'https-special');
           return _httpsModule;
         }
 
@@ -248,6 +479,7 @@ export function getRequireSetupCode(): string {
         if (name === 'http2') {
           if (_moduleCache['http2']) return _moduleCache['http2'];
           _moduleCache['http2'] = _http2Module;
+          _debugRequire('loaded', name, 'http2-special');
           return _http2Module;
         }
 
@@ -255,6 +487,7 @@ export function getRequireSetupCode(): string {
         if (name === 'dns') {
           if (_moduleCache['dns']) return _moduleCache['dns'];
           _moduleCache['dns'] = _dnsModule;
+          _debugRequire('loaded', name, 'dns-special');
           return _dnsModule;
         }
 
@@ -262,6 +495,7 @@ export function getRequireSetupCode(): string {
         if (name === 'os') {
           if (_moduleCache['os']) return _moduleCache['os'];
           _moduleCache['os'] = _osModule;
+          _debugRequire('loaded', name, 'os-special');
           return _osModule;
         }
 
@@ -269,13 +503,92 @@ export function getRequireSetupCode(): string {
         if (name === 'module') {
           if (_moduleCache['module']) return _moduleCache['module'];
           _moduleCache['module'] = _moduleModule;
+          _debugRequire('loaded', name, 'module-special');
           return _moduleModule;
         }
 
         // Special handling for process module - return our bridge's process object.
         // This prevents node-stdlib-browser's process polyfill from overwriting it.
         if (name === 'process') {
+          _debugRequire('loaded', name, 'process-special');
           return globalThis.process;
+        }
+
+        // Special handling for async_hooks.
+        // This provides the minimum API surface needed by tracing libraries.
+        if (name === 'async_hooks') {
+          if (_moduleCache['async_hooks']) return _moduleCache['async_hooks'];
+
+          class AsyncLocalStorage {
+            constructor() {
+              this._store = undefined;
+            }
+
+            run(store, callback) {
+              const previousStore = this._store;
+              this._store = store;
+              try {
+                const args = Array.prototype.slice.call(arguments, 2);
+                return callback.apply(undefined, args);
+              } finally {
+                this._store = previousStore;
+              }
+            }
+
+            enterWith(store) {
+              this._store = store;
+            }
+
+            getStore() {
+              return this._store;
+            }
+
+            disable() {
+              this._store = undefined;
+            }
+
+            exit(callback) {
+              const previousStore = this._store;
+              this._store = undefined;
+              try {
+                const args = Array.prototype.slice.call(arguments, 1);
+                return callback.apply(undefined, args);
+              } finally {
+                this._store = previousStore;
+              }
+            }
+          }
+
+          class AsyncResource {
+            constructor(type) {
+              this.type = type;
+            }
+
+            runInAsyncScope(callback, thisArg) {
+              const args = Array.prototype.slice.call(arguments, 2);
+              return callback.apply(thisArg, args);
+            }
+
+            emitDestroy() {}
+          }
+
+          const asyncHooksModule = {
+            AsyncLocalStorage,
+            AsyncResource,
+            createHook() {
+              return {
+                enable() { return this; },
+                disable() { return this; },
+              };
+            },
+            executionAsyncId() { return 1; },
+            triggerAsyncId() { return 0; },
+            executionAsyncResource() { return null; },
+          };
+
+          _moduleCache['async_hooks'] = asyncHooksModule;
+          _debugRequire('loaded', name, 'async-hooks-special');
+          return asyncHooksModule;
         }
 
         // Get deferred module stubs
@@ -283,6 +596,7 @@ export function getRequireSetupCode(): string {
           if (_moduleCache[name]) return _moduleCache[name];
           const deferredStub = _createDeferredModuleStub(name);
           _moduleCache[name] = deferredStub;
+          _debugRequire('loaded', name, 'deferred-stub');
           return deferredStub;
         }
 
@@ -309,6 +623,7 @@ export function getRequireSetupCode(): string {
 
           _moduleCache[name] = moduleObj.exports;
           delete _pendingModules[name];
+          _debugRequire('loaded', name, 'polyfill');
           return _moduleCache[name];
         }
 
@@ -320,11 +635,13 @@ export function getRequireSetupCode(): string {
 
         // Check cache with resolved path
         if (_moduleCache[cacheKey]) {
+          _debugRequire('cache-hit', name, cacheKey);
           return _moduleCache[cacheKey];
         }
 
         // Check if we're currently loading this module (circular dep)
         if (_pendingModules[cacheKey]) {
+          _debugRequire('pending-hit', name, cacheKey);
           return _pendingModules[cacheKey].exports;
         }
 
@@ -357,10 +674,22 @@ export function getRequireSetupCode(): string {
 
         try {
           // Wrap and execute the code
-          const wrapper = new Function(
-            'exports', 'require', 'module', '__filename', '__dirname', '__dynamicImport',
-            source
-          );
+          let wrapper;
+          try {
+            wrapper = new Function(
+              'exports',
+              'require',
+              'module',
+              '__filename',
+              '__dirname',
+              '__dynamicImport',
+              source + '\\n//# sourceURL=' + resolved
+            );
+          } catch (error) {
+            const details =
+              error && error.stack ? error.stack : String(error);
+            throw new Error('failed to compile module ' + resolved + ': ' + details);
+          }
 
           // Create a require function that resolves from this module's directory
           const moduleRequire = function(request) {
@@ -388,6 +717,10 @@ export function getRequireSetupCode(): string {
           );
 
           module.loaded = true;
+        } catch (error) {
+          const details =
+            error && error.stack ? error.stack : String(error);
+          throw new Error('failed to execute module ' + resolved + ': ' + details);
         } finally {
           _currentModule = prevModule;
         }
@@ -395,6 +728,7 @@ export function getRequireSetupCode(): string {
         // Cache with resolved path
         _moduleCache[cacheKey] = module.exports;
         delete _pendingModules[cacheKey];
+        _debugRequire('loaded', name, cacheKey);
 
         return module.exports;
       }

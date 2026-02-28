@@ -330,8 +330,8 @@ function resolveConditionalTarget(
 ): string | null {
 	const order =
 		mode === "import"
-			? ["import", "module", "default", "node", "require"]
-			: ["require", "default", "node", "import", "module"];
+			? ["import", "node", "module", "default", "require"]
+			: ["require", "node", "default", "import", "module"];
 
 	for (const key of order) {
 		if (!(key in record)) continue;
