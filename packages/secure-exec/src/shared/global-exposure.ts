@@ -246,11 +246,6 @@ export const NODE_CUSTOM_GLOBAL_INVENTORY: readonly CustomGlobalInventoryEntry[]
 		rationale: "Host network bridge reference.",
 	},
 	{
-		name: "_fsModuleCode",
-		classification: "hardened",
-		rationale: "Runtime-owned fs bridge bootstrap expression.",
-	},
-	{
 		name: "require",
 		classification: "hardened",
 		rationale: "Runtime-owned global require shim entrypoint.",

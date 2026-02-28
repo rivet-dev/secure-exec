@@ -329,6 +329,10 @@ Any source code evaluated inside the isolate for runtime/bootstrap setup MUST or
 - **WHEN** a change adds a new host-to-isolate code injection path
 - **THEN** the injected code MUST be added as a static `.ts` file under `packages/secure-exec/isolate-runtime/` in the same change
 
+#### Scenario: Existing template-generated bootstrap helper is migrated
+- **WHEN** secure-exec migrates helpers such as `getRequireSetupCode`, `getBridgeWithConfig`, or `createInitialBridgeGlobalsCode`
+- **THEN** the executable isolate source for those helpers MUST come from static isolate-runtime files rather than template-literal code builders in host runtime modules
+
 ### Requirement: Isolate-Runtime Compilation MUST Be a Build Prerequisite
 The secure-exec package build MUST execute isolate-runtime compilation before producing final runtime artifacts, and build orchestration MUST treat isolate-runtime compilation as an explicit dependency.
 
@@ -351,6 +355,13 @@ Host runtime code paths that inject executable source into the isolate MUST NOT 
 - **WHEN** contributors modify helpers used to inject source into the isolate
 - **THEN** the resulting injected executable source MUST remain defined by static isolate-runtime files without template-literal-generated code bodies
 
+### Requirement: Runtime MUST Enforce No-Regressions For Template-Literal Injection
+The secure-exec runtime repository MUST include automated verification that fails when template-literal executable source generation is introduced in host runtime isolate-injection paths.
+
+#### Scenario: CI validates isolate injection source policy
+- **WHEN** runtime verification is executed for secure-exec
+- **THEN** checks MUST fail if host runtime isolate-injection paths introduce new template-literal executable source builders
+
 ### Requirement: Runtime Default Logging Mode Drops Console Output
 Runtime logging SHALL be drop-on-floor by default: if no explicit log hook is configured, console emissions MUST NOT be retained in runtime-managed execution-result buffers.
 
@@ -368,4 +379,3 @@ The Node runtime SHALL expose an optional host hook for streaming console log ev
 #### Scenario: Hook-enabled runtime still avoids buffered accumulation
 - **WHEN** high-volume logging is emitted with a configured hook
 - **THEN** secure-exec runtime MUST stream events to the hook without accumulating unbounded per-execution log buffers in host memory
-

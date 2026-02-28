@@ -4,8 +4,11 @@
     "build:bridge": {
       "outputs": ["dist/bridge.js"]
     },
+    "build:isolate-runtime": {
+      "outputs": ["dist/isolate-runtime/**", "src/generated/isolate-runtime.ts"]
+    },
     "build": {
-      "dependsOn": ["^build", "build:bridge"],
+      "dependsOn": ["^build", "build:bridge", "build:isolate-runtime"],
       "outputs": ["dist/**"]
     },
     "check-types": {

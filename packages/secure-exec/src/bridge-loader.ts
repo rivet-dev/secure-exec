@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
-import { ISOLATE_GLOBAL_EXPOSURE_HELPER_SOURCE } from "./shared/global-exposure.js";
+import { getIsolateRuntimeSource } from "./generated/isolate-runtime.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -81,97 +81,8 @@ export function getRawBridgeCode(): string {
 }
 
 /**
- * Get the fs module code that can be injected into an isolate.
- * This returns the compiled JavaScript code as a string wrapped in an IIFE.
+ * Get isolate script code that publishes the compiled bridge to `globalThis.bridge`.
  */
-export function getFsModuleCode(): string {
-	const code = getRawBridgeCode();
-
-	// The compiled code creates a global `bridge` variable with the module exports
-	// bridge = { default: fs, fs: fs }
-	// We need to wrap it to return the default export (which is the fs module)
-	return `(function() {
-var { exposeCustomGlobal: __bridgeLoaderExposeCustomGlobal } = ${ISOLATE_GLOBAL_EXPOSURE_HELPER_SOURCE};
-${code}
-  __bridgeLoaderExposeCustomGlobal("bridge", bridge);
-  return bridge.default;
-})()`;
+export function getBridgeAttachCode(): string {
+	return getIsolateRuntimeSource("bridgeAttach");
 }
-
-/**
- * Get the entire bridge module with all exports.
- * Returns code that evaluates to the bridge object containing:
- * - fs, os, childProcess, process, module, network
- * - setupGlobals, URL, URLSearchParams, Buffer, etc.
- */
-export function getBridgeModuleCode(): string {
-	const code = getRawBridgeCode();
-
-	return `(function() {
-var { exposeCustomGlobal: __bridgeLoaderExposeCustomGlobal } = ${ISOLATE_GLOBAL_EXPOSURE_HELPER_SOURCE};
-${code}
-  __bridgeLoaderExposeCustomGlobal("bridge", bridge);
-  return bridge;
-})()`;
-}
-
-/**
- * Get code that sets up configuration globals and then loads the bridge.
- * The config is passed as a JSON string to avoid eval issues.
- *
- * @param processConfig - Process configuration (platform, arch, cwd, env, etc.)
- * @param osConfig - OS configuration (platform, arch, hostname, etc.)
- */
-export function getBridgeWithConfig(
-	processConfig?: {
-		platform?: string;
-		arch?: string;
-		version?: string;
-		cwd?: string;
-		env?: Record<string, string>;
-		argv?: string[];
-		execPath?: string;
-		pid?: number;
-		ppid?: number;
-		uid?: number;
-		gid?: number;
-		stdin?: string;
-		timingMitigation?: "off" | "freeze";
-		frozenTimeMs?: number;
-	},
-	osConfig?: {
-		platform?: string;
-		arch?: string;
-		type?: string;
-		release?: string;
-		version?: string;
-		homedir?: string;
-		tmpdir?: string;
-		hostname?: string;
-	},
-): string {
-	const code = getRawBridgeCode();
-
-	// Set up config globals before loading the bridge
-	const configSetup = `
-    var { exposeCustomGlobal: __bridgeLoaderExposeCustomGlobal } = ${ISOLATE_GLOBAL_EXPOSURE_HELPER_SOURCE};
-    // Set up configuration globals before bridge loads.
-    __bridgeLoaderExposeCustomGlobal("_processConfig", ${JSON.stringify(processConfig || {})});
-    __bridgeLoaderExposeCustomGlobal("_osConfig", ${JSON.stringify(osConfig || {})});
-  `;
-
-	return `(function() {
-${configSetup}
-${code}
-  __bridgeLoaderExposeCustomGlobal("bridge", bridge);
-  return bridge;
-})()`;
-}
-
-/**
- * The fs module code as a constant string.
- * Use this if you need the code at import time.
- */
-export const FS_MODULE_CODE = getFsModuleCode();
-
-export default FS_MODULE_CODE;

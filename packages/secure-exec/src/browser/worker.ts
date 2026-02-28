@@ -14,6 +14,7 @@ import {
 	isESM,
 	transformDynamicImport,
 } from "../shared/esm-utils.js";
+import { getIsolateRuntimeSource } from "../generated/isolate-runtime.js";
 import { POLYFILL_CODE_MAP } from "../generated/polyfills.js";
 import { loadFile, resolveModule } from "../package-bundler.js";
 import { mkdir } from "../fs-helpers.js";
@@ -334,7 +335,7 @@ async function initRuntime(payload: InitPayload): Promise<void> {
 	// Load bridge after globals are in place
 	const bridge = await import("../bridge/index.js");
 	exposeCustomGlobal("_fsModule", (bridge as Record<string, unknown>).default);
-	exposeCustomGlobal("_fsModuleCode", "(function() { return globalThis._fsModule; })()");
+	eval(getIsolateRuntimeSource("globalExposureHelpers"));
 
 	eval(getRequireSetupCode());
 

@@ -1,10 +1,15 @@
 import ivm from "isolated-vm";
 import { randomFillSync, randomUUID } from "node:crypto";
-import { createInitialBridgeGlobalsCode } from "./bridge-setup.js";
-import { getBridgeWithConfig } from "./bridge-loader.js";
-import { createBuiltinESMWrapper } from "./esm-compiler.js";
+import { getInitialBridgeGlobalsSetupCode } from "./bridge-setup.js";
+import { getBridgeAttachCode, getRawBridgeCode } from "./bridge-loader.js";
+import {
+	createBuiltinESMWrapper,
+	getEmptyBuiltinESMWrapper,
+	getStaticBuiltinWrapperSource,
+} from "./esm-compiler.js";
 import { executeWithRuntime } from "./execution.js";
 import { mkdir } from "./fs-helpers.js";
+import { getIsolateRuntimeSource } from "./generated/isolate-runtime.js";
 import {
 	DEFAULT_TIMING_MITIGATION,
 	TIMEOUT_ERROR_MESSAGE,
@@ -42,7 +47,6 @@ import {
 import { getConsoleSetupCode } from "./shared/console-formatter.js";
 import {
 	HARDENED_NODE_CUSTOM_GLOBALS,
-	ISOLATE_GLOBAL_EXPOSURE_HELPER_SOURCE,
 	MUTABLE_NODE_CUSTOM_GLOBALS,
 } from "./shared/global-exposure.js";
 import { getRequireSetupCode } from "./shared/require-setup.js";
@@ -414,50 +418,16 @@ export class NodeProcess {
 		frozenTimeMs: number,
 	): Promise<void> {
 		if (timingMitigation !== "freeze") {
-			await context.eval(`
-        if (typeof globalThis.performance === "undefined" || globalThis.performance === null) {
-          globalThis.performance = { now: () => Date.now() };
-        }
-      `);
+			await context.eval(getIsolateRuntimeSource("applyTimingMitigationOff"));
 			return;
 		}
 
-		await context.eval(`
-      const __frozenTimeMs = ${JSON.stringify(frozenTimeMs)};
-      const __frozenDateNow = () => __frozenTimeMs;
-      try {
-        Object.defineProperty(Date, "now", {
-          value: __frozenDateNow,
-          configurable: true,
-          writable: true,
-        });
-      } catch {
-        Date.now = __frozenDateNow;
-      }
-
-      const __frozenPerformanceNow = () => 0;
-      if (typeof globalThis.performance !== "undefined" && globalThis.performance !== null) {
-        try {
-          Object.defineProperty(globalThis.performance, "now", {
-            value: __frozenPerformanceNow,
-            configurable: true,
-            writable: true,
-          });
-        } catch {
-          try {
-            globalThis.performance.now = __frozenPerformanceNow;
-          } catch {}
-        }
-      } else {
-        globalThis.performance = { now: __frozenPerformanceNow };
-      }
-
-      try {
-        delete globalThis.SharedArrayBuffer;
-      } catch {
-        globalThis.SharedArrayBuffer = undefined;
-      }
-    `);
+		await context.global.set(
+			"__runtimeTimingMitigationConfig",
+			{ frozenTimeMs },
+			{ copy: true },
+		);
+		await context.eval(getIsolateRuntimeSource("applyTimingMitigationFreeze"));
 	}
 
 	/**
@@ -625,61 +595,9 @@ export class NodeProcess {
 		const moduleName = (builtinSpecifier ?? filePath).replace(/^node:/, "");
 
 		if (builtinSpecifier) {
-			if (moduleName === "fs") {
-				code = createBuiltinESMWrapper(
-					"globalThis.bridge?.fs || globalThis.bridge?.default || {}",
-					BUILTIN_NAMED_EXPORTS.fs,
-				);
-			} else if (moduleName === "fs/promises") {
-				code = createBuiltinESMWrapper(
-					"(globalThis.bridge?.fs || globalThis.bridge?.default || {}).promises || {}",
-					BUILTIN_NAMED_EXPORTS["fs/promises"],
-				);
-			} else if (moduleName === "module") {
-				code = createBuiltinESMWrapper(
-					`globalThis.bridge?.module || {
-            createRequire: globalThis._createRequire || function(f) {
-              const dir = f.replace(/\\\\[^\\\\]*$/, '') || '/';
-              return function(m) { return globalThis._requireFrom(m, dir); };
-            },
-            Module: { builtinModules: [] },
-            isBuiltin: () => false,
-            builtinModules: []
-          }`,
-					BUILTIN_NAMED_EXPORTS.module,
-				);
-			} else if (moduleName === "os") {
-				code = createBuiltinESMWrapper(
-					"globalThis.bridge?.os || {}",
-					BUILTIN_NAMED_EXPORTS.os,
-				);
-			} else if (moduleName === "http") {
-				code = createBuiltinESMWrapper(
-					"globalThis._httpModule || globalThis.bridge?.network?.http || {}",
-					BUILTIN_NAMED_EXPORTS.http,
-				);
-			} else if (moduleName === "https") {
-				code = createBuiltinESMWrapper(
-					"globalThis._httpsModule || globalThis.bridge?.network?.https || {}",
-					BUILTIN_NAMED_EXPORTS.https,
-				);
-			} else if (moduleName === "http2") {
-				code = createBuiltinESMWrapper("globalThis._http2Module || {}", []);
-			} else if (moduleName === "dns") {
-				code = createBuiltinESMWrapper(
-					"globalThis._dnsModule || globalThis.bridge?.network?.dns || {}",
-					BUILTIN_NAMED_EXPORTS.dns,
-				);
-			} else if (moduleName === "child_process") {
-				code = createBuiltinESMWrapper(
-					"globalThis._childProcessModule || globalThis.bridge?.childProcess || {}",
-					BUILTIN_NAMED_EXPORTS.child_process,
-				);
-			} else if (moduleName === "process") {
-				code = createBuiltinESMWrapper(
-					"globalThis.process || {}",
-					BUILTIN_NAMED_EXPORTS.process,
-				);
+			const staticWrapperCode = getStaticBuiltinWrapperSource(moduleName);
+			if (staticWrapperCode !== null) {
+				code = staticWrapperCode;
 			} else if (hasPolyfill(moduleName)) {
 				// Get polyfill code and wrap for ESM.
 				let polyfillCode = polyfillCodeCache.get(moduleName);
@@ -688,13 +606,11 @@ export class NodeProcess {
 					polyfillCodeCache.set(moduleName, polyfillCode);
 				}
 				code = createBuiltinESMWrapper(
-					`${polyfillCode}`,
+					String(polyfillCode),
 					BUILTIN_NAMED_EXPORTS[moduleName] ?? [],
 				);
-			} else if (moduleName === "v8") {
-				code = createBuiltinESMWrapper("globalThis._moduleCache?.v8 || {}", []);
 			} else {
-				code = createBuiltinESMWrapper("{}", []);
+				code = getEmptyBuiltinESMWrapper();
 			}
 		} else {
 			// Load from filesystem
@@ -709,7 +625,7 @@ export class NodeProcess {
 			// Classify source module format using extension + package metadata.
 			const moduleFormat = await this.getModuleFormat(filePath);
 			if (moduleFormat === "json") {
-				code = `export default ${source};`;
+				code = "export default " + source + ";";
 			} else if (moduleFormat === "cjs") {
 				// Transform CommonJS modules into ESM default exports.
 				code = wrapCJSForESM(source);
@@ -794,13 +710,10 @@ export class NodeProcess {
 
 		try {
 			// Get namespace exports for run() to mirror module.exports semantics.
-			return context.eval(
-				`Object.fromEntries(Object.entries(globalThis.${namespaceGlobalKey}))`,
-				{
-					copy: true,
-					...this.getExecutionRunOptions(executionDeadlineMs),
-				},
-			);
+			return context.eval("Object.fromEntries(Object.entries(globalThis.__entryNamespace__))", {
+				copy: true,
+				...this.getExecutionRunOptions(executionDeadlineMs),
+			});
 		} finally {
 			// Clean up temporary namespace binding after copying exports.
 			await jail.delete(namespaceGlobalKey);
@@ -940,47 +853,13 @@ export class NodeProcess {
 		);
 
 		await jail.set("_dynamicImport", dynamicImportRef);
-
-		// Create the __dynamicImport function in the isolate
+		await jail.set(
+			"__runtimeDynamicImportConfig",
+			{ referrerPath },
+			{ copy: true },
+		);
 		// Resolve in ESM mode first and only use require() fallback for explicit CJS/JSON.
-		await context.eval(`
-			      var { exposeCustomGlobal: __runtimeExposeCustomGlobal } = ${ISOLATE_GLOBAL_EXPOSURE_HELPER_SOURCE};
-		      const __dynamicImportHandler = async function(specifier, fromPath) {
-		        const request = String(specifier);
-		        const referrer = typeof fromPath === 'string' && fromPath.length > 0
-		          ? fromPath
-	          : ${JSON.stringify(referrerPath)};
-	        const allowRequireFallback =
-	          request.endsWith('.cjs') ||
-	          request.endsWith('.json');
-
-	        const namespace = await _dynamicImport.apply(
-	            undefined,
-	            [request, referrer],
-	            { result: { promise: true } }
-	          );
-
-	        if (namespace !== null) {
-	          return namespace;
-	        }
-
-	        if (!allowRequireFallback) {
-	          throw new Error("Cannot find module '" + request + "'");
-	        }
-
-	        const mod = require(request);
-	        const namespaceFallback = { default: mod };
-	        if (mod !== null && (typeof mod === 'object' || typeof mod === 'function')) {
-	          for (const key of Object.keys(mod)) {
-	            if (!(key in namespaceFallback)) {
-	              namespaceFallback[key] = mod[key];
-	            }
-	          }
-		        }
-		        return namespaceFallback;
-		      };
-			      __runtimeExposeCustomGlobal("__dynamicImport", __dynamicImportHandler);
-		    `);
+		await context.eval(getIsolateRuntimeSource("setupDynamicImport"));
 	}
 
 	/**
@@ -1181,24 +1060,8 @@ export class NodeProcess {
 			await jail.set("_fsUnlink", unlinkRef);
 			await jail.set("_fsRename", renameRef);
 
-			// Create the _fs object inside the isolate
-			await context.eval(`
-			        var { exposeCustomGlobal: __runtimeExposeCustomGlobal } = ${ISOLATE_GLOBAL_EXPOSURE_HELPER_SOURCE};
-		        const __fsFacade = {
-		          readFile: _fsReadFile,
-		          writeFile: _fsWriteFile,
-	          readFileBinary: _fsReadFileBinary,
-	          writeFileBinary: _fsWriteFileBinary,
-	          readDir: _fsReadDir,
-	          mkdir: _fsMkdir,
-	          rmdir: _fsRmdir,
-	          exists: _fsExists,
-	          stat: _fsStat,
-		          unlink: _fsUnlink,
-		          rename: _fsRename,
-		        };
-			        __runtimeExposeCustomGlobal("_fs", __fsFacade);
-		      `);
+			// Create the _fs object inside the isolate.
+			await context.eval(getIsolateRuntimeSource("setupFsFacade"));
 		}
 
 		// Set up child_process References (stubbed when disabled)
@@ -1466,30 +1329,32 @@ export class NodeProcess {
 			await jail.set("_networkHttpServerCloseRaw", networkHttpServerCloseRef);
 		}
 
-		// Set up globals needed by the bridge BEFORE loading it
+		// Install isolate-global descriptor helpers before runtime bootstrap scripts.
+		await context.eval(getIsolateRuntimeSource("globalExposureHelpers"));
+
+		// Set up globals needed by the bridge BEFORE loading it.
 		const initialCwd = this.processConfig.cwd ?? "/";
-		await context.eval(
-			createInitialBridgeGlobalsCode({
+		await jail.set(
+			"__runtimeBridgeSetupConfig",
+			{
 				initialCwd,
 				jsonPayloadLimitBytes: this.isolateJsonPayloadLimitBytes,
 				payloadLimitErrorCode: PAYLOAD_LIMIT_ERROR_CODE,
-				isolateGlobalExposureHelperSource: ISOLATE_GLOBAL_EXPOSURE_HELPER_SOURCE,
-			}),
+			},
+			{ copy: true },
 		);
+		await context.eval(getInitialBridgeGlobalsSetupCode());
 
-		// Load the bridge bundle which sets up all polyfill modules
-		const bridgeCode = getBridgeWithConfig(
-			this.createProcessConfigForExecution(timingMitigation, frozenTimeMs),
-			this.osConfig,
-		);
-		await context.eval(bridgeCode);
-		await this.applyTimingMitigation(context, timingMitigation, frozenTimeMs);
-
-		// Store the fs module code for use in require (avoid re-evaluating the bridge)
+		// Load the bridge bundle which sets up all polyfill modules.
 		await jail.set(
-			"_fsModuleCode",
-			"(function() { return globalThis.bridge?.fs || globalThis.bridge?.default || {}; })()",
+			"_processConfig",
+			this.createProcessConfigForExecution(timingMitigation, frozenTimeMs),
+			{ copy: true },
 		);
+		await jail.set("_osConfig", this.osConfig, { copy: true });
+		await context.eval(getRawBridgeCode());
+		await context.eval(getBridgeAttachCode());
+		await this.applyTimingMitigation(context, timingMitigation, frozenTimeMs);
 
 		// Set up the require system with dynamic CommonJS resolution
 		await context.eval(getRequireSetupCode());
@@ -1682,11 +1547,7 @@ export class NodeProcess {
 	 * Initialize mutable CommonJS globals before script execution.
 	 */
 	private async initCommonJsModuleGlobals(context: ivm.Context): Promise<void> {
-		await context.eval(`
-	      var { exposeMutableRuntimeStateGlobal: __runtimeExposeMutableGlobal } = ${ISOLATE_GLOBAL_EXPOSURE_HELPER_SOURCE};
-	      __runtimeExposeMutableGlobal("module", { exports: {} });
-	      __runtimeExposeMutableGlobal("exports", globalThis.module.exports);
-	    `);
+		await context.eval(getIsolateRuntimeSource("initCommonjsModuleGlobals"));
 	}
 
 	/**
@@ -1699,37 +1560,27 @@ export class NodeProcess {
 		const dirname = filePath.includes("/")
 			? filePath.substring(0, filePath.lastIndexOf("/")) || "/"
 			: "/";
-		await context.eval(`
-	      var { exposeMutableRuntimeStateGlobal: __runtimeExposeMutableGlobal } = ${ISOLATE_GLOBAL_EXPOSURE_HELPER_SOURCE};
-	      __runtimeExposeMutableGlobal("__filename", ${JSON.stringify(filePath)});
-	      __runtimeExposeMutableGlobal("__dirname", ${JSON.stringify(dirname)});
-	      globalThis._currentModule.dirname = ${JSON.stringify(dirname)};
-	      globalThis._currentModule.filename = ${JSON.stringify(filePath)};
-	    `);
+		await context.global.set(
+			"__runtimeCommonJsFileConfig",
+			{ filePath, dirname },
+			{ copy: true },
+		);
+		await context.eval(getIsolateRuntimeSource("setCommonjsFileGlobals"));
 	}
 
 	/**
 	 * Apply descriptor policy to custom globals before user code executes.
 	 */
 	private async applyCustomGlobalExposurePolicy(context: ivm.Context): Promise<void> {
-		await context.eval(`
-	      var {
-	        exposeCustomGlobal: __runtimeExposeCustomGlobal,
-	        exposeMutableRuntimeStateGlobal: __runtimeExposeMutableGlobal,
-	      } = ${ISOLATE_GLOBAL_EXPOSURE_HELPER_SOURCE};
-	      const __hardenedGlobals = ${JSON.stringify(HARDENED_NODE_CUSTOM_GLOBALS)};
-	      const __mutableGlobals = ${JSON.stringify(MUTABLE_NODE_CUSTOM_GLOBALS)};
-	      for (const globalName of __hardenedGlobals) {
-	        if (Object.prototype.hasOwnProperty.call(globalThis, globalName)) {
-	          __runtimeExposeCustomGlobal(globalName, globalThis[globalName]);
-	        }
-	      }
-	      for (const globalName of __mutableGlobals) {
-	        if (Object.prototype.hasOwnProperty.call(globalThis, globalName)) {
-	          __runtimeExposeMutableGlobal(globalName, globalThis[globalName]);
-	        }
-	      }
-	    `);
+		await context.global.set(
+			"__runtimeCustomGlobalPolicy",
+			{
+				hardenedGlobals: HARDENED_NODE_CUSTOM_GLOBALS,
+				mutableGlobals: MUTABLE_NODE_CUSTOM_GLOBALS,
+			},
+			{ copy: true },
+		);
+		await context.eval(getIsolateRuntimeSource("applyCustomGlobalPolicy"));
 	}
 
 	/**
@@ -1740,7 +1591,7 @@ export class NodeProcess {
 		executionDeadlineMs?: number,
 	): Promise<void> {
 		const hasPromise = await context.eval(
-			`globalThis.__scriptResult__ && typeof globalThis.__scriptResult__.then === 'function'`,
+			"globalThis.__scriptResult__ && typeof globalThis.__scriptResult__.then === 'function'",
 			{
 				copy: true,
 				...this.getExecutionRunOptions(executionDeadlineMs),
@@ -1748,7 +1599,7 @@ export class NodeProcess {
 		);
 		if (hasPromise) {
 			await this.runWithExecutionDeadline(
-				context.eval(`globalThis.__scriptResult__`, {
+				context.eval("globalThis.__scriptResult__", {
 					promise: true,
 					...this.getExecutionRunOptions(executionDeadlineMs),
 				}),
@@ -1767,16 +1618,18 @@ export class NodeProcess {
 	): Promise<void> {
 		if (env) {
 			const filtered = filterEnv(env, this.permissions);
-			// Merge provided env with existing env
-			await context.eval(`
-				Object.assign(process.env, ${JSON.stringify(filtered)});
-			`);
+			// Merge provided env with existing env.
+			await context.global.set("__runtimeProcessEnvOverride", filtered, {
+				copy: true,
+			});
+			await context.eval(getIsolateRuntimeSource("overrideProcessEnv"));
 		}
 		if (cwd) {
-			// Override cwd
-			await context.eval(`
-				process.cwd = () => ${JSON.stringify(cwd)};
-			`);
+			// Override cwd.
+			await context.global.set("__runtimeProcessCwdOverride", cwd, {
+				copy: true,
+			});
+			await context.eval(getIsolateRuntimeSource("overrideProcessCwd"));
 		}
 	}
 
@@ -1788,17 +1641,10 @@ export class NodeProcess {
 		context: ivm.Context,
 		stdin: string,
 	): Promise<void> {
-		// The bridge exposes these variables for stdin management
-		// We need to set them before the script runs so readline can access them
-		await context.eval(`
-			// Reset stdin state for this execution
-			if (typeof _stdinData !== 'undefined') {
-				_stdinData = ${JSON.stringify(stdin)};
-				_stdinPosition = 0;
-				_stdinEnded = false;
-				_stdinFlowMode = false;
-			}
-			`);
+		// The bridge exposes these variables for stdin management.
+		// We need to set them before the script runs so readline can access them.
+		await context.global.set("__runtimeStdinData", stdin, { copy: true });
+		await context.eval(getIsolateRuntimeSource("setStdinData"));
 	}
 
 	private createIsolate(): ivm.Isolate {

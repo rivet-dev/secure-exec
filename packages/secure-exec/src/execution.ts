@@ -1,4 +1,5 @@
 import ivm from "isolated-vm";
+import { getIsolateRuntimeSource } from "./generated/isolate-runtime.js";
 import { transformDynamicImport } from "./shared/esm-utils.js";
 import type {
 	ConsoleLogHook,
@@ -192,15 +193,15 @@ export async function executeWithRuntime<T = unknown>(
 			);
 			await runtime.applyCustomGlobalExposurePolicy(context);
 
-			if (options.mode === "exec") {
-				const wrappedCode = `
-            globalThis.__scriptResult__ = eval(${JSON.stringify(transformedCode)});
-          `;
-				const script = await runtime.isolate.compileScript(wrappedCode);
-				await script.run(
-					context,
-					runtime.getExecutionRunOptions(executionDeadlineMs),
-				);
+				if (options.mode === "exec") {
+					await jail.set("__runtimeExecCode", transformedCode, { copy: true });
+					const script = await runtime.isolate.compileScript(
+						getIsolateRuntimeSource("evalScriptResult"),
+					);
+					await script.run(
+						context,
+						runtime.getExecutionRunOptions(executionDeadlineMs),
+					);
 				await runtime.awaitScriptResult(context, executionDeadlineMs);
 			} else {
 				const script = await runtime.isolate.compileScript(transformedCode);

@@ -13,6 +13,9 @@
    - Symptom: loading workspace dependencies required ad-hoc filesystem setup, and direct host filesystem use risked widening module trust boundaries.
    - Fix: added driver `moduleAccess` projection (`cwd` + explicit `allowPackages`) that resolves dependency closure from host installs but enforces strict canonical containment under `<cwd>/node_modules`, rejects `.node` native addons, and exposes projected modules as read-only under `/app/node_modules`.
    - Compatibility note: this path targets `node_modules` installs and intentionally fails closed on out-of-scope symlink/canonical-path resolution.
+2. **[resolved]** Isolate bootstrap code relied on runtime template-string assembly.
+   - Symptom: helper paths like `getRequireSetupCode`, bridge bootstrap wrappers, and inline `context.eval` setup snippets were assembled in host runtime files, which made isolate-executed code harder to audit and easier to regress.
+   - Fix: moved host-injected isolate scripts into static sources under `packages/secure-exec/isolate-runtime/`, added `build:isolate-runtime` to compile them into `dist/isolate-runtime/**` and generate `src/generated/isolate-runtime.ts`, and updated Node/browser runtime loaders to consume these static artifacts via manifest IDs.
 
 ## 2026-02-27
 
