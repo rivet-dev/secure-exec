@@ -32,13 +32,6 @@ export interface RuntimeExecutionDriverOptions {
 	};
 }
 
-export interface DriverRuntimeHooks {
-	createIsolate?(memoryLimit: number): unknown;
-	createExecutionDriver?(
-		options: RuntimeExecutionDriverOptions,
-	): RuntimeExecutionDriver;
-}
-
 export interface RuntimeExecutionDriver {
 	run<T = unknown>(code: string, filePath?: string): Promise<RunResult<T>>;
 	exec(code: string, options?: ExecOptions): Promise<ExecResult>;
@@ -53,11 +46,16 @@ export interface RuntimeExecutionDriver {
 	}): Promise<unknown>;
 }
 
+export interface RuntimeExecutionDriverFactory {
+	createExecutionDriver(
+		options: RuntimeExecutionDriverOptions,
+	): RuntimeExecutionDriver;
+}
+
 export interface RuntimeDriver {
 	filesystem?: VirtualFileSystem;
 	network?: NetworkAdapter;
 	commandExecutor?: CommandExecutor;
 	permissions?: Permissions;
 	runtime: DriverRuntimeConfig;
-	runtimeHooks?: DriverRuntimeHooks;
 }

@@ -31,11 +31,11 @@ The project SHALL provide a stable Node sandbox execution interface, with `NodeR
 - **THEN** the result's `exports` field MUST be an object containing both the `default` property and all named export properties
 
 ### Requirement: Driver-Based Capability Composition
-Runtime capabilities SHALL be composed through host-provided drivers so filesystem, network, and child-process behavior are controlled by configured adapters rather than hardcoded runtime behavior. `NodeRuntime` construction SHALL require a driver.
+Runtime capabilities SHALL be composed through host-provided drivers so filesystem, network, and child-process behavior are controlled by configured adapters rather than hardcoded runtime behavior. `NodeRuntime` construction SHALL require both a capability driver and an execution factory.
 
-#### Scenario: Node process uses configured adapters
-- **WHEN** `NodeRuntime` is created with a driver that defines filesystem, network, and command-execution adapters
-- **THEN** sandboxed operations MUST route through those adapters for capability access
+#### Scenario: Node runtime uses configured adapters with explicit execution factory
+- **WHEN** `NodeRuntime` is created with a driver that defines filesystem, network, and command-execution adapters and with an execution factory
+- **THEN** sandboxed operations MUST route through those adapters for capability access and execution MUST be created through the provided factory
 
 #### Scenario: Missing permissions deny capability access by default
 - **WHEN** a driver is configured without explicit permission allowance for a capability domain
@@ -44,6 +44,10 @@ Runtime capabilities SHALL be composed through host-provided drivers so filesyst
 #### Scenario: Omitted capability remains unavailable
 - **WHEN** a capability adapter is omitted from runtime configuration
 - **THEN** corresponding sandbox operations MUST be unavailable or denied by the runtime contract
+
+#### Scenario: Runtime process/os config remains driver-owned
+- **WHEN** a caller provides runtime `process` and `os` configuration on the driver
+- **THEN** `NodeRuntime` MUST source and inject that configuration into execution creation
 
 ### Requirement: Active Handle Completion for Async Operations
 The Node runtime SHALL wait for tracked active handles before finalizing execution results so callback-driven asynchronous work can complete.

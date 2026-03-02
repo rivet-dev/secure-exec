@@ -9,7 +9,6 @@ import {
 	filterEnv,
 } from "../shared/permissions.js";
 import { ModuleAccessFileSystem } from "./module-access.js";
-import { createIsolate } from "../isolate.js";
 import { NodeExecutionDriver } from "./execution-driver.js";
 import type {
 	OSConfig,
@@ -19,6 +18,7 @@ import type {
 	CommandExecutor,
 	NetworkAdapter,
 	Permissions,
+	RuntimeExecutionDriverFactory,
 	RuntimeDriver,
 	VirtualFileSystem,
 } from "../types.js";
@@ -34,6 +34,10 @@ export interface NodeDriverOptions {
 	useDefaultNetwork?: boolean;
 	processConfig?: ProcessConfig;
 	osConfig?: OSConfig;
+}
+
+export interface NodeExecutionFactoryOptions {
+	createIsolate?(memoryLimit: number): unknown;
 }
 
 /** Thin VFS adapter that delegates directly to `node:fs/promises`. */
@@ -392,11 +396,18 @@ export function createNodeDriver(options: NodeDriverOptions = {}): RuntimeDriver
 				...(options.osConfig ?? {}),
 			},
 		},
-		runtimeHooks: {
-			createIsolate: (memoryLimit) => createIsolate(memoryLimit),
-			createExecutionDriver: (runtimeOptions) =>
-				new NodeExecutionDriver(runtimeOptions),
-		},
+	};
+}
+
+export function createNodeExecutionFactory(
+	options: NodeExecutionFactoryOptions = {},
+): RuntimeExecutionDriverFactory {
+	return {
+		createExecutionDriver: (runtimeOptions) =>
+			new NodeExecutionDriver({
+				...runtimeOptions,
+				createIsolate: options.createIsolate,
+			}),
 	};
 }
 

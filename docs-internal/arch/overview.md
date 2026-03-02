@@ -1,8 +1,8 @@
 # Architecture Overview
 
 ```
-NodeRuntime  →  RuntimeDriver  →  NodeExecutionDriver
-  (API)          (config)           (isolated-vm engine)
+NodeRuntime  →  RuntimeDriver + RuntimeExecutionDriverFactory  →  NodeExecutionDriver
+  (API)          (capability/config + execution wiring)           (isolated-vm engine)
 ```
 
 ## NodeRuntime
@@ -14,6 +14,9 @@ Public API. Thin facade — delegates everything to the execution driver.
 - `run(code)` — execute as module, get exports back
 - `exec(code)` — execute as script, get exit code + stdout/stderr
 - `dispose()` / `terminate()`
+- Requires both:
+  - `driver` for runtime capabilities/config
+  - `executionFactory` for execution-driver construction
 
 ## RuntimeDriver
 
@@ -25,7 +28,12 @@ Config object that bundles what the sandbox can access. Deny-by-default.
 - `network` — fetch, DNS, HTTP
 - `commandExecutor` — child processes
 - `permissions` — per-adapter allow/deny checks
-- `runtimeHooks` — factories for isolate + execution driver
+
+## RuntimeExecutionDriverFactory
+
+Factory abstraction for constructing execution drivers from normalized runtime options.
+
+- `createExecutionDriver(options)` — returns a `RuntimeExecutionDriver`
 
 ### createNodeDriver()
 
@@ -35,6 +43,15 @@ Factory that builds a `RuntimeDriver` with Node-native adapters.
 
 - Wraps filesystem in `ModuleAccessFileSystem` (read-only `node_modules` overlay)
 - Optionally wires up network and command executor
+
+### createNodeExecutionFactory()
+
+`src/node/driver.ts`
+
+Factory that builds a Node-backed `RuntimeExecutionDriverFactory`.
+
+- Constructs `NodeExecutionDriver` instances
+- Owns optional Node-specific isolate creation hook
 
 ## NodeExecutionDriver
 

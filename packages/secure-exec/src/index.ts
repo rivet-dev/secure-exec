@@ -2,6 +2,7 @@ import { createNetworkStub, filterEnv } from "./shared/permissions.js";
 import type {
 	NetworkAdapter,
 	RuntimeExecutionDriver,
+	RuntimeExecutionDriverFactory,
 	RuntimeDriver,
 } from "./types.js";
 import type {
@@ -17,6 +18,7 @@ export type {
 	CommandExecutor,
 	NetworkAdapter,
 	Permissions,
+	RuntimeExecutionDriverFactory,
 	RuntimeDriver,
 	VirtualFileSystem,
 } from "./types.js";
@@ -35,10 +37,11 @@ export type {
 export {
 	createDefaultNetworkAdapter,
 	createNodeDriver,
+	createNodeExecutionFactory,
 	NodeExecutionDriver,
 	NodeFileSystem,
 } from "./node/driver.js";
-export type { ModuleAccessOptions } from "./node/driver.js";
+export type { ModuleAccessOptions, NodeExecutionFactoryOptions } from "./node/driver.js";
 export { createInMemoryFileSystem } from "./shared/in-memory-fs.js";
 export {
 	allowAll,
@@ -54,6 +57,7 @@ const DEFAULT_SANDBOX_TMPDIR = "/tmp";
 
 export interface NodeRuntimeOptions {
 	driver: RuntimeDriver;
+	executionFactory: RuntimeExecutionDriverFactory;
 	memoryLimit?: number;
 	cpuTimeLimitMs?: number;
 	timingMitigation?: TimingMitigation;
@@ -77,11 +81,7 @@ export class NodeRuntime {
 	private readonly executionDriver: UnsafeRuntimeExecutionDriver;
 
 	constructor(options: NodeRuntimeOptions) {
-		const { driver } = options;
-		const createExecutionDriver = driver.runtimeHooks?.createExecutionDriver;
-		if (!createExecutionDriver) {
-			throw new Error("NodeRuntime requires driver.runtimeHooks.createExecutionDriver");
-		}
+		const { driver, executionFactory } = options;
 
 		const processConfig = {
 			...(driver.runtime.process ?? {}),
@@ -95,7 +95,7 @@ export class NodeRuntime {
 		osConfig.homedir ??= DEFAULT_SANDBOX_HOME;
 		osConfig.tmpdir ??= DEFAULT_SANDBOX_TMPDIR;
 
-		this.executionDriver = createExecutionDriver({
+		this.executionDriver = executionFactory.createExecutionDriver({
 			driver,
 			runtime: {
 				process: processConfig,

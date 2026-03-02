@@ -7,6 +7,7 @@ import {
 	NodeRuntime,
 	createInMemoryFileSystem,
 	createNodeDriver,
+	createNodeExecutionFactory,
 } from "../src/index.js";
 import { createTestNodeRuntime } from "./test-utils.js";
 import {
@@ -63,6 +64,18 @@ describe("NodeRuntime", () => {
 		proc = createTestNodeRuntime();
 		const result = await proc.run(`module.exports = 1 + 1`);
 		expect(result.exports).toBe(2);
+	});
+
+	it("accepts explicit execution factory and keeps driver-owned runtime config", async () => {
+		const driver = createNodeDriver({
+			processConfig: { cwd: "/sandbox-app" },
+		});
+		proc = new NodeRuntime({
+			driver,
+			executionFactory: createNodeExecutionFactory(),
+		});
+		const result = await proc.run(`module.exports = process.cwd();`);
+		expect(result.exports).toBe("/sandbox-app");
 	});
 
 	it("returns ESM default export namespace from run()", async () => {

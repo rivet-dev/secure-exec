@@ -73,7 +73,9 @@ import type {
 	TimingMitigation,
 } from "../shared/api-types.js";
 
-export interface NodeExecutionDriverOptions extends RuntimeExecutionDriverOptions {}
+export interface NodeExecutionDriverOptions extends RuntimeExecutionDriverOptions {
+	createIsolate?(memoryLimit: number): unknown;
+}
 
 // Cache of bundled polyfills
 const polyfillCodeCache: Map<string, string> = new Map();
@@ -157,7 +159,7 @@ export class NodeExecutionDriver implements RuntimeExecutionDriver {
 		this.memoryLimit = options.memoryLimit ?? 128;
 		const driver = options.driver;
 		this.runtimeCreateIsolate =
-			(driver.runtimeHooks?.createIsolate as
+			(options.createIsolate as
 				| ((memoryLimit: number) => ivm.Isolate)
 				| undefined) ??
 			((memoryLimit) => createDefaultIsolate(memoryLimit));

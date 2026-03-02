@@ -3,6 +3,7 @@ import {
   allowAll,
   NodeRuntime,
   createNodeDriver,
+  createNodeExecutionFactory,
   type CommandExecutor,
   type SpawnedProcess,
   type VirtualFileSystem,
@@ -92,7 +93,10 @@ async function main(): Promise<void> {
     permissions: allowAll,
   });
 
-  const proc = new NodeRuntime({ driver });
+  const proc = new NodeRuntime({
+    driver,
+    executionFactory: createNodeExecutionFactory(),
+  });
   const result = await proc.exec(`
     const { execSync } = require('child_process');
     const output = execSync('echo hello from bash');

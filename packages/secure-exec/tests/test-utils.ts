@@ -1,13 +1,14 @@
 import {
 	NodeRuntime,
-	NodeExecutionDriver,
 	createInMemoryFileSystem,
 	createNodeDriver,
+	createNodeExecutionFactory,
 } from "../src/index.js";
 import type {
 	CommandExecutor,
 	NetworkAdapter,
 	Permissions,
+	RuntimeExecutionDriverFactory,
 	RuntimeDriver,
 	VirtualFileSystem,
 } from "../src/types.js";
@@ -25,6 +26,7 @@ export function createTestFileSystem(): VirtualFileSystem {
 
 export type LegacyNodeRuntimeOptions = {
 	driver?: RuntimeDriver;
+	executionFactory?: RuntimeExecutionDriverFactory;
 	filesystem?: VirtualFileSystem;
 	moduleAccess?: ModuleAccessOptions;
 	networkAdapter?: NetworkAdapter;
@@ -47,6 +49,7 @@ export function createTestNodeRuntime(
 ): NodeRuntime {
 	const {
 		driver,
+		executionFactory,
 		filesystem,
 		moduleAccess,
 		networkAdapter,
@@ -70,12 +73,6 @@ export function createTestNodeRuntime(
 						...(osConfig ?? {}),
 					},
 				},
-				runtimeHooks: {
-					...(driver.runtimeHooks ?? {}),
-					createExecutionDriver:
-						driver.runtimeHooks?.createExecutionDriver ??
-						((runtimeOptions) => new NodeExecutionDriver(runtimeOptions)),
-				},
 			}
 		: createNodeDriver({
 				filesystem,
@@ -86,9 +83,12 @@ export function createTestNodeRuntime(
 				processConfig,
 				osConfig,
 			});
+	const resolvedExecutionFactory =
+		executionFactory ?? createNodeExecutionFactory();
 
 	return new NodeRuntime({
 		...nodeProcessOptions,
 		driver: resolvedDriver,
+		executionFactory: resolvedExecutionFactory,
 	});
 }
