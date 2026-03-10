@@ -1,0 +1,17 @@
+---
+title: System Drivers
+description: Host capabilities provided to sandboxed runtimes.
+---
+
+A **system driver** defines what host capabilities a sandboxed runtime can access. It controls the filesystem, network, child process execution, and permission boundaries available to untrusted code.
+
+All capabilities are **deny-by-default**. If you don't configure a filesystem, sandboxed code has no file access. If you don't configure a network adapter, it can't make requests. Permissions provide fine-grained control over what operations are allowed even when a capability is present.
+
+<CardGroup cols={2}>
+  <Card title="Node" icon="node-js" href="/system-drivers/node">
+    Full-featured driver for server-side Node.js with real filesystem, networking, and child process support.
+  </Card>
+  <Card title="Browser" icon="globe" href="/system-drivers/browser">
+    Browser-compatible driver with OPFS or in-memory filesystem and fetch-based networking.
+  </Card>
+</CardGroup>

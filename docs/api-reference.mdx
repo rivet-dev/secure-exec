@@ -1,0 +1,341 @@
+---
+title: API Reference
+description: Complete reference for all secure-exec exports.
+---
+
+## Runtimes
+
+### `NodeRuntime`
+
+Sandboxed JavaScript runtime using a V8 isolate.
+
+```ts
+new NodeRuntime(options: NodeRuntimeOptions)
+```
+
+**`NodeRuntimeOptions`**
+
+| Option | Type | Description |
+|---|---|---|
+| `systemDriver` | `SystemDriver` | Host capabilities (filesystem, network, permissions). **Required.** |
+| `runtimeDriverFactory` | `NodeRuntimeDriverFactory` | Creates the isolate execution environment. **Required.** |
+| `memoryLimit` | `number` | Isolate memory cap in MB. |
+| `cpuTimeLimitMs` | `number` | CPU time budget in ms. |
+| `timingMitigation` | `"off" \| "freeze"` | Timing side-channel mitigation. Default `"freeze"`. |
+| `onStdio` | `StdioHook` | Default console output hook. |
+| `payloadLimits` | `{ base64TransferBytes?: number; jsonPayloadBytes?: number }` | Bridge payload size limits. |
+
+**Methods**
+
+| Method | Returns | Description |
+|---|---|---|
+| `exec(code, options?)` | `Promise<ExecResult>` | Execute code without a return value. |
+| `run<T>(code, filePath?)` | `Promise<RunResult<T>>` | Execute code and return the default export. |
+| `network` | `{ fetch, dnsLookup, httpRequest }` | Network access from the host side. |
+| `dispose()` | `void` | Release resources synchronously. |
+| `terminate()` | `Promise<void>` | Terminate the runtime. |
+
+---
+
+### `PythonRuntime`
+
+Sandboxed Python runtime using Pyodide in a Worker thread.
+
+```ts
+new PythonRuntime(options: PythonRuntimeOptions)
+```
+
+**`PythonRuntimeOptions`**
+
+| Option | Type | Description |
+|---|---|---|
+| `systemDriver` | `SystemDriver` | Host capabilities. **Required.** |
+| `runtimeDriverFactory` | `PythonRuntimeDriverFactory` | Creates the Pyodide worker. **Required.** |
+| `cpuTimeLimitMs` | `number` | CPU time budget in ms. |
+| `onStdio` | `StdioHook` | Default console output hook. |
+
+**Methods**
+
+| Method | Returns | Description |
+|---|---|---|
+| `exec(code, options?)` | `Promise<ExecResult>` | Execute Python code without a return value. |
+| `run<T>(code, options?)` | `Promise<PythonRunResult<T>>` | Execute Python code and return a value. |
+| `dispose()` | `void` | Release resources synchronously. |
+| `terminate()` | `Promise<void>` | Terminate the runtime. |
+
+---
+
+## System Driver Factories
+
+### `createNodeDriver(options?)`
+
+Creates a system driver for Node.js environments.
+
+```ts
+createNodeDriver(options?: NodeDriverOptions): SystemDriver
+```
+
+**`NodeDriverOptions`**
+
+| Option | Type | Description |
+|---|---|---|
+| `filesystem` | `VirtualFileSystem` | Custom filesystem. Default: host fs with module overlay. |
+| `moduleAccess` | `ModuleAccessOptions` | Node modules overlay config. |
+| `networkAdapter` | `NetworkAdapter` | Network implementation. |
+| `commandExecutor` | `CommandExecutor` | Child process executor. |
+| `permissions` | `Permissions` | Access control rules. Deny-by-default. |
+| `useDefaultNetwork` | `boolean` | Enable default Node.js network adapter. |
+| `processConfig` | `ProcessConfig` | Process metadata (cwd, env, argv, etc.). |
+| `osConfig` | `OSConfig` | OS metadata (platform, arch, homedir, etc.). |
+
+### `createBrowserDriver(options?)`
+
+Creates a system driver for browser environments. Returns a promise because OPFS initialization is async.
+
+```ts
+createBrowserDriver(options?: BrowserDriverOptions): Promise<SystemDriver>
+```
+
+**`BrowserDriverOptions`**
+
+| Option | Type | Description |
+|---|---|---|
+| `filesystem` | `"opfs" \| "memory"` | Filesystem backend. Default: `"opfs"`. |
+| `permissions` | `Permissions` | Access control rules. Deny-by-default. |
+| `useDefaultNetwork` | `boolean` | Enable browser fetch network adapter. |
+
+---
+
+## Runtime Driver Factories
+
+### `createNodeRuntimeDriverFactory(options?)`
+
+Creates a factory for Node.js V8 isolate runtime drivers.
+
+```ts
+createNodeRuntimeDriverFactory(options?: {
+  createIsolate?(memoryLimit: number): unknown;
+}): NodeRuntimeDriverFactory
+```
+
+### `createBrowserRuntimeDriverFactory(options?)`
+
+Creates a factory for browser Worker-based runtime drivers.
+
+```ts
+createBrowserRuntimeDriverFactory(options?: {
+  workerUrl?: URL | string;
+}): NodeRuntimeDriverFactory
+```
+
+### `createPyodideRuntimeDriverFactory()`
+
+Creates a factory for Pyodide-based Python runtime drivers.
+
+```ts
+createPyodideRuntimeDriverFactory(): PythonRuntimeDriverFactory
+```
+
+---
+
+## Filesystem
+
+### `createInMemoryFileSystem()`
+
+Creates a fully in-memory filesystem backed by Maps.
+
+```ts
+createInMemoryFileSystem(): InMemoryFileSystem
+```
+
+### `createOpfsFileSystem()`
+
+Creates an OPFS-backed filesystem (browser only).
+
+```ts
+createOpfsFileSystem(): Promise<VirtualFileSystem>
+```
+
+### `NodeFileSystem`
+
+Thin wrapper around Node.js `fs/promises`.
+
+```ts
+new NodeFileSystem()
+```
+
+### `VirtualFileSystem` interface
+
+| Method | Returns | Description |
+|---|---|---|
+| `readFile(path)` | `Promise<Uint8Array>` | Read file as bytes. |
+| `readTextFile(path)` | `Promise<string>` | Read file as text. |
+| `readDir(path)` | `Promise<string[]>` | List directory entries. |
+| `readDirWithTypes(path)` | `Promise<DirEntry[]>` | List entries with type info. |
+| `writeFile(path, content)` | `Promise<void>` | Write file. |
+| `createDir(path)` | `Promise<void>` | Create directory. |
+| `mkdir(path)` | `Promise<void>` | Create directory (alias). |
+| `exists(path)` | `Promise<boolean>` | Check if path exists. |
+| `stat(path)` | `Promise<StatInfo>` | Get file metadata. |
+| `removeFile(path)` | `Promise<void>` | Delete a file. |
+| `removeDir(path)` | `Promise<void>` | Delete a directory. |
+| `rename(old, new)` | `Promise<void>` | Rename a file or directory. |
+
+---
+
+## Network
+
+### `createDefaultNetworkAdapter()`
+
+Creates a network adapter with real fetch, DNS, and HTTP support (Node.js only).
+
+```ts
+createDefaultNetworkAdapter(): NetworkAdapter
+```
+
+### `createBrowserNetworkAdapter()`
+
+Creates a fetch-only network adapter for browser environments. No DNS support.
+
+```ts
+createBrowserNetworkAdapter(): NetworkAdapter
+```
+
+### `NetworkAdapter` interface
+
+| Method | Returns | Description |
+|---|---|---|
+| `fetch(url, options?)` | `Promise<FetchResponse>` | HTTP fetch. |
+| `dnsLookup(hostname)` | `Promise<DnsResult>` | DNS resolution. |
+| `httpRequest(url, options?)` | `Promise<HttpResponse>` | Low-level HTTP request. |
+| `httpServerListen?(options)` | `Promise<{ address }>` | Start a loopback HTTP server. |
+| `httpServerClose?(serverId)` | `Promise<void>` | Close a loopback HTTP server. |
+
+---
+
+## Permissions
+
+### Pre-built helpers
+
+| Export | Description |
+|---|---|
+| `allowAll` | Allow all operations. |
+| `allowAllFs` | Allow all filesystem operations. |
+| `allowAllNetwork` | Allow all network operations. |
+| `allowAllChildProcess` | Allow all child process spawning. |
+| `allowAllEnv` | Allow all environment variable access. |
+
+### `Permissions` type
+
+```ts
+type Permissions = {
+  fs?: PermissionCheck<FsAccessRequest>;
+  network?: PermissionCheck<NetworkAccessRequest>;
+  childProcess?: PermissionCheck<ChildProcessAccessRequest>;
+  env?: PermissionCheck<EnvAccessRequest>;
+};
+```
+
+Each field accepts a `PermissionCheck`, which is either a boolean or a function `(request) => boolean | Promise<boolean>`.
+
+---
+
+## Execution Types
+
+### `ExecOptions`
+
+| Option | Type | Description |
+|---|---|---|
+| `filePath` | `string` | Script filename for error messages. |
+| `env` | `Record<string, string>` | Override environment variables. |
+| `cwd` | `string` | Working directory. |
+| `stdin` | `string` | Stdin data. |
+| `cpuTimeLimitMs` | `number` | CPU budget override. |
+| `timingMitigation` | `"off" \| "freeze"` | Timing mitigation override. |
+| `onStdio` | `StdioHook` | Per-execution stdio hook. |
+
+### `ExecResult`
+
+```ts
+{ code: number; errorMessage?: string }
+```
+
+### `RunResult<T>`
+
+```ts
+{ code: number; errorMessage?: string; exports?: T }
+```
+
+### `PythonRunResult<T>`
+
+```ts
+{ code: number; errorMessage?: string; value?: T; globals?: Record<string, unknown> }
+```
+
+### `PythonRunOptions`
+
+Extends `ExecOptions` with:
+
+| Option | Type | Description |
+|---|---|---|
+| `globals` | `string[]` | Python globals to return. |
+
+### `StdioHook`
+
+```ts
+type StdioHook = (event: { channel: "stdout" | "stderr"; message: string }) => void;
+```
+
+---
+
+## Configuration Types
+
+### `ProcessConfig`
+
+| Field | Type | Default |
+|---|---|---|
+| `platform` | `string` | — |
+| `arch` | `string` | — |
+| `version` | `string` | — |
+| `cwd` | `string` | `"/root"` |
+| `env` | `Record<string, string>` | — |
+| `argv` | `string[]` | — |
+| `execPath` | `string` | — |
+| `pid` | `number` | — |
+| `ppid` | `number` | — |
+| `uid` | `number` | — |
+| `gid` | `number` | — |
+| `stdin` | `string` | — |
+| `timingMitigation` | `"off" \| "freeze"` | — |
+| `frozenTimeMs` | `number` | — |
+
+### `OSConfig`
+
+| Field | Type | Default |
+|---|---|---|
+| `platform` | `string` | — |
+| `arch` | `string` | — |
+| `type` | `string` | — |
+| `release` | `string` | — |
+| `version` | `string` | — |
+| `homedir` | `string` | `"/root"` |
+| `tmpdir` | `string` | `"/tmp"` |
+| `hostname` | `string` | — |
+
+### `SystemDriver`
+
+```ts
+type SystemDriver = {
+  filesystem?: VirtualFileSystem;
+  network?: NetworkAdapter;
+  commandExecutor?: CommandExecutor;
+  permissions?: Permissions;
+  runtime: DriverRuntimeConfig;
+};
+```
+
+### `CommandExecutor` interface
+
+| Method | Returns | Description |
+|---|---|---|
+| `spawn(command, args, options?)` | `SpawnedProcess` | Spawn a child process. |

@@ -1,0 +1,69 @@
+---
+title: Node Runtime
+description: Sandboxed JavaScript execution in a V8 isolate.
+---
+
+`NodeRuntime` runs JavaScript in an isolated V8 isolate. It supports memory limits, CPU time budgets, and timing side-channel mitigation. The sandbox provides Node.js-compatible APIs through a bridge layer.
+
+## Creating a runtime
+
+A `NodeRuntime` requires a [system driver](/system-drivers/overview) and a runtime driver factory.
+
+```ts
+import {
+  NodeRuntime,
+  createNodeDriver,
+  createNodeRuntimeDriverFactory,
+} from "secure-exec";
+
+const runtime = new NodeRuntime({
+  systemDriver: createNodeDriver(),
+  runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+});
+```
+
+## exec vs run
+
+Use `exec()` when you care about side effects (logging, file writes) but don't need a return value.
+
+```ts
+const result = await runtime.exec("console.log('done')");
+console.log(result.code); // 0
+```
+
+Use `run()` when you need a value back. The sandboxed code should use `export default`.
+
+```ts
+const result = await runtime.run<number>("export default 40 + 2");
+console.log(result.exports); // 42
+```
+
+## Capturing output
+
+Console output is not buffered into the result. Use the `onStdio` hook to capture it.
+
+```ts
+const logs: string[] = [];
+await runtime.exec("console.log('hello'); console.error('oops')", {
+  onStdio: (event) => logs.push(`[${event.channel}] ${event.message}`),
+});
+// logs: ["[stdout] hello", "[stderr] oops"]
+```
+
+## Resource limits
+
+You can cap memory and CPU time to prevent runaway code from exhausting host resources.
+
+```ts
+const runtime = new NodeRuntime({
+  systemDriver: createNodeDriver(),
+  runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+  memoryLimit: 128,        // 128 MB isolate memory cap
+  cpuTimeLimitMs: 5000,    // 5 second CPU budget
+  timingMitigation: "freeze", // freeze high-resolution timers (default)
+});
+```
+
+## Module loading
+
+The sandbox provides a read-only overlay of the host's `node_modules` at `/app/node_modules`. Sandboxed code can `import` or `require()` packages installed on the host without any additional configuration.

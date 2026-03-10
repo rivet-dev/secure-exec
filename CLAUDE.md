@@ -54,6 +54,16 @@ Follow the style in `packages/secure-exec/src/index.ts`.
 - comment tricky ordering/invariants; skip noise
 - add inline comments and doc comments when behavior is non-obvious, especially where runtime/bridge/driver pieces depend on each other
 
+## Documentation
+
+- docs pages that must stay current with API changes:
+  - `docs/quickstart.mdx` — update when core setup flow changes
+  - `docs/api-reference.mdx` — update when any public export signature changes
+  - `docs/runtimes/node.mdx` — update when NodeRuntime options/behavior changes
+  - `docs/runtimes/python.mdx` — update when PythonRuntime options/behavior changes
+  - `docs/system-drivers/node.mdx` — update when createNodeDriver options change
+  - `docs/system-drivers/browser.mdx` — update when createBrowserDriver options change
+
 ## Skills
 
 - create project skills in `.claude/skills/`

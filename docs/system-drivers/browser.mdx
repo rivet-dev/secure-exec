@@ -1,0 +1,63 @@
+---
+title: Browser System Driver
+description: Browser-compatible system driver with OPFS and fetch-based networking.
+---
+
+The browser system driver provides sandboxed runtimes with filesystem and network capabilities that work in browser environments. It uses OPFS or an in-memory filesystem and fetch-based networking.
+
+## Basic setup
+
+`createBrowserDriver` is async because OPFS initialization requires awaiting.
+
+```ts
+import {
+  NodeRuntime,
+  createBrowserDriver,
+  createBrowserRuntimeDriverFactory,
+} from "secure-exec/browser";
+
+const runtime = new NodeRuntime({
+  systemDriver: await createBrowserDriver(),
+  runtimeDriverFactory: createBrowserRuntimeDriverFactory(),
+});
+```
+
+## Filesystem options
+
+Choose between persistent OPFS storage or a transient in-memory filesystem.
+
+```ts
+// Persistent (default)
+const driver = await createBrowserDriver({ filesystem: "opfs" });
+
+// In-memory
+const driver = await createBrowserDriver({ filesystem: "memory" });
+```
+
+## Networking
+
+Enable the browser fetch adapter to allow sandboxed code to make HTTP requests.
+
+```ts
+const driver = await createBrowserDriver({
+  useDefaultNetwork: true,
+  permissions: { network: true },
+});
+```
+
+## Worker URL
+
+Customize the worker script URL if you need to serve it from a specific path.
+
+```ts
+const runtimeDriver = createBrowserRuntimeDriverFactory({
+  workerUrl: new URL("/workers/secure-exec.js", import.meta.url),
+});
+```
+
+## Differences from Node driver
+
+- **Async creation** — `createBrowserDriver` returns a `Promise`
+- **No child processes** — `CommandExecutor` is not available
+- **No DNS** — only fetch-based networking, no `dnsLookup`
+- **OPFS limitations** — atomic rename is not supported

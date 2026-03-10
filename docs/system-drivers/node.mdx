@@ -1,0 +1,77 @@
+---
+title: Node System Driver
+description: Server-side system driver with full host capabilities.
+---
+
+The Node system driver provides sandboxed runtimes with access to the host filesystem, networking, child processes, and environment — all behind a permission layer.
+
+## Basic setup
+
+With no options, the driver provides a filesystem with a read-only `node_modules` overlay and no network or child process access.
+
+```ts
+import { createNodeDriver } from "secure-exec";
+
+const driver = createNodeDriver();
+```
+
+## Configuring capabilities
+
+Pass options to enable and configure specific host capabilities.
+
+```ts
+import {
+  createNodeDriver,
+  createDefaultNetworkAdapter,
+  allowAllFs,
+  allowAllNetwork,
+} from "secure-exec";
+
+const driver = createNodeDriver({
+  useDefaultNetwork: true,
+  permissions: {
+    fs: allowAllFs,
+    network: allowAllNetwork,
+  },
+  processConfig: {
+    cwd: "/app",
+    env: { NODE_ENV: "production" },
+  },
+});
+```
+
+## Permissions
+
+Permissions are deny-by-default. Each capability (filesystem, network, child process, env) can be controlled independently with a boolean or a function for fine-grained checks.
+
+```ts
+const driver = createNodeDriver({
+  permissions: {
+    fs: (request) => request.path.startsWith("/app/data/"),
+    network: (request) => request.host === "api.example.com",
+    childProcess: false,
+    env: (request) => ["NODE_ENV", "PATH"].includes(request.name),
+  },
+});
+```
+
+## Filesystem
+
+By default, the driver uses `ModuleAccessFileSystem`, which provides a read-only overlay of the host's `node_modules`. You can supply a custom `VirtualFileSystem` implementation or use the built-in in-memory filesystem.
+
+```ts
+import { createNodeDriver, createInMemoryFileSystem } from "secure-exec";
+
+const fs = createInMemoryFileSystem();
+await fs.writeFile("/app/data.json", '{"key": "value"}');
+
+const driver = createNodeDriver({ filesystem: fs });
+```
+
+## Child processes
+
+Provide a `CommandExecutor` to allow sandboxed code to spawn processes. This is gated behind the `childProcess` permission.
+
+## Process and OS configuration
+
+Use `processConfig` and `osConfig` to control what the sandbox sees for `process.cwd()`, `process.env`, `os.platform()`, and similar APIs.
