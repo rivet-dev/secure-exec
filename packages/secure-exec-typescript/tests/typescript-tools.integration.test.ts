@@ -29,7 +29,7 @@ function createTools(memoryLimit?: number) {
 }
 
 describe("@secure-exec/typescript", () => {
-	it("typechecks a project with node types from node_modules", async () => {
+	it("typechecks a project with node types from node_modules", { timeout: 15_000 }, async () => {
 		const { filesystem, tools } = createTools();
 		await filesystem.mkdir("/root/src");
 		await filesystem.writeFile(

@@ -102,6 +102,24 @@
 - [ ] Fix HTTP server lifecycle leaks when executions time out or are disposed.
   - `packages/secure-exec/src/execution.ts`, `packages/secure-exec/src/index.ts`, `packages/secure-exec/src/node/driver.ts`
 
+## API Coverage Gaps
+
+- [ ] Add missing `fs` APIs: `cp`, `cpSync`, `glob`, `globSync`, `opendir`, `mkdtemp`, `mkdtempSync`, `statfs`, `statfsSync`, `readv`, `readvSync`, `fdatasync`, `fdatasyncSync`, `fsync`, `fsyncSync`.
+  - `packages/secure-exec/src/bridge/fs.ts`
+  - Goal: full `node:fs` coverage for core file operations.
+
+- [ ] Implement deferred `fs` APIs: `chmod`, `chown`, `link`, `symlink`, `readlink`, `truncate`, `utimes`, `watch`, `watchFile`.
+  - `packages/secure-exec/src/bridge/fs.ts`
+  - Currently throw deterministic unsupported errors.
+
+- [ ] Add missing `http`/`https` APIs: connection pooling (`Agent`), keep-alive tuning, WebSocket upgrade, trailer headers, socket-level events.
+  - `packages/secure-exec/src/bridge/network.ts`
+  - Current implementation is fetch-based and fully buffered with no socket-level control.
+
+- [ ] Fix `v8.serialize`/`v8.deserialize` to use V8 structured serialization instead of `JSON.stringify`/`JSON.parse`.
+  - `packages/secure-exec/isolate-runtime/src/inject/bridge-initial-globals.ts` (~line 51)
+  - Bug: current implementation silently produces JSON instead of V8 binary format. Code depending on structured clone semantics (`Map`, `Set`, `RegExp`, circular refs) will get wrong results.
+
 ## Performance & Correctness
 
 - [ ] Add `stat` and `exists` methods to `VirtualFileSystem` interface.
