@@ -1,0 +1,142 @@
+---
+title: Cloudflare Workers Comparison
+description: Node.js API compatibility comparison between secure-exec and Cloudflare Workers (standard, Workers for Platforms, dynamic dispatch).
+---
+
+*Last updated: 2026-03-10*
+
+## Overview
+
+This document compares Node.js API support across **secure-exec** and three Cloudflare Workers deployment models:
+
+| Platform | Description |
+| --- | --- |
+| **CF Workers** | Standard Cloudflare Workers with `nodejs_compat` flag and compatibility date ≥ 2024-09-23. |
+| **CF Workers for Platforms** | Multi-tenant variant where platform operators deploy user Workers into dispatch namespaces. Same V8 runtime as standard Workers; additional isolation constraints. |
+| **CF Dynamic Dispatch** | The routing Worker that invokes user Workers in a Workers for Platforms namespace. Runs as a standard Worker with dispatch namespace bindings. |
+
+All three CF deployment models share the same `nodejs_compat` API surface. WfP adds operational restrictions (no `caches.default`, no `request.cf` without trusted mode, no gradual deployments, operator-enforced CPU/subrequest limits, outbound Worker interception) but no Node.js API differences.
+
+---
+
+## Support Tier Legend
+
+| Icon | Meaning |
+| --- | --- |
+| 🟢 | Supported — native or full implementation. |
+| 🔵 | Planned — not yet implemented; on the roadmap. |
+| 🟡 | Partial — functional with behavioral gaps or wrapper limitations. |
+| ⚪ | TBD — under consideration; not yet committed. |
+| 🔴 | Stub — requireable but most APIs throw on call. |
+| ⛔ | Unsupported — not available; `require()` throws immediately. |
+
+---
+
+## Module Compatibility Matrix
+
+### Core I/O and Networking
+
+| Module | secure-exec | CF Workers (`nodejs_compat`) | Notes |
+| --- | --- | --- | --- |
+| **`fs`** | 🟡 Core I/O: `readFile`, `writeFile`, `appendFile`, `open`, `read`, `write`, `close`, `readdir`, `mkdir`, `rmdir`, `rm`, `unlink`, `stat`, `lstat`, `rename`, `copyFile`, `exists`, `createReadStream`, `createWriteStream`, `writev`, `access`, `realpath`. Missing: `cp`, `glob`, `opendir`, `mkdtemp`, `statfs`, `readv`, `fdatasync`, `fsync`. Deferred: `watch`, `watchFile`, `chmod`, `chown`, `link`, `symlink`, `readlink`, `truncate`, `utimes`. Full coverage planned. | 🟡 In-memory VFS only. `/bundle` (read-only), `/tmp` (writable, ephemeral per-request), `/dev` devices. Missing: `watch`, `watchFile`, `globSync`, file permissions/ownership. All operations synchronous regardless of API style. Timestamps frozen to Unix epoch. 128 MB max file size. | **secure-exec**: Permission-gated; filesystem behavior determined by system driver (host FS or VFS). Read-only `/app/node_modules` overlay. **CF**: No persistent storage; `/tmp` contents isolated per request and lost after response; no real permissions or ownership. |
+| **`http`** | 🟡 `request`, `get`, `createServer` with bridged request/response classes. Fetch-based, fully buffered. No connection pooling, no keep-alive tuning, no WebSocket upgrade, no trailer headers. `Agent` is stub-only. | 🟡 `request`, `get`, `createServer` via fetch API wrapper. Requires extra compat flags. No `Connection` headers, no `Expect: 100-continue`, no socket-level events (`socket`, `upgrade`), no 1xx responses, no trailer headers. `Agent` is stub-only. | |
+| **`https`** | 🟡 Same contract and limitations as `http`. | 🟡 Same wrapper model and limitations as `http`. | |
+| **`http2`** | 🔴 Compatibility classes only; `createServer`/`createSecureServer` throw. | 🔴 Non-functional stub. | Neither platform supports HTTP/2 server creation. |
+| **`net`** | 🔵 Planned. | 🟡 `net.connect()` / `net.Socket` for outbound TCP via Cloudflare Sockets API. No `net.createServer()`. | **CF**: Outbound TCP connections supported. **secure-exec**: On roadmap. |
+| **`tls`** | 🔵 Planned. | 🟡 `tls.connect()` for outbound TLS via Sockets API. No `tls.createServer()`. | **CF**: Outbound TLS supported. **secure-exec**: On roadmap. |
+| **`dns`** | 🟢 `lookup`, `resolve`, `resolve4`, `resolve6`, plus `dns.promises`. | 🟡 DNS over HTTPS via Cloudflare 1.1.1.1. `lookup`, `lookupService`, `resolve` (generic) throw "Not implemented". | **secure-exec**: Permission-gated real DNS. **CF**: DoH only; core methods missing. |
+| **`dgram`** | ⛔ `require()` throws. | 🔴 Non-functional stub. | Neither platform supports UDP sockets. |
+
+### Process and Runtime
+
+| Module | secure-exec | CF Workers (`nodejs_compat`) | Notes |
+| --- | --- | --- | --- |
+| **`process`** | 🟢 `env` (permission-gated), `cwd`/`chdir`, `exit`, timers, stdio event emitters, `hrtime`, `platform`, `arch`, `version`, `argv`, `pid`, `ppid`, `uid`, `gid`. | 🟡 `env`, `cwd`/`chdir`, `exit`, `nextTick`, `stdin`/`stdout`/`stderr`, `platform`, `arch`, `version`. No real process IDs or OS-level user/group IDs. Requires extra `enable_nodejs_process_v2` flag for full surface. | **secure-exec**: Configurable timing mitigation (`freeze` mode); real `pid`/`uid`/`gid` metadata. **CF**: Synthetic process metadata. |
+| **`child_process`** | 🟢 `spawn`, `spawnSync`, `exec`, `execSync`, `execFile`, `execFileSync`. `fork` unsupported. | 🔴 Non-functional stub; all methods throw. | **secure-exec**: Bound to the system driver; subprocess behavior determined by driver implementation. CF has no subprocess support. |
+| **`os`** | 🟢 `platform`, `arch`, `type`, `release`, `version`, `homedir`, `tmpdir`, `hostname`, `userInfo`, `os.constants`. | 🟡 Basic platform/arch metadata. | **secure-exec**: Richer OS metadata surface. |
+| **`worker_threads`** | ⛔ Stubs that throw on API call. | 🔴 Non-functional stub. | Neither platform supports worker threads. |
+| **`cluster`** | ⛔ `require()` throws. | 🔴 Non-functional stub. | Neither platform supports clustering. |
+| **`timers`** | 🟢 `setTimeout`, `clearTimeout`, `setInterval`, `clearInterval`, `setImmediate`, `clearImmediate`. | 🟢 Same surface; returns `Timeout` objects. | Equivalent support. |
+| **`vm`** | 🔴 Browser polyfill via `Function()`/`eval()`. No real context isolation; shares global scope. | 🔴 Non-functional stub. | Neither offers real `vm` sandboxing. secure-exec polyfill silently runs code in shared scope — not safe for isolation. |
+| **`v8`** | 🔴 Mock heap stats; `serialize`/`deserialize` use JSON instead of V8 binary format (bug). | 🔴 Non-functional stub. | Neither exposes real V8 internals. secure-exec `v8.serialize` silently produces JSON — needs fix to use V8 structured serialization. |
+
+### Crypto and Security
+
+| Module | secure-exec | CF Workers (`nodejs_compat`) | Notes |
+| --- | --- | --- | --- |
+| **`crypto`** | 🔵 Planned. Currently: `getRandomValues()` and `randomUUID()` use host `node:crypto` secure randomness. `subtle.*` throws unsupported errors. | 🟢 Full `node:crypto` surface (hash, HMAC, cipher, sign, verify, key generation). No DSA/DH key pairs, no `ed448`/`x448`, no FIPS mode. | **CF**: Comprehensive crypto support. **secure-exec**: Secure randomness today; full crypto planned. |
+| **Web Crypto** | 🔵 Planned. | 🟢 Available without `nodejs_compat`. | CF has native Web Crypto. |
+| **Fetch globals** | 🟢 `fetch`, `Headers`, `Request`, `Response`. | 🟢 Supported. | |
+
+### Data and Encoding
+
+| Module | secure-exec | CF Workers (`nodejs_compat`) | Notes |
+| --- | --- | --- | --- |
+| **`buffer`** | 🟢 Supported. | 🟢 Supported. | |
+| **`stream`** | 🟢 Supported. | 🟢 Supported. | |
+| **`string_decoder`** | 🟢 Supported. | 🟢 Supported. | |
+| **`zlib`** | 🟢 Supported. | 🟢 Supported; includes Brotli. | CF adds Brotli. |
+| **`querystring`** | 🟢 Supported. | 🟢 Supported. | |
+
+### Utilities and Diagnostics
+
+| Module | secure-exec | CF Workers (`nodejs_compat`) | Notes |
+| --- | --- | --- | --- |
+| **`path`** | 🟢 Supported. | 🟢 Supported. | |
+| **`url`** | 🟢 Supported. | 🟢 Supported. | |
+| **`util`** | 🟢 Supported. | 🟢 Supported. | |
+| **`assert`** | 🟢 Supported. | 🟢 Supported. | |
+| **`events`** | 🟢 Supported. | 🟢 Supported. | |
+| **`module`** | 🟢 `createRequire`, `Module` basics, builtin resolution. | 🟡 Limited surface. | **secure-exec**: CJS/ESM with `createRequire`. |
+| **`console`** | 🟢 Circular-safe bounded formatting; drop-by-default with `onStdio` hook. | 🟢 Supported; output routed to Workers Logs / Tail Workers. | |
+| **`async_hooks`** | ⚪ TBD. | 🔴 Non-functional stub. | |
+| **`perf_hooks`** | ⚪ TBD. | 🟡 Limited surface. | |
+| **`diagnostics_channel`** | ⚪ TBD. | 🟢 Supported. | |
+| **`readline`** | ⚪ TBD. | 🔴 Non-functional stub. | |
+| **`tty`** | 🔴 `isatty()` returns `false`; `ReadStream`/`WriteStream` throw. | 🔴 Stub-like. | Both platforms are essentially non-functional beyond `isatty()`. |
+| **`constants`** | 🟢 Supported. | 🟢 Supported. | |
+| **`punycode`** | Not listed. | 🟢 Supported (deprecated). | |
+
+### Unsupported in Both
+
+| Module | secure-exec | CF Workers | Notes |
+| --- | --- | --- | --- |
+| **`wasi`** | ⛔ Unsupported | ⛔ Unsupported | |
+| **`inspector`** | ⛔ Unsupported | 🟡 Partial (Chrome DevTools) | CF has limited inspector via DevTools. |
+| **`repl`** | ⛔ Unsupported | 🔴 Stub | |
+| **`trace_events`** | ⛔ Unsupported | ⛔ Unsupported | |
+| **`domain`** | ⛔ Unsupported | ⛔ Unsupported | |
+
+---
+
+## Execution Model Comparison
+
+| Capability | secure-exec | CF Workers / WfP / Dynamic Dispatch |
+| --- | --- | --- |
+| **Isolation** | V8 isolate. | V8 isolate per Worker invocation. |
+| **Permission model** | Deny-by-default for `fs`, `network`, `childProcess`, `env`. Fine-grained per-domain policies. | No granular permission model. WfP adds `request.cf` restriction and cache isolation. |
+| **Memory limits** | Configurable `memoryLimit` (MB). | 128 MB per Worker (platform-managed). |
+| **CPU time limits** | Configurable `cpuTimeLimitMs` with exit code 124. | 10ms (free) / 30s (paid) CPU time; WfP operators can set custom limits. |
+| **Timing mitigation** | `freeze` mode (deterministic clocks) or `off` (real-time). | I/O-gated coarsening — `Date.now()` and `performance.now()` only advance after I/O to mitigate Spectre-class side channels. |
+| **Module loading** | CJS + ESM with package.json `type` field semantics; `node_modules` overlay. | ES modules primary; CJS via `nodejs_compat`; no `node_modules` overlay (bundled at deploy). |
+| **Subprocess execution** | Bound to the system driver; subprocess behavior determined by driver implementation. | Not available. |
+| **Filesystem** | System-driver-determined: host filesystem (permission-gated) or virtual filesystem, depending on driver implementation. Read-only `/app/node_modules` overlay. | Ephemeral VFS only; Durable Objects for persistence. |
+| **Payload limits** | Configurable size limits on sandbox-to-host transfers. | 128 MB script size; request body limits per plan. |
+| **Logging** | Drop-by-default; explicit `onStdio` hook for streaming. | Routed to Workers Logs / Tail Workers. |
+
+---
+
+## Sources
+
+- [Cloudflare Workers Node.js Compatibility Docs](https://developers.cloudflare.com/workers/runtime-apis/nodejs/)
+- [A Year of Improving Node.js Compatibility (2025)](https://blog.cloudflare.com/nodejs-workers-2025/)
+- [Cloudflare Workers node:http Docs](https://developers.cloudflare.com/workers/runtime-apis/nodejs/http/)
+- [Cloudflare Workers node:fs Docs](https://developers.cloudflare.com/workers/runtime-apis/nodejs/fs/)
+- [Cloudflare Workers node:crypto Docs](https://developers.cloudflare.com/workers/runtime-apis/nodejs/crypto/)
+- [Cloudflare Workers Compatibility Flags](https://developers.cloudflare.com/workers/configuration/compatibility-flags/)
+- [Cloudflare Workers Performance and Timers](https://developers.cloudflare.com/workers/runtime-apis/performance/)
+- [Mitigating Spectre: Cloudflare Workers Security Model](https://blog.cloudflare.com/mitigating-spectre-and-other-security-threats-the-cloudflare-workers-security-model/)
+- [Workers for Platforms Configuration](https://developers.cloudflare.com/cloudflare-for-platforms/workers-for-platforms/get-started/configuration/)
+- [Workers for Platforms Limits](https://developers.cloudflare.com/cloudflare-for-platforms/workers-for-platforms/reference/limits/)
+- [How Workers for Platforms Works](https://developers.cloudflare.com/cloudflare-for-platforms/workers-for-platforms/how-workers-for-platforms-works/)
+- [Dynamic Dispatch Worker](https://developers.cloudflare.com/cloudflare-for-platforms/workers-for-platforms/configuration/dynamic-dispatch/)
