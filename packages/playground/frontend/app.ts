@@ -3,8 +3,8 @@ import {
 	allowAll,
 	createBrowserDriver,
 	createBrowserRuntimeDriverFactory,
-} from "../../secure-exec/dist/browser-runtime.js";
-import type { StdioChannel, StdioEvent } from "../../secure-exec/dist/browser-runtime.js";
+} from "secure-exec/browser";
+import type { StdioChannel, StdioEvent } from "secure-exec/browser";
 
 type Language = "nodejs" | "python";
 type TypeScriptApi = typeof import("typescript");

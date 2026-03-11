@@ -63,6 +63,10 @@ importers:
         version: 4.21.0
 
   packages/playground:
+    dependencies:
+      secure-exec:
+        specifier: workspace:*
+        version: link:../secure-exec
     devDependencies:
       monaco-editor:
         specifier: 0.52.2
