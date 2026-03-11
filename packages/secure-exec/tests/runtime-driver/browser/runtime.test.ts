@@ -41,7 +41,7 @@ describe.skipIf(!IS_BROWSER_ENV)("runtime driver specific: browser", () => {
 			...options,
 			systemDriver,
 			runtimeDriverFactory: createBrowserRuntimeDriverFactory({
-				workerUrl: new URL("../../src/browser/worker.ts", import.meta.url),
+				workerUrl: new URL("../../../src/browser/worker.ts", import.meta.url),
 			}),
 		});
 		runtimes.add(runtime);
@@ -86,6 +86,22 @@ describe.skipIf(!IS_BROWSER_ENV)("runtime driver specific: browser", () => {
 			channel: "stdout",
 			message: "browser-ok",
 		});
+	});
+
+	it("treats TypeScript-only syntax as a JavaScript execution failure", async () => {
+		const runtime = await createRuntime();
+		const result = await runtime.exec(
+			`
+			const value: string = 123;
+			console.log("should-not-run");
+		`,
+			{
+				filePath: "/playground.ts",
+			},
+		);
+
+		expect(result.code).toBe(1);
+		expect(result.errorMessage).toBeDefined();
 	});
 
 	it("supports repeated exec calls on the same browser runtime", async () => {

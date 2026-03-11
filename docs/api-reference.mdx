@@ -30,10 +30,41 @@ new NodeRuntime(options: NodeRuntimeOptions)
 | Method | Returns | Description |
 |---|---|---|
 | `exec(code, options?)` | `Promise<ExecResult>` | Execute code without a return value. |
-| `run<T>(code, filePath?)` | `Promise<RunResult<T>>` | Execute code and return the default export. |
+| `run<T>(code, filePath?)` | `Promise<RunResult<T>>` | Execute code and return the module namespace/default export object. |
 | `network` | `{ fetch, dnsLookup, httpRequest }` | Network access from the host side. |
 | `dispose()` | `void` | Release resources synchronously. |
 | `terminate()` | `Promise<void>` | Terminate the runtime. |
+
+---
+
+## TypeScript Tools (`@secure-exec/typescript`)
+
+### `createTypeScriptTools(options)`
+
+Creates sandboxed TypeScript project/source helpers backed by a dedicated compiler runtime.
+
+```ts
+createTypeScriptTools(options: TypeScriptToolsOptions)
+```
+
+**`TypeScriptToolsOptions`**
+
+| Option | Type | Description |
+|---|---|---|
+| `systemDriver` | `SystemDriver` | Compiler runtime capabilities and filesystem view. |
+| `runtimeDriverFactory` | `NodeRuntimeDriverFactory` | Creates the compiler sandbox runtime. |
+| `memoryLimit` | `number` | Compiler sandbox isolate memory cap in MB. Default `512`. |
+| `cpuTimeLimitMs` | `number` | Compiler sandbox CPU time budget in ms. |
+| `compilerSpecifier` | `string` | Module specifier used to load the TypeScript compiler. Default `"typescript"`. |
+
+**Methods**
+
+| Method | Returns | Description |
+|---|---|---|
+| `typecheckProject(options?)` | `Promise<TypeCheckResult>` | Type-check a filesystem-backed TypeScript project using `tsconfig` discovery or `configFilePath`. |
+| `compileProject(options?)` | `Promise<ProjectCompileResult>` | Compile a filesystem-backed project and write emitted files through the configured filesystem like `tsc`. |
+| `typecheckSource(options)` | `Promise<TypeCheckResult>` | Type-check one TypeScript source string without mutating the filesystem. |
+| `compileSource(options)` | `Promise<SourceCompileResult>` | Compile one TypeScript source string and return JavaScript text. |
 
 ---
 
@@ -284,6 +315,71 @@ Extends `ExecOptions` with:
 
 ```ts
 type StdioHook = (event: { channel: "stdout" | "stderr"; message: string }) => void;
+```
+
+### `ProjectCompilerOptions`
+
+```ts
+{
+  cwd?: string;
+  configFilePath?: string;
+}
+```
+
+### `SourceCompilerOptions`
+
+```ts
+{
+  sourceText: string;
+  filePath?: string;
+  cwd?: string;
+  configFilePath?: string;
+  compilerOptions?: Record<string, unknown>;
+}
+```
+
+### `TypeCheckResult`
+
+```ts
+{
+  success: boolean;
+  diagnostics: TypeScriptDiagnostic[];
+}
+```
+
+### `ProjectCompileResult`
+
+```ts
+{
+  success: boolean;
+  diagnostics: TypeScriptDiagnostic[];
+  emitSkipped: boolean;
+  emittedFiles: string[];
+}
+```
+
+### `SourceCompileResult`
+
+```ts
+{
+  success: boolean;
+  diagnostics: TypeScriptDiagnostic[];
+  outputText?: string;
+  sourceMapText?: string;
+}
+```
+
+### `TypeScriptDiagnostic`
+
+```ts
+{
+  code: number;
+  category: "error" | "warning" | "suggestion" | "message";
+  message: string;
+  filePath?: string;
+  line?: number;
+  column?: number;
+}
 ```
 
 ---

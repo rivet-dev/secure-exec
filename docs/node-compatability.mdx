@@ -60,6 +60,11 @@ Unsupported modules use: `"<module> is not supported in sandbox"`.
 - By default, secure-exec drops console emissions instead of buffering runtime-managed output.
 - Consumers that need logs should use the explicit `onStdio` hook to stream `stdout`/`stderr` events in emission order.
 
+## TypeScript Workflows
+
+- Core `secure-exec` runtimes execute JavaScript only.
+- Sandboxed TypeScript type checking and compilation belong in the separate `@secure-exec/typescript` package.
+
 ## Node-Modules Overlay Behavior
 
 - Node runtime composes a read-only `/app/node_modules` overlay from `<cwd>/node_modules` (default `cwd` is host `process.cwd()`, configurable via `moduleAccess.cwd`).

@@ -3,7 +3,7 @@ title: Node Runtime
 description: Sandboxed JavaScript execution in a V8 isolate.
 ---
 
-`NodeRuntime` runs JavaScript in an isolated V8 isolate. It supports memory limits, CPU time budgets, and timing side-channel mitigation. The sandbox provides Node.js-compatible APIs through a bridge layer.
+`NodeRuntime` runs JavaScript code in an isolated V8 isolate. The sandbox supports memory limits, CPU time budgets, and timing side-channel mitigation.
 
 ## Creating a runtime
 
@@ -27,15 +27,15 @@ const runtime = new NodeRuntime({
 Use `exec()` when you care about side effects (logging, file writes) but don't need a return value.
 
 ```ts
-const result = await runtime.exec("console.log('done')");
+const result = await runtime.exec("const label = 'done'; console.log(label)");
 console.log(result.code); // 0
 ```
 
 Use `run()` when you need a value back. The sandboxed code should use `export default`.
 
 ```ts
-const result = await runtime.run<number>("export default 40 + 2");
-console.log(result.exports); // 42
+const result = await runtime.run<{ default: number }>("export default 40 + 2");
+console.log(result.exports?.default); // 42
 ```
 
 ## Capturing output
@@ -49,6 +49,10 @@ await runtime.exec("console.log('hello'); console.error('oops')", {
 });
 // logs: ["[stdout] hello", "[stderr] oops"]
 ```
+
+## TypeScript workflows
+
+`NodeRuntime` executes JavaScript only. For sandboxed TypeScript type checking or compilation, use the separate `@secure-exec/typescript` package. See [TypeScript support](#typescript-support).
 
 ## Resource limits
 
@@ -67,3 +71,141 @@ const runtime = new NodeRuntime({
 ## Module loading
 
 The sandbox provides a read-only overlay of the host's `node_modules` at `/app/node_modules`. Sandboxed code can `import` or `require()` packages installed on the host without any additional configuration.
+
+## TypeScript support
+
+TypeScript support lives in the companion `@secure-exec/typescript` package. It runs the TypeScript compiler inside a dedicated sandbox so untrusted inputs cannot consume host CPU or memory during type checking or compilation.
+
+Shared setup:
+
+```ts
+import {
+  createInMemoryFileSystem,
+  createNodeDriver,
+  createNodeRuntimeDriverFactory,
+} from "secure-exec";
+import { createTypeScriptTools } from "@secure-exec/typescript";
+
+const filesystem = createInMemoryFileSystem();
+const systemDriver = createNodeDriver({ filesystem });
+const runtimeDriverFactory = createNodeRuntimeDriverFactory();
+const ts = createTypeScriptTools({
+  systemDriver,
+  runtimeDriverFactory,
+});
+```
+
+### Type check source
+
+Use `typecheckSource(...)` when you want to quickly validate AI-generated code before running it:
+
+```ts
+const result = await ts.typecheckSource({
+  filePath: "/root/snippet.ts",
+  sourceText: `
+    export function greet(name: string) {
+      return "hello " + missingValue;
+    }
+  `,
+});
+
+console.log(result.success); // false
+console.log(result.diagnostics[0]?.message);
+```
+
+### Type check project
+
+Use `typecheckProject(...)` when you want to validate a full TypeScript project from the filesystem exposed by the system driver. That means `tsconfig.json`, source files, and any other project inputs are read from that sandbox filesystem view.
+
+```ts
+await filesystem.mkdir("/root/src");
+await filesystem.writeFile(
+  "/root/tsconfig.json",
+  JSON.stringify({
+    compilerOptions: {
+      module: "nodenext",
+      moduleResolution: "nodenext",
+      target: "es2022",
+    },
+    include: ["src/**/*.ts"],
+  }),
+);
+await filesystem.writeFile(
+  "/root/src/index.ts",
+  "export const value: string = 123;\n",
+);
+
+const result = await ts.typecheckProject({ cwd: "/root" });
+
+console.log(result.success); // false
+console.log(result.diagnostics[0]?.message);
+```
+
+### Compile source
+
+Use `compileSource(...)` when you want to transpile one TypeScript source string and then hand the emitted JavaScript to `NodeRuntime`:
+
+```ts
+import { NodeRuntime } from "secure-exec";
+
+const compiled = await ts.compileSource({
+  filePath: "/root/example.ts",
+  sourceText: "export default 40 + 2;",
+  compilerOptions: {
+    module: "esnext",
+    target: "es2022",
+  },
+});
+
+const runtime = new NodeRuntime({
+  systemDriver,
+  runtimeDriverFactory,
+});
+
+const execution = await runtime.run<{ default: number }>(
+  compiled.outputText ?? "",
+  "/root/example.js",
+);
+
+console.log(execution.exports?.default); // 42
+```
+
+### Compile project
+
+Use `compileProject(...)` when you want TypeScript to read a real project from the filesystem exposed by the system driver and write emitted files back into that same sandbox filesystem view.
+
+```ts
+import {
+  NodeRuntime,
+} from "secure-exec";
+await filesystem.mkdir("/root/src");
+await filesystem.writeFile(
+  "/root/tsconfig.json",
+  JSON.stringify({
+    compilerOptions: {
+      module: "commonjs",
+      target: "es2022",
+      outDir: "/root/dist",
+    },
+    include: ["src/**/*.ts"],
+  }),
+);
+await filesystem.writeFile(
+  "/root/src/index.ts",
+  "export const answer: number = 42;\n",
+);
+
+await ts.compileProject({ cwd: "/root" });
+
+const runtime = new NodeRuntime({
+  systemDriver,
+  runtimeDriverFactory,
+});
+
+const execution = await runtime.run<{ answer: number }>(
+  "module.exports = require('./dist/index.js');",
+  "/root/entry.js",
+);
+
+console.log(execution.exports); // { answer: 42 }
+```

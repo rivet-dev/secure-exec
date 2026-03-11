@@ -23,8 +23,6 @@ type DisposableRuntime = {
 
 const RUNTIME_TARGETS: NodeRuntimeTarget[] = ["node", "browser"];
 const NODE_SUITES: NodeSharedSuite[] = [runNodeSuite, runNodeNetworkSuite];
-const NODE_ENTRYPOINT = "../../src/index.js";
-
 function isNodeTargetAvailable(): boolean {
 	return typeof process !== "undefined" && Boolean(process.versions?.node);
 }
@@ -41,7 +39,8 @@ function isTargetAvailable(target: NodeRuntimeTarget): boolean {
 }
 
 async function importNodeEntrypoint() {
-	return import(/* @vite-ignore */ NODE_ENTRYPOINT);
+	const entrypointUrl = new URL("../../src/index.js", import.meta.url).href;
+	return import(/* @vite-ignore */ entrypointUrl);
 }
 
 function createSuiteContext(target: NodeRuntimeTarget): NodeSuiteContext {

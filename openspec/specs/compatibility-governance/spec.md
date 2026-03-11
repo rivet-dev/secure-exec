@@ -3,6 +3,17 @@
 ## Purpose
 Define compatibility and tracking obligations for secure-exec changes.
 ## Requirements
+### Requirement: TypeScript Tooling Split Must Stay Documented
+Changes that add, remove, or materially alter TypeScript compile/typecheck behavior MUST update core runtime docs and companion tooling docs in the same change so the JS-only core/runtime boundary stays explicit.
+
+#### Scenario: Core runtime TypeScript handling changes
+- **WHEN** the core runtime adds or removes implicit TypeScript preprocessing behavior
+- **THEN** `docs/quickstart.mdx`, `docs/api-reference.mdx`, `docs/runtimes/node.mdx`, `docs/node-compatability.mdx`, `docs-internal/arch/overview.md`, and `docs-internal/friction.md` MUST be updated in the same change
+
+#### Scenario: Companion TypeScript tooling API changes
+- **WHEN** the public API of the companion TypeScript tooling package changes
+- **THEN** `docs/quickstart.mdx` and `docs/api-reference.mdx` MUST be updated in the same change so project/source helper semantics remain accurate
+
 ### Requirement: Maintain Node Stdlib Compatibility Matrix
 Changes affecting bridged or polyfilled Node APIs MUST keep `docs/node-compatability.mdx` synchronized with the actual runtime surface, including supported, limited, and unsupported modules/APIs. Every module entry in the matrix MUST include an explicit support-tier classification (Bridge, Polyfill, Stub, Deferred, or Unsupported) as defined by the `node-stdlib` spec. The page MUST include a top-of-page target Node version statement.
 
@@ -285,4 +296,3 @@ Repository test wiring MUST keep `packages/secure-exec/tests/test-suite.test.ts`
 #### Scenario: Canonical shared runtime entrypoint remains singular
 - **WHEN** contributors update package scripts or Vitest include patterns for shared runtime coverage
 - **THEN** shared runtime matrix execution MUST remain anchored on `packages/secure-exec/tests/test-suite.test.ts` as the canonical entrypoint
-

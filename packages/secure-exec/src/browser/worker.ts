@@ -333,7 +333,7 @@ async function initRuntime(payload: BrowserWorkerInitPayload): Promise<void> {
 			if (source === null) return null;
 			let code = source;
 			if (isESM(source, path)) {
-				code = transform(source, { transforms: ["imports"] }).code;
+				code = transform(code, { transforms: ["imports"] }).code;
 			}
 			return transformDynamicImport(code);
 		},
@@ -587,7 +587,7 @@ async function execScript(
 	try {
 		let transformed = code;
 		if (isESM(code, options?.filePath)) {
-			transformed = transform(code, { transforms: ["imports"] }).code;
+			transformed = transform(transformed, { transforms: ["imports"] }).code;
 		}
 		transformed = transformDynamicImport(transformed);
 

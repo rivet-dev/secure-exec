@@ -3,6 +3,7 @@
 Use these baseline capabilities when proposing secure-exec runtime or bridge changes:
 
 - `node-runtime`
+- `typescript-tools`
 - `node-stdlib`
 - `node-bridge`
 - `node-permissions`
@@ -18,6 +19,7 @@ Use these baseline capabilities when proposing secure-exec runtime or bridge cha
 ## Typical Mapping
 
 - Runtime execution semantics, async completion, module loading behavior -> `node-runtime`
+- Sandboxed TypeScript compile/typecheck helpers -> `typescript-tools`
 - Stdlib support tiers, builtin resolution behavior, polyfill/stub policy -> `node-stdlib`
 - Bridge scope, module-resolution boundary, capability exposure rules -> `node-bridge`
 - Permission defaults and allow/deny behavior -> `node-permissions`

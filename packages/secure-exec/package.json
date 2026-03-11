@@ -35,7 +35,7 @@
     "test:test-suite": "pnpm run build:generated && vitest run tests/test-suite.test.ts tests/test-suite-python.test.ts",
     "test:runtime-driver": "pnpm run build:generated && vitest run tests/runtime-driver/*.test.ts",
     "test:integration:node": "pnpm run test:test-suite && pnpm run test:runtime-driver",
-    "test:integration:browser": "pnpm run build:generated && vitest run --config vitest.browser.config.ts tests/test-suite.test.ts tests/runtime-driver/browser.test.ts",
+    "test:integration:browser": "pnpm run build:generated && vitest run --config vitest.browser.config.ts tests/test-suite/node.test.ts tests/runtime-driver/browser/runtime.test.ts",
     "test:project-matrix": "pnpm run build:generated && vitest run tests/project-matrix.test.ts",
     "test": "pnpm run build:generated && vitest run",
     "test:watch": "pnpm run build:generated && vitest"

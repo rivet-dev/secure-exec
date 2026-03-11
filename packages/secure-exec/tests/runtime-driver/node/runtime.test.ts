@@ -66,4 +66,17 @@ describe("runtime driver specific: node", () => {
 		});
 		expect(result.code).toBe(0);
 	});
+
+	it("treats TypeScript-only syntax as a JavaScript execution failure", async () => {
+		const runtime = createRuntime();
+		const result = await runtime.exec(
+			`
+			const value: string = 123;
+			console.log(value);
+		`,
+			{ filePath: "/entry.js" },
+		);
+		expect(result.code).toBe(1);
+		expect(result.errorMessage).toBeDefined();
+	});
 });

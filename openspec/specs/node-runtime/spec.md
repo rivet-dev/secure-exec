@@ -30,6 +30,17 @@ The project SHALL provide a stable sandbox execution interface through `NodeRunt
 - **WHEN** a caller invokes `run()` with ESM code containing both `export default` and named `export` declarations
 - **THEN** the result's `exports` field MUST be an object containing both the `default` property and all named export properties
 
+### Requirement: Core Runtime Executes JavaScript Without Implicit TypeScript Preprocessing
+The core `NodeRuntime` SHALL treat string input as JavaScript for both Node-target and browser-target runtime drivers and SHALL NOT provide built-in TypeScript type checking or transpilation behavior.
+
+#### Scenario: Node target rejects TypeScript-only syntax through normal execution failure
+- **WHEN** a caller invokes `NodeRuntime.exec()` or `NodeRuntime.run()` with TypeScript-only syntax such as type annotations in a Node-target runtime
+- **THEN** execution MUST fail through the normal JavaScript parse or evaluation path instead of applying implicit TypeScript preprocessing
+
+#### Scenario: Browser target rejects TypeScript-only syntax through normal execution failure
+- **WHEN** a caller invokes `NodeRuntime.exec()` or `NodeRuntime.run()` with TypeScript-only syntax such as type annotations in a browser-target runtime
+- **THEN** execution MUST fail through the normal JavaScript parse or evaluation path instead of applying implicit TypeScript preprocessing
+
 ### Requirement: Driver-Based Capability Composition
 Runtime capabilities SHALL be composed through host-provided system drivers so filesystem, network, and child-process behavior are controlled by configured adapters rather than hardcoded runtime behavior. `NodeRuntime` construction SHALL require both a capability-side `SystemDriver` and an execution-side `RuntimeDriverFactory`.
 
@@ -424,4 +435,3 @@ The runtime contract MUST expose browser execution through `NodeRuntime` driver 
 #### Scenario: Runtime entrypoint is unified by driver target
 - **WHEN** a caller needs browser execution behavior
 - **THEN** they MUST construct `NodeRuntime` with browser system/runtime drivers rather than a separate browser sandbox runtime class
-

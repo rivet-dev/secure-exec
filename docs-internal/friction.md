@@ -1,5 +1,12 @@
 # Sandboxed Node Friction Log
 
+## 2026-03-10
+
+1. **[resolved]** TypeScript compilation needed sandboxing without baking compiler behavior into the core runtime.
+   - Symptom: keeping TypeScript handling inside `NodeRuntime` blurred the runtime contract, risked host-memory pressure during compilation, and forced browser/runtime surfaces to inherit TypeScript-specific policy.
+   - Fix: core `secure-exec` now stays JavaScript-only, while sandboxed TypeScript typecheck/compile flows move to the separate `@secure-exec/typescript` package.
+   - Compatibility trade-off: callers that want TypeScript must perform an explicit compile/typecheck step before executing emitted JavaScript in the runtime.
+
 ## 2026-03-09
 
 1. **[resolved]** Python `exec()` env overrides bypassed `permissions.env`.

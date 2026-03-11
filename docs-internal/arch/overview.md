@@ -1,9 +1,9 @@
 # Architecture Overview
 
 ```
-NodeRuntime | PythonRuntime
-  → SystemDriver + NodeRuntimeDriverFactory | PythonRuntimeDriverFactory
-  → NodeExecutionDriver (node target) | BrowserRuntimeDriver + Worker runtime (browser target) | PyodideRuntimeDriver + Worker runtime (python target)
+NodeRuntime | PythonRuntime | createTypeScriptTools
+  → SystemDriver + NodeRuntimeDriverFactory | PythonRuntimeDriverFactory | compiler SystemDriver + NodeRuntimeDriverFactory
+  → NodeExecutionDriver (node target) | BrowserRuntimeDriver + Worker runtime (browser target) | PyodideRuntimeDriver + Worker runtime (python target) | compiler NodeRuntime sandbox
 ```
 
 ## NodeRuntime / PythonRuntime
@@ -19,6 +19,16 @@ Public APIs. Thin facades that delegate orchestration to runtime drivers.
 - Requires both:
   - `systemDriver` for runtime capabilities/config
   - runtime-driver factory for runtime-driver construction
+
+## TypeScript Tools
+
+`packages/secure-exec-typescript/src/index.ts`
+
+Optional companion package for sandboxed TypeScript compiler work (`@secure-exec/typescript`).
+
+- `createTypeScriptTools(...)` — build project/source compile and typecheck helpers
+- Uses a dedicated `NodeRuntime` compiler sandbox per request
+- Keeps TypeScript compiler execution out of the core runtime path
 
 ## SystemDriver
 

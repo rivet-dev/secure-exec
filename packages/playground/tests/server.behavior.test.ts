@@ -1,7 +1,26 @@
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { createBrowserPlaygroundServer } from "../backend/server.js";
 
 let server: ReturnType<typeof createBrowserPlaygroundServer> | null = null;
+const playgroundDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const vendorDir = resolve(playgroundDir, "vendor");
+let tempDir: string | null = null;
+
+async function createVendorFixture(): Promise<string> {
+	tempDir = await mkdtemp(resolve(tmpdir(), "playground-vendor-"));
+	const sourcePath = resolve(tempDir, "fixture.js");
+	const linkPath = resolve(vendorDir, "test-fixture.js");
+
+	await mkdir(vendorDir, { recursive: true });
+	await writeFile(sourcePath, 'console.log("fixture");\n');
+	await symlink(sourcePath, linkPath);
+
+	return "/vendor/test-fixture.js";
+}
 
 function listenOnRandomPort(s: ReturnType<typeof createBrowserPlaygroundServer>): Promise<number> {
 	return new Promise((resolve, reject) => {
@@ -30,15 +49,21 @@ afterEach(async () => {
 		});
 		server = null;
 	}
+	await rm(resolve(vendorDir, "test-fixture.js"), { force: true });
+	if (tempDir) {
+		await rm(tempDir, { recursive: true, force: true });
+		tempDir = null;
+	}
 });
 
 describe("browser playground server", () => {
 	it("serves vendor assets with COEP/COOP headers", async () => {
 		server = createBrowserPlaygroundServer();
 		const port = await listenOnRandomPort(server);
+		const assetPath = await createVendorFixture();
 
 		const response = await fetch(
-			`http://127.0.0.1:${port}/vendor/monaco/vs/loader.js`,
+			`http://127.0.0.1:${port}${assetPath}`,
 		);
 
 		expect(response.status).toBe(200);

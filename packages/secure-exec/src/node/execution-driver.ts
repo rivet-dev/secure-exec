@@ -534,31 +534,27 @@ export class NodeExecutionDriver implements RuntimeDriver {
 			return builtinSpecifier;
 		}
 
-		// Handle absolute paths - return as-is
+		const referrerDir = await this.resolveReferrerDirectory(referrerPath);
+
+		// Preserve direct path imports before falling back to node_modules
+		// resolution so missing relative modules report the resolved sandbox path.
 		if (specifier.startsWith("/")) {
 			return specifier;
 		}
-
-		const referrerDir = await this.resolveReferrerDirectory(referrerPath);
-
-		// Handle relative paths
 		if (specifier.startsWith("./") || specifier.startsWith("../")) {
-			// Resolve relative to referrer directory
 			const parts = referrerDir.split("/").filter(Boolean);
-			const specParts = specifier.split("/");
-
-			for (const part of specParts) {
+			for (const part of specifier.split("/")) {
 				if (part === "..") {
 					parts.pop();
-				} else if (part !== ".") {
+					continue;
+				}
+				if (part !== ".") {
 					parts.push(part);
 				}
 			}
-
 			return `/${parts.join("/")}`;
 		}
 
-		// Bare specifier - try to resolve from node_modules
 		return resolveModule(specifier, referrerDir, this.filesystem, "import");
 	}
 
@@ -1554,9 +1550,15 @@ export class NodeExecutionDriver implements RuntimeDriver {
 						jail,
 						onStdio ?? this.onStdio,
 					),
-				shouldRunAsESM: (code, filePath) => this.shouldRunAsESM(code, filePath),
+				shouldRunAsESM: (code, filePath) =>
+					this.shouldRunAsESM(code, filePath),
 				setupESMGlobals: (context, jail, timingMitigation, frozenTimeMs) =>
-					this.setupESMGlobals(context, jail, timingMitigation, frozenTimeMs),
+					this.setupESMGlobals(
+						context,
+						jail,
+						timingMitigation,
+						frozenTimeMs,
+					),
 				applyExecutionOverrides: (context, env, cwd, stdin) =>
 					this.applyExecutionOverrides(context, env, cwd, stdin),
 				precompileDynamicImports: (transformedCode, context, referrerPath) =>
