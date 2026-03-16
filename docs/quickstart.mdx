@@ -1,85 +1,97 @@
 ---
 title: Quickstart
 description: Get secure-exec running in a few minutes.
+icon: "rocket"
 ---
 
-## Install
-
-```bash
-pnpm add secure-exec
-```
-
-Optional TypeScript tooling:
-
-```bash
-pnpm add @secure-exec/typescript
-```
-
-## Create a runtime
-
-A runtime needs two things: a **system driver** that provides host capabilities (filesystem, network, permissions) and a **runtime driver** that manages the sandboxed execution environment.
-
-<Tabs>
-  <Tab title="Node">
-    ```ts
-    import {
-      NodeRuntime,
-      createNodeDriver,
-      createNodeRuntimeDriverFactory,
-    } from "secure-exec";
-
-    const runtime = new NodeRuntime({
-      systemDriver: createNodeDriver(),
-      runtimeDriverFactory: createNodeRuntimeDriverFactory(),
-    });
+<Steps>
+  <Step title="Install">
+    ```bash
+    pnpm add secure-exec
     ```
-  </Tab>
-  <Tab title="Browser">
+  </Step>
+
+  <Step title="Create a runtime">
+    A runtime needs a **system driver** (host capabilities) and a **runtime driver** (sandbox execution).
+
+    <Tabs>
+      <Tab title="Node">
+        ```ts
+        import {
+          NodeRuntime,
+          createNodeDriver,
+          createNodeRuntimeDriverFactory,
+        } from "secure-exec";
+
+        const runtime = new NodeRuntime({
+          systemDriver: createNodeDriver(),
+          runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+        });
+        ```
+      </Tab>
+      <Tab title="Browser">
+        ```ts
+        import {
+          NodeRuntime,
+          createBrowserDriver,
+          createBrowserRuntimeDriverFactory,
+        } from "secure-exec/browser";
+
+        const runtime = new NodeRuntime({
+          systemDriver: await createBrowserDriver({ filesystem: "memory" }),
+          runtimeDriverFactory: createBrowserRuntimeDriverFactory(),
+        });
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Run code">
+    Use `exec()` to run code for side effects. Console output streams through the `onStdio` hook.
+
     ```ts
-    import {
-      NodeRuntime,
-      createBrowserDriver,
-      createBrowserRuntimeDriverFactory,
-    } from "secure-exec/browser";
+    const logs: string[] = [];
 
-    const runtime = new NodeRuntime({
-      systemDriver: await createBrowserDriver({ filesystem: "memory" }),
-      runtimeDriverFactory: createBrowserRuntimeDriverFactory(),
-    });
+    const result = await runtime.exec(
+      "const value = 'hello from secure-exec'; console.log(value)",
+      {
+        onStdio: (event) => logs.push(`[${event.channel}] ${event.message}`),
+      }
+    );
+
+    console.log(logs.join("\n"));
+    // [stdout] hello from secure-exec
     ```
-  </Tab>
-</Tabs>
+  </Step>
 
-## Execute code
+  <Step title="Return a value">
+    Use `run()` to execute code and get an exported value back.
 
-Use `exec()` to run code in the sandbox. Console output is streamed through the `onStdio` hook.
+    ```ts
+    const result = await runtime.run<{ default: number }>(
+      "export default 2 + 2"
+    );
+    console.log(result.exports?.default); // 4
+    ```
+  </Step>
 
-```ts
-const logs: string[] = [];
+  <Step title="Clean up">
+    ```ts
+    runtime.dispose();
+    ```
+  </Step>
+</Steps>
 
-const result = await runtime.exec("const value = 'hello from secure-exec'; console.log(value)", {
-  onStdio: (event) => logs.push(`[${event.channel}] ${event.message}`),
-});
+## Next steps
 
-console.log(logs.join("\n"));
-// [stdout] hello from secure-exec
-```
-
-## Return a value
-
-Use `run()` to execute code and get an exported value back.
-
-```ts
-const result = await runtime.run<{ default: number }>("export default 2 + 2");
-console.log(result.exports?.default); // 4
-```
-
-If you want sandboxed TypeScript type checking or compilation before execution, use the separate `@secure-exec/typescript` package and pass its emitted JavaScript into `secure-exec`.
-
-## Clean up
-
-Dispose the runtime when you're done to free resources.
-
-```ts
-runtime.dispose();
-```
+<CardGroup cols={3}>
+  <Card title="SDK Overview" icon="compass" href="/sdk-overview">
+    Full tour of the API surface and core concepts.
+  </Card>
+  <Card title="Permissions" icon="lock" href="/features/permissions">
+    Control filesystem, network, and process access.
+  </Card>
+  <Card title="Security Model" icon="shield" href="/security-model">
+    Trust boundaries, timing hardening, and resource limits.
+  </Card>
+</CardGroup>

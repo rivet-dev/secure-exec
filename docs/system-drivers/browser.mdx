@@ -1,6 +1,7 @@
 ---
 title: Browser System Driver
 description: Browser-compatible system driver with OPFS and fetch-based networking.
+icon: "globe"
 ---
 
 The browser system driver provides sandboxed runtimes with filesystem and network capabilities that work in browser environments. It uses OPFS or an in-memory filesystem and fetch-based networking.
@@ -57,7 +58,7 @@ const runtimeDriver = createBrowserRuntimeDriverFactory({
 
 ## Differences from Node driver
 
-- **Async creation** — `createBrowserDriver` returns a `Promise`
-- **No child processes** — `CommandExecutor` is not available
-- **No DNS** — only fetch-based networking, no `dnsLookup`
-- **OPFS limitations** — atomic rename is not supported
+- **Async creation**: `createBrowserDriver` returns a `Promise`
+- **No child processes**: `CommandExecutor` is not available
+- **No DNS**: only fetch-based networking, no `dnsLookup`
+- **OPFS limitations**: atomic rename is not supported

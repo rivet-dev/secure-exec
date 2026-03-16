@@ -1,0 +1,82 @@
+---
+title: Networking
+description: Network access for sandboxed code.
+icon: "globe"
+---
+
+Network access is deny-by-default. Enable it by setting `useDefaultNetwork: true` on the system driver and granting the `network` permission.
+
+## Quick setup
+
+<Tabs>
+  <Tab title="Node">
+    ```ts
+    import { createNodeDriver, allowAllNetwork } from "secure-exec";
+
+    const driver = createNodeDriver({
+      useDefaultNetwork: true,
+      permissions: { network: allowAllNetwork },
+    });
+    ```
+
+    The Node adapter supports `fetch`, DNS lookups, and low-level HTTP requests.
+  </Tab>
+  <Tab title="Browser">
+    ```ts
+    import { createBrowserDriver } from "secure-exec/browser";
+
+    const driver = await createBrowserDriver({
+      useDefaultNetwork: true,
+    });
+    ```
+
+    The browser adapter supports `fetch` only. DNS and low-level HTTP are not available.
+  </Tab>
+</Tabs>
+
+## Network adapters
+
+You can provide a custom adapter instead of using `useDefaultNetwork`:
+
+```ts
+import { createNodeDriver, createDefaultNetworkAdapter } from "secure-exec";
+
+const driver = createNodeDriver({
+  networkAdapter: createDefaultNetworkAdapter(),
+  permissions: { network: true },
+});
+```
+
+| Factory | Environment | Capabilities |
+|---|---|---|
+| `createDefaultNetworkAdapter()` | Node | fetch, DNS, HTTP |
+| `createBrowserNetworkAdapter()` | Browser | fetch only |
+
+## NetworkAdapter interface
+
+| Method | Returns | Description |
+|---|---|---|
+| `fetch(url, options?)` | `Promise<FetchResponse>` | HTTP fetch |
+| `dnsLookup(hostname)` | `Promise<DnsResult>` | DNS resolution |
+| `httpRequest(url, options?)` | `Promise<HttpResponse>` | Low-level HTTP request |
+| `httpServerListen?(options)` | `Promise<{ address }>` | Start a loopback HTTP server |
+| `httpServerClose?(serverId)` | `Promise<void>` | Close a loopback HTTP server |
+
+## Permission gating
+
+Use a function to filter requests:
+
+```ts
+const driver = createNodeDriver({
+  useDefaultNetwork: true,
+  permissions: {
+    network: (req) => {
+      // Block internal services
+      if (req.hostname.endsWith(".internal")) return false;
+      // Block metadata endpoints
+      if (req.hostname === "169.254.169.254") return false;
+      return true;
+    },
+  },
+});
+```

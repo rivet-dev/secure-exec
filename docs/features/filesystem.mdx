@@ -1,0 +1,74 @@
+---
+title: Filesystem
+description: Filesystem backends for sandboxed code.
+icon: "folder"
+---
+
+secure-exec supports three filesystem backends. The system driver controls which backend sandboxed code uses.
+
+## In-memory
+
+Fully in-memory filesystem backed by Maps. Works in both Node and browser.
+
+```ts
+import { createInMemoryFileSystem } from "secure-exec";
+
+const fs = createInMemoryFileSystem();
+await fs.writeFile("/hello.txt", new TextEncoder().encode("hello"));
+```
+
+Use with a driver:
+
+```ts
+import { createNodeDriver, createInMemoryFileSystem, allowAllFs } from "secure-exec";
+
+const driver = createNodeDriver({
+  filesystem: createInMemoryFileSystem(),
+  permissions: { fs: allowAllFs },
+});
+```
+
+## OPFS (browser)
+
+Persistent filesystem using the Origin Private File System API. This is the default for `createBrowserDriver()`.
+
+```ts
+import { createBrowserDriver } from "secure-exec/browser";
+
+// OPFS (default)
+const driver = await createBrowserDriver({ filesystem: "opfs" });
+
+// In-memory fallback
+const memDriver = await createBrowserDriver({ filesystem: "memory" });
+```
+
+<Info>OPFS does not support atomic rename operations.</Info>
+
+## Node filesystem
+
+Thin wrapper around Node.js `fs/promises`. Provides real host filesystem access (gated by permissions).
+
+```ts
+import { NodeFileSystem } from "secure-exec";
+
+const fs = new NodeFileSystem();
+```
+
+## VirtualFileSystem interface
+
+All backends implement this interface:
+
+| Method | Returns | Description |
+|---|---|---|
+| `readFile(path)` | `Promise<Uint8Array>` | Read file as bytes |
+| `readTextFile(path)` | `Promise<string>` | Read file as text |
+| `readDir(path)` | `Promise<string[]>` | List directory entries |
+| `readDirWithTypes(path)` | `Promise<DirEntry[]>` | List entries with type info |
+| `writeFile(path, content)` | `Promise<void>` | Write file |
+| `createDir(path)` | `Promise<void>` | Create directory |
+| `mkdir(path)` | `Promise<void>` | Create directory (alias) |
+| `exists(path)` | `Promise<boolean>` | Check if path exists |
+| `stat(path)` | `Promise<StatInfo>` | Get file metadata |
+| `removeFile(path)` | `Promise<void>` | Delete a file |
+| `removeDir(path)` | `Promise<void>` | Delete a directory |
+| `rename(old, new)` | `Promise<void>` | Rename a file or directory |

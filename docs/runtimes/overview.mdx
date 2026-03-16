@@ -1,14 +1,15 @@
 ---
 title: Runtimes
 description: Sandboxed execution environments for running untrusted code.
+icon: "microchip"
 ---
 
 A **runtime** is a sandboxed execution environment. You give it code, it runs that code in isolation, and returns the result. Runtimes enforce resource limits (CPU time, memory) and prevent untrusted code from accessing the host system directly.
 
 Every runtime exposes two methods for executing code:
 
-- **`exec(code)`** — run code for its side effects (console output, file writes). Returns an exit code.
-- **`run(code)`** — run code and get a value back (the default export in Node, or an evaluated expression in Python).
+- **`exec(code)`**: run code for its side effects (console output, file writes). Returns an exit code.
+- **`run(code)`**: run code and get a value back (the default export in Node, or an evaluated expression in Python).
 
 Console output is not buffered by default. Use the `onStdio` hook to capture it.
 

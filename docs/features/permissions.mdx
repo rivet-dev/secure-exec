@@ -1,0 +1,107 @@
+---
+title: Permissions
+description: Control what sandboxed code can access on the host.
+icon: "lock"
+---
+
+All host capabilities are **deny-by-default**. Sandboxed code cannot access the filesystem, network, child processes, or environment variables unless you explicitly allow it.
+
+## Permission helpers
+
+Quick presets for common configurations:
+
+```ts
+import {
+  createNodeDriver,
+  allowAll,
+  allowAllFs,
+  allowAllNetwork,
+  allowAllChildProcess,
+  allowAllEnv,
+} from "secure-exec";
+
+// Allow everything
+const driver = createNodeDriver({ permissions: allowAll });
+
+// Allow only filesystem and network
+const selective = createNodeDriver({
+  permissions: {
+    fs: allowAllFs,
+    network: allowAllNetwork,
+  },
+});
+```
+
+| Export | Allows |
+|---|---|
+| `allowAll` | All operations across all domains |
+| `allowAllFs` | All filesystem reads and writes |
+| `allowAllNetwork` | All network requests and DNS lookups |
+| `allowAllChildProcess` | All child process spawning |
+| `allowAllEnv` | All environment variable access |
+
+## Function-based checks
+
+Each permission field accepts a boolean or a function that inspects the request:
+
+```ts
+const driver = createNodeDriver({
+  permissions: {
+    // Allow reads, block writes
+    fs: (req) => req.operation === "read",
+
+    // Block internal hosts
+    network: (req) => !req.hostname.endsWith(".internal"),
+
+    // Only allow specific commands
+    childProcess: (req) => ["node", "python3"].includes(req.command),
+
+    // Allow specific env vars
+    env: (req) => ["PATH", "HOME"].includes(req.name),
+  },
+});
+```
+
+## Permissions type
+
+```ts
+type Permissions = {
+  fs?: PermissionCheck<FsAccessRequest>;
+  network?: PermissionCheck<NetworkAccessRequest>;
+  childProcess?: PermissionCheck<ChildProcessAccessRequest>;
+  env?: PermissionCheck<EnvAccessRequest>;
+};
+
+// Each field accepts a boolean or async function
+type PermissionCheck<T> = boolean | ((request: T) => boolean | Promise<boolean>);
+```
+
+## Full example
+
+```ts
+import {
+  NodeRuntime,
+  createNodeDriver,
+  createNodeRuntimeDriverFactory,
+  allowAllFs,
+} from "secure-exec";
+
+const runtime = new NodeRuntime({
+  systemDriver: createNodeDriver({
+    useDefaultNetwork: true,
+    permissions: {
+      fs: allowAllFs,
+      network: (req) => req.hostname !== "localhost",
+      childProcess: false,
+    },
+  }),
+  runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+});
+
+await runtime.exec(`
+  const fs = require('fs');
+  fs.writeFileSync('/tmp/test.txt', 'hello');   // allowed
+  await fetch('https://example.com');            // allowed
+  await fetch('http://localhost:8080');           // blocked
+`);
+```

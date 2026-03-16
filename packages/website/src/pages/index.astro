@@ -1,0 +1,20 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { Navigation } from "../components/Navigation";
+import { Hero } from "../components/Hero";
+import { FeatureGrid } from "../components/FeatureGrid";
+import { Benchmarks } from "../components/Benchmarks";
+import { FooterCTA } from "../components/FooterCTA";
+import { Footer } from "../components/Footer";
+---
+
+<Layout title="Secure Exec — Secure Node.js execution without a sandbox">
+  <Navigation client:load />
+    <main>
+      <Hero client:load />
+      <FeatureGrid client:visible />
+      <Benchmarks client:visible />
+      <FooterCTA client:visible />
+    </main>
+  <Footer client:visible />
+</Layout>

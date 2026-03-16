@@ -1,0 +1,84 @@
+---
+title: Child Processes
+description: Spawn child processes from sandboxed code.
+icon: "terminal"
+---
+
+Sandboxed code can spawn child processes through the `CommandExecutor` interface, gated by the `childProcess` permission.
+
+## Setup
+
+```ts
+import {
+  NodeRuntime,
+  createNodeDriver,
+  createNodeRuntimeDriverFactory,
+  allowAllChildProcess,
+} from "secure-exec";
+
+const runtime = new NodeRuntime({
+  systemDriver: createNodeDriver({
+    permissions: { childProcess: allowAllChildProcess },
+  }),
+  runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+});
+```
+
+## Usage from sandboxed code
+
+```ts
+await runtime.exec(`
+  const { execSync } = require('child_process');
+  const result = execSync('echo hello').toString();
+  console.log(result); // "hello"
+`);
+```
+
+## Permission gating
+
+Restrict which commands sandboxed code can spawn:
+
+```ts
+const driver = createNodeDriver({
+  permissions: {
+    childProcess: (req) => {
+      const allowed = ["node", "python3", "echo"];
+      return allowed.includes(req.command);
+    },
+  },
+});
+```
+
+## Custom CommandExecutor
+
+Provide your own executor for full control over process spawning:
+
+```ts
+const driver = createNodeDriver({
+  commandExecutor: {
+    spawn(command, args, options) {
+      // Custom spawn logic
+      // Returns a SpawnedProcess
+    },
+  },
+  permissions: { childProcess: true },
+});
+```
+
+## Process configuration
+
+Configure the process environment visible to sandboxed code:
+
+```ts
+const driver = createNodeDriver({
+  processConfig: {
+    cwd: "/app",
+    env: { NODE_ENV: "production" },
+    argv: ["node", "script.js"],
+    platform: "linux",
+    arch: "x64",
+  },
+});
+```
+
+<Info>Child processes are only available with the Node system driver. The browser driver does not support process spawning.</Info>

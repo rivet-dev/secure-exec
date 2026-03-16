@@ -1,0 +1,89 @@
+---
+title: Resource Limits
+description: CPU time, memory, and payload size controls.
+icon: "gauge"
+---
+
+Resource limits prevent sandboxed code from running forever or exhausting host memory.
+
+## CPU time limit
+
+Set a CPU time budget in milliseconds. When exceeded, the execution exits with code `124`.
+
+```ts
+const runtime = new NodeRuntime({
+  systemDriver: createNodeDriver(),
+  runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+  cpuTimeLimitMs: 5000, // 5 seconds
+});
+
+const result = await runtime.exec("while (true) {}");
+console.log(result.code); // 124
+console.log(result.errorMessage); // "CPU time limit exceeded"
+```
+
+You can also override per execution:
+
+```ts
+await runtime.exec("while (true) {}", {
+  cpuTimeLimitMs: 1000, // tighter limit for this call
+});
+```
+
+## Memory limit
+
+Cap isolate memory in MB. Default is `128`.
+
+```ts
+const runtime = new NodeRuntime({
+  systemDriver: createNodeDriver(),
+  runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+  memoryLimit: 64, // 64 MB
+});
+```
+
+<Info>Memory limits apply to Node runtimes only. Python runtimes run in a thread and do not support isolate-level memory caps.</Info>
+
+## Payload limits
+
+The bridge enforces size limits on data crossing the isolate boundary. Oversized payloads are rejected with `ERR_SANDBOX_PAYLOAD_TOO_LARGE` instead of exhausting host memory.
+
+```ts
+const runtime = new NodeRuntime({
+  systemDriver: createNodeDriver(),
+  runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+  payloadLimits: {
+    base64TransferBytes: 10 * 1024 * 1024, // 10 MB for file transfers
+    jsonPayloadBytes: 5 * 1024 * 1024,     // 5 MB for JSON payloads
+  },
+});
+```
+
+Hosts can tune these limits within bounded safe ranges but cannot disable enforcement.
+
+## Timing mitigation
+
+High-resolution timers are frozen by default to mitigate timing side-channel attacks.
+
+```ts
+// Default: frozen timers
+const secure = new NodeRuntime({
+  systemDriver: createNodeDriver(),
+  runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+  timingMitigation: "freeze", // default
+});
+
+// Opt out for Node-compatible advancing clocks
+const compatible = new NodeRuntime({
+  systemDriver: createNodeDriver(),
+  runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+  timingMitigation: "off",
+});
+```
+
+In `"freeze"` mode:
+- `Date.now()` and `performance.now()` return frozen values within an execution
+- `process.hrtime()` and `process.uptime()` follow the hardened path
+- `SharedArrayBuffer` is unavailable
+
+See the [Security Model](/security-model) for more on timing hardening and trust boundaries.

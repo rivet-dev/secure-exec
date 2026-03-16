@@ -1,6 +1,7 @@
 ---
 title: API Reference
 description: Complete reference for all secure-exec exports.
+icon: "rectangle-code"
 ---
 
 ## Runtimes
@@ -390,33 +391,33 @@ type StdioHook = (event: { channel: "stdout" | "stderr"; message: string }) => v
 
 | Field | Type | Default |
 |---|---|---|
-| `platform` | `string` | — |
-| `arch` | `string` | — |
-| `version` | `string` | — |
+| `platform` | `string` | |
+| `arch` | `string` | |
+| `version` | `string` | |
 | `cwd` | `string` | `"/root"` |
-| `env` | `Record<string, string>` | — |
-| `argv` | `string[]` | — |
-| `execPath` | `string` | — |
-| `pid` | `number` | — |
-| `ppid` | `number` | — |
-| `uid` | `number` | — |
-| `gid` | `number` | — |
-| `stdin` | `string` | — |
-| `timingMitigation` | `"off" \| "freeze"` | — |
-| `frozenTimeMs` | `number` | — |
+| `env` | `Record<string, string>` | |
+| `argv` | `string[]` | |
+| `execPath` | `string` | |
+| `pid` | `number` | |
+| `ppid` | `number` | |
+| `uid` | `number` | |
+| `gid` | `number` | |
+| `stdin` | `string` | |
+| `timingMitigation` | `"off" \| "freeze"` | |
+| `frozenTimeMs` | `number` | |
 
 ### `OSConfig`
 
 | Field | Type | Default |
 |---|---|---|
-| `platform` | `string` | — |
-| `arch` | `string` | — |
-| `type` | `string` | — |
-| `release` | `string` | — |
-| `version` | `string` | — |
+| `platform` | `string` | |
+| `arch` | `string` | |
+| `type` | `string` | |
+| `release` | `string` | |
+| `version` | `string` | |
 | `homedir` | `string` | `"/root"` |
 | `tmpdir` | `string` | `"/tmp"` |
-| `hostname` | `string` | — |
+| `hostname` | `string` | |
 
 ### `SystemDriver`
 

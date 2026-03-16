@@ -1,6 +1,7 @@
 ---
 title: Cloudflare Workers Comparison
 description: Node.js API compatibility comparison between secure-exec and Cloudflare Workers (standard, Workers for Platforms, dynamic dispatch).
+icon: "scale-balanced"
 ---
 
 *Last updated: 2026-03-10*
@@ -23,12 +24,12 @@ All three CF deployment models share the same `nodejs_compat` API surface. WfP a
 
 | Icon | Meaning |
 | --- | --- |
-| 🟢 | Supported — native or full implementation. |
-| 🔵 | Planned — not yet implemented; on the roadmap. |
-| 🟡 | Partial — functional with behavioral gaps or wrapper limitations. |
-| ⚪ | TBD — under consideration; not yet committed. |
-| 🔴 | Stub — requireable but most APIs throw on call. |
-| ⛔ | Unsupported — not available; `require()` throws immediately. |
+| 🟢 | Supported: native or full implementation. |
+| 🔵 | Planned: not yet implemented; on the roadmap. |
+| 🟡 | Partial: functional with behavioral gaps or wrapper limitations. |
+| ⚪ | TBD: under consideration; not yet committed. |
+| 🔴 | Stub: requireable but most APIs throw on call. |
+| ⛔ | Unsupported: not available; `require()` throws immediately. |
 
 ---
 
@@ -57,8 +58,8 @@ All three CF deployment models share the same `nodejs_compat` API surface. WfP a
 | **`worker_threads`** | ⛔ Stubs that throw on API call. | 🔴 Non-functional stub. | Neither platform supports worker threads. |
 | **`cluster`** | ⛔ `require()` throws. | 🔴 Non-functional stub. | Neither platform supports clustering. |
 | **`timers`** | 🟢 `setTimeout`, `clearTimeout`, `setInterval`, `clearInterval`, `setImmediate`, `clearImmediate`. | 🟢 Same surface; returns `Timeout` objects. | Equivalent support. |
-| **`vm`** | 🔴 Browser polyfill via `Function()`/`eval()`. No real context isolation; shares global scope. | 🔴 Non-functional stub. | Neither offers real `vm` sandboxing. secure-exec polyfill silently runs code in shared scope — not safe for isolation. |
-| **`v8`** | 🔴 Mock heap stats; `serialize`/`deserialize` use JSON instead of V8 binary format (bug). | 🔴 Non-functional stub. | Neither exposes real V8 internals. secure-exec `v8.serialize` silently produces JSON — needs fix to use V8 structured serialization. |
+| **`vm`** | 🔴 Browser polyfill via `Function()`/`eval()`. No real context isolation; shares global scope. | 🔴 Non-functional stub. | Neither offers real `vm` sandboxing. secure-exec polyfill silently runs code in shared scope, not safe for isolation. |
+| **`v8`** | 🔴 Mock heap stats; `serialize`/`deserialize` use JSON instead of V8 binary format (bug). | 🔴 Non-functional stub. | Neither exposes real V8 internals. secure-exec `v8.serialize` silently produces JSON, needs fix to use V8 structured serialization. |
 
 ### Crypto and Security
 
@@ -117,7 +118,7 @@ All three CF deployment models share the same `nodejs_compat` API surface. WfP a
 | **Permission model** | Deny-by-default for `fs`, `network`, `childProcess`, `env`. Fine-grained per-domain policies. | No granular permission model. WfP adds `request.cf` restriction and cache isolation. |
 | **Memory limits** | Configurable `memoryLimit` (MB). | 128 MB per Worker (platform-managed). |
 | **CPU time limits** | Configurable `cpuTimeLimitMs` with exit code 124. | 10ms (free) / 30s (paid) CPU time; WfP operators can set custom limits. |
-| **Timing mitigation** | `freeze` mode (deterministic clocks) or `off` (real-time). | I/O-gated coarsening — `Date.now()` and `performance.now()` only advance after I/O to mitigate Spectre-class side channels. |
+| **Timing mitigation** | `freeze` mode (deterministic clocks) or `off` (real-time). | I/O-gated coarsening: `Date.now()` and `performance.now()` only advance after I/O to mitigate Spectre-class side channels. |
 | **Module loading** | CJS + ESM with package.json `type` field semantics; `node_modules` overlay. | ES modules primary; CJS via `nodejs_compat`; no `node_modules` overlay (bundled at deploy). |
 | **Subprocess execution** | Bound to the system driver; subprocess behavior determined by driver implementation. | Not available. |
 | **Filesystem** | System-driver-determined: host filesystem (permission-gated) or virtual filesystem, depending on driver implementation. Read-only `/app/node_modules` overlay. | Ephemeral VFS only; Durable Objects for persistence. |

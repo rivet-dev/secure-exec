@@ -1,0 +1,73 @@
+---
+interface Props {
+  title: string;
+  description?: string;
+}
+
+const { title, description = "Secure Node.js execution without a sandbox. V8 isolate-based code execution with full Node.js and npm compatibility." } =
+  Astro.props;
+const canonicalURL = new URL(Astro.url.pathname, "https://secure-exec.dev");
+
+const structuredData = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "Secure Exec",
+  applicationCategory: "DeveloperApplication",
+  operatingSystem: "Linux, macOS, Windows",
+  description: description,
+  url: "https://secure-exec.dev",
+  author: {
+    "@type": "Organization",
+    name: "Rivet",
+    url: "https://rivet.dev",
+  },
+  offers: {
+    "@type": "Offer",
+    price: "0",
+    priceCurrency: "USD",
+  },
+  keywords: "secure code execution, V8 isolate, Node.js sandbox, untrusted code, npm, sandboxed runtime, developer tools",
+};
+---
+
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content={description} />
+    <meta name="keywords" content="secure code execution, V8 isolate, Node.js sandbox, untrusted code, npm compatibility, sandboxed runtime, developer tools" />
+    <meta name="author" content="Rivet" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#09090b" />
+    <link rel="canonical" href={canonicalURL} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+    <title>{title}</title>
+
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonicalURL} />
+    <meta property="og:site_name" content="Secure Exec" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@rivet_dev" />
+    <meta name="twitter:creator" content="@rivet_dev" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+
+    <script type="application/ld+json" set:html={JSON.stringify(structuredData)} />
+  </head>
+  <body class="min-h-screen bg-background text-foreground antialiased">
+    <slot />
+  </body>
+</html>
+
+<style is:global>
+  @import '../styles/global.css';
+</style>

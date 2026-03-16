@@ -1,0 +1,79 @@
+---
+title: Output Capture
+description: Capture console output from sandboxed code.
+icon: "message-lines"
+---
+
+Console output from sandboxed code is **not buffered** into result fields. `exec()` and `run()` do not return `stdout` or `stderr`. Use the `onStdio` hook to capture output.
+
+## Basic capture
+
+```ts
+const logs: string[] = [];
+
+await runtime.exec("console.log('hello'); console.error('oops')", {
+  onStdio: (event) => logs.push(`[${event.channel}] ${event.message}`),
+});
+
+// logs: ["[stdout] hello", "[stderr] oops"]
+```
+
+## Default hook
+
+Set a runtime-level hook that applies to all executions:
+
+```ts
+const runtime = new NodeRuntime({
+  systemDriver: createNodeDriver(),
+  runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+  onStdio: (event) => console.log(event.message),
+});
+```
+
+Per-execution hooks override the default.
+
+## StdioHook type
+
+```ts
+type StdioHook = (event: {
+  channel: "stdout" | "stderr";
+  message: string;
+}) => void;
+```
+
+## Patterns
+
+**Collect to array:**
+
+```ts
+const output: string[] = [];
+await runtime.exec(code, {
+  onStdio: (e) => output.push(e.message),
+});
+```
+
+**Stream to logger:**
+
+```ts
+await runtime.exec(code, {
+  onStdio: (e) => {
+    if (e.channel === "stderr") logger.warn(e.message);
+    else logger.info(e.message);
+  },
+});
+```
+
+**Filter by channel:**
+
+```ts
+const errors: string[] = [];
+await runtime.exec(code, {
+  onStdio: (e) => {
+    if (e.channel === "stderr") errors.push(e.message);
+  },
+});
+```
+
+## Why no buffering?
+
+Buffering console output by default would let untrusted code grow host memory without bound by logging at high volume. The explicit `onStdio` hook puts you in control of how output is stored and when to stop collecting.

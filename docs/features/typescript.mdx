@@ -1,0 +1,95 @@
+---
+title: TypeScript
+description: Sandboxed type checking and compilation.
+icon: "code"
+---
+
+The `@secure-exec/typescript` companion package runs the TypeScript compiler inside a sandbox for safe type checking and compilation of untrusted code.
+
+## Install
+
+```bash
+pnpm add @secure-exec/typescript
+```
+
+## Setup
+
+```ts
+import { createNodeDriver, createNodeRuntimeDriverFactory } from "secure-exec";
+import { createTypeScriptTools } from "@secure-exec/typescript";
+
+const ts = createTypeScriptTools({
+  systemDriver: createNodeDriver(),
+  runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+});
+```
+
+**Options:**
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `systemDriver` | `SystemDriver` | required | Compiler runtime capabilities and filesystem view |
+| `runtimeDriverFactory` | `NodeRuntimeDriverFactory` | required | Creates the compiler sandbox |
+| `memoryLimit` | `number` | `512` | Compiler isolate memory cap in MB |
+| `cpuTimeLimitMs` | `number` | | Compiler CPU time budget in ms |
+| `compilerSpecifier` | `string` | `"typescript"` | Module specifier for the TypeScript compiler |
+
+## Type-check a source string
+
+```ts
+const result = await ts.typecheckSource({
+  sourceText: "const x: number = 'hello';",
+});
+
+console.log(result.success); // false
+console.log(result.diagnostics[0].message);
+// "Type 'string' is not assignable to type 'number'."
+```
+
+## Type-check a project
+
+```ts
+const result = await ts.typecheckProject({
+  cwd: "/app",
+  configFilePath: "/app/tsconfig.json",
+});
+
+for (const d of result.diagnostics) {
+  console.log(`${d.filePath}:${d.line} ${d.message}`);
+}
+```
+
+## Compile a source string
+
+```ts
+const result = await ts.compileSource({
+  sourceText: "const x: number = 42; export default x;",
+});
+
+console.log(result.outputText);
+// "const x = 42; export default x;"
+```
+
+## Compile a project
+
+```ts
+const result = await ts.compileProject({
+  cwd: "/app",
+});
+
+console.log(result.emittedFiles); // ["/app/dist/index.js", ...]
+console.log(result.success);     // true
+```
+
+## Diagnostic shape
+
+```ts
+type TypeScriptDiagnostic = {
+  code: number;
+  category: "error" | "warning" | "suggestion" | "message";
+  message: string;
+  filePath?: string;
+  line?: number;
+  column?: number;
+};
+```

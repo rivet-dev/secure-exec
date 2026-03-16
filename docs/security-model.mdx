@@ -1,18 +1,19 @@
 ---
 title: Security Model
 description: How secure-exec isolates untrusted code, what it protects against, and what you're responsible for.
+icon: "shield"
 ---
 
-`secure-exec` runs untrusted code in isolate-based sandboxes — the same core pattern used by **modern browsers and Cloudflare Workers**. Host access is blocked by default and only available through explicitly configured capabilities.
+`secure-exec` runs untrusted code in isolate-based sandboxes, the same core pattern used by **modern browsers and Cloudflare Workers**. Host access is blocked by default and only available through explicitly configured capabilities.
 
 ## Runtime Guarantees
 
 When you run untrusted code through `secure-exec`, the runtime enforces:
 
-- **Isolate containment** — code runs inside an isolate with no direct access to host APIs.
-- **Capability gating** — filesystem, network, process spawn, and environment access are all blocked unless you explicitly allow them.
-- **Timing hardening** — high-resolution timers are frozen by default to mitigate timing side channels.
-- **Resource limits** — CPU time and memory are bounded so user code can't run forever or exhaust the host.
+- **Isolate containment**: code runs inside an isolate with no direct access to host APIs.
+- **Capability gating**: filesystem, network, process spawn, and environment access are all blocked unless you explicitly allow them.
+- **Timing hardening**: high-resolution timers are frozen by default to mitigate timing side channels.
+- **Resource limits**: CPU time and memory are bounded so user code can't run forever or exhaust the host.
 
 ## Trust Boundaries
 
@@ -65,7 +66,7 @@ In default `"freeze"` mode (`timingMitigation: "freeze"`):
 
 - `Date.now()` and `performance.now()` return frozen values within an execution.
 - `process.hrtime()`, `process.hrtime.bigint()`, and `process.uptime()` follow the hardened path.
-- `SharedArrayBuffer` is unavailable — shared memory between threads can be used to [build high-resolution timers](https://v8.dev/blog/spectre) that [bypass frozen clocks](https://security.googleblog.com/2021/03/a-spectre-proof-of-concept-for-spectre.html).
+- `SharedArrayBuffer` is unavailable. Shared memory between threads can be used to [build high-resolution timers](https://v8.dev/blog/spectre) that [bypass frozen clocks](https://security.googleblog.com/2021/03/a-spectre-proof-of-concept-for-spectre.html).
 
 Setting `timingMitigation: "off"` gives you normal advancing clocks but weaker side-channel protection.
 
@@ -73,8 +74,8 @@ Setting `timingMitigation: "off"` gives you normal advancing clocks but weaker s
 
 Two controls prevent runaway execution:
 
-- **`cpuTimeLimitMs`** — CPU time budget for the runtime. When exceeded, the process exits with code `124` and `errorMessage` includes `CPU time limit exceeded`.
-- **`memoryLimit`** — Isolate memory cap in MB (default `128`).
+- **`cpuTimeLimitMs`**: CPU time budget for the runtime. When exceeded, the process exits with code `124` and `errorMessage` includes `CPU time limit exceeded`.
+- **`memoryLimit`**: Isolate memory cap in MB (default `128`).
 
 The bridge also enforces isolate-boundary payload limits so oversized base64 file transfers and oversized isolate-originated JSON payloads are rejected deterministically with `ERR_SANDBOX_PAYLOAD_TOO_LARGE` instead of exhausting host memory. Hosts can tune these limits within bounded safe ranges, but cannot disable enforcement.
 

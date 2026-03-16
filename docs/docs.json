@@ -1,17 +1,30 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
-  "name": "secure-exec",
+  "appearance": {
+    "default": "dark",
+    "strict": true
+  },
+  "background": {
+    "color": {
+      "dark": "#09090b"
+    }
+  },
+  "name": "Secure Exec",
+  "logo": {
+    "light": "/logo.svg",
+    "dark": "/logo.svg"
+  },
   "colors": {
-    "primary": "#0EA5A4",
-    "light": "#5EEAD4",
-    "dark": "#0F766E"
+    "primary": "#FF0000",
+    "light": "#FF3333",
+    "dark": "#CC0000"
   },
   "navigation": {
     "groups": [
       {
         "group": "Getting Started",
-        "pages": ["quickstart", "api-reference"]
+        "pages": ["quickstart", "sdk-overview"]
       },
       {
         "group": "Runtimes",
@@ -30,16 +43,28 @@
         ]
       },
       {
-        "group": "Security",
-        "pages": ["security-model"]
+        "group": "Features",
+        "pages": [
+          "features/permissions",
+          "features/filesystem",
+          "features/networking",
+          "features/module-loading",
+          "features/resource-limits",
+          "features/typescript",
+          "features/child-processes",
+          "features/output-capture"
+        ]
       },
       {
-        "group": "Compatibility",
-        "pages": ["node-compatability"]
-      },
-      {
-        "group": "Comparisons",
-        "pages": ["cloudflare-workers-comparison"]
+        "group": "Reference",
+        "pages": [
+          "api-reference",
+          "architecture",
+          "security-model",
+          "nodejs-compatibility",
+          "python-compatibility",
+          "cloudflare-workers-comparison"
+        ]
       }
     ]
   }

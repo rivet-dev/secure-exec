@@ -1,0 +1,182 @@
+---
+title: Architecture
+description: How secure-exec components fit together across runtimes and environments.
+icon: "sitemap"
+---
+
+## Overview
+
+Every secure-exec sandbox has three layers: a **runtime** (public API), a **bridge** (isolation boundary), and a **system driver** (host capabilities).
+
+```mermaid
+flowchart TB
+    subgraph Host["Host Process"]
+        RT["Runtime<br/>(NodeRuntime / PythonRuntime)"]
+        SD["System Driver<br/>(filesystem, network, processes, permissions)"]
+    end
+    subgraph Isolate["Sandbox"]
+        UC["User Code"]
+        BR["Bridge"]
+    end
+    RT --> SD
+    RT --> Isolate
+    UC -->|"capability request"| BR
+    BR -->|"permission-gated call"| SD
+```
+
+User code runs inside the sandbox and can only reach host capabilities through the bridge. The bridge enforces payload size limits on every transfer. The system driver wraps each capability in a permission check before executing it on the host.
+
+## Components
+
+### Runtime
+
+The public API. `NodeRuntime` and `PythonRuntime` are thin facades that accept a system driver and a runtime driver factory, then delegate all execution to the runtime driver.
+
+```ts
+const runtime = new NodeRuntime({
+  systemDriver: createNodeDriver(),
+  runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+});
+
+await runtime.exec("console.log('hello')");
+await runtime.run("export default 42");
+runtime.dispose();
+```
+
+### System Driver
+
+A config object that bundles host capabilities. Deny-by-default.
+
+| Capability | What it provides |
+|---|---|
+| `filesystem` | Read/write/stat/mkdir operations |
+| `network` | fetch, DNS, HTTP |
+| `commandExecutor` | Child process spawning |
+| `permissions` | Per-capability allow/deny checks |
+
+Each capability is wrapped in a permission layer before the bridge can call it. Missing capabilities get deny-all stubs.
+
+### Bridge
+
+The narrow interface between the sandbox and the host. All privileged operations pass through the bridge. It serializes requests, enforces payload size limits, and routes calls to the appropriate system driver capability.
+
+### Runtime Driver
+
+Manages the actual execution environment. This is where the runtime-specific isolation mechanism lives.
+
+## Node Runtime
+
+On Node, the sandbox is a V8 isolate managed by `isolated-vm`.
+
+```mermaid
+flowchart TB
+    subgraph Host["Host (Node.js process)"]
+        NR["NodeRuntime"]
+        NED["NodeExecutionDriver"]
+        SD["System Driver"]
+        MAFS["ModuleAccessFileSystem"]
+    end
+    subgraph ISO["V8 Isolate"]
+        UC["User Code (CJS / ESM)"]
+        BR["Bridge (ivm.Reference callbacks)"]
+        MOD["Module Cache"]
+    end
+    NR --> NED
+    NED --> ISO
+    UC --> BR
+    BR -->|"fs / net / process / crypto"| SD
+    SD --> MAFS
+```
+
+**Inside the isolate:**
+- User code runs as CJS or ESM (auto-detected from `package.json` `type` field)
+- Bridge globals are injected as `ivm.Reference` callbacks for fs, network, child_process, crypto, and timers
+- Compiled modules are cached per isolate
+- `Date.now()` and `performance.now()` return frozen values by default (timing mitigation)
+- `SharedArrayBuffer` is unavailable in freeze mode
+
+**Outside the isolate (host):**
+- `NodeExecutionDriver` creates contexts, compiles modules, and manages the isolate lifecycle
+- `ModuleAccessFileSystem` overlays host `node_modules` at `/app/node_modules` (read-only, blocks `.node` native addons, prevents symlink escapes)
+- System driver applies permission checks before every host operation
+- Bridge enforces payload size limits on all transfers (`ERR_SANDBOX_PAYLOAD_TOO_LARGE`)
+
+**Resource controls:**
+- `memoryLimit`: V8 isolate memory cap (default 128 MB)
+- `cpuTimeLimitMs`: CPU time budget (exit code 124 on exceeded)
+- `timingMitigation`: `"freeze"` (default) or `"off"`
+
+## Browser Runtime
+
+In the browser, the sandbox is a Web Worker.
+
+```mermaid
+flowchart TB
+    subgraph Host["Host (browser main thread)"]
+        NR["NodeRuntime"]
+        BRD["BrowserRuntimeDriver"]
+        SD["System Driver"]
+    end
+    subgraph WK["Web Worker"]
+        UC["User Code (CJS / ESM)"]
+        BR["Bridge (postMessage RPC)"]
+    end
+    NR --> BRD
+    BRD -->|"postMessage"| WK
+    UC --> BR
+    BR -->|"postMessage"| SD
+```
+
+**Inside the worker:**
+- User code runs as transformed CJS/ESM
+- Bridge globals are initialized from the worker init payload
+- Filesystem and network use permission-aware adapters
+- DNS operations return deterministic `ENOSYS` errors
+
+**Outside the worker (host):**
+- `BrowserRuntimeDriver` spawns workers, dispatches requests by ID, and correlates responses
+- `createBrowserDriver()` configures OPFS or in-memory filesystem and fetch-based networking
+- Node-only runtime options (like `memoryLimit`) are validated and rejected at creation time
+
+## Python Runtime
+
+The Python sandbox runs Pyodide in a Node Worker thread.
+
+```mermaid
+flowchart TB
+    subgraph Host["Host (Node.js process)"]
+        PR["PythonRuntime"]
+        PRD["PyodideRuntimeDriver"]
+        SD["System Driver"]
+    end
+    subgraph WK["Worker Thread"]
+        PY["Pyodide (CPython via Emscripten)"]
+        UC["User Code (Python)"]
+        BR["Bridge (worker RPC)"]
+    end
+    PR --> PRD
+    PRD -->|"worker messages"| WK
+    UC --> BR
+    BR -->|"worker RPC"| SD
+```
+
+**Inside the worker:**
+- Pyodide loads once and keeps interpreter state warm across runs
+- Python code executes with access to bridged filesystem and network
+- stdio streams to the host via message events
+
+**Outside the worker (host):**
+- `PyodideRuntimeDriver` manages worker lifecycle and request correlation
+- Filesystem and network access goes through the same `SystemDriver` permission layer
+- On execution timeout, the worker state restarts for deterministic recovery
+- No `memoryLimit` or `timingMitigation` (Pyodide runs in a Worker, not a V8 isolate)
+
+## Permission Flow
+
+Every capability request follows the same path regardless of runtime:
+
+```
+User Code -> Bridge -> Permission Check -> System Driver -> Host OS
+```
+
+If the permission check denies the request, the bridge returns an error before the system driver is called. If no adapter is configured for a capability, a deny-all stub handles it.
