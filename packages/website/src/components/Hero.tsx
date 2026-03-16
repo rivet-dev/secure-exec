@@ -263,7 +263,11 @@ export function Hero() {
   return (
     <>
       <section className="relative flex min-h-screen flex-col overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-zinc-900/20 via-transparent to-transparent pointer-events-none" />
+        <div
+          className="absolute inset-0 bg-cover bg-center bg-no-repeat pointer-events-none"
+          style={{ backgroundImage: "url('/hero-bg.jpg')", opacity: 0.15 }}
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#09090b]/60 via-[#09090b]/40 to-[#09090b] pointer-events-none" />
 
         <div
           className="flex flex-1 flex-col justify-start pt-32 lg:justify-center lg:pt-0 px-6"
@@ -288,11 +292,12 @@ export function Hero() {
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.7, delay: 0.5, ease: [0.16, 1, 0.3, 1] }}
-              className="mb-6 text-3xl font-semibold leading-[1.1] tracking-tight text-white md:text-5xl"
+              className="mb-6 text-2xl font-bold leading-[1.15] uppercase tracking-[0.05em] sm:text-3xl md:text-[2.8rem] lg:text-5xl"
+              style={{ fontFamily: "'Cinzel', serif", color: "#CC0000" }}
             >
-              Secure Node.js execution
+              Secure Node.js Execution
               <br />
-              without a sandbox
+              Without a Sandbox
             </motion.h1>
 
             <motion.p
