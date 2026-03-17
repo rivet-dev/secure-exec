@@ -1,0 +1,21 @@
+# Ralph Progress Log
+Started: 2026-03-16
+
+## Codebase Patterns
+- Use `pnpm run check-types` (turbo) for typecheck, not bare `tsc`
+- WasmVM test files use `node:test`/`node:assert` but package.json expects `vitest run` — US-015 will convert them
+- Kernel package tests already pass (36 tests across 5 files)
+- pnpm-workspace.yaml includes `packages/os/*` and `packages/runtime/*` globs
+
+---
+
+## 2026-03-16 - US-001
+- WasmVM Rust workspace already migrated in commit b7a78c4
+- All acceptance criteria verified: wasmvm/ directory structure, CLAUDE.md, .gitignore entries, turbo.json build:wasm task, typecheck passing
+- No implementation work needed — just validation and marking
+- Files changed: prd.json (marked passes: true)
+- **Learnings for future iterations:**
+  - Prior commit b7a78c4 did bulk migration of kernel, OS layers, and wasmvm
+  - Many stories US-001 through US-011 may already be structurally complete from that commit
+  - WasmVM runtime tests (24 files, 9600+ lines) all fail because they use node:test not vitest — this blocks US-002 and US-015
+---

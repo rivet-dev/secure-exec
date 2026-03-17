@@ -1,0 +1,440 @@
+{
+  "project": "secure-exec",
+  "branchName": "ralph/kernel-integration",
+  "description": "Kernel Architecture & WasmVM Integration — restructure secure-exec into a kernel-based OS with pluggable runtime drivers and migrate WasmVM into the monorepo",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Migrate WasmVM Rust workspace into monorepo",
+      "description": "As a developer, I need the WasmVM Rust workspace migrated from ~/seos/wasmcore into wasmvm/ in the secure-exec monorepo so all code lives in one repository.",
+      "acceptanceCriteria": [
+        "wasmvm/ directory exists with Cargo.toml workspace definition, crates/ (multicall, shims, wasi-ext), stubs/, patches/, scripts/",
+        "wasmvm/CLAUDE.md exists with WasmVM-specific build, deps, and patching instructions",
+        "wasmvm/.gitignore ignores target/ and vendor/",
+        "Root .gitignore includes wasmvm/target/ and wasmvm/vendor/",
+        "turbo.json has build:wasm task with inputs wasmvm/**/*.rs and output wasmvm/target/wasm32-wasip1/release/multicall.opt.wasm",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "Completed in commit b7a78c4"
+    },
+    {
+      "id": "US-002",
+      "title": "Migrate WasmVM TypeScript host into monorepo",
+      "description": "As a developer, I need the WasmVM TypeScript host migrated from ~/seos/wasmcore/host into packages/runtime/wasmvm/ so the TS host is a proper monorepo package.",
+      "acceptanceCriteria": [
+        "packages/runtime/wasmvm/ exists with package.json, tsconfig.json, src/, test/",
+        "pnpm-workspace.yaml includes packages/runtime/*",
+        "pnpm install succeeds with the new package",
+        "All existing WasmVM TypeScript tests pass (pnpm --filter @secure-exec/wasmvm test)",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "Migrate WasmVM docs and update monorepo metadata",
+      "description": "As a developer, I need WasmVM documentation migrated and monorepo docs updated with kernel terminology so all project context is consolidated.",
+      "acceptanceCriteria": [
+        "docs/compatibility-matrix.md migrated from ~/seos/docs/",
+        "docs/prior-art.md migrated from ~/seos/docs/",
+        "wasmvm/notes/ contains all migrated internal docs (todo.md, mvp-blockers.md, specs/, research/)",
+        "docs-internal/glossary.md includes definitions for Kernel, Runtime Driver, WasmVM, VFS, FD Table, Process Table, Command Registry, Device Layer",
+        "docs-internal/arch/overview.md updated with kernel architecture diagram and all component descriptions",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "Create kernel package with types and VFS interface",
+      "description": "As a developer, I need the kernel package scaffolded with all core type definitions and the POSIX-complete VFS interface so other kernel components can build on them.",
+      "acceptanceCriteria": [
+        "packages/kernel/package.json exists with name @secure-exec/kernel",
+        "packages/kernel/tsconfig.json configured",
+        "packages/kernel/src/types.ts defines: Kernel, KernelOptions, ExecOptions, ExecResult, SpawnOptions, ManagedProcess, RuntimeDriver, ProcessContext, DriverProcess, KernelInterface, FD types (FDStat, FileDescription, FDEntry, O_* flags, SEEK_*, FILETYPE_*), Process types (ProcessEntry, ProcessInfo, SIGTERM/SIGKILL/SIGINT), Pipe types, Permission types (FsAccessRequest with symlink/readlink/link/chmod/chown/utimes/truncate ops)",
+        "packages/kernel/src/vfs.ts defines VirtualFileSystem interface with: readFile, writeFile, mkdir, readdir, stat, unlink, rename, rmdir, realpath, exists, symlink, readlink, lstat, link, chmod, chown, utimes, truncate",
+        "VirtualStat extended with isSymbolicLink, ino, nlink, uid, gid",
+        "packages/kernel/src/index.ts exports all public types",
+        "Typecheck passes"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-005",
+      "title": "Implement kernel FD table with shared FileDescriptions",
+      "description": "As a developer, I need per-PID file descriptor tables with shared cursor positions via dup/dup2 so processes can share file state correctly.",
+      "acceptanceCriteria": [
+        "packages/kernel/src/fd-table.ts implements ProcessFDTable with open, openWith, get, close, dup, dup2, stat, fork, closeAll",
+        "FDTableManager creates per-PID tables with stdio FDs (0, 1, 2) pre-allocated",
+        "FDTableManager supports fork (copies parent FDs), get, and remove",
+        "Shared FileDescription objects have refcounting — closing one FD does not affect duplicates",
+        "Cursor position is shared across dup'd FDs",
+        "Tests in packages/kernel/test/fd-table.test.ts pass",
+        "Typecheck passes"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "Implement kernel process table",
+      "description": "As a developer, I need a process table that tracks all processes across runtimes with PID allocation, parent-child relationships, waitpid, and signal routing.",
+      "acceptanceCriteria": [
+        "packages/kernel/src/process-table.ts implements ProcessTable with register, get, markExited, waitpid, kill, getppid, listProcesses, terminateAll",
+        "Sequential PID allocation starting from 1",
+        "Parent-child relationship tracking",
+        "Waiter-based waitpid with Promise resolution when process exits",
+        "Zombie process cleanup after ZOMBIE_TTL_MS (60s)",
+        "Tests in packages/kernel/test/process-table.test.ts pass",
+        "Typecheck passes"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "Implement kernel device layer",
+      "description": "As a developer, I need the device layer to intercept /dev/* paths before they reach the VFS backend so device nodes work consistently across runtimes.",
+      "acceptanceCriteria": [
+        "packages/kernel/src/device-layer.ts implements createDeviceLayer(vfs) wrapping a VFS",
+        "Handles /dev/null (EOF read, discard write), /dev/zero (zero-fill read), /dev/urandom (random bytes)",
+        "Handles /dev/stdin, /dev/stdout, /dev/stderr",
+        "EPERM on remove/rename of device nodes",
+        "Non-device paths pass through to backing VFS unchanged",
+        "Tests in packages/kernel/test/device-layer.test.ts pass",
+        "Typecheck passes"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "Implement kernel command registry and pipe manager",
+      "description": "As a developer, I need command→driver routing and cross-runtime pipe management so the kernel can orchestrate multi-process pipelines.",
+      "acceptanceCriteria": [
+        "packages/kernel/src/command-registry.ts implements CommandRegistry with register, resolve, list, populateBin",
+        "populateBin creates stub files in /bin for shell PATH lookup",
+        "Last-mounted driver wins on command name conflict",
+        "packages/kernel/src/pipe-manager.ts implements PipeManager with createPipe, write, read (async with blocking), close, isPipe, createPipeFDs",
+        "EOF propagation when write end closes",
+        "drainBuffer reads multiple chunks up to requested length",
+        "Tests in packages/kernel/test/command-registry.test.ts and pipe-manager.test.ts pass",
+        "Typecheck passes"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "Implement kernel permissions, user, and entry point",
+      "description": "As a developer, I need deny-by-default permissions, user identity, and the main kernel factory so the kernel is fully functional.",
+      "acceptanceCriteria": [
+        "packages/kernel/src/permissions.ts implements wrapFileSystem() wrapping all VFS ops with permission checks",
+        "Permission presets: allowAllFs, allowAllNetwork, allowAllChildProcess, allowAllEnv, allowAll",
+        "packages/kernel/src/user.ts implements UserManager with uid, gid, euid, egid, username, homedir, shell, getpwuid",
+        "packages/kernel/src/kernel.ts implements KernelImpl with mount(), dispose(), exec(), spawn()",
+        "createKernel(options) factory function returns a Kernel",
+        "exec() routes through shell ('sh' command from registry)",
+        "createKernelInterface() builds the syscall surface passed to drivers on mount",
+        "Typecheck passes"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-010",
+      "title": "Create OS node package with NodeFileSystem and NodeWorkerAdapter",
+      "description": "As a developer, I need Node.js platform adapters implementing the kernel's VFS and worker interfaces so the kernel runs on Node.",
+      "acceptanceCriteria": [
+        "packages/os/node/ exists with package.json (@secure-exec/os-node), tsconfig.json",
+        "packages/os/node/src/filesystem.ts implements VirtualFileSystem by delegating to node:fs/promises",
+        "packages/os/node/src/worker.ts wraps node:worker_threads as a WorkerAdapter",
+        "packages/os/node/src/index.ts exports NodeFileSystem and NodeWorkerAdapter",
+        "pnpm-workspace.yaml includes packages/os/*",
+        "Typecheck passes"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-011",
+      "title": "Create OS browser package with InMemoryFileSystem",
+      "description": "As a developer, I need a POSIX-complete in-memory filesystem and browser worker adapter so the kernel runs in the browser.",
+      "acceptanceCriteria": [
+        "packages/os/browser/ exists with package.json (@secure-exec/os-browser), tsconfig.json",
+        "packages/os/browser/src/filesystem.ts implements InMemoryFileSystem with symlinks, hard links, permissions metadata, inode tracking",
+        "InMemoryFileSystem implements full VirtualFileSystem interface including symlink, readlink, lstat, link, chmod, chown, utimes, truncate",
+        "packages/os/browser/src/worker.ts wraps Web Worker API as a WorkerAdapter",
+        "packages/os/browser/src/index.ts exports InMemoryFileSystem and BrowserWorkerAdapter",
+        "Typecheck passes"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-012",
+      "title": "Thin WasmVM WASI polyfill file I/O to use kernel",
+      "description": "As a developer, I need WASI file I/O syscalls (fd_read, fd_write, path_open, fd_seek, fd_close, fd_prestat_get, fd_prestat_dir_name) to delegate to the kernel's FD table and VFS instead of WasmVM's standalone implementation.",
+      "acceptanceCriteria": [
+        "WASI polyfill fd_read delegates to kernel fdRead via KernelInterface",
+        "WASI polyfill fd_write delegates to kernel fdWrite via KernelInterface",
+        "WASI polyfill path_open delegates to kernel fdOpen via KernelInterface",
+        "WASI polyfill fd_seek delegates to kernel fdSeek via KernelInterface",
+        "WASI polyfill fd_close delegates to kernel fdClose via KernelInterface",
+        "WasmVM's standalone file I/O logic in the polyfill is removed",
+        "Existing WasmVM file I/O tests still pass",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-013",
+      "title": "Thin WasmVM WASI polyfill process and FD management to kernel",
+      "description": "As a developer, I need WASI process syscalls (proc_exit, args_get, args_sizes_get, environ_get, environ_sizes_get) and FD stat/management to use kernel process and FD tables.",
+      "acceptanceCriteria": [
+        "WASI polyfill proc_exit delegates to kernel process table markExited",
+        "WASI polyfill args_get/args_sizes_get use ProcessContext from kernel",
+        "WASI polyfill environ_get/environ_sizes_get use ProcessContext env from kernel",
+        "WASI polyfill fd_fdstat_get delegates to kernel fdStat via KernelInterface",
+        "WasmVM's standalone process/FD management logic removed from polyfill",
+        "Existing WasmVM process and env tests still pass",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-014",
+      "title": "Delete WasmVM standalone VFS, FD table, process table, and pipeline",
+      "description": "As a developer, I need WasmVM's standalone OS-layer code deleted now that all operations delegate to the kernel, eliminating duplicated state.",
+      "acceptanceCriteria": [
+        "WasmVM's standalone vfs.ts (internal VFS implementation) is deleted",
+        "WasmVM's standalone FD table logic is deleted",
+        "WasmVM's standalone process table logic is deleted",
+        "WasmVM's standalone device node handling is deleted (moved to kernel device layer)",
+        "WasmVM's /bin population logic is deleted (moved to kernel command registry)",
+        "WasmVM's pipeline.ts is deleted (kernel coordinates pipelines)",
+        "No standalone OS-layer state remains in WasmVM — all goes through kernel",
+        "All WasmVM tests still pass",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-015",
+      "title": "Adapt WasmVM tests from node:test to vitest",
+      "description": "As a developer, I need WasmVM tests converted from node:test to vitest so they integrate with the monorepo's test runner.",
+      "acceptanceCriteria": [
+        "All test files in packages/runtime/wasmvm/test/ use vitest imports (describe, it, expect) instead of node:test (test, assert)",
+        "vitest.config.ts or vitest config in package.json configured for the package",
+        "pnpm --filter @secure-exec/wasmvm test runs all tests via vitest",
+        "All converted tests pass",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 15,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-016",
+      "title": "Create WasmVM RuntimeDriver",
+      "description": "As a developer, I need a createWasmVmRuntime() factory that returns a RuntimeDriver so WasmVM can mount into the kernel.",
+      "acceptanceCriteria": [
+        "packages/runtime/wasmvm/src/driver.ts exports createWasmVmRuntime() returning a RuntimeDriver",
+        "RuntimeDriver.name is 'wasmvm'",
+        "RuntimeDriver.commands lists all 90+ commands (sh, bash, grep, sed, awk, cat, ls, etc.)",
+        "RuntimeDriver.init(kernel) stores KernelInterface reference for syscalls",
+        "RuntimeDriver.spawn(command, args, ctx) creates a Worker, loads WASM binary, runs command, returns DriverProcess with pid, exitCode promise, stdin/stdout/stderr write/onData, and kill",
+        "RuntimeDriver.dispose() terminates all active workers",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 16,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-017",
+      "title": "Create Node RuntimeDriver",
+      "description": "As a developer, I need a createNodeRuntime() factory that wraps the existing Node execution driver behind the RuntimeDriver interface so Node can mount into the kernel.",
+      "acceptanceCriteria": [
+        "packages/runtime/node/src/driver.ts exports createNodeRuntime(options) returning a RuntimeDriver",
+        "RuntimeDriver.name is 'node'",
+        "RuntimeDriver.commands lists ['node', 'npm', 'npx']",
+        "RuntimeDriver.init(kernel) stores KernelInterface, configures bridge to use kernel VFS/FD/process",
+        "RuntimeDriver.spawn(command, args, ctx) creates an isolate, runs code, returns DriverProcess",
+        "RuntimeDriver.dispose() disposes all active isolates",
+        "Existing secure-exec Node tests still pass",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 17,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-018",
+      "title": "Create Python RuntimeDriver",
+      "description": "As a developer, I need a createPythonRuntime() factory that wraps the existing Pyodide driver behind the RuntimeDriver interface so Python can mount into the kernel.",
+      "acceptanceCriteria": [
+        "packages/runtime/python/src/driver.ts exports createPythonRuntime(options) returning a RuntimeDriver",
+        "RuntimeDriver.name is 'python'",
+        "RuntimeDriver.commands lists ['python', 'python3', 'pip']",
+        "RuntimeDriver.init(kernel) stores KernelInterface, configures Pyodide worker to use kernel VFS",
+        "RuntimeDriver.spawn(command, args, ctx) creates a Pyodide worker, runs code, returns DriverProcess",
+        "RuntimeDriver.dispose() terminates Pyodide worker",
+        "Existing secure-exec Python tests still pass",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 18,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-019",
+      "title": "Wire kernel.exec() end-to-end with mounted runtimes",
+      "description": "As a developer, I need kernel.exec() to work end-to-end: parse command, look up in registry, spawn via the correct runtime driver, capture output, return ExecResult.",
+      "acceptanceCriteria": [
+        "kernel.exec('echo hello') returns { code: 0, stdout: 'hello\\n', stderr: '' } when WasmVM is mounted",
+        "kernel.exec('ls /tmp') works when files exist in kernel VFS",
+        "kernel.exec('cat /tmp/test.txt') returns file contents from kernel VFS",
+        "kernel.exec('nonexistent-command') returns non-zero exit code with error on stderr",
+        "kernel.spawn('echo', ['hello']) returns ManagedProcess with working stdout onData and exitCode",
+        "Integration test verifying createKernel + mount(wasmvmDriver) + exec works",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 19,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-020",
+      "title": "Route Node bridge child_process.spawn through kernel",
+      "description": "As a developer, I need the Node bridge's child_process.spawn polyfill to route through the kernel's command registry instead of the host's child_process, enabling cross-runtime command execution from Node code.",
+      "acceptanceCriteria": [
+        "Node bridge child_process.spawn('ls', ['/tmp']) resolves via kernel command registry to WasmVM runtime",
+        "Node bridge child_process.execSync('echo hello') works through kernel",
+        "Spawned processes get proper PIDs from kernel process table",
+        "stdout/stderr from spawned processes are piped back to the Node caller",
+        "Commands not in the registry return ENOENT-like error",
+        "Existing secure-exec child_process tests still pass",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 20,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-021",
+      "title": "Implement cross-runtime pipes",
+      "description": "As a developer, I need cross-runtime pipelines to work so commands like 'echo hello | node -e \"process.stdin.pipe(process.stdout)\"' execute correctly across WasmVM and Node runtimes.",
+      "acceptanceCriteria": [
+        "kernel.exec('echo hello | cat') works (WasmVM-to-WasmVM pipe)",
+        "kernel.exec('echo hello | node -e \"...\"') pipes WasmVM stdout to Node stdin when both runtimes mounted",
+        "kernel.exec('cat file | python -c \"...\"') pipes WasmVM stdout to Python stdin when both runtimes mounted",
+        "Pipe EOF propagation: when writer closes, reader gets EOF",
+        "PipeManager createPipeFDs allocates FDs in the kernel FD table for both ends",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 21,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-022",
+      "title": "Implement FD inheritance for child processes",
+      "description": "As a developer, I need child processes to inherit their parent's file descriptor table so redirections and pipes work correctly across process boundaries.",
+      "acceptanceCriteria": [
+        "When kernel.spawn forks a process, child gets a copy of parent's FD table via FDTableManager.fork",
+        "Inherited FDs share cursor position with parent (via shared FileDescription refcounting)",
+        "Child can close inherited FDs without affecting parent",
+        "Redirections (e.g., '> /tmp/out.txt') modify child's FD table before exec",
+        "Integration test: parent opens file, spawns child, child reads from inherited FD",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 22,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-023",
+      "title": "Implement signal forwarding across runtimes",
+      "description": "As a developer, I need kill(pid, signal) to work across runtimes so processes can be terminated regardless of which runtime owns them.",
+      "acceptanceCriteria": [
+        "kernel process table kill(pid, SIGTERM) routes to the correct runtime driver's DriverProcess.kill()",
+        "SIGTERM gives the process a chance to clean up before termination",
+        "SIGKILL immediately terminates the process",
+        "kill() on a non-existent PID returns ESRCH error",
+        "Signal delivery works across runtimes (Node process can kill a WasmVM process and vice versa)",
+        "Integration test: spawn a long-running process, send SIGTERM, verify it exits",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 23,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-024",
+      "title": "Create kernel behavioral contracts",
+      "description": "As a developer, I need behavioral contracts for the kernel package so future changes are reviewed against explicit requirements.",
+      "acceptanceCriteria": [
+        ".agent/contracts/kernel.md exists defining behavioral requirements for: VFS interface semantics, FD table open/close/dup/dup2/fork, process table register/waitpid/kill/zombie cleanup, device layer intercepts and EPERM rules, pipe manager blocking read/EOF/drain, command registry resolution and /bin population, permission deny-by-default wrapping",
+        ".agent/contracts/kernel-runtime-driver.md exists defining: RuntimeDriver interface contract (init/spawn/dispose lifecycle), command registration rules, ProcessContext requirements, DriverProcess exit/kill/stdio contract",
+        "Both contracts use Requirement/Scenario/WHEN/THEN format consistent with existing contracts",
+        ".agent/contracts/README.md updated with new contract entries in the index table",
+        "Typecheck passes"
+      ],
+      "priority": 24,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-025",
+      "title": "Update existing contracts for kernel model",
+      "description": "As a developer, I need existing contracts updated to reflect the kernel-mediated execution model so contracts remain the authoritative source of truth.",
+      "acceptanceCriteria": [
+        ".agent/contracts/node-runtime.md updated: execution goes through kernel mount + spawn, not standalone driver construction",
+        ".agent/contracts/node-bridge.md updated: child_process.spawn routes through kernel command registry",
+        ".agent/contracts/node-permissions.md updated: documents interaction between kernel-level permissions (wrapFileSystem) and existing secure-exec permission wrappers",
+        ".agent/contracts/runtime-driver-integration-testing.md updated: test infrastructure supports kernel-aware TestContext with mounted drivers",
+        ".agent/contracts/runtime-driver-test-suite-structure.md updated: adds kernel test patterns (kernel unit tests in packages/kernel/test/, cross-runtime integration tests)",
+        ".agent/contracts/compatibility-governance.md updated: cross-runtime parity requirements (same VFS/FD/process state across WasmVM, Node, Python)",
+        "All contract changes are internally consistent and use existing WHEN/THEN format",
+        "Typecheck passes"
+      ],
+      "priority": 25,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}
