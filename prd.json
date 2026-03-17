@@ -407,6 +407,27 @@
     },
     {
       "id": "US-026",
+      "title": "Create CLI interactive shell entry point (secure-exec-shell)",
+      "description": "As a developer, I need a one-command entry point that wires kernel.openShell() to my terminal so I can interactively use the kernel shell for testing and debugging.",
+      "acceptanceCriteria": [
+        "Script at scripts/shell.ts (or packages/secure-exec/src/cli/shell.ts) wires kernel.openShell() to process.stdin/stdout",
+        "Running the script drops into an interactive shell inside the kernel",
+        "process.stdin set to raw mode — arrow keys, tab, backspace pass through correctly",
+        "^C sends SIGINT (cancels command, does not exit shell)",
+        "^D on empty line exits the shell",
+        "Window resize triggers shell.resize() with current terminal dimensions",
+        "node -e \"console.log(42)\" works interactively (cross-runtime via kernel)",
+        "Shell exit restores terminal to normal mode and exits with shell exit code",
+        "Accepts --wasm-path and --no-node flags",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 26,
+      "passes": false,
+      "notes": "P4 — depends on US-025 (kernel.openShell). Thin CLI wrapper ~30 lines."
+    },
+    {
+      "id": "US-027",
       "title": "Implement /dev/fd pseudo-directory",
       "description": "As a developer, I need /dev/fd/N paths to work so bash process substitution and heredoc patterns function correctly.",
       "acceptanceCriteria": [
@@ -422,12 +443,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 26,
+      "priority": 27,
       "passes": false,
       "notes": "P4 — packages/kernel/src/device-layer.ts. Requires PID context in device layer operations."
     },
     {
-      "id": "US-027",
+      "id": "US-028",
       "title": "Implement fdPread and fdPwrite (positional I/O)",
       "description": "As a developer, I need positional read/write that operates at a given offset without moving the FD cursor.",
       "acceptanceCriteria": [
@@ -443,12 +464,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 27,
+      "priority": 28,
       "passes": false,
       "notes": "P4 — packages/kernel/src/fd-table.ts, kernel.ts, wasmvm kernel-worker. Wire into existing WasmVM stubs."
     },
     {
-      "id": "US-028",
+      "id": "US-029",
       "title": "Write PTY and interactive shell documentation",
       "description": "As a user, I need docs for PTY support, openShell(), terminal configuration, and process group job control.",
       "acceptanceCriteria": [
@@ -457,12 +478,12 @@
         "Follows Mintlify MDX style",
         "Typecheck passes"
       ],
-      "priority": 28,
+      "priority": 29,
       "passes": false,
       "notes": "P5 — depends on US-025 (openShell implementation)"
     },
     {
-      "id": "US-029",
+      "id": "US-030",
       "title": "Update kernel API reference for new P4 syscalls",
       "description": "As a user, I need the API reference updated with openpty, termios, process group, and positional I/O syscalls.",
       "acceptanceCriteria": [
@@ -471,12 +492,12 @@
         "Termios type reference added",
         "Typecheck passes"
       ],
-      "priority": 29,
+      "priority": 30,
       "passes": false,
       "notes": "P5 — update existing docs/kernel/api-reference.mdx. Depends on US-017 and P4 stories."
     },
     {
-      "id": "US-030",
+      "id": "US-031",
       "title": "Add global host resource budgets to bridge path",
       "description": "As a developer, I need configurable caps on output bytes, bridge calls, timers, and child processes to prevent host resource exhaustion.",
       "acceptanceCriteria": [
@@ -493,12 +514,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 30,
+      "priority": 31,
       "passes": false,
       "notes": "P6 — packages/secure-exec/src/node/execution-driver.ts, bridge/process.ts, shared/permissions.ts"
     },
     {
-      "id": "US-031",
+      "id": "US-032",
       "title": "Enforce maxBuffer on child-process output buffering",
       "description": "As a developer, I need execSync/spawnSync to enforce maxBuffer to prevent host memory exhaustion from unbounded output.",
       "acceptanceCriteria": [
@@ -511,12 +532,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 31,
+      "priority": 32,
       "passes": false,
       "notes": "P6 — packages/secure-exec/src/bridge/child-process.ts (710 lines, @ts-nocheck). Lines ~348-357."
     },
     {
-      "id": "US-032",
+      "id": "US-033",
       "title": "Add missing fs APIs: cp, mkdtemp, opendir",
       "description": "As a developer, I need cp (recursive copy), mkdtemp (temp directory), and opendir (async Dir iterator) in the bridge for Node.js compatibility.",
       "acceptanceCriteria": [
@@ -528,12 +549,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 32,
+      "priority": 33,
       "passes": false,
       "notes": "P6 — packages/secure-exec/src/bridge/fs.ts. First batch of 8 missing fs APIs."
     },
     {
-      "id": "US-033",
+      "id": "US-034",
       "title": "Add missing fs APIs: glob, statfs, readv, fdatasync, fsync",
       "description": "As a developer, I need glob, statfs, readv, fdatasync, and fsync in the bridge for Node.js compatibility.",
       "acceptanceCriteria": [
@@ -546,12 +567,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 33,
+      "priority": 34,
       "passes": false,
       "notes": "P6 — packages/secure-exec/src/bridge/fs.ts. Second batch of missing fs APIs."
     },
     {
-      "id": "US-034",
+      "id": "US-035",
       "title": "Wire deferred fs APIs (chmod, chown, link, symlink, readlink, truncate, utimes) through bridge",
       "description": "As a developer, I need the fs APIs that currently throw 'not supported' to delegate to the VFS instead.",
       "acceptanceCriteria": [
@@ -567,12 +588,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 34,
+      "priority": 35,
       "passes": false,
       "notes": "P6 — packages/secure-exec/src/bridge/fs.ts. Remove 'not supported' throws, wire to VFS."
     },
     {
-      "id": "US-035",
+      "id": "US-036",
       "title": "Add Express project-matrix fixture",
       "description": "As a developer, I need an Express fixture to catch compatibility regressions for the most common Node.js framework.",
       "acceptanceCriteria": [
@@ -586,12 +607,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 35,
+      "priority": 36,
       "passes": false,
       "notes": "P6 — packages/secure-exec/tests/projects/. Must be sandbox-blind."
     },
     {
-      "id": "US-036",
+      "id": "US-037",
       "title": "Add Fastify project-matrix fixture",
       "description": "As a developer, I need a Fastify fixture to catch compatibility issues in async middleware, schema validation, and structured logging.",
       "acceptanceCriteria": [
@@ -601,12 +622,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 36,
+      "priority": 37,
       "passes": false,
       "notes": "P6 — same pattern as Express fixture (US-035)"
     },
     {
-      "id": "US-037",
+      "id": "US-038",
       "title": "Add pnpm and bun package manager layout fixtures",
       "description": "As a developer, I need fixtures testing pnpm symlink-based and bun hardlink-based node_modules layouts.",
       "acceptanceCriteria": [
@@ -617,12 +638,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 37,
+      "priority": 38,
       "passes": false,
       "notes": "P6 — Yarn PnP out of scope (needs .pnp.cjs loader hook support)"
     },
     {
-      "id": "US-038",
+      "id": "US-039",
       "title": "Remove @ts-nocheck from polyfills.ts and os.ts",
       "description": "As a developer, I need type safety restored on these security-critical bridge files.",
       "acceptanceCriteria": [
@@ -633,12 +654,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 38,
+      "priority": 39,
       "passes": false,
       "notes": "P6 — only add type annotations and casts, do NOT change runtime behavior"
     },
     {
-      "id": "US-039",
+      "id": "US-040",
       "title": "Remove @ts-nocheck from child-process.ts",
       "description": "As a developer, I need type safety restored on the 710-line child-process bridge file.",
       "acceptanceCriteria": [
@@ -648,12 +669,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 39,
+      "priority": 40,
       "passes": false,
       "notes": "P6 — largest bridge file (710 lines). Only type annotations/casts, no behavior changes."
     },
     {
-      "id": "US-040",
+      "id": "US-041",
       "title": "Remove @ts-nocheck from process.ts and network.ts",
       "description": "As a developer, I need type safety restored on the remaining bridge files.",
       "acceptanceCriteria": [
@@ -664,12 +685,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 40,
+      "priority": 41,
       "passes": false,
       "notes": "P6 — final two @ts-nocheck files"
     },
     {
-      "id": "US-041",
+      "id": "US-042",
       "title": "Fix v8.serialize/deserialize to use structured clone semantics",
       "description": "As a developer, I need v8.serialize to handle Map, Set, RegExp, Date, circular refs, BigInt, etc. instead of using JSON.",
       "acceptanceCriteria": [
@@ -684,12 +705,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 41,
+      "priority": 42,
       "passes": false,
       "notes": "P7 — packages/secure-exec/isolate-runtime/src/inject/bridge-initial-globals.ts. Currently uses JSON.stringify/parse."
     },
     {
-      "id": "US-042",
+      "id": "US-043",
       "title": "Implement HTTP Agent pooling, upgrade, and trailer APIs",
       "description": "As a developer, I need http.Agent connection pooling, HTTP upgrade (WebSocket), trailer headers, and socket events for compatibility with ws, got, axios.",
       "acceptanceCriteria": [
@@ -702,12 +723,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 42,
+      "priority": 43,
       "passes": false,
       "notes": "P7 — packages/secure-exec/src/bridge/network.ts"
     },
     {
-      "id": "US-043",
+      "id": "US-044",
       "title": "Create codemod example project",
       "description": "As a user, I need an example showing how to use secure-exec for safe code transformations.",
       "acceptanceCriteria": [
@@ -717,12 +738,12 @@
         "Sandbox prevents codemod from accessing host filesystem",
         "Typecheck passes"
       ],
-      "priority": 43,
+      "priority": 44,
       "passes": false,
       "notes": "P7 — demonstrates primary use case: running untrusted/generated code safely"
     },
     {
-      "id": "US-044",
+      "id": "US-045",
       "title": "Split NodeExecutionDriver into focused modules",
       "description": "As a developer, I need the 1756-line monolith broken into isolate-bootstrap, module-resolver, esm-compiler, bridge-setup, and execution-lifecycle modules.",
       "acceptanceCriteria": [
@@ -734,12 +755,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 44,
+      "priority": 45,
       "passes": false,
       "notes": "P8 — packages/secure-exec/src/node/execution-driver.ts. Pure extraction, no behavior changes."
     },
     {
-      "id": "US-045",
+      "id": "US-046",
       "title": "Add O(1) ESM module reverse lookup",
       "description": "As a developer, I need reverse lookup to use a Map instead of scanning, to avoid quadratic behavior on large import graphs.",
       "acceptanceCriteria": [
@@ -749,12 +770,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 45,
+      "priority": 46,
       "passes": false,
       "notes": "P8 — packages/secure-exec/src/node/execution-driver.ts (or extracted module-resolver.ts after US-044)"
     },
     {
-      "id": "US-046",
+      "id": "US-047",
       "title": "Add resolver memoization (negative/positive caches)",
       "description": "As a developer, I need require/import resolution to cache results and avoid repeated miss probes.",
       "acceptanceCriteria": [
@@ -766,7 +787,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 46,
+      "priority": 47,
       "passes": false,
       "notes": "P8 — packages/secure-exec/src/package-bundler.ts, shared/require-setup.ts, node/execution-driver.ts"
     }

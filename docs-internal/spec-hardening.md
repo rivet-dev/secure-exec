@@ -508,7 +508,61 @@ When `resize(cols, rows)` is called:
 - Test: open shell, run "cat" (foreground), ^C kills cat but not shell
 - Typecheck passes, tests pass
 
-### 25. Device `/dev/fd` Pseudo-Directory
+### 25. CLI Interactive Shell (`secure-exec-shell`)
+
+**Location:** new file `packages/secure-exec/src/cli/shell.ts` or `scripts/shell.ts`
+
+**Problem:** `kernel.openShell()` returns a programmatic handle but there's no way to actually use it from a terminal. Developers need a one-command entry point to get an interactive shell inside the kernel for testing, debugging, and exploration.
+
+**Implementation:**
+
+Create a CLI entry point that wires `kernel.openShell()` to the host process's stdin/stdout:
+
+```ts
+import { createKernel } from "@secure-exec/kernel";
+import { createWasmVmRuntime } from "@secure-exec/runtime-wasmvm";
+import { createNodeRuntime } from "@secure-exec/runtime-node";
+
+const kernel = createKernel({ filesystem: vfs });
+await kernel.mount(createWasmVmRuntime({ wasmBinaryPath: "..." }));
+await kernel.mount(createNodeRuntime());
+
+const shell = kernel.openShell({
+  env: { ...process.env, TERM: process.env.TERM || "xterm-256color" },
+  cols: process.stdout.columns,
+  rows: process.stdout.rows,
+});
+
+process.stdin.setRawMode(true);
+process.stdin.resume();
+process.stdin.on("data", (chunk) => shell.write(chunk));
+shell.onData((data) => process.stdout.write(data));
+
+process.stdout.on("resize", () => {
+  shell.resize(process.stdout.columns, process.stdout.rows);
+});
+
+const code = await shell.wait();
+process.stdin.setRawMode(false);
+process.exit(code);
+```
+
+- Runnable via `npx tsx scripts/shell.ts` or a bin entry in package.json
+- Accepts optional args: `--wasm-path`, `--no-node` (skip mounting Node driver), `--cwd`
+- On shell exit, restores terminal and exits with the shell's exit code
+
+**Acceptance criteria:**
+- Running the script drops you into an interactive shell inside the kernel
+- `echo hello`, `ls /`, `cat` with stdin all work interactively
+- Tab characters, arrow keys, and backspace pass through correctly (raw mode)
+- ^C sends SIGINT (cancels command, doesn't exit shell)
+- ^D on empty line exits the shell
+- Window resize updates the shell (SIGWINCH)
+- `node -e "console.log(42)"` works (cross-runtime via kernel)
+- Shell exit restores terminal to normal mode
+- Typecheck passes, tests pass
+
+### 26. Device `/dev/fd` Pseudo-Directory (was 25)
 
 **Location:** `packages/kernel/src/device-layer.ts`
 
@@ -537,7 +591,7 @@ When `resize(cols, rows)` is called:
 - Test: readDir("/dev/fd") lists 0, 1, 2 (at minimum) for any process
 - Typecheck passes, tests pass
 
-### 26. fdPread / fdPwrite (Positional I/O)
+### 27. fdPread / fdPwrite (Positional I/O) (was 26)
 
 **Location:** `packages/kernel/src/fd-table.ts`, `packages/kernel/src/kernel.ts`, `packages/runtime/wasmvm/src/kernel-worker.ts`
 
@@ -567,7 +621,7 @@ When `resize(cols, rows)` is called:
 
 ## P5 — Documentation for New Features
 
-### 27. PTY and Interactive Shell Documentation
+### 28. PTY and Interactive Shell Documentation (was 27)
 
 **File:** `docs/kernel/interactive-shell.mdx`
 
@@ -580,7 +634,7 @@ Covers:
 - Resize handling (SIGWINCH)
 - Full example: Node.js CLI that opens an interactive shell
 
-### 28. Update Kernel API Reference for New Syscalls
+### 29. Update Kernel API Reference for New Syscalls (was 28)
 
 **File:** `docs/kernel/api-reference.mdx` (update existing)
 
@@ -597,7 +651,7 @@ Add:
 
 ## P6 — Bridge Hardening & Host Protection
 
-### 29. Global Host Resource Budgets
+### 30. Global Host Resource Budgets (was 29)
 
 **Location:** `packages/secure-exec/src/node/execution-driver.ts`, `packages/secure-exec/src/bridge/process.ts`, `packages/secure-exec/src/shared/permissions.ts`
 
