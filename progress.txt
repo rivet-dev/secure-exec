@@ -355,4 +355,22 @@ Started: 2026-03-16
   - When stdout is piped, WasmVM polyfill stdout writer must be redirected through fdWrite RPC — postMessage path is only for non-piped output
   - FDTableManager.createWithStdio increments refCount on shared FileDescriptions (pipe ends shared between parent and child)
   - ProcessContext.fds is always {stdin:0, stdout:1, stderr:2} — the FD table entries behind those numbers differ (pipe vs device)
+- NodeRuntimeDriver must pass `allowAllChildProcess` permissions to createNodeDriver — without it, wrapCommandExecutor deny-by-default blocks all child_process.spawn calls with EACCES
+- Bridge child_process.execSync wraps commands as `bash -c 'command'` — mock drivers need 'bash' registered and must parse `-c` flag to find the inner command
+---
+
+## 2026-03-16 - US-023
+- Hardened 3 Node driver tests and added 3 WasmVM real execution tests
+- Fixed root cause: NodeRuntimeDriver called createNodeDriver() without permissions → EACCES on all child_process.spawn
+- Test changes:
+  1. `child_process.spawn routes through kernel`: removed `if (code === 0)` guard, now unconditionally asserts code===0 AND output contains mock-echo-output
+  2. `cannot access host filesystem directly`: replaced negative `not.toContain('SECURITY_BREACH')` with positive `toContain('blocked:')` + `not.toContain('root:x:0:0')`
+  3. `spawning multiple child processes`: replaced placeholder `console.log('safe')` with real 5-child execSync spawning, verifies all complete successfully
+  4. WasmVM `real execution` block: exec('echo hello') → 'hello\n', exec('cat /dev/null') → exit 0, exec('false') → exit non-zero
+- Files changed: packages/runtime/node/src/driver.ts, packages/runtime/node/test/driver.test.ts, packages/runtime/wasmvm/test/driver.test.ts
+- 20 Node driver tests pass, 362 WasmVM tests pass (4 skipped), 48 kernel tests pass, 157 secure-exec tests pass, typecheck passes
+- **Learnings for future iterations:**
+  - wrapCommandExecutor deny-by-default: if no permissions.childProcess callback exists, ALL child_process spawns throw EACCES — always pass allowAllChildProcess when child_process routing through kernel is intended
+  - Bridge child_process.execSync sends command="bash" args=["-c", "actual command"] — test mocks must handle this bash wrapper pattern
+  - WasmVM real execution tests need describe.skipIf(!hasWasmBinary) with existsSync check on multicall.wasm path
 ---

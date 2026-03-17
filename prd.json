@@ -411,8 +411,8 @@
         "Tests pass"
       ],
       "priority": 23,
-      "passes": false,
-      "notes": "Three categories of escape hatches to fix: (1) conditional assertions wrapped in `if (code === 0)` that silently pass on failure, (2) negative assertions checking absence of magic strings instead of asserting actual error behavior, (3) placeholder tests that don't exercise what they claim. All must be replaced with unconditional assertions."
+      "passes": true,
+      "notes": "Fixed all three escape hatch categories: (1) removed if(code===0) guard on execSync routing test — now unconditionally asserts code===0 and output contains mock-echo-output, (2) replaced negative SECURITY_BREACH assertion with positive stderr.toContain('blocked:') and stdout.not.toContain('root:x:0:0'), (3) replaced placeholder fork bomb test with real 5-child-process spawning via execSync. Also added WasmVM real execution tests (echo hello, cat /dev/null, false). Fixed root cause: NodeRuntimeDriver was calling createNodeDriver without permissions, causing EACCES on child_process.spawn — added allowAllChildProcess."
     },
     {
       "id": "US-024",
