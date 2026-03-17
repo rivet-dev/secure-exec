@@ -373,3 +373,19 @@ PRD: ralph/kernel-hardening (46 stories)
   - survivableSignals must include SIGINT(2), SIGTSTP(20), and SIGWINCH(28) for shell-like processes that handle these without dying
   - The PTY read pump (master → onData) uses ptyManager.read() directly instead of going through KernelInterface, since we're inside KernelImpl
 ---
+
+## 2026-03-17 - US-026
+- What was implemented: kernel.connectTerminal() method and scripts/shell.ts CLI entry point
+- Files changed:
+  - packages/kernel/src/types.ts — added ConnectTerminalOptions interface extending OpenShellOptions with onData override; added connectTerminal() to Kernel interface
+  - packages/kernel/src/kernel.ts — implemented connectTerminal(): wires openShell() to process.stdin/stdout, sets raw mode (if TTY), forwards resize, restores terminal on exit
+  - packages/kernel/src/index.ts — exported ConnectTerminalOptions type
+  - scripts/shell.ts — CLI entry point: creates kernel with InMemoryFileSystem, mounts WasmVM and optionally Node, calls kernel.connectTerminal(), accepts --wasm-path and --no-node flags
+  - packages/kernel/test/kernel-integration.test.ts — added 4 tests: exit code 0, custom exit code, command/args forwarding, onData override with PTY data flow
+- **Learnings for future iterations:**
+  - connectTerminal guards setRawMode behind isTTY check — in test/CI environments stdin is a pipe, not a TTY
+  - process.stdin.emit('data', ...) works in tests to simulate user input without a real TTY — useful for testing PTY data flow end-to-end
+  - stdin.resume() is needed after attaching the data listener to ensure data events fire; stdin.pause() in finally to avoid keeping event loop alive
+  - The onData override is the key testing seam — tests capture output chunks without needing a real terminal
+  - scripts/shell.ts uses relative imports (../packages/...) since it's not a workspace package; tsx handles TS execution from the repo root
+---
