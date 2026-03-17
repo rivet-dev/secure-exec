@@ -793,6 +793,78 @@
       "priority": 47,
       "passes": true,
       "notes": "P8 — packages/secure-exec/src/package-bundler.ts, shared/require-setup.ts, node/execution-driver.ts"
+    },
+    {
+      "id": "US-048",
+      "title": "Fix zombie timer cleanup tests to actually verify timer clearing",
+      "description": "As a developer, I need the zombie timer cleanup tests to verify timers are actually cleared, not just that dispose() doesn't throw.",
+      "acceptanceCriteria": [
+        "ProcessTable exposes zombieTimerCount getter (or equivalent) for test observability",
+        "Test: spawn process, let it exit → zombieTimerCount > 0 (timer was scheduled)",
+        "Test: call kernel.dispose() → zombieTimerCount === 0 (timer was cleared)",
+        "Test: with vi.useFakeTimers(), advance 60s after dispose → no callbacks fire, no errors",
+        "Tests would FAIL if timers are not actually cleared during dispose",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 48,
+      "passes": false,
+      "notes": "P9 — US-013 implementation was pass-vacuous. Tests only checked dispose() didn't throw. packages/kernel/test/kernel-integration.test.ts and packages/kernel/src/process-table.ts"
+    },
+    {
+      "id": "US-049",
+      "title": "Fix pnpm layout fixture with real pnpm symlink structure",
+      "description": "As a developer, I need the pnpm fixture to have a real pnpm-installed node_modules layout so it actually tests symlink-based module resolution.",
+      "acceptanceCriteria": [
+        "pnpm-lock.yaml exists in packages/secure-exec/tests/projects/pnpm-layout-pass/",
+        "node_modules/.pnpm/ directory exists with real symlink structure",
+        "node_modules/left-pad is a symlink (not a regular directory)",
+        "fixture.json specifies packageManager: pnpm",
+        "require(\"left-pad\") resolves through the symlink chain in index.js",
+        "Fixture passes host parity comparison (node index.js → exit 0)",
+        "Fixture passes through kernel and secure-exec project matrices",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 49,
+      "passes": false,
+      "notes": "P9 — US-038 pnpm fixture was a stub with no .pnpm/ structure or pnpm-lock.yaml. packages/secure-exec/tests/projects/pnpm-layout-pass/"
+    },
+    {
+      "id": "US-050",
+      "title": "Fix bun layout fixture with real bun-installed structure",
+      "description": "As a developer, I need the bun fixture to have a real bun-installed node_modules layout and correct fixture.json metadata.",
+      "acceptanceCriteria": [
+        "bun.lockb exists in packages/secure-exec/tests/projects/bun-layout-pass/",
+        "fixture.json specifies packageManager: bun (was incorrectly set to npm)",
+        "node_modules/left-pad installed via bun layout",
+        "require(\"left-pad\") resolves correctly in index.js",
+        "Fixture passes host parity comparison (node index.js → exit 0)",
+        "Fixture passes through kernel and secure-exec project matrices",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 50,
+      "passes": false,
+      "notes": "P9 — US-038 bun fixture was misnamed. fixture.json said npm, no bun.lockb. packages/secure-exec/tests/projects/bun-layout-pass/"
+    },
+    {
+      "id": "US-051",
+      "title": "Express and Fastify fixtures should use real HTTP servers",
+      "description": "As a developer, I need the framework fixtures to start real HTTP servers and make real requests so the network stack is exercised.",
+      "acceptanceCriteria": [
+        "Express fixture starts server on port 0 (auto-assign), makes real http.get requests, verifies response status and body",
+        "Fastify fixture starts server on port 0, makes real http.get requests, verifies response status and body",
+        "Both fixtures close server and exit cleanly after tests",
+        "Both still sandbox-blind (no sandbox-specific code)",
+        "Both still pass host parity comparison",
+        "Both pass through kernel and secure-exec project matrices",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 51,
+      "passes": false,
+      "notes": "P9 — US-036/037 used EventEmitter mock dispatchers instead of real HTTP. packages/secure-exec/tests/projects/express-pass/ and fastify-pass/"
     }
   ]
 }
