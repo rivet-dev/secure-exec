@@ -50,6 +50,7 @@ Started: 2026-03-16
 - WasmVM stdin pipe: kernel.pipe(pid) + fdDup2(pid, readFd, 0) + polyfill.setStdinReader() for kernel-backed stdin streaming
 - Node driver stdin: buffer writeStdin data, closeStdin resolves Promise passed to exec({ stdin }); auto-resolves via queueMicrotask for no-stdin processes
 - Bridge process.stdin does NOT emit 'end' for empty stdin ("") — pass undefined to exec() for no-stdin case
+- E2E fixture tests: use NodeFileSystem({ root: projectDir }) for real npm package resolution; kernel VFS root = project dir, cwd = '/'
 
 ---
 
@@ -508,4 +509,30 @@ Started: 2026-03-16
   - ProcessTable.kill() silently returns for exited processes (no error) — correct Unix semantics
   - KernelInterface.kill(pid, signal) throws ESRCH for unknown PIDs — tests verify cross-driver routing via this path
   - MockRuntimeDriver with neverExit + killSignals array is sufficient to test all signal routing scenarios
+---
+
+## 2026-03-16 - US-031
+- Created e2e-project-matrix.test.ts that runs all fixture projects through the kernel with host-node parity comparison
+- Created esm-import-pass fixture project (type: module, import { Hono } from 'hono', logs typeof app.fetch)
+- Test architecture:
+  - Discovers fixture projects from tests/projects/ by reading fixture.json metadata
+  - Prepares each fixture via pnpm install (reuses same content-hash cache as project-matrix.test.ts)
+  - Runs entry via host Node (baseline), then via kernel (NodeFileSystem rooted at prepared project dir)
+  - For pass fixtures: compares kernel output (code, stdout, stderr) against host Node output
+  - For fail fixtures: checks kernel exit code and stderr against fixture.json fail contract
+- Kernel setup: NodeFileSystem({ root: projectDir }) + createKernel({ cwd: '/' }) + WasmVM + Node mounted
+  - NodeFileSystem root maps VFS paths to host project directory — require() resolves from on-disk node_modules
+  - No InMemoryFileSystem needed — avoids copying hundreds of MB of node_modules
+- 9 tests total (1 discovery + 8 fixture): semver-pass, dotenv-pass, module-access-pass, crypto-random-pass, fs-metadata-rename-pass, rivetkit, net-unsupported-fail, esm-import-pass
+- ESM fixture passes in existing project-matrix test too (secure-exec has full ESM support via SourceTextModule)
+- All tests gracefully skipped when WASM binary not built (describe.skipIf)
+- Files changed: e2e-project-matrix.test.ts (new), esm-import-pass/ fixture (3 new files), prd.json
+- 158 secure-exec tests pass (75 skipped — WASM/pyodide), 66 kernel tests pass, typecheck passes
+- **Learnings for future iterations:**
+  - NodeFileSystem({ root: projectDir }) is the correct approach for E2E tests needing real npm packages — InMemoryFileSystem can't hold hundreds of MB of node_modules
+  - kernel.exec() requires WasmVM shell (routes through sh -c) — tests must skip if WASM binary not built
+  - The kernel VFS root IS the project dir, so VFS path /src/index.js maps to projectDir/src/index.js
+  - secure-exec NodeExecutionDriver supports ESM natively (SourceTextModule + ESM resolver) — import syntax works through the kernel
+  - Same fixture cache key is shared with project-matrix.test.ts — both tests benefit from each other's cached installs
+  - normalizeText replaces both native-path and posix-path variants of projectDir with <project>
 ---

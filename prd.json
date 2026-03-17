@@ -564,7 +564,7 @@
         "Tests pass"
       ],
       "priority": 31,
-      "passes": false,
+      "passes": true,
       "notes": "Reuse infrastructure from packages/secure-exec/tests/project-matrix.test.ts: discoverFixtures(), prepareFixtureProject(), runHostExecution(). The kernel side replaces runSandboxExecution() with kernel.exec('node <entry>'). Add one new ESM fixture to cover import syntax. KEY DECISION: use NodeFileSystem pointed at the prepared project dir (which has node_modules from host npm install) so that require() resolves naturally. The kernel VFS root IS the project dir, cwd is '/'. ModuleAccessFileSystem overlay is NOT needed when using NodeFileSystem because node_modules is already on disk. InMemoryFileSystem would require copying hundreds of MB — impractical."
     },
     {

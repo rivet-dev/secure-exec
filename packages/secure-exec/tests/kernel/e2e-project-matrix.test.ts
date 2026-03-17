@@ -1,0 +1,314 @@
+/**
+ * E2E project-matrix test: run existing fixture projects through the kernel.
+ *
+ * For each fixture in tests/projects/:
+ *   1. Prepare project (npm install, cached by content hash)
+ *   2. Run entry via host Node (baseline)
+ *   3. Run entry via kernel (NodeFileSystem rooted at project dir, WasmVM + Node)
+ *   4. Compare output parity
+ *
+ * Uses relative imports to avoid cyclic package dependencies.
+ */
+
+import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { access, cp, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
+import { describe, expect, it } from 'vitest';
+import { createKernel } from '../../../kernel/src/index.ts';
+import { NodeFileSystem } from '../../../os/node/src/index.ts';
+import { createWasmVmRuntime } from '../../../runtime/wasmvm/src/index.ts';
+import { createNodeRuntime } from '../../../runtime/node/src/index.ts';
+import { skipUnlessWasmBuilt } from './helpers.ts';
+
+const execFileAsync = promisify(execFile);
+const TEST_TIMEOUT_MS = 55_000;
+const COMMAND_TIMEOUT_MS = 45_000;
+const CACHE_READY_MARKER = '.ready';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const TESTS_ROOT = path.resolve(__dirname, '..');
+const PACKAGE_ROOT = path.resolve(TESTS_ROOT, '..');
+const WORKSPACE_ROOT = path.resolve(PACKAGE_ROOT, '..', '..');
+const FIXTURES_ROOT = path.join(TESTS_ROOT, 'projects');
+const CACHE_ROOT = path.join(PACKAGE_ROOT, '.cache', 'project-matrix');
+
+const WASM_BINARY_PATH = path.resolve(
+  __dirname,
+  '../../../../wasmvm/target/wasm32-wasip1/release/multicall.wasm',
+);
+
+// ---------------------------------------------------------------------------
+// Types (same schema as project-matrix.test.ts)
+// ---------------------------------------------------------------------------
+
+type PassFixtureMetadata = { entry: string; expectation: 'pass' };
+type FailFixtureMetadata = {
+  entry: string;
+  expectation: 'fail';
+  fail: { code: number; stderrIncludes: string };
+};
+type FixtureMetadata = PassFixtureMetadata | FailFixtureMetadata;
+type FixtureProject = { name: string; sourceDir: string; metadata: FixtureMetadata };
+type PreparedFixture = { cacheHit: boolean; cacheKey: string; projectDir: string };
+type ResultEnvelope = { code: number; stdout: string; stderr: string };
+
+// ---------------------------------------------------------------------------
+// Fixture discovery (same logic as project-matrix.test.ts)
+// ---------------------------------------------------------------------------
+
+async function discoverFixtures(): Promise<FixtureProject[]> {
+  const entries = await readdir(FIXTURES_ROOT, { withFileTypes: true });
+  const fixtureDirs = entries
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name)
+    .sort((a, b) => a.localeCompare(b));
+
+  const fixtures: FixtureProject[] = [];
+  for (const name of fixtureDirs) {
+    const sourceDir = path.join(FIXTURES_ROOT, name);
+    const metaPath = path.join(sourceDir, 'fixture.json');
+    const raw = JSON.parse(await readFile(metaPath, 'utf8'));
+    const metadata = parseMetadata(raw, name);
+    fixtures.push({ name, sourceDir, metadata });
+  }
+  return fixtures;
+}
+
+function parseMetadata(raw: Record<string, unknown>, name: string): FixtureMetadata {
+  const entry = raw.entry as string;
+  if (raw.expectation === 'pass') return { entry, expectation: 'pass' };
+  const fail = raw.fail as { code: number; stderrIncludes: string };
+  return { entry, expectation: 'fail', fail };
+}
+
+// ---------------------------------------------------------------------------
+// Fixture preparation (reuses same cache as project-matrix.test.ts)
+// ---------------------------------------------------------------------------
+
+async function prepareFixtureProject(fixture: FixtureProject): Promise<PreparedFixture> {
+  await mkdir(CACHE_ROOT, { recursive: true });
+  const cacheKey = await createFixtureCacheKey(fixture);
+  const cacheDir = path.join(CACHE_ROOT, `${fixture.name}-${cacheKey}`);
+  const readyMarker = path.join(cacheDir, CACHE_READY_MARKER);
+
+  if (await pathExists(readyMarker)) {
+    return { cacheHit: true, cacheKey, projectDir: cacheDir };
+  }
+
+  // Reset stale entries
+  if (await pathExists(cacheDir)) {
+    await rm(cacheDir, { recursive: true, force: true });
+  }
+
+  // Stage and install
+  const staging = `${cacheDir}.tmp-${process.pid}-${Date.now()}`;
+  await rm(staging, { recursive: true, force: true });
+  await cp(fixture.sourceDir, staging, {
+    recursive: true,
+    filter: (src) => !src.split(path.sep).includes('node_modules'),
+  });
+  await execFileAsync('pnpm', ['install', '--ignore-workspace', '--prefer-offline'], {
+    cwd: staging,
+    timeout: COMMAND_TIMEOUT_MS,
+    maxBuffer: 10 * 1024 * 1024,
+  });
+  await writeFile(path.join(staging, CACHE_READY_MARKER), `${new Date().toISOString()}\n`);
+
+  // Promote
+  try {
+    await rename(staging, cacheDir);
+  } catch (err: unknown) {
+    const code = err && typeof err === 'object' && 'code' in err ? String(err.code) : '';
+    if (code !== 'EEXIST') throw err;
+    await rm(staging, { recursive: true, force: true });
+    if (!(await pathExists(readyMarker))) {
+      throw new Error(`Cache race: missing ready marker at ${cacheDir}`);
+    }
+  }
+
+  return { cacheHit: false, cacheKey, projectDir: cacheDir };
+}
+
+async function createFixtureCacheKey(fixture: FixtureProject): Promise<string> {
+  const hash = createHash('sha256');
+  const nodeMajor = process.versions.node.split('.')[0] ?? '0';
+  const pnpmVersion = await getPnpmVersion();
+  hash.update(`node-major:${nodeMajor}\n`);
+  hash.update(`pnpm:${pnpmVersion}\n`);
+  hash.update(`platform:${process.platform}\n`);
+  hash.update(`arch:${process.arch}\n`);
+
+  for (const [label, filePath] of [
+    ['workspace-lock', path.join(WORKSPACE_ROOT, 'pnpm-lock.yaml')],
+    ['workspace-package', path.join(WORKSPACE_ROOT, 'package.json')],
+    ['fixture-package', path.join(fixture.sourceDir, 'package.json')],
+    ['fixture-lock', path.join(fixture.sourceDir, 'pnpm-lock.yaml')],
+  ]) {
+    hash.update(`${label}:`);
+    try { hash.update(await readFile(filePath)); } catch { hash.update('<missing>'); }
+    hash.update('\n');
+  }
+
+  const files = await listFiles(fixture.sourceDir);
+  for (const rel of files) {
+    hash.update(`fixture-file:${rel.split(path.sep).join('/')}\n`);
+    hash.update(await readFile(path.join(fixture.sourceDir, rel)));
+    hash.update('\n');
+  }
+
+  return hash.digest('hex').slice(0, 16);
+}
+
+let _pnpmVersionPromise: Promise<string> | undefined;
+function getPnpmVersion(): Promise<string> {
+  if (!_pnpmVersionPromise) {
+    _pnpmVersionPromise = execFileAsync('pnpm', ['--version'], {
+      cwd: WORKSPACE_ROOT,
+      timeout: COMMAND_TIMEOUT_MS,
+    }).then((r) => r.stdout.trim());
+  }
+  return _pnpmVersionPromise;
+}
+
+async function listFiles(root: string): Promise<string[]> {
+  const result: string[] = [];
+  async function walk(rel: string): Promise<void> {
+    const dir = path.join(root, rel);
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      if (e.name === 'node_modules') continue;
+      const p = rel ? path.join(rel, e.name) : e.name;
+      if (e.isDirectory()) await walk(p);
+      else if (e.isFile()) result.push(p);
+    }
+  }
+  await walk('');
+  return result.sort((a, b) => a.localeCompare(b));
+}
+
+// ---------------------------------------------------------------------------
+// Host execution (baseline — same as project-matrix.test.ts)
+// ---------------------------------------------------------------------------
+
+async function runHostExecution(projectDir: string, entryRel: string): Promise<ResultEnvelope> {
+  const entryPath = path.join(projectDir, entryRel);
+  return normalizeEnvelope(await runCommand(process.execPath, [entryPath], projectDir), projectDir);
+}
+
+async function runCommand(cmd: string, args: string[], cwd: string): Promise<ResultEnvelope> {
+  try {
+    const r = await execFileAsync(cmd, args, { cwd, timeout: COMMAND_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 });
+    return { code: 0, stdout: r.stdout, stderr: r.stderr };
+  } catch (err: unknown) {
+    if (err && typeof err === 'object' && 'stdout' in err) {
+      const e = err as { code?: number; stdout?: string; stderr?: string };
+      return {
+        code: typeof e.code === 'number' ? e.code : 1,
+        stdout: typeof e.stdout === 'string' ? e.stdout : '',
+        stderr: typeof e.stderr === 'string' ? e.stderr : '',
+      };
+    }
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Kernel execution
+// ---------------------------------------------------------------------------
+
+async function runKernelExecution(projectDir: string, entryRel: string): Promise<ResultEnvelope> {
+  // NodeFileSystem rooted at projectDir — require() resolves from node_modules on disk
+  const vfs = new NodeFileSystem({ root: projectDir });
+  const kernel = createKernel({ filesystem: vfs, cwd: '/' });
+
+  await kernel.mount(createWasmVmRuntime({ wasmBinaryPath: WASM_BINARY_PATH }));
+  await kernel.mount(createNodeRuntime());
+
+  try {
+    const vfsEntry = '/' + entryRel.replace(/\\/g, '/');
+    const result = await kernel.exec(`node ${vfsEntry}`, { cwd: '/' });
+    return normalizeEnvelope(
+      { code: result.exitCode, stdout: result.stdout, stderr: result.stderr },
+      projectDir,
+    );
+  } finally {
+    await kernel.dispose();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Output normalization (same as project-matrix.test.ts)
+// ---------------------------------------------------------------------------
+
+function normalizeEnvelope(envelope: ResultEnvelope, projectDir: string): ResultEnvelope {
+  return {
+    code: envelope.code,
+    stdout: normalizeText(envelope.stdout, projectDir),
+    stderr: normalizeText(envelope.stderr, projectDir),
+  };
+}
+
+function normalizeText(value: string, projectDir: string): string {
+  const normalized = value.replace(/\r\n/g, '\n');
+  const posixDir = projectDir.split(path.sep).join(path.posix.sep);
+  return normalizeModuleNotFoundText(
+    normalized.split(projectDir).join('<project>').split(posixDir).join('<project>'),
+  );
+}
+
+function normalizeModuleNotFoundText(value: string): string {
+  if (!value.includes('Cannot find module')) return value;
+  const quoted = value.match(/Cannot find module '([^']+)'/);
+  if (quoted) return `Cannot find module '${quoted[1]}'\n`;
+  const from = value.match(/Cannot find module:\s*([^\s]+)\s+from\s+/);
+  if (from) return `Cannot find module '${from[1]}'\n`;
+  return value;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+async function pathExists(p: string): Promise<boolean> {
+  try { await access(p); return true; } catch { return false; }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+const skipReason = skipUnlessWasmBuilt();
+const discoveredFixtures = await discoverFixtures();
+
+describe.skipIf(skipReason)('e2e project-matrix through kernel', () => {
+  it('discovers at least one fixture project', () => {
+    expect(discoveredFixtures.length).toBeGreaterThan(0);
+  });
+
+  for (const fixture of discoveredFixtures) {
+    it(
+      `runs fixture ${fixture.name} through kernel with host-node parity`,
+      async () => {
+        const prepared = await prepareFixtureProject(fixture);
+        const host = await runHostExecution(prepared.projectDir, fixture.metadata.entry);
+        const kernel = await runKernelExecution(prepared.projectDir, fixture.metadata.entry);
+
+        if (fixture.metadata.expectation === 'pass') {
+          expect(kernel.code).toBe(host.code);
+          expect(kernel.stdout).toBe(host.stdout);
+          expect(kernel.stderr).toBe(host.stderr);
+          return;
+        }
+
+        // Fail fixtures: host succeeds, kernel enforces sandbox restrictions
+        expect(host.code).toBe(0);
+        expect(kernel.code).toBe(fixture.metadata.fail.code);
+        expect(kernel.stderr).toContain(fixture.metadata.fail.stderrIncludes);
+      },
+      TEST_TIMEOUT_MS,
+    );
+  }
+});
