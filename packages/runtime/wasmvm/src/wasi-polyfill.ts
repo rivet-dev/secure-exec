@@ -57,6 +57,8 @@ import type {
 import type { VFS } from './vfs.ts';
 import { VfsError } from './vfs.ts';
 import type { VfsErrorCode } from './vfs.ts';
+import type { WasiFileIO } from './wasi-file-io.ts';
+import { createStandaloneFileIO } from './wasi-file-io.ts';
 
 // Additional WASI errno codes
 export const ERRNO_ESPIPE: number = 70;
@@ -220,6 +222,7 @@ export class WasiPolyfill {
   memory: { buffer: ArrayBuffer } | null;
   exitCode: number | null;
 
+  private _fileIO: WasiFileIO;
   private _stdinData: Uint8Array | null;
   private _stdinOffset: number;
   private _stdinReader: StdinReader | null;
@@ -232,6 +235,7 @@ export class WasiPolyfill {
   constructor(fdTable: FDTable, vfs: VFS, options: WasiOptions = {}) {
     this.fdTable = fdTable;
     this.vfs = vfs;
+    this._fileIO = createStandaloneFileIO(fdTable, vfs);
     this.args = options.args ?? [];
     this.env = options.env ?? {};
     this.memory = options.memory ?? null;
@@ -410,28 +414,21 @@ export class WasiPolyfill {
         }
       }
     } else if (resource.type === 'vfsFile') {
-      const node = this.vfs.getInodeByIno(resource.ino);
-      if (!node) return ERRNO_EBADF;
-      if (node.type === 'dir') return ERRNO_EISDIR;
-      if (node.type === 'dev') {
-        // /dev/null and other dev nodes: always EOF
-        this._view().setUint32(nread_ptr, 0, true);
-        return ERRNO_SUCCESS;
-      }
-      if (node.type !== 'file') return ERRNO_EBADF;
+      // Delegate to kernel file I/O bridge
+      const totalRequested = iovecs.reduce((sum, iov) => sum + iov.buf_len, 0);
+      const result = this._fileIO.fdRead(fd, totalRequested);
+      if (result.errno !== ERRNO_SUCCESS) return result.errno;
 
-      let pos = Number(entry.cursor);
-      const data = node.data!;
+      // Scatter data into iovecs
+      let offset = 0;
       for (const iov of iovecs) {
-        const remaining = data.length - pos;
+        const remaining = result.data.length - offset;
         if (remaining <= 0) break;
         const n = Math.min(iov.buf_len, remaining);
-        mem.set(data.subarray(pos, pos + n), iov.buf);
-        pos += n;
+        mem.set(result.data.subarray(offset, offset + n), iov.buf);
+        offset += n;
         totalRead += n;
       }
-      entry.cursor = BigInt(pos);
-      node.atime = Date.now();
     } else if (resource.type === 'pipe') {
       const pipe = resource.pipe;
       if (pipe && pipe.buffer) {
@@ -496,18 +493,7 @@ export class WasiPolyfill {
         totalWritten += iov.buf_len;
       }
     } else if (resource.type === 'vfsFile') {
-      const node = this.vfs.getInodeByIno(resource.ino);
-      if (!node) return ERRNO_EBADF;
-      if (node.type === 'dir') return ERRNO_EISDIR;
-      if (node.type === 'dev') {
-        // /dev/null: discard all writes
-        for (const iov of iovecs) totalWritten += iov.buf_len;
-        this._view().setUint32(nwritten_ptr, totalWritten, true);
-        return ERRNO_SUCCESS;
-      }
-      if (node.type !== 'file') return ERRNO_EBADF;
-
-      // Collect all write data
+      // Collect all write data, then delegate to kernel file I/O bridge
       const chunks: Uint8Array[] = [];
       for (const iov of iovecs) {
         if (iov.buf_len === 0) continue;
@@ -517,21 +503,8 @@ export class WasiPolyfill {
 
       if (totalWritten > 0) {
         const writeData = concatBytes(chunks);
-        const pos = (entry.fdflags & FDFLAG_APPEND)
-          ? node.data!.length
-          : Number(entry.cursor);
-        const endPos = pos + writeData.length;
-
-        // Expand file if needed (new bytes are zero-filled)
-        if (endPos > node.data!.length) {
-          const newData = new Uint8Array(endPos);
-          newData.set(node.data!);
-          node.data = newData;
-        }
-
-        node.data!.set(writeData, pos);
-        entry.cursor = BigInt(endPos);
-        node.mtime = Date.now();
+        const result = this._fileIO.fdWrite(fd, writeData);
+        if (result.errno !== ERRNO_SUCCESS) return result.errno;
       }
     } else if (resource.type === 'pipe') {
       const pipe = resource.pipe;
@@ -559,41 +532,19 @@ export class WasiPolyfill {
   }
 
   /**
-   * Seek within a file descriptor.
+   * Seek within a file descriptor. Delegates to kernel file I/O bridge.
    */
   fd_seek(fd: number, offset: number | bigint, whence: number, newoffset_ptr: number): number {
     const entry = this.fdTable.get(fd);
     if (!entry) return ERRNO_EBADF;
-
-    // Only regular files are seekable
     if (entry.filetype !== FILETYPE_REGULAR_FILE) return ERRNO_ESPIPE;
     if (!(entry.rightsBase & RIGHT_FD_SEEK)) return ERRNO_EBADF;
 
     const offsetBig = typeof offset === 'bigint' ? offset : BigInt(offset);
-    let newPos: bigint;
+    const result = this._fileIO.fdSeek(fd, offsetBig, whence);
+    if (result.errno !== ERRNO_SUCCESS) return result.errno;
 
-    switch (whence) {
-      case WHENCE_SET:
-        newPos = offsetBig;
-        break;
-      case WHENCE_CUR:
-        newPos = entry.cursor + offsetBig;
-        break;
-      case WHENCE_END: {
-        if (!entry.resource || entry.resource.type !== 'vfsFile') return ERRNO_EINVAL;
-        const node = this.vfs.getInodeByIno(entry.resource.ino);
-        if (!node || node.type !== 'file') return ERRNO_EINVAL;
-        newPos = BigInt(node.data!.length) + offsetBig;
-        break;
-      }
-      default:
-        return ERRNO_EINVAL;
-    }
-
-    if (newPos < 0n) return ERRNO_EINVAL;
-
-    entry.cursor = newPos;
-    this._view().setBigUint64(newoffset_ptr, newPos, true);
+    this._view().setBigUint64(newoffset_ptr, result.newOffset, true);
     return ERRNO_SUCCESS;
   }
 
@@ -611,11 +562,11 @@ export class WasiPolyfill {
   }
 
   /**
-   * Close a file descriptor.
+   * Close a file descriptor. Delegates to kernel file I/O bridge.
    */
   fd_close(fd: number): number {
     this._preopens.delete(fd);
-    return this.fdTable.close(fd);
+    return this._fileIO.fdClose(fd);
   }
 
   /**
@@ -774,42 +725,15 @@ export class WasiPolyfill {
     const fullPath = this._resolveWasiPath(dirfd, path_ptr, path_len);
     if (!fullPath) return ERRNO_EBADF;
 
-    const followSymlinks = !!(dirflags & LOOKUP_SYMLINK_FOLLOW);
-    let ino = this.vfs.getIno(fullPath, followSymlinks);
-
-    if (ino === null) {
-      if (!(oflags & OFLAG_CREAT)) return ERRNO_ENOENT;
-      try {
-        this.vfs.writeFile(fullPath, new Uint8Array(0));
-      } catch (e) {
-        return vfsErrorToErrno(e);
-      }
-      ino = this.vfs.getIno(fullPath, true);
-      if (ino === null) return ERRNO_ENOENT;
-    } else {
-      if ((oflags & OFLAG_CREAT) && (oflags & OFLAG_EXCL)) return ERRNO_EEXIST;
-    }
-
-    const node = this.vfs.getInodeByIno(ino);
-    if (!node) return ERRNO_ENOENT;
-
-    if ((oflags & OFLAG_DIRECTORY) && node.type !== 'dir') return ERRNO_ENOTDIR;
-
-    if ((oflags & OFLAG_TRUNC) && node.type === 'file') {
-      node.data = new Uint8Array(0);
-      node.mtime = Date.now();
-    }
-
-    const filetype = this._inodeTypeToFiletype(node.type);
+    // Intersect requested rights with directory's inheriting rights
     const rightsBase = (typeof fs_rights_base === 'bigint' ? fs_rights_base : BigInt(fs_rights_base)) & dirEntry.rightsInheriting;
     const rightsInheriting = (typeof fs_rights_inheriting === 'bigint' ? fs_rights_inheriting : BigInt(fs_rights_inheriting)) & dirEntry.rightsInheriting;
 
-    const fd = this.fdTable.open(
-      { type: 'vfsFile', ino, path: fullPath },
-      { filetype, rightsBase, rightsInheriting, fdflags, path: fullPath }
-    );
+    // Delegate to kernel file I/O bridge
+    const result = this._fileIO.fdOpen(fullPath, dirflags, oflags, fdflags, rightsBase, rightsInheriting);
+    if (result.errno !== ERRNO_SUCCESS) return result.errno;
 
-    this._view().setUint32(opened_fd_ptr, fd, true);
+    this._view().setUint32(opened_fd_ptr, result.fd, true);
     return ERRNO_SUCCESS;
   }
 
@@ -1424,6 +1348,7 @@ export class WasiPolyfill {
 
   /**
    * Read from a file descriptor at a given offset without changing the cursor.
+   * Delegates to kernel file I/O bridge.
    */
   fd_pread(fd: number, iovs_ptr: number, iovs_len: number, offset: number | bigint, nread_ptr: number): number {
     const entry = this.fdTable.get(fd);
@@ -1431,22 +1356,22 @@ export class WasiPolyfill {
     if (!(entry.rightsBase & RIGHT_FD_READ)) return ERRNO_EBADF;
     if (entry.filetype !== FILETYPE_REGULAR_FILE) return ERRNO_ESPIPE;
 
-    if (entry.resource.type !== 'vfsFile') return ERRNO_EBADF;
-    const node = this.vfs.getInodeByIno(entry.resource.ino);
-    if (!node || node.type !== 'file') return ERRNO_EBADF;
-
     const iovecs = this._readIovecs(iovs_ptr, iovs_len);
     const mem = this._bytes();
-    const offsetNum = Number(typeof offset === 'bigint' ? offset : BigInt(offset));
-    let pos = offsetNum;
-    let totalRead = 0;
+    const offsetBig = typeof offset === 'bigint' ? offset : BigInt(offset);
+    const totalRequested = iovecs.reduce((sum, iov) => sum + iov.buf_len, 0);
 
+    const result = this._fileIO.fdPread(fd, totalRequested, offsetBig);
+    if (result.errno !== ERRNO_SUCCESS) return result.errno;
+
+    let dataOffset = 0;
+    let totalRead = 0;
     for (const iov of iovecs) {
-      const remaining = node.data!.length - pos;
+      const remaining = result.data.length - dataOffset;
       if (remaining <= 0) break;
       const n = Math.min(iov.buf_len, remaining);
-      mem.set(node.data!.subarray(pos, pos + n), iov.buf);
-      pos += n;
+      mem.set(result.data.subarray(dataOffset, dataOffset + n), iov.buf);
+      dataOffset += n;
       totalRead += n;
     }
 
@@ -1456,6 +1381,7 @@ export class WasiPolyfill {
 
   /**
    * Write to a file descriptor at a given offset without changing the cursor.
+   * Delegates to kernel file I/O bridge.
    */
   fd_pwrite(fd: number, iovs_ptr: number, iovs_len: number, offset: number | bigint, nwritten_ptr: number): number {
     const entry = this.fdTable.get(fd);
@@ -1463,13 +1389,9 @@ export class WasiPolyfill {
     if (!(entry.rightsBase & RIGHT_FD_WRITE)) return ERRNO_EBADF;
     if (entry.filetype !== FILETYPE_REGULAR_FILE) return ERRNO_ESPIPE;
 
-    if (entry.resource.type !== 'vfsFile') return ERRNO_EBADF;
-    const node = this.vfs.getInodeByIno(entry.resource.ino);
-    if (!node || node.type !== 'file') return ERRNO_EBADF;
-
     const iovecs = this._readIovecs(iovs_ptr, iovs_len);
     const mem = this._bytes();
-    const offsetNum = Number(typeof offset === 'bigint' ? offset : BigInt(offset));
+    const offsetBig = typeof offset === 'bigint' ? offset : BigInt(offset);
 
     const chunks: Uint8Array[] = [];
     let totalWritten = 0;
@@ -1481,14 +1403,8 @@ export class WasiPolyfill {
 
     if (totalWritten > 0) {
       const writeData = concatBytes(chunks);
-      const endPos = offsetNum + writeData.length;
-      if (endPos > node.data!.length) {
-        const newData = new Uint8Array(endPos);
-        newData.set(node.data!);
-        node.data = newData;
-      }
-      node.data!.set(writeData, offsetNum);
-      node.mtime = Date.now();
+      const result = this._fileIO.fdPwrite(fd, writeData, offsetBig);
+      if (result.errno !== ERRNO_SUCCESS) return result.errno;
     }
 
     this._view().setUint32(nwritten_ptr, totalWritten, true);

@@ -202,8 +202,8 @@
         "Tests pass"
       ],
       "priority": 12,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created WasiFileIO interface and StandaloneFileIO bridge; polyfill delegates fd_read/fd_write/path_open/fd_seek/fd_close/fd_pread/fd_pwrite to bridge"
     },
     {
       "id": "US-013",
@@ -261,6 +261,23 @@
     },
     {
       "id": "US-016",
+      "title": "Create kernel integration test infrastructure",
+      "description": "As a developer, I need test helpers and a MockRuntimeDriver so that kernel integration tests (and later cross-runtime tests) have a reusable foundation.",
+      "acceptanceCriteria": [
+        "packages/kernel/test/helpers.ts exports MockRuntimeDriver implementing RuntimeDriver: name 'mock', configurable commands list, init() stores KernelInterface, spawn() returns a DriverProcess that resolves with configurable exit code and writes configurable stdout/stderr bytes, dispose() is a no-op, kill() immediately resolves",
+        "packages/kernel/test/helpers.ts exports createTestKernel(options?: { drivers?: RuntimeDriver[] }) that creates a kernel with TestFileSystem, optionally mounts provided drivers, returns { kernel, vfs }",
+        "packages/kernel/test/kernel-integration.test.ts tests kernel+MockRuntimeDriver: mount registers mock commands, kernel.spawn('mock-cmd', []) returns ManagedProcess with correct PID and exit code, kernel.exec('mock-cmd') returns ExecResult with stdout/stderr, exec of unknown command returns non-zero exit code, dispose tears down cleanly",
+        "packages/kernel/test/kernel-integration.test.ts has 6+ tests passing",
+        "packages/kernel/src/index.ts exports createKernel and all types needed by downstream test files",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 16,
+      "passes": false,
+      "notes": "This story creates the test foundation used by US-017 through US-024. MockRuntimeDriver lets kernel behavior be tested without real WASM binaries or V8 isolates. Cross-runtime integration tests that need real drivers live in packages/secure-exec/tests/kernel/ (created in US-020)."
+    },
+    {
+      "id": "US-017",
       "title": "Create WasmVM RuntimeDriver",
       "description": "As a developer, I need a createWasmVmRuntime() factory that returns a RuntimeDriver so WasmVM can mount into the kernel.",
       "acceptanceCriteria": [
@@ -273,12 +290,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 16,
+      "priority": 17,
       "passes": false,
       "notes": ""
     },
     {
-      "id": "US-017",
+      "id": "US-018",
       "title": "Create Node RuntimeDriver",
       "description": "As a developer, I need a createNodeRuntime() factory that wraps the existing Node execution driver behind the RuntimeDriver interface so Node can mount into the kernel.",
       "acceptanceCriteria": [
@@ -292,12 +309,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 17,
+      "priority": 18,
       "passes": false,
       "notes": ""
     },
     {
-      "id": "US-018",
+      "id": "US-019",
       "title": "Create Python RuntimeDriver",
       "description": "As a developer, I need a createPythonRuntime() factory that wraps the existing Pyodide driver behind the RuntimeDriver interface so Python can mount into the kernel.",
       "acceptanceCriteria": [
@@ -311,30 +328,30 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 18,
-      "passes": false,
-      "notes": ""
-    },
-    {
-      "id": "US-019",
-      "title": "Wire kernel.exec() end-to-end with mounted runtimes",
-      "description": "As a developer, I need kernel.exec() to work end-to-end: parse command, look up in registry, spawn via the correct runtime driver, capture output, return ExecResult.",
-      "acceptanceCriteria": [
-        "kernel.exec('echo hello') returns { code: 0, stdout: 'hello\\n', stderr: '' } when WasmVM is mounted",
-        "kernel.exec('ls /tmp') works when files exist in kernel VFS",
-        "kernel.exec('cat /tmp/test.txt') returns file contents from kernel VFS",
-        "kernel.exec('nonexistent-command') returns non-zero exit code with error on stderr",
-        "kernel.spawn('echo', ['hello']) returns ManagedProcess with working stdout onData and exitCode",
-        "Integration test verifying createKernel + mount(wasmvmDriver) + exec works",
-        "Typecheck passes",
-        "Tests pass"
-      ],
       "priority": 19,
       "passes": false,
       "notes": ""
     },
     {
       "id": "US-020",
+      "title": "Create cross-runtime integration test suite and wire kernel.exec() end-to-end",
+      "description": "As a developer, I need a cross-runtime integration test suite in packages/secure-exec/tests/kernel/ and kernel.exec() working end-to-end with real runtime drivers.",
+      "acceptanceCriteria": [
+        "packages/secure-exec/tests/kernel/helpers.ts exports createIntegrationKernel(options?: { runtimes?: ('wasmvm' | 'node' | 'python')[] }) that creates a kernel with InMemoryFileSystem from @secure-exec/os-browser, mounts requested real runtime drivers (createWasmVmRuntime, createNodeRuntime, createPythonRuntime), returns { kernel, vfs, dispose }",
+        "packages/secure-exec/tests/kernel/helpers.ts exports conditional skip helpers: skipUnlessWasmBuilt() checks wasmvm/target/wasm32-wasip1/release/multicall.wasm exists, skipUnlessPyodide() checks pyodide availability",
+        "packages/secure-exec/tests/kernel/exec-integration.test.ts tests kernel.exec() with real WasmVM driver: exec('echo hello') returns { code: 0, stdout: 'hello\\n' }, exec('ls /tmp') lists files, exec('cat /tmp/test.txt') reads file contents, exec('nonexistent-command') returns non-zero code",
+        "packages/secure-exec/tests/kernel/exec-integration.test.ts tests kernel.spawn() with real WasmVM: spawn returns ManagedProcess, stdout onData fires, exitCode resolves",
+        "Each test creates a fresh kernel via createIntegrationKernel() — no shared state between tests",
+        "8+ integration tests passing (skipped gracefully if WASM binary not built)",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 20,
+      "passes": false,
+      "notes": "This story creates the cross-runtime test infrastructure at packages/secure-exec/tests/kernel/. It lives in secure-exec because that package already depends on all runtime packages. The helpers.ts pattern mirrors packages/secure-exec/tests/test-utils.ts. WasmVM integration tests are conditionally skipped when the WASM binary is not built."
+    },
+    {
+      "id": "US-021",
       "title": "Route Node bridge child_process.spawn through kernel",
       "description": "As a developer, I need the Node bridge's child_process.spawn polyfill to route through the kernel's command registry instead of the host's child_process, enabling cross-runtime command execution from Node code.",
       "acceptanceCriteria": [
@@ -343,33 +360,35 @@
         "Spawned processes get proper PIDs from kernel process table",
         "stdout/stderr from spawned processes are piped back to the Node caller",
         "Commands not in the registry return ENOENT-like error",
+        "Tests in packages/secure-exec/tests/kernel/bridge-child-process.test.ts: create kernel with WasmVM + Node mounted via createIntegrationKernel({ runtimes: ['wasmvm', 'node'] }), run Node code that calls require('child_process').execSync('echo hello'), verify output",
         "Existing secure-exec child_process tests still pass",
-        "Typecheck passes",
-        "Tests pass"
-      ],
-      "priority": 20,
-      "passes": false,
-      "notes": ""
-    },
-    {
-      "id": "US-021",
-      "title": "Implement cross-runtime pipes",
-      "description": "As a developer, I need cross-runtime pipelines to work so commands like 'echo hello | node -e \"process.stdin.pipe(process.stdout)\"' execute correctly across WasmVM and Node runtimes.",
-      "acceptanceCriteria": [
-        "kernel.exec('echo hello | cat') works (WasmVM-to-WasmVM pipe)",
-        "kernel.exec('echo hello | node -e \"...\"') pipes WasmVM stdout to Node stdin when both runtimes mounted",
-        "kernel.exec('cat file | python -c \"...\"') pipes WasmVM stdout to Python stdin when both runtimes mounted",
-        "Pipe EOF propagation: when writer closes, reader gets EOF",
-        "PipeManager createPipeFDs allocates FDs in the kernel FD table for both ends",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 21,
       "passes": false,
-      "notes": ""
+      "notes": "Tests use the createIntegrationKernel helper from US-020. The key integration point: Node's bridge child_process must receive a reference to the kernel's command registry so it can resolve commands to runtime drivers."
     },
     {
       "id": "US-022",
+      "title": "Implement cross-runtime pipes",
+      "description": "As a developer, I need cross-runtime pipelines to work so commands like 'echo hello | node -e \"process.stdin.pipe(process.stdout)\"' execute correctly across WasmVM and Node runtimes.",
+      "acceptanceCriteria": [
+        "kernel.exec('echo hello | cat') works (WasmVM-to-WasmVM pipe via kernel PipeManager)",
+        "kernel.exec('echo hello | node -e \"...\"') pipes WasmVM stdout to Node stdin when both runtimes mounted",
+        "kernel.exec('cat file | python -c \"...\"') pipes WasmVM stdout to Python stdin when both runtimes mounted",
+        "Pipe EOF propagation: when writer closes, reader gets EOF",
+        "PipeManager createPipeFDs allocates FDs in the kernel FD table for both ends",
+        "Tests in packages/secure-exec/tests/kernel/cross-runtime-pipes.test.ts: use createIntegrationKernel({ runtimes: ['wasmvm', 'node'] }), test WasmVM|WasmVM pipe, WasmVM|Node pipe, EOF propagation. Separate describe block for Python pipes using createIntegrationKernel({ runtimes: ['wasmvm', 'python'] }) with skipUnlessPyodide()",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 22,
+      "passes": false,
+      "notes": "Tests use createIntegrationKernel from US-020. Python pipe tests are conditionally skipped via skipUnlessPyodide(). Each test creates a fresh kernel — no shared state."
+    },
+    {
+      "id": "US-023",
       "title": "Implement FD inheritance for child processes",
       "description": "As a developer, I need child processes to inherit their parent's file descriptor table so redirections and pipes work correctly across process boundaries.",
       "acceptanceCriteria": [
@@ -377,16 +396,17 @@
         "Inherited FDs share cursor position with parent (via shared FileDescription refcounting)",
         "Child can close inherited FDs without affecting parent",
         "Redirections (e.g., '> /tmp/out.txt') modify child's FD table before exec",
-        "Integration test: parent opens file, spawns child, child reads from inherited FD",
+        "Unit tests in packages/kernel/test/kernel-integration.test.ts using MockRuntimeDriver: spawn with parent FD table, verify child inherits FDs, verify closing child FD doesn't affect parent, verify shared cursor position",
+        "Integration test in packages/secure-exec/tests/kernel/fd-inheritance.test.ts using createIntegrationKernel: exec('echo hello > /tmp/out.txt') writes to file, exec('cat < /tmp/in.txt') reads from file",
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 22,
+      "priority": 23,
       "passes": false,
-      "notes": ""
+      "notes": "Two test layers: kernel unit tests with MockRuntimeDriver (packages/kernel/test/) for FD table mechanics, and integration tests with real runtimes (packages/secure-exec/tests/kernel/) for end-to-end redirections."
     },
     {
-      "id": "US-023",
+      "id": "US-024",
       "title": "Implement signal forwarding across runtimes",
       "description": "As a developer, I need kill(pid, signal) to work across runtimes so processes can be terminated regardless of which runtime owns them.",
       "acceptanceCriteria": [
@@ -395,16 +415,17 @@
         "SIGKILL immediately terminates the process",
         "kill() on a non-existent PID returns ESRCH error",
         "Signal delivery works across runtimes (Node process can kill a WasmVM process and vice versa)",
-        "Integration test: spawn a long-running process, send SIGTERM, verify it exits",
+        "Unit tests in packages/kernel/test/kernel-integration.test.ts using MockRuntimeDriver: spawn process, send SIGTERM, verify kill() called on DriverProcess, verify process exits, verify ESRCH for bad PID",
+        "Integration test in packages/secure-exec/tests/kernel/signal-forwarding.test.ts using createIntegrationKernel: spawn a long-running WasmVM process (e.g., 'sleep 60'), send SIGTERM via kernel, verify it exits with non-zero code",
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 23,
+      "priority": 24,
       "passes": false,
-      "notes": ""
+      "notes": "Two test layers: MockRuntimeDriver tests verify kernel signal routing logic, integration tests verify real runtime drivers honor kill signals."
     },
     {
-      "id": "US-024",
+      "id": "US-025",
       "title": "Create kernel behavioral contracts",
       "description": "As a developer, I need behavioral contracts for the kernel package so future changes are reviewed against explicit requirements.",
       "acceptanceCriteria": [
@@ -414,25 +435,25 @@
         ".agent/contracts/README.md updated with new contract entries in the index table",
         "Typecheck passes"
       ],
-      "priority": 24,
+      "priority": 25,
       "passes": false,
       "notes": ""
     },
     {
-      "id": "US-025",
+      "id": "US-026",
       "title": "Update existing contracts for kernel model",
       "description": "As a developer, I need existing contracts updated to reflect the kernel-mediated execution model so contracts remain the authoritative source of truth.",
       "acceptanceCriteria": [
         ".agent/contracts/node-runtime.md updated: execution goes through kernel mount + spawn, not standalone driver construction",
         ".agent/contracts/node-bridge.md updated: child_process.spawn routes through kernel command registry",
         ".agent/contracts/node-permissions.md updated: documents interaction between kernel-level permissions (wrapFileSystem) and existing secure-exec permission wrappers",
-        ".agent/contracts/runtime-driver-integration-testing.md updated: test infrastructure supports kernel-aware TestContext with mounted drivers",
-        ".agent/contracts/runtime-driver-test-suite-structure.md updated: adds kernel test patterns (kernel unit tests in packages/kernel/test/, cross-runtime integration tests)",
+        ".agent/contracts/runtime-driver-integration-testing.md updated: test infrastructure supports kernel-aware TestContext with mounted drivers, references packages/secure-exec/tests/kernel/ for cross-runtime tests",
+        ".agent/contracts/runtime-driver-test-suite-structure.md updated: adds kernel test patterns (kernel unit tests with MockRuntimeDriver in packages/kernel/test/, cross-runtime integration tests in packages/secure-exec/tests/kernel/)",
         ".agent/contracts/compatibility-governance.md updated: cross-runtime parity requirements (same VFS/FD/process state across WasmVM, Node, Python)",
         "All contract changes are internally consistent and use existing WHEN/THEN format",
         "Typecheck passes"
       ],
-      "priority": 25,
+      "priority": 26,
       "passes": false,
       "notes": ""
     }

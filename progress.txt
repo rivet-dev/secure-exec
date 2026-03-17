@@ -7,6 +7,8 @@ Started: 2026-03-16
 - Kernel package tests already pass (36 tests across 5 files)
 - pnpm-workspace.yaml includes `packages/os/*` and `packages/runtime/*` globs
 - Adding a VFS method requires updating: interface (vfs.ts), all implementations (TestFileSystem, NodeFileSystem, InMemoryFileSystem), device-layer.ts, permissions.ts
+- WASI polyfill file I/O goes through WasiFileIO bridge (wasi-file-io.ts); stdio/pipe handling stays in the polyfill
+- WASI error precedence: check filetype before rights (e.g., ESPIPE before EBADF in fd_seek)
 
 ---
 
@@ -69,4 +71,25 @@ Started: 2026-03-16
 - Validated all acceptance criteria against existing code
 - No implementation work needed — just verification and marking passes: true
 - Files changed: prd.json
+---
+
+## 2026-03-16 - US-012
+- Created WasiFileIO interface and createStandaloneFileIO() bridge (wasi-file-io.ts)
+- Moved vfsFile data I/O logic from WasiPolyfill into the standalone bridge:
+  - fdRead: cursor-based file reading with inode access
+  - fdWrite: cursor-based file writing with append and file expansion
+  - fdOpen: file creation, truncation, OFLAG handling, FDTable allocation
+  - fdSeek: cursor management with SEEK_SET/CUR/END
+  - fdClose: FDTable cleanup
+  - fdPread/fdPwrite: positional read/write at offset
+- Modified WasiPolyfill to delegate vfsFile operations to _fileIO bridge
+- Kept stdin/stdout/stderr/pipe handling in the polyfill (not file I/O)
+- Fixed fd_seek: filetype check must happen before rights check (ESPIPE vs EBADF precedence)
+- Files changed: wasi-file-io.ts (new), wasi-polyfill.ts
+- All 451 WasmVM tests pass, 36 kernel tests pass, typecheck passes
+- **Learnings for future iterations:**
+  - WASI error precedence matters: check filetype (ESPIPE) before rights (EBADF) in fd_seek
+  - WasmVM FDTable has resource types (stdio, vfsFile, pipe, preopen) — polyfill routes by resource type
+  - Bridge interface returns { errno, data } structs matching WASI convention (not exceptions)
+  - When refactoring, preserve check ordering — tests catch subtle error code mismatches
 ---
