@@ -18,6 +18,8 @@ import type {
 	ProcessContext,
 	ProcessInfo,
 	FDStat,
+	OpenShellOptions,
+	ShellHandle,
 } from "./types.js";
 import type { VirtualFileSystem, VirtualStat } from "./vfs.js";
 import { createDeviceLayer } from "./device-layer.js";
@@ -35,6 +37,8 @@ import {
 	SEEK_SET,
 	SEEK_CUR,
 	SEEK_END,
+	SIGTERM,
+	SIGWINCH,
 	KernelError,
 } from "./types.js";
 
@@ -181,6 +185,71 @@ class KernelImpl implements Kernel {
 	): ManagedProcess {
 		this.assertNotDisposed();
 		return this.spawnManaged(command, args, options);
+	}
+
+	openShell(options?: OpenShellOptions): ShellHandle {
+		this.assertNotDisposed();
+
+		const command = options?.command ?? "sh";
+		const args = options?.args ?? [];
+
+		// Allocate a controller PID with an FD table to hold the PTY master
+		const controllerPid = this.processTable.allocatePid();
+		const controllerTable = this.fdTableManager.create(controllerPid);
+
+		// Create PTY pair in the controller's FD table
+		const { masterFd, slaveFd } = this.ptyManager.createPtyFDs(controllerTable);
+		const masterDescId = controllerTable.get(masterFd)!.description.id;
+
+		// Spawn shell with PTY slave as stdin/stdout/stderr
+		const proc = this.spawnInternal(command, args, {
+			env: options?.env,
+			cwd: options?.cwd,
+			stdinFd: slaveFd,
+			stdoutFd: slaveFd,
+			stderrFd: slaveFd,
+		}, controllerPid);
+
+		// Shell becomes its own process group leader, set as PTY foreground
+		this.processTable.setpgid(proc.pid, proc.pid);
+		this.ptyManager.setForegroundPgid(masterDescId, proc.pid);
+
+		// Start read pump: master reads → onData callback
+		let onDataCallback: ((data: Uint8Array) => void) | null = null;
+		const readPump = async () => {
+			try {
+				while (true) {
+					const data = await this.ptyManager.read(masterDescId, 4096);
+					if (!data || data.length === 0) break;
+					onDataCallback?.(data);
+				}
+			} catch {
+				// Master closed or PTY gone
+			}
+		};
+		readPump();
+
+		return {
+			pid: proc.pid,
+			write: (data) => {
+				const bytes = typeof data === "string"
+					? new TextEncoder().encode(data)
+					: data;
+				this.ptyManager.write(masterDescId, bytes);
+			},
+			get onData() { return onDataCallback; },
+			set onData(fn) { onDataCallback = fn; },
+			resize: (_cols, _rows) => {
+				const fgPgid = this.ptyManager.getForegroundPgid(masterDescId);
+				if (fgPgid > 0) {
+					try { this.processTable.kill(-fgPgid, SIGWINCH); } catch { /* pgid may be gone */ }
+				}
+			},
+			kill: (signal) => {
+				proc.kill(signal ?? SIGTERM);
+			},
+			wait: () => proc.wait(),
+		};
 	}
 
 	// Filesystem convenience wrappers

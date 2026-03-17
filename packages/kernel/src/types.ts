@@ -44,6 +44,12 @@ export interface Kernel {
 	 */
 	spawn(command: string, args: string[], options?: SpawnOptions): ManagedProcess;
 
+	/**
+	 * Open an interactive shell on a PTY.
+	 * Wires PTY + process groups + termios for terminal use.
+	 */
+	openShell(options?: OpenShellOptions): ShellHandle;
+
 	// Filesystem convenience wrappers
 	readFile(path: string): Promise<Uint8Array>;
 	writeFile(path: string, content: string | Uint8Array): Promise<void>;
@@ -89,6 +95,44 @@ export interface ManagedProcess {
 	kill(signal?: number): void;
 	wait(): Promise<number>;
 	readonly exitCode: number | null;
+}
+
+// ---------------------------------------------------------------------------
+// Interactive shell
+// ---------------------------------------------------------------------------
+
+export interface OpenShellOptions {
+	/** Shell command to run (default: "sh"). */
+	command?: string;
+	/** Arguments to pass to the shell command. */
+	args?: string[];
+	/** Environment variables for the shell process. */
+	env?: Record<string, string>;
+	/** Working directory for the shell process. */
+	cwd?: string;
+	/** Initial terminal columns. */
+	cols?: number;
+	/** Initial terminal rows. */
+	rows?: number;
+}
+
+/**
+ * Handle returned by kernel.openShell().
+ * Provides write/onData/resize/kill/wait for interactive shell use.
+ */
+export interface ShellHandle {
+	/** PID of the shell process. */
+	pid: number;
+	/** Write data to the shell (goes through PTY line discipline). */
+	write(data: Uint8Array | string): void;
+	/** Callback for data produced by the shell (program output). */
+	onData: ((data: Uint8Array) => void) | null;
+	/** Notify terminal resize — delivers SIGWINCH to foreground process group. */
+	resize(cols: number, rows: number): void;
+	/** Kill the shell process. */
+	kill(signal?: number): void;
+	/** Wait for the shell to exit. Returns exit code. */
+	wait(): Promise<number>;
 }
 
 // ---------------------------------------------------------------------------

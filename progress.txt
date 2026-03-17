@@ -352,4 +352,24 @@ PRD: ralph/kernel-hardening (46 stories)
   - tcgetattr must return a deep copy to prevent callers from mutating internal state
   - setDiscipline (backward compat API) maps canonical→icanon internally; both APIs modify the same Termios object
   - signalForByte uses termios.cc values (vintr/vquit/vsusp) rather than hardcoded constants, allowing custom signal characters
+- openShell allocates a controller PID+FD table to hold the PTY master, spawns shell with slave as stdin/stdout/stderr
+- Mock readStdinFromKernel config: process reads from stdin FD via KernelInterface and echoes to stdout FD — simulates real process FD I/O through PTY
+- Mock survivableSignals config: signals that are recorded but don't cause exit — needed for SIGINT/SIGWINCH in shell tests
+---
+
+## 2026-03-17 - US-025
+- What was implemented: kernel.openShell() convenience method wiring PTY + process groups + termios for interactive shell use
+- Files changed:
+  - packages/kernel/src/types.ts — added OpenShellOptions, ShellHandle interfaces; added openShell() to Kernel interface
+  - packages/kernel/src/kernel.ts — implemented openShell() in KernelImpl: allocates controller PID+FD table, creates PTY, spawns shell with slave FDs, sets up process groups and foreground pgid, starts read pump, returns ShellHandle
+  - packages/kernel/src/index.ts — exported OpenShellOptions, ShellHandle types
+  - packages/kernel/test/helpers.ts — added readStdinFromKernel (process reads stdin FD via KernelInterface, echoes to stdout FD) and survivableSignals (signals that don't cause exit) to MockCommandConfig
+  - packages/kernel/test/kernel-integration.test.ts — added 5 openShell tests: echo data, ^C survives, ^D exits, resize SIGWINCH, isatty(0) true
+  - prd.json — marked US-025 as passes: true
+- **Learnings for future iterations:**
+  - openShell needs a "controller" process (PID + FD table) to hold the PTY master — the controller isn't a real running process, just an FD table owner
+  - createChildFDTable with callerPid forks the controller's table (inheriting master FD into child), but refcounting handles cleanup correctly
+  - readStdinFromKernel mock pattern is essential for PTY testing — the mock reads from FD 0 via ki.fdRead() and writes to FD 1 via ki.fdWrite(), simulating how a real runtime would use the PTY slave
+  - survivableSignals must include SIGINT(2), SIGTSTP(20), and SIGWINCH(28) for shell-like processes that handle these without dying
+  - The PTY read pump (master → onData) uses ptyManager.read() directly instead of going through KernelInterface, since we're inside KernelImpl
 ---

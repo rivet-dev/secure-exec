@@ -2246,4 +2246,122 @@ describe("kernel + MockRuntimeDriver integration", () => {
 			proc.kill();
 		});
 	});
+
+	// -----------------------------------------------------------------------
+	// openShell interactive shell
+	// -----------------------------------------------------------------------
+
+	describe("openShell interactive shell", () => {
+		it("open shell, write input, verify output contains echoed data", async () => {
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { readStdinFromKernel: true, survivableSignals: [2, 20, 28] },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const shell = kernel.openShell();
+			expect(shell.pid).toBeGreaterThan(0);
+
+			// Collect output
+			const output: string[] = [];
+			shell.onData = (data) => {
+				output.push(new TextDecoder().decode(data));
+			};
+
+			// Write 'hello\n' — in canonical+echo mode, master echoes input then
+			// the mock reads the line from slave and writes it back to slave output
+			shell.write("hello\n");
+
+			// Allow async read pump to deliver data
+			await new Promise((r) => setTimeout(r, 20));
+
+			const combined = output.join("");
+			expect(combined).toContain("hello");
+
+			shell.kill();
+		});
+
+		it("open shell, write ^C, verify shell still running", async () => {
+			const killSignals: number[] = [];
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: {
+					readStdinFromKernel: true,
+					survivableSignals: [2, 20, 28],
+					killSignals,
+				},
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const shell = kernel.openShell();
+
+			// ^C should generate SIGINT but shell survives
+			shell.write("\x03");
+
+			await new Promise((r) => setTimeout(r, 10));
+
+			// SIGINT delivered to foreground process group
+			expect(killSignals).toContain(2);
+
+			// Shell still running — wait should not have resolved
+			expect(shell.pid).toBeGreaterThan(0);
+			let exited = false;
+			shell.wait().then(() => { exited = true; });
+			await new Promise((r) => setTimeout(r, 10));
+			expect(exited).toBe(false);
+
+			shell.kill();
+		});
+
+		it("open shell, write ^D on empty line, verify shell exits", async () => {
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { readStdinFromKernel: true, survivableSignals: [2, 20, 28] },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const shell = kernel.openShell();
+
+			// ^D on empty line in canonical mode → EOF → mock exits
+			shell.write("\x04");
+
+			const exitCode = await shell.wait();
+			expect(exitCode).toBe(0);
+		});
+
+		it("resize delivers SIGWINCH to foreground process group", async () => {
+			const killSignals: number[] = [];
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: {
+					readStdinFromKernel: true,
+					survivableSignals: [2, 20, 28],
+					killSignals,
+				},
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const shell = kernel.openShell();
+
+			shell.resize(120, 40);
+
+			await new Promise((r) => setTimeout(r, 10));
+
+			// SIGWINCH (28) delivered to foreground group
+			expect(killSignals).toContain(28);
+
+			shell.kill();
+		});
+
+		it("shell process sees isatty(0) === true", async () => {
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { readStdinFromKernel: true, survivableSignals: [2, 20, 28] },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			const shell = kernel.openShell();
+
+			// Verify the shell's FD 0 is a PTY slave (terminal)
+			expect(ki.isatty(shell.pid, 0)).toBe(true);
+
+			shell.kill();
+		});
+	});
 });

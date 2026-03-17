@@ -37,6 +37,8 @@ export type {
 	KernelErrorCode,
 	Termios,
 	TermiosCC,
+	OpenShellOptions,
+	ShellHandle,
 } from "./types.js";
 
 // Structured kernel error and termios defaults

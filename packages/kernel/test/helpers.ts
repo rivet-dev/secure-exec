@@ -224,6 +224,10 @@ export interface MockCommandConfig {
 	neverExit?: boolean;
 	/** If provided, kill signal numbers are pushed here when kill() is called */
 	killSignals?: number[];
+	/** Signals that are recorded but do NOT cause the process to exit. */
+	survivableSignals?: number[];
+	/** If true, process reads stdin via KernelInterface FDs and echoes to stdout. */
+	readStdinFromKernel?: boolean;
 }
 
 /**
@@ -275,6 +279,7 @@ export class MockRuntimeDriver implements RuntimeDriver {
 			},
 			kill(_signal) {
 				config.killSignals?.push(_signal);
+				if (config.survivableSignals?.includes(_signal)) return;
 				const code = 128 + _signal;
 				exitResolve!(code);
 				proc.onExit?.(code);
@@ -285,7 +290,29 @@ export class MockRuntimeDriver implements RuntimeDriver {
 			onExit: null,
 		};
 
-		if (config.neverExit || config.echoStdin) {
+		if (config.readStdinFromKernel && this.kernelInterface) {
+			// Read from stdin FD via kernel and echo to stdout FD
+			const ki = this.kernelInterface;
+			const pid = ctx.pid;
+			const stdinFd = ctx.fds.stdin;
+			const stdoutFd = ctx.fds.stdout;
+			(async () => {
+				try {
+					while (true) {
+						const data = await ki.fdRead(pid, stdinFd, 4096);
+						if (data.length === 0) {
+							exitResolve!(exitCode);
+							proc.onExit?.(exitCode);
+							break;
+						}
+						ki.fdWrite(pid, stdoutFd, data);
+					}
+				} catch {
+					exitResolve!(exitCode);
+					proc.onExit?.(exitCode);
+				}
+			})();
+		} else if (config.neverExit || config.echoStdin) {
 			// Process hangs until kill() or closeStdin() (echoStdin)
 		} else if (config.emitDuringSpawn) {
 			// Emit synchronously during spawn via ctx callbacks
