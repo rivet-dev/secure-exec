@@ -2,8 +2,7 @@
  * Unit tests for UserManager (host_user syscall implementations).
  */
 
-import { describe, it, beforeEach } from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, it, beforeEach, expect } from 'vitest';
 import { UserManager } from '../src/user.ts';
 import { FDTable, FILETYPE_CHARACTER_DEVICE, FILETYPE_REGULAR_FILE, FILETYPE_UNKNOWN,
          RIGHT_FD_READ, RIGHT_FD_WRITE } from './helpers/test-fd-table.ts';
@@ -28,34 +27,34 @@ describe('UserManager', () => {
       const imports = um.getImports();
 
       // getuid returns 1000
-      assert.equal(imports.getuid(0), 0);
-      assert.equal(new DataView(mem.buffer).getUint32(0, true), 1000);
+      expect(imports.getuid(0)).toBe(0);
+      expect(new DataView(mem.buffer).getUint32(0, true)).toBe(1000);
 
       // getgid returns 1000
-      assert.equal(imports.getgid(4), 0);
-      assert.equal(new DataView(mem.buffer).getUint32(4, true), 1000);
+      expect(imports.getgid(4)).toBe(0);
+      expect(new DataView(mem.buffer).getUint32(4, true)).toBe(1000);
     });
 
     it('euid defaults to uid, egid defaults to gid', () => {
       const um = new UserManager({ getMemory: getMemory as () => WebAssembly.Memory, uid: 500, gid: 600 });
       const imports = um.getImports();
 
-      assert.equal(imports.geteuid(0), 0);
-      assert.equal(new DataView(mem.buffer).getUint32(0, true), 500);
+      expect(imports.geteuid(0)).toBe(0);
+      expect(new DataView(mem.buffer).getUint32(0, true)).toBe(500);
 
-      assert.equal(imports.getegid(4), 0);
-      assert.equal(new DataView(mem.buffer).getUint32(4, true), 600);
+      expect(imports.getegid(4)).toBe(0);
+      expect(new DataView(mem.buffer).getUint32(4, true)).toBe(600);
     });
 
     it('ttyFds defaults to empty set (nothing is a TTY)', () => {
       const um = new UserManager({ getMemory: getMemory as () => WebAssembly.Memory });
       const imports = um.getImports();
 
-      assert.equal(imports.isatty(0, 0), 0);
-      assert.equal(new DataView(mem.buffer).getUint32(0, true), 0);
+      expect(imports.isatty(0, 0)).toBe(0);
+      expect(new DataView(mem.buffer).getUint32(0, true)).toBe(0);
 
-      assert.equal(imports.isatty(1, 0), 0);
-      assert.equal(new DataView(mem.buffer).getUint32(0, true), 0);
+      expect(imports.isatty(1, 0)).toBe(0);
+      expect(new DataView(mem.buffer).getUint32(0, true)).toBe(0);
     });
   });
 
@@ -65,13 +64,13 @@ describe('UserManager', () => {
       const imports = um.getImports();
 
       const errno = imports.getuid(8);
-      assert.equal(errno, 0);
-      assert.equal(new DataView(mem.buffer).getUint32(8, true), 42);
+      expect(errno).toBe(0);
+      expect(new DataView(mem.buffer).getUint32(8, true)).toBe(42);
     });
 
     it('returns ENOSYS when memory not available', () => {
       const um = new UserManager({ getMemory: () => null as never });
-      assert.equal(um.getImports().getuid(0), 52);
+      expect(um.getImports().getuid(0)).toBe(52);
     });
   });
 
@@ -79,13 +78,13 @@ describe('UserManager', () => {
     it('writes configured gid to return pointer', () => {
       const um = new UserManager({ getMemory: getMemory as () => WebAssembly.Memory, gid: 99 });
       const errno = um.getImports().getgid(12);
-      assert.equal(errno, 0);
-      assert.equal(new DataView(mem.buffer).getUint32(12, true), 99);
+      expect(errno).toBe(0);
+      expect(new DataView(mem.buffer).getUint32(12, true)).toBe(99);
     });
 
     it('returns ENOSYS when memory not available', () => {
       const um = new UserManager({ getMemory: () => null as never });
-      assert.equal(um.getImports().getgid(0), 52);
+      expect(um.getImports().getgid(0)).toBe(52);
     });
   });
 
@@ -93,14 +92,14 @@ describe('UserManager', () => {
     it('writes configured euid to return pointer', () => {
       const um = new UserManager({ getMemory: getMemory as () => WebAssembly.Memory, uid: 1000, euid: 0 });
       const errno = um.getImports().geteuid(0);
-      assert.equal(errno, 0);
-      assert.equal(new DataView(mem.buffer).getUint32(0, true), 0);
+      expect(errno).toBe(0);
+      expect(new DataView(mem.buffer).getUint32(0, true)).toBe(0);
     });
 
     it('defaults euid to uid', () => {
       const um = new UserManager({ getMemory: getMemory as () => WebAssembly.Memory, uid: 777 });
       um.getImports().geteuid(0);
-      assert.equal(new DataView(mem.buffer).getUint32(0, true), 777);
+      expect(new DataView(mem.buffer).getUint32(0, true)).toBe(777);
     });
   });
 
@@ -108,14 +107,14 @@ describe('UserManager', () => {
     it('writes configured egid to return pointer', () => {
       const um = new UserManager({ getMemory: getMemory as () => WebAssembly.Memory, gid: 500, egid: 0 });
       const errno = um.getImports().getegid(0);
-      assert.equal(errno, 0);
-      assert.equal(new DataView(mem.buffer).getUint32(0, true), 0);
+      expect(errno).toBe(0);
+      expect(new DataView(mem.buffer).getUint32(0, true)).toBe(0);
     });
 
     it('defaults egid to gid', () => {
       const um = new UserManager({ getMemory: getMemory as () => WebAssembly.Memory, gid: 333 });
       um.getImports().getegid(0);
-      assert.equal(new DataView(mem.buffer).getUint32(0, true), 333);
+      expect(new DataView(mem.buffer).getUint32(0, true)).toBe(333);
     });
   });
 
@@ -123,8 +122,8 @@ describe('UserManager', () => {
     it('returns 0 (false) for non-TTY fds', () => {
       const um = new UserManager({ getMemory: getMemory as () => WebAssembly.Memory });
       const errno = um.getImports().isatty(0, 0);
-      assert.equal(errno, 0);
-      assert.equal(new DataView(mem.buffer).getUint32(0, true), 0);
+      expect(errno).toBe(0);
+      expect(new DataView(mem.buffer).getUint32(0, true)).toBe(0);
     });
 
     it('returns 1 (true) for TTY fds when ttyFds=true (stdio)', () => {
@@ -133,19 +132,19 @@ describe('UserManager', () => {
 
       // fd 0 (stdin)
       imports.isatty(0, 0);
-      assert.equal(new DataView(mem.buffer).getUint32(0, true), 1);
+      expect(new DataView(mem.buffer).getUint32(0, true)).toBe(1);
 
       // fd 1 (stdout)
       imports.isatty(1, 0);
-      assert.equal(new DataView(mem.buffer).getUint32(0, true), 1);
+      expect(new DataView(mem.buffer).getUint32(0, true)).toBe(1);
 
       // fd 2 (stderr)
       imports.isatty(2, 0);
-      assert.equal(new DataView(mem.buffer).getUint32(0, true), 1);
+      expect(new DataView(mem.buffer).getUint32(0, true)).toBe(1);
 
       // fd 3 is NOT a TTY
       imports.isatty(3, 0);
-      assert.equal(new DataView(mem.buffer).getUint32(0, true), 0);
+      expect(new DataView(mem.buffer).getUint32(0, true)).toBe(0);
     });
 
     it('returns 1 for specific ttyFds set', () => {
@@ -153,13 +152,13 @@ describe('UserManager', () => {
       const imports = um.getImports();
 
       imports.isatty(0, 0);
-      assert.equal(new DataView(mem.buffer).getUint32(0, true), 0); // stdin not in set
+      expect(new DataView(mem.buffer).getUint32(0, true)).toBe(0); // stdin not in set
 
       imports.isatty(1, 0);
-      assert.equal(new DataView(mem.buffer).getUint32(0, true), 1); // stdout in set
+      expect(new DataView(mem.buffer).getUint32(0, true)).toBe(1); // stdout in set
 
       imports.isatty(2, 0);
-      assert.equal(new DataView(mem.buffer).getUint32(0, true), 1); // stderr in set
+      expect(new DataView(mem.buffer).getUint32(0, true)).toBe(1); // stderr in set
     });
 
     it('checks FDTable filetype when available', () => {
@@ -169,7 +168,7 @@ describe('UserManager', () => {
 
       // fd 0 is a CHARACTER_DEVICE in FDTable -> TTY
       imports.isatty(0, 0);
-      assert.equal(new DataView(mem.buffer).getUint32(0, true), 1);
+      expect(new DataView(mem.buffer).getUint32(0, true)).toBe(1);
 
       // Open a regular file -- it should NOT be a TTY even if in ttyFds
       const fileFd = fdTable.open(
@@ -179,7 +178,7 @@ describe('UserManager', () => {
       // Even if we add fileFd to ttyFds, it's not a character device
       (um as unknown as { _ttyFds: Set<number> })._ttyFds.add(fileFd);
       imports.isatty(fileFd, 0);
-      assert.equal(new DataView(mem.buffer).getUint32(0, true), 0);
+      expect(new DataView(mem.buffer).getUint32(0, true)).toBe(0);
     });
 
     it('returns EBADF for non-existent fd when FDTable is available', () => {
@@ -188,8 +187,8 @@ describe('UserManager', () => {
       const imports = um.getImports();
 
       const errno = imports.isatty(999, 0);
-      assert.equal(errno, 8); // EBADF
-      assert.equal(new DataView(mem.buffer).getUint32(0, true), 0);
+      expect(errno).toBe(8); // EBADF
+      expect(new DataView(mem.buffer).getUint32(0, true)).toBe(0);
     });
 
     it('returns 0 for pipe fds', () => {
@@ -204,12 +203,12 @@ describe('UserManager', () => {
       const imports = um.getImports();
 
       imports.isatty(pipeFd, 0);
-      assert.equal(new DataView(mem.buffer).getUint32(0, true), 0);
+      expect(new DataView(mem.buffer).getUint32(0, true)).toBe(0);
     });
 
     it('returns ENOSYS when memory not available', () => {
       const um = new UserManager({ getMemory: () => null as never });
-      assert.equal(um.getImports().isatty(0, 0), 52);
+      expect(um.getImports().isatty(0, 0)).toBe(52);
     });
   });
 
@@ -231,11 +230,11 @@ describe('UserManager', () => {
       const retLenPtr = 512;
 
       const errno = imports.getpwuid(1000, bufPtr, bufLen, retLenPtr);
-      assert.equal(errno, 0);
+      expect(errno).toBe(0);
 
       const len = new DataView(mem.buffer).getUint32(retLenPtr, true);
       const result = new TextDecoder().decode(new Uint8Array(mem.buffer, bufPtr, len));
-      assert.equal(result, 'alice:x:1000:1000:Alice:/home/alice:/bin/bash');
+      expect(result).toBe('alice:x:1000:1000:Alice:/home/alice:/bin/bash');
     });
 
     it('returns default passwd entry with default config', () => {
@@ -248,7 +247,7 @@ describe('UserManager', () => {
       imports.getpwuid(1000, bufPtr, 256, retLenPtr);
       const len = new DataView(mem.buffer).getUint32(retLenPtr, true);
       const result = new TextDecoder().decode(new Uint8Array(mem.buffer, bufPtr, len));
-      assert.equal(result, 'user:x:1000:1000::/home/user:/bin/sh');
+      expect(result).toBe('user:x:1000:1000::/home/user:/bin/sh');
     });
 
     it('returns generic entry for non-matching uid', () => {
@@ -261,7 +260,7 @@ describe('UserManager', () => {
       imports.getpwuid(500, bufPtr, 256, retLenPtr);
       const len = new DataView(mem.buffer).getUint32(retLenPtr, true);
       const result = new TextDecoder().decode(new Uint8Array(mem.buffer, bufPtr, len));
-      assert.equal(result, 'user500:x:500:500::/home/user500:/bin/sh');
+      expect(result).toBe('user500:x:500:500::/home/user500:/bin/sh');
     });
 
     it('truncates output when buffer is too small', () => {
@@ -274,15 +273,15 @@ describe('UserManager', () => {
       // Very small buffer
       imports.getpwuid(1000, bufPtr, 10, retLenPtr);
       const len = new DataView(mem.buffer).getUint32(retLenPtr, true);
-      assert.equal(len, 10);
+      expect(len).toBe(10);
 
       const result = new TextDecoder().decode(new Uint8Array(mem.buffer, bufPtr, len));
-      assert.equal(result, 'user:x:100');
+      expect(result).toBe('user:x:100');
     });
 
     it('returns ENOSYS when memory not available', () => {
       const um = new UserManager({ getMemory: () => null as never });
-      assert.equal(um.getImports().getpwuid(1000, 0, 256, 512), 52);
+      expect(um.getImports().getpwuid(1000, 0, 256, 512)).toBe(52);
     });
 
     it('handles uid 0 (root)', () => {
@@ -301,7 +300,7 @@ describe('UserManager', () => {
       imports.getpwuid(0, bufPtr, 256, retLenPtr);
       const len = new DataView(mem.buffer).getUint32(retLenPtr, true);
       const result = new TextDecoder().decode(new Uint8Array(mem.buffer, bufPtr, len));
-      assert.equal(result, 'root:x:0:0::/root:/bin/sh');
+      expect(result).toBe('root:x:0:0::/root:/bin/sh');
     });
   });
 
@@ -309,13 +308,13 @@ describe('UserManager', () => {
     it('returns all 6 host_user functions', () => {
       const um = new UserManager({ getMemory: getMemory as () => WebAssembly.Memory });
       const imports = um.getImports();
-      assert.equal(typeof imports.getuid, 'function');
-      assert.equal(typeof imports.getgid, 'function');
-      assert.equal(typeof imports.geteuid, 'function');
-      assert.equal(typeof imports.getegid, 'function');
-      assert.equal(typeof imports.isatty, 'function');
-      assert.equal(typeof imports.getpwuid, 'function');
-      assert.equal(Object.keys(imports).length, 6);
+      expect(typeof imports.getuid).toBe('function');
+      expect(typeof imports.getgid).toBe('function');
+      expect(typeof imports.geteuid).toBe('function');
+      expect(typeof imports.getegid).toBe('function');
+      expect(typeof imports.isatty).toBe('function');
+      expect(typeof imports.getpwuid).toBe('function');
+      expect(Object.keys(imports).length).toBe(6);
     });
   });
 });

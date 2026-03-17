@@ -1,5 +1,4 @@
-import { describe, it, beforeEach } from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, it, beforeEach, expect } from 'vitest';
 import { FDTable, FILETYPE_REGULAR_FILE, ERRNO_SUCCESS, ERRNO_EBADF, ERRNO_EINVAL,
   RIGHT_FD_READ, RIGHT_FD_WRITE, RIGHT_FD_SEEK } from './helpers/test-fd-table.ts';
 import { VFS } from './helpers/test-vfs.ts';
@@ -71,26 +70,26 @@ describe('WasiPolyfill US-009: args, env, clock, random, proc_exit', () => {
     it('returns 0 args when none provided', () => {
       const { wasi, memory } = createTestSetup();
       const errno = wasi.args_sizes_get(100, 104);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU32(memory, 100), 0); // argc
-      assert.strictEqual(readU32(memory, 104), 0); // buf size
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU32(memory, 100)).toBe(0); // argc
+      expect(readU32(memory, 104)).toBe(0); // buf size
     });
 
     it('returns correct sizes for multiple args', () => {
       const { wasi, memory } = createTestSetup({ args: ['echo', 'hello', 'world'] });
       const errno = wasi.args_sizes_get(100, 104);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU32(memory, 100), 3); // argc
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU32(memory, 100)).toBe(3); // argc
       // "echo\0" + "hello\0" + "world\0" = 5+6+6 = 17
-      assert.strictEqual(readU32(memory, 104), 17);
+      expect(readU32(memory, 104)).toBe(17);
     });
 
     it('handles single arg', () => {
       const { wasi, memory } = createTestSetup({ args: ['ls'] });
       const errno = wasi.args_sizes_get(100, 104);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU32(memory, 100), 1);
-      assert.strictEqual(readU32(memory, 104), 3); // "ls\0"
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU32(memory, 100)).toBe(1);
+      expect(readU32(memory, 104)).toBe(3); // "ls\0"
     });
   });
 
@@ -99,24 +98,24 @@ describe('WasiPolyfill US-009: args, env, clock, random, proc_exit', () => {
       const { wasi, memory } = createTestSetup({ args: ['echo', 'hi'] });
       // argv pointers at 100, arg strings at 200
       const errno = wasi.args_get(100, 200);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
 
       // First pointer should point to 200
-      assert.strictEqual(readU32(memory, 100), 200);
+      expect(readU32(memory, 100)).toBe(200);
       // Second pointer should point to 200 + 5 (echo\0)
-      assert.strictEqual(readU32(memory, 104), 205);
+      expect(readU32(memory, 104)).toBe(205);
 
       // Read strings (null-terminated)
-      assert.strictEqual(readString(memory, 200, 4), 'echo');
-      assert.strictEqual(new Uint8Array(memory.buffer)[204], 0); // null terminator
-      assert.strictEqual(readString(memory, 205, 2), 'hi');
-      assert.strictEqual(new Uint8Array(memory.buffer)[207], 0);
+      expect(readString(memory, 200, 4)).toBe('echo');
+      expect(new Uint8Array(memory.buffer)[204]).toBe(0); // null terminator
+      expect(readString(memory, 205, 2)).toBe('hi');
+      expect(new Uint8Array(memory.buffer)[207]).toBe(0);
     });
 
     it('handles empty args', () => {
       const { wasi } = createTestSetup();
       const errno = wasi.args_get(100, 200);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
       // No pointers written, no strings written
     });
   });
@@ -125,9 +124,9 @@ describe('WasiPolyfill US-009: args, env, clock, random, proc_exit', () => {
     it('returns 0 when no env vars', () => {
       const { wasi, memory } = createTestSetup();
       const errno = wasi.environ_sizes_get(100, 104);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU32(memory, 100), 0);
-      assert.strictEqual(readU32(memory, 104), 0);
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU32(memory, 100)).toBe(0);
+      expect(readU32(memory, 104)).toBe(0);
     });
 
     it('returns correct sizes for env vars', () => {
@@ -135,10 +134,10 @@ describe('WasiPolyfill US-009: args, env, clock, random, proc_exit', () => {
         env: { HOME: '/home/user', PATH: '/bin' }
       });
       const errno = wasi.environ_sizes_get(100, 104);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU32(memory, 100), 2); // 2 env vars
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU32(memory, 100)).toBe(2); // 2 env vars
       // "HOME=/home/user\0" = 16, "PATH=/bin\0" = 10 => 26
-      assert.strictEqual(readU32(memory, 104), 26);
+      expect(readU32(memory, 104)).toBe(26);
     });
   });
 
@@ -148,26 +147,26 @@ describe('WasiPolyfill US-009: args, env, clock, random, proc_exit', () => {
         env: { HOME: '/home/user', TERM: 'xterm' }
       });
       const errno = wasi.environ_get(100, 300);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
 
       // First pointer
-      assert.strictEqual(readU32(memory, 100), 300);
+      expect(readU32(memory, 100)).toBe(300);
       // Read first env string
       const firstLen = 'HOME=/home/user'.length;
-      assert.strictEqual(readString(memory, 300, firstLen), 'HOME=/home/user');
-      assert.strictEqual(new Uint8Array(memory.buffer)[300 + firstLen], 0);
+      expect(readString(memory, 300, firstLen)).toBe('HOME=/home/user');
+      expect(new Uint8Array(memory.buffer)[300 + firstLen]).toBe(0);
 
       // Second env var
       const secondStart = 300 + firstLen + 1;
-      assert.strictEqual(readU32(memory, 104), secondStart);
+      expect(readU32(memory, 104)).toBe(secondStart);
       const secondLen = 'TERM=xterm'.length;
-      assert.strictEqual(readString(memory, secondStart, secondLen), 'TERM=xterm');
+      expect(readString(memory, secondStart, secondLen)).toBe('TERM=xterm');
     });
 
     it('handles empty env', () => {
       const { wasi } = createTestSetup();
       const errno = wasi.environ_get(100, 300);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
     });
   });
 
@@ -178,32 +177,32 @@ describe('WasiPolyfill US-009: args, env, clock, random, proc_exit', () => {
       const errno = wasi.clock_time_get(0, 0n, 200);
       const after = BigInt(Date.now()) * 1_000_000n;
 
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
       const time = readU64(memory, 200);
-      assert.ok(time >= before, `time ${time} should be >= ${before}`);
-      assert.ok(time <= after, `time ${time} should be <= ${after}`);
+      expect(time >= before).toBeTruthy();
+      expect(time <= after).toBeTruthy();
     });
 
     it('returns monotonic clock in nanoseconds', () => {
       const { wasi, memory } = createTestSetup();
       const errno = wasi.clock_time_get(1, 0n, 200);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
       const time = readU64(memory, 200);
-      assert.ok(time > 0n, 'monotonic time should be > 0');
+      expect(time > 0n).toBeTruthy();
     });
 
     it('returns EINVAL for invalid clock id', () => {
       const { wasi } = createTestSetup();
       const errno = wasi.clock_time_get(99, 0n, 200);
-      assert.strictEqual(errno, ERRNO_EINVAL);
+      expect(errno).toBe(ERRNO_EINVAL);
     });
 
     it('supports process and thread cputime clocks', () => {
       const { wasi, memory } = createTestSetup();
-      assert.strictEqual(wasi.clock_time_get(2, 0n, 200), ERRNO_SUCCESS);
-      assert.ok(readU64(memory, 200) > 0n);
-      assert.strictEqual(wasi.clock_time_get(3, 0n, 200), ERRNO_SUCCESS);
-      assert.ok(readU64(memory, 200) > 0n);
+      expect(wasi.clock_time_get(2, 0n, 200)).toBe(ERRNO_SUCCESS);
+      expect(readU64(memory, 200) > 0n).toBeTruthy();
+      expect(wasi.clock_time_get(3, 0n, 200)).toBe(ERRNO_SUCCESS);
+      expect(readU64(memory, 200) > 0n).toBeTruthy();
     });
   });
 
@@ -211,21 +210,21 @@ describe('WasiPolyfill US-009: args, env, clock, random, proc_exit', () => {
     it('returns resolution for realtime clock', () => {
       const { wasi, memory } = createTestSetup();
       const errno = wasi.clock_res_get(0, 200);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU64(memory, 200), 1_000_000n); // 1ms in ns
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU64(memory, 200)).toBe(1_000_000n); // 1ms in ns
     });
 
     it('returns resolution for monotonic clock', () => {
       const { wasi, memory } = createTestSetup();
       const errno = wasi.clock_res_get(1, 200);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU64(memory, 200), 1_000n); // 1us in ns
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU64(memory, 200)).toBe(1_000n); // 1us in ns
     });
 
     it('returns EINVAL for invalid clock id', () => {
       const { wasi } = createTestSetup();
       const errno = wasi.clock_res_get(99, 200);
-      assert.strictEqual(errno, ERRNO_EINVAL);
+      expect(errno).toBe(ERRNO_EINVAL);
     });
   });
 
@@ -233,12 +232,12 @@ describe('WasiPolyfill US-009: args, env, clock, random, proc_exit', () => {
     it('fills buffer with random bytes', () => {
       const { wasi, memory } = createTestSetup();
       const errno = wasi.random_get(200, 32);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
 
       // Very unlikely that 32 random bytes are all zero
       const buf = new Uint8Array(memory.buffer, 200, 32);
       const allZero = buf.every(b => b === 0);
-      assert.ok(!allZero, 'random bytes should not all be zero');
+      expect(allZero).toBeFalsy();
     });
 
     it('fills exact number of bytes', () => {
@@ -246,56 +245,50 @@ describe('WasiPolyfill US-009: args, env, clock, random, proc_exit', () => {
       // Zero out a region first
       new Uint8Array(memory.buffer).fill(0, 200, 210);
       const errno = wasi.random_get(200, 5);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
       // Bytes outside range should still be zero
-      assert.strictEqual(new Uint8Array(memory.buffer)[210], 0);
+      expect(new Uint8Array(memory.buffer)[210]).toBe(0);
     });
 
     it('handles zero-length request', () => {
       const { wasi } = createTestSetup();
       const errno = wasi.random_get(200, 0);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
     });
   });
 
   describe('proc_exit', () => {
     it('throws WasiProcExit with exit code', () => {
       const { wasi } = createTestSetup();
-      assert.throws(() => wasi.proc_exit(0), {
-        name: 'WasiProcExit',
-        exitCode: 0,
-      });
-      assert.strictEqual(wasi.exitCode, 0);
+      expect(() => wasi.proc_exit(0)).toThrow(WasiProcExit);
+      expect(wasi.exitCode).toBe(0);
     });
 
     it('throws WasiProcExit with non-zero exit code', () => {
       const { wasi } = createTestSetup();
-      assert.throws(() => wasi.proc_exit(42), {
-        name: 'WasiProcExit',
-        exitCode: 42,
-      });
-      assert.strictEqual(wasi.exitCode, 42);
+      expect(() => wasi.proc_exit(42)).toThrow(WasiProcExit);
+      expect(wasi.exitCode).toBe(42);
     });
 
     it('WasiProcExit is instance of Error', () => {
       const err = new WasiProcExit(1);
-      assert.ok(err instanceof Error);
-      assert.strictEqual(err.exitCode, 1);
-      assert.strictEqual(err.name, 'WasiProcExit');
+      expect(err).toBeInstanceOf(Error);
+      expect(err.exitCode).toBe(1);
+      expect(err.name).toBe('WasiProcExit');
     });
   });
 
   describe('proc_raise', () => {
     it('returns ENOSYS', () => {
       const { wasi } = createTestSetup();
-      assert.strictEqual(wasi.proc_raise(9), ERRNO_ENOSYS);
+      expect(wasi.proc_raise(9)).toBe(ERRNO_ENOSYS);
     });
   });
 
   describe('sched_yield', () => {
     it('returns success', () => {
       const { wasi } = createTestSetup();
-      assert.strictEqual(wasi.sched_yield(), ERRNO_SUCCESS);
+      expect(wasi.sched_yield()).toBe(ERRNO_SUCCESS);
     });
   });
 
@@ -314,16 +307,16 @@ describe('WasiPolyfill US-009: args, env, clock, random, proc_exit', () => {
 
       // Output events at offset 2000
       const errno = wasi.poll_oneoff(1000, 2000, 1, 3000);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
 
       // Check nevents
-      assert.strictEqual(readU32(memory, 3000), 1);
+      expect(readU32(memory, 3000)).toBe(1);
 
       // Check event
-      assert.strictEqual(readU64(memory, 2000), 42n);     // userdata
+      expect(readU64(memory, 2000)).toBe(42n);     // userdata
       const errCode = new DataView(memory.buffer).getUint16(2008, true);
-      assert.strictEqual(errCode, 0);                       // error = success
-      assert.strictEqual(new Uint8Array(memory.buffer)[2010], 0); // type = clock
+      expect(errCode).toBe(0);                       // error = success
+      expect(new Uint8Array(memory.buffer)[2010]).toBe(0); // type = clock
     });
 
     it('handles multiple subscriptions', () => {
@@ -338,8 +331,8 @@ describe('WasiPolyfill US-009: args, env, clock, random, proc_exit', () => {
       }
 
       const errno = wasi.poll_oneoff(1000, 2000, 2, 3000);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU32(memory, 3000), 2);
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU32(memory, 3000)).toBe(2);
     });
 
     it('handles fd_read subscription', () => {
@@ -351,57 +344,57 @@ describe('WasiPolyfill US-009: args, env, clock, random, proc_exit', () => {
       view.setUint8(1008, 1); // type = fd_read
 
       const errno = wasi.poll_oneoff(1000, 2000, 1, 3000);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU32(memory, 3000), 1);
-      assert.strictEqual(readU64(memory, 2000), 99n);
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU32(memory, 3000)).toBe(1);
+      expect(readU64(memory, 2000)).toBe(99n);
     });
   });
 
   describe('fd_advise', () => {
     it('returns success for valid fd', () => {
       const { wasi } = createTestSetup();
-      assert.strictEqual(wasi.fd_advise(0, 0, 0, 0), ERRNO_SUCCESS);
+      expect(wasi.fd_advise(0, 0, 0, 0)).toBe(ERRNO_SUCCESS);
     });
 
     it('returns EBADF for invalid fd', () => {
       const { wasi } = createTestSetup();
-      assert.strictEqual(wasi.fd_advise(99, 0, 0, 0), ERRNO_EBADF);
+      expect(wasi.fd_advise(99, 0, 0, 0)).toBe(ERRNO_EBADF);
     });
   });
 
   describe('fd_allocate', () => {
     it('returns success for valid fd', () => {
       const { wasi } = createTestSetup();
-      assert.strictEqual(wasi.fd_allocate(0, 0, 100), ERRNO_SUCCESS);
+      expect(wasi.fd_allocate(0, 0, 100)).toBe(ERRNO_SUCCESS);
     });
 
     it('returns EBADF for invalid fd', () => {
       const { wasi } = createTestSetup();
-      assert.strictEqual(wasi.fd_allocate(99, 0, 100), ERRNO_EBADF);
+      expect(wasi.fd_allocate(99, 0, 100)).toBe(ERRNO_EBADF);
     });
   });
 
   describe('fd_datasync', () => {
     it('returns success for valid fd', () => {
       const { wasi } = createTestSetup();
-      assert.strictEqual(wasi.fd_datasync(0), ERRNO_SUCCESS);
+      expect(wasi.fd_datasync(0)).toBe(ERRNO_SUCCESS);
     });
 
     it('returns EBADF for invalid fd', () => {
       const { wasi } = createTestSetup();
-      assert.strictEqual(wasi.fd_datasync(99), ERRNO_EBADF);
+      expect(wasi.fd_datasync(99)).toBe(ERRNO_EBADF);
     });
   });
 
   describe('fd_sync', () => {
     it('returns success for valid fd', () => {
       const { wasi } = createTestSetup();
-      assert.strictEqual(wasi.fd_sync(0), ERRNO_SUCCESS);
+      expect(wasi.fd_sync(0)).toBe(ERRNO_SUCCESS);
     });
 
     it('returns EBADF for invalid fd', () => {
       const { wasi } = createTestSetup();
-      assert.strictEqual(wasi.fd_sync(99), ERRNO_EBADF);
+      expect(wasi.fd_sync(99)).toBe(ERRNO_EBADF);
     });
   });
 
@@ -415,13 +408,13 @@ describe('WasiPolyfill US-009: args, env, clock, random, proc_exit', () => {
 
       // Shrink to only read
       const errno = wasi.fd_fdstat_set_rights(fd, RIGHT_FD_READ, 0n);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(entry.rightsBase, origRights & RIGHT_FD_READ);
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(entry.rightsBase).toBe(origRights & RIGHT_FD_READ);
     });
 
     it('returns EBADF for invalid fd', () => {
       const { wasi } = createTestSetup();
-      assert.strictEqual(wasi.fd_fdstat_set_rights(99, 0n, 0n), ERRNO_EBADF);
+      expect(wasi.fd_fdstat_set_rights(99, 0n, 0n)).toBe(ERRNO_EBADF);
     });
   });
 
@@ -433,24 +426,24 @@ describe('WasiPolyfill US-009: args, env, clock, random, proc_exit', () => {
 
       writeIovecs(memory, 0, [{ buf: 256, buf_len: 3 }]);
       const errno = wasi.fd_pread(fd, 0, 1, 5n, 100);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU32(memory, 100), 3);
-      assert.strictEqual(readString(memory, 256, 3), 'FGH');
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU32(memory, 100)).toBe(3);
+      expect(readString(memory, 256, 3)).toBe('FGH');
 
       // Cursor should still be at 0
-      assert.strictEqual(fdTable.get(fd)!.cursor, 0n);
+      expect(fdTable.get(fd)!.cursor).toBe(0n);
     });
 
     it('returns EBADF for invalid fd', () => {
       const { wasi, memory } = createTestSetup();
       writeIovecs(memory, 0, [{ buf: 256, buf_len: 5 }]);
-      assert.strictEqual(wasi.fd_pread(99, 0, 1, 0n, 100), ERRNO_EBADF);
+      expect(wasi.fd_pread(99, 0, 1, 0n, 100)).toBe(ERRNO_EBADF);
     });
 
     it('returns ESPIPE for non-seekable fd', () => {
       const { wasi, memory } = createTestSetup();
       writeIovecs(memory, 0, [{ buf: 256, buf_len: 5 }]);
-      assert.strictEqual(wasi.fd_pread(0, 0, 1, 0n, 100), ERRNO_ESPIPE);
+      expect(wasi.fd_pread(0, 0, 1, 0n, 100)).toBe(ERRNO_ESPIPE);
     });
   });
 
@@ -463,14 +456,14 @@ describe('WasiPolyfill US-009: args, env, clock, random, proc_exit', () => {
       writeString(memory, 256, 'BB');
       writeIovecs(memory, 0, [{ buf: 256, buf_len: 2 }]);
       const errno = wasi.fd_pwrite(fd, 0, 1, 3n, 100);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU32(memory, 100), 2);
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU32(memory, 100)).toBe(2);
 
       const content = new TextDecoder().decode(vfs.readFile('/tmp/test.txt'));
-      assert.strictEqual(content, 'AAABBAAAAA');
+      expect(content).toBe('AAABBAAAAA');
 
       // Cursor should still be at 0
-      assert.strictEqual(fdTable.get(fd)!.cursor, 0n);
+      expect(fdTable.get(fd)!.cursor).toBe(0n);
     });
 
     it('extends file when writing past end', () => {
@@ -483,15 +476,15 @@ describe('WasiPolyfill US-009: args, env, clock, random, proc_exit', () => {
       wasi.fd_pwrite(fd, 0, 1, 5n, 100);
 
       const data = vfs.readFile('/tmp/test.txt');
-      assert.strictEqual(data.length, 7);
-      assert.strictEqual(data[5], 67); // 'C'
-      assert.strictEqual(data[6], 68); // 'D'
+      expect(data.length).toBe(7);
+      expect(data[5]).toBe(67); // 'C'
+      expect(data[6]).toBe(68); // 'D'
     });
 
     it('returns EBADF for invalid fd', () => {
       const { wasi, memory } = createTestSetup();
       writeIovecs(memory, 0, [{ buf: 256, buf_len: 5 }]);
-      assert.strictEqual(wasi.fd_pwrite(99, 0, 1, 0n, 100), ERRNO_EBADF);
+      expect(wasi.fd_pwrite(99, 0, 1, 0n, 100)).toBe(ERRNO_EBADF);
     });
   });
 
@@ -502,43 +495,43 @@ describe('WasiPolyfill US-009: args, env, clock, random, proc_exit', () => {
       const fd = openVfsFile(fdTable, vfs, '/tmp/test.txt');
 
       const errno = wasi.fd_renumber(fd, 10);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.ok(!fdTable.has(fd));
-      assert.ok(fdTable.has(10));
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(fdTable.has(fd)).toBeFalsy();
+      expect(fdTable.has(10)).toBeTruthy();
     });
 
     it('returns EBADF for invalid source fd', () => {
       const { wasi } = createTestSetup();
-      assert.strictEqual(wasi.fd_renumber(99, 10), ERRNO_EBADF);
+      expect(wasi.fd_renumber(99, 10)).toBe(ERRNO_EBADF);
     });
   });
 
   describe('path_link', () => {
     it('returns ENOSYS', () => {
       const { wasi } = createTestSetup();
-      assert.strictEqual(wasi.path_link(3, 0, 0, 0, 3, 0, 0), ERRNO_ENOSYS);
+      expect(wasi.path_link(3, 0, 0, 0, 3, 0, 0)).toBe(ERRNO_ENOSYS);
     });
   });
 
   describe('socket stubs', () => {
     it('sock_accept returns ENOSYS', () => {
       const { wasi } = createTestSetup();
-      assert.strictEqual(wasi.sock_accept(0, 0, 0), ERRNO_ENOSYS);
+      expect(wasi.sock_accept(0, 0, 0)).toBe(ERRNO_ENOSYS);
     });
 
     it('sock_recv returns ENOSYS', () => {
       const { wasi } = createTestSetup();
-      assert.strictEqual(wasi.sock_recv(0, 0, 0, 0, 0, 0), ERRNO_ENOSYS);
+      expect(wasi.sock_recv(0, 0, 0, 0, 0, 0)).toBe(ERRNO_ENOSYS);
     });
 
     it('sock_send returns ENOSYS', () => {
       const { wasi } = createTestSetup();
-      assert.strictEqual(wasi.sock_send(0, 0, 0, 0, 0), ERRNO_ENOSYS);
+      expect(wasi.sock_send(0, 0, 0, 0, 0)).toBe(ERRNO_ENOSYS);
     });
 
     it('sock_shutdown returns ENOSYS', () => {
       const { wasi } = createTestSetup();
-      assert.strictEqual(wasi.sock_shutdown(0, 0), ERRNO_ENOSYS);
+      expect(wasi.sock_shutdown(0, 0)).toBe(ERRNO_ENOSYS);
     });
   });
 
@@ -577,17 +570,17 @@ describe('WasiPolyfill US-009: args, env, clock, random, proc_exit', () => {
       ];
 
       for (const name of expectedFunctions) {
-        assert.strictEqual(typeof imports[name], 'function', `${name} should be a function`);
+        expect(typeof imports[name]).toBe('function');
       }
 
-      assert.strictEqual(expectedFunctions.length, 46, 'should have 46 functions total');
-      assert.strictEqual(Object.keys(imports).length, 46, 'imports should have exactly 46 keys');
+      expect(expectedFunctions.length).toBe(46);
+      expect(Object.keys(imports).length).toBe(46);
     });
 
     it('import functions delegate correctly for proc_exit', () => {
       const { wasi } = createTestSetup();
       const imports = wasi.getImports() as unknown as Record<string, Function>;
-      assert.throws(() => imports.proc_exit(0), { name: 'WasiProcExit' });
+      expect(() => imports.proc_exit(0)).toThrow(WasiProcExit);
     });
   });
 });

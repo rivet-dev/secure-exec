@@ -1,8 +1,7 @@
 /**
  * Tests for WorkerAdapter -- unified Worker abstraction for browser and Node.js.
  */
-import { describe, it } from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, it, expect } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { WorkerAdapter } from '../src/worker-adapter.ts';
@@ -14,13 +13,13 @@ describe('WorkerAdapter', () => {
   describe('environment detection', () => {
     it('detects Node.js environment', () => {
       const adapter = new WorkerAdapter();
-      assert.equal(adapter.environment, 'node');
+      expect(adapter.environment).toBe('node');
     });
   });
 
   describe('SharedArrayBuffer availability', () => {
     it('reports SharedArrayBuffer as available in Node.js', () => {
-      assert.equal(WorkerAdapter.isSharedArrayBufferAvailable(), true);
+      expect(WorkerAdapter.isSharedArrayBufferAvailable()).toBe(true);
     });
   });
 
@@ -42,8 +41,8 @@ describe('WorkerAdapter', () => {
         worker.postMessage({ type: 'echo', data: 'hello' });
       });
 
-      assert.equal(result.type, 'echo');
-      assert.equal(result.data, 'hello');
+      expect(result.type).toBe('echo');
+      expect(result.data).toBe('hello');
       await worker.terminate();
     });
 
@@ -65,8 +64,8 @@ describe('WorkerAdapter', () => {
         worker.onError(reject);
       });
 
-      assert.equal(result.type, 'workerData');
-      assert.deepEqual(result.data, { greeting: 'hello from parent' });
+      expect(result.type).toBe('workerData');
+      expect(result.data).toEqual({ greeting: 'hello from parent' });
       await worker.terminate();
     });
 
@@ -74,8 +73,8 @@ describe('WorkerAdapter', () => {
       const adapter = new WorkerAdapter();
       const worker = await adapter.spawn(ECHO_WORKER);
 
-      assert.equal(typeof (worker as unknown as { threadId: number }).threadId, 'number');
-      assert.ok((worker as unknown as { threadId: number }).threadId > 0);
+      expect(typeof (worker as unknown as { threadId: number }).threadId).toBe('number');
+      expect((worker as unknown as { threadId: number }).threadId > 0).toBeTruthy();
       await worker.terminate();
     });
   });
@@ -106,7 +105,7 @@ describe('WorkerAdapter', () => {
       worker.postMessage({ type: 'echo', data: 'three' });
 
       await done;
-      assert.deepEqual(received, ['one', 'two', 'three']);
+      expect(received).toEqual(['one', 'two', 'three']);
       await worker.terminate();
     });
 
@@ -133,8 +132,8 @@ describe('WorkerAdapter', () => {
         worker.postMessage({ type: 'echo', data: complex });
       });
 
-      assert.deepEqual(result.data.array, [1, 2, 3]);
-      assert.deepEqual(result.data.nested, { a: true, b: null });
+      expect(result.data.array).toEqual([1, 2, 3]);
+      expect(result.data.nested).toEqual({ a: true, b: null });
       await worker.terminate();
     });
   });
@@ -164,7 +163,7 @@ describe('WorkerAdapter', () => {
       await done;
 
       // Worker wrote 42 to the shared buffer
-      assert.equal(Atomics.load(view, 0), 42);
+      expect(Atomics.load(view, 0)).toBe(42);
       await worker.terminate();
     });
 
@@ -181,8 +180,8 @@ describe('WorkerAdapter', () => {
       // Wait for the worker to write to the buffer
       // (Atomics.wait blocks until value at index 0 is no longer 0)
       const waitResult = Atomics.wait(view, 0, 0, 5000);
-      assert.ok(waitResult === 'ok' || waitResult === 'not-equal');
-      assert.equal(Atomics.load(view, 0), 42);
+      expect(waitResult === 'ok' || waitResult === 'not-equal').toBeTruthy();
+      expect(Atomics.load(view, 0)).toBe(42);
       await worker.terminate();
     });
   });
@@ -202,7 +201,7 @@ describe('WorkerAdapter', () => {
         });
       });
 
-      assert.ok(error instanceof Error);
+      expect(error).toBeInstanceOf(Error);
       await (worker.terminate() as Promise<number>).catch(() => {});
     });
   });
@@ -222,7 +221,7 @@ describe('WorkerAdapter', () => {
 
       await worker.terminate();
       const code = await exitCode;
-      assert.equal(typeof code, 'number');
+      expect(typeof code).toBe('number');
     });
 
     it('fires exit handler with worker-initiated exit', async () => {
@@ -241,7 +240,7 @@ describe('WorkerAdapter', () => {
       worker.postMessage({ type: 'exit', code: 0 });
 
       const code = await exitCode;
-      assert.equal(code, 0);
+      expect(code).toBe(0);
     });
   });
 
@@ -263,11 +262,11 @@ describe('WorkerAdapter', () => {
         worker.onError(reject);
         worker.postMessage({ type: 'echo', data: 'ping' });
       });
-      assert.ok(alive);
+      expect(alive).toBeTruthy();
 
       // Terminate
       const result = await worker.terminate();
-      assert.equal(typeof result, 'number');
+      expect(typeof result).toBe('number');
     });
 
     it('can register multiple message handlers', async () => {
@@ -294,8 +293,8 @@ describe('WorkerAdapter', () => {
       worker.postMessage({ type: 'echo', data: 'test' });
       await done;
 
-      assert.ok(handler1Called);
-      assert.ok(handler2Called);
+      expect(handler1Called).toBeTruthy();
+      expect(handler2Called).toBeTruthy();
       await worker.terminate();
     });
   });

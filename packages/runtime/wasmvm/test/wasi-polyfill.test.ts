@@ -1,5 +1,4 @@
-import { describe, it, beforeEach } from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, it, beforeEach, expect } from 'vitest';
 import { FDTable, FILETYPE_REGULAR_FILE, FILETYPE_DIRECTORY, FILETYPE_CHARACTER_DEVICE,
   FDFLAG_APPEND, ERRNO_SUCCESS, ERRNO_EBADF, ERRNO_EINVAL,
   RIGHT_FD_READ, RIGHT_FD_WRITE, RIGHT_FD_SEEK, RIGHT_FD_TELL,
@@ -84,9 +83,9 @@ describe('WasiPolyfill', () => {
   describe('constructor', () => {
     it('creates with default options', () => {
       const { wasi } = createTestSetup();
-      assert.deepStrictEqual(wasi.args, []);
-      assert.deepStrictEqual(wasi.env, {});
-      assert.strictEqual(wasi.exitCode, null);
+      expect(wasi.args).toEqual([]);
+      expect(wasi.env).toEqual({});
+      expect(wasi.exitCode).toBe(null);
     });
 
     it('accepts args and env', () => {
@@ -94,29 +93,29 @@ describe('WasiPolyfill', () => {
         args: ['echo', 'hello'],
         env: { HOME: '/home/user' },
       });
-      assert.deepStrictEqual(wasi.args, ['echo', 'hello']);
-      assert.strictEqual(wasi.env.HOME, '/home/user');
+      expect(wasi.args).toEqual(['echo', 'hello']);
+      expect(wasi.env.HOME).toBe('/home/user');
     });
 
     it('pre-opens root directory at fd 3', () => {
       const { wasi } = createTestSetup();
       const preopens = (wasi as unknown as Record<string, unknown>)._preopens as Map<number, string>;
-      assert.strictEqual(preopens.size, 1);
-      assert.strictEqual(preopens.get(3), '/');
+      expect(preopens.size).toBe(1);
+      expect(preopens.get(3)).toBe('/');
     });
 
     it('accepts string stdin', () => {
       const { wasi } = createTestSetup({ stdin: 'hello' });
       const stdinData = (wasi as unknown as Record<string, unknown>)._stdinData as Uint8Array | null;
-      assert.ok(stdinData instanceof Uint8Array);
-      assert.strictEqual(new TextDecoder().decode(stdinData), 'hello');
+      expect(stdinData).toBeInstanceOf(Uint8Array);
+      expect(new TextDecoder().decode(stdinData!)).toBe('hello');
     });
 
     it('accepts Uint8Array stdin', () => {
       const data = new TextEncoder().encode('world');
       const { wasi } = createTestSetup({ stdin: data });
       const stdinData = (wasi as unknown as Record<string, unknown>)._stdinData as Uint8Array | null;
-      assert.strictEqual(new TextDecoder().decode(stdinData!), 'world');
+      expect(new TextDecoder().decode(stdinData!)).toBe('world');
     });
   });
 
@@ -127,10 +126,10 @@ describe('WasiPolyfill', () => {
       const fileIO = createStandaloneFileIO(fdTable, vfs);
       const processIO = createStandaloneProcessIO(fdTable, [], {});
       const wasi = new WasiPolyfill(fdTable, vfs, { fileIO, processIO });
-      assert.strictEqual(wasi.memory, null);
+      expect(wasi.memory).toBe(null);
       const mem = createMockMemory();
       wasi.setMemory(mem as WebAssembly.Memory);
-      assert.strictEqual(wasi.memory, mem);
+      expect(wasi.memory).toBe(mem);
     });
   });
 
@@ -143,9 +142,9 @@ describe('WasiPolyfill', () => {
       writeIovecs(memory, 0, [{ buf: 256, buf_len: len }]);
       // nwritten at offset 100
       const errno = wasi.fd_write(1, 0, 1, 100);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU32(memory, 100), 5);
-      assert.strictEqual(wasi.stdoutString, 'hello');
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU32(memory, 100)).toBe(5);
+      expect(wasi.stdoutString).toBe('hello');
     });
 
     it('writes to stderr and collects output', () => {
@@ -153,9 +152,9 @@ describe('WasiPolyfill', () => {
       writeString(memory, 256, 'error!');
       writeIovecs(memory, 0, [{ buf: 256, buf_len: 6 }]);
       const errno = wasi.fd_write(2, 0, 1, 100);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU32(memory, 100), 6);
-      assert.strictEqual(wasi.stderrString, 'error!');
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU32(memory, 100)).toBe(6);
+      expect(wasi.stderrString).toBe('error!');
     });
 
     it('writes multiple iovecs to stdout', () => {
@@ -167,16 +166,16 @@ describe('WasiPolyfill', () => {
         { buf: 300, buf_len: 6 },
       ]);
       const errno = wasi.fd_write(1, 0, 2, 100);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU32(memory, 100), 11);
-      assert.strictEqual(wasi.stdoutString, 'hello world');
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU32(memory, 100)).toBe(11);
+      expect(wasi.stdoutString).toBe('hello world');
     });
 
     it('returns EBADF for invalid fd', () => {
       const { wasi, memory } = createTestSetup();
       writeIovecs(memory, 0, [{ buf: 256, buf_len: 5 }]);
       const errno = wasi.fd_write(99, 0, 1, 100);
-      assert.strictEqual(errno, ERRNO_EBADF);
+      expect(errno).toBe(ERRNO_EBADF);
     });
 
     it('writes to VFS file', () => {
@@ -187,11 +186,11 @@ describe('WasiPolyfill', () => {
       writeString(memory, 256, 'file content');
       writeIovecs(memory, 0, [{ buf: 256, buf_len: 12 }]);
       const errno = wasi.fd_write(fd, 0, 1, 100);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU32(memory, 100), 12);
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU32(memory, 100)).toBe(12);
 
       const content = new TextDecoder().decode(vfs.readFile('/tmp/test.txt'));
-      assert.strictEqual(content, 'file content');
+      expect(content).toBe('file content');
     });
 
     it('writes to VFS file at cursor position', () => {
@@ -205,10 +204,10 @@ describe('WasiPolyfill', () => {
       writeString(memory, 256, 'BB');
       writeIovecs(memory, 0, [{ buf: 256, buf_len: 2 }]);
       const errno = wasi.fd_write(fd, 0, 1, 100);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
 
       const content = new TextDecoder().decode(vfs.readFile('/tmp/test.txt'));
-      assert.strictEqual(content, 'AAAAABBAAA');
+      expect(content).toBe('AAAAABBAAA');
     });
 
     it('appends to VFS file with FDFLAG_APPEND', () => {
@@ -219,10 +218,10 @@ describe('WasiPolyfill', () => {
       writeString(memory, 256, ' world');
       writeIovecs(memory, 0, [{ buf: 256, buf_len: 6 }]);
       const errno = wasi.fd_write(fd, 0, 1, 100);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
 
       const content = new TextDecoder().decode(vfs.readFile('/tmp/test.txt'));
-      assert.strictEqual(content, 'hello world');
+      expect(content).toBe('hello world');
     });
 
     it('extends VFS file when writing past end', () => {
@@ -238,14 +237,14 @@ describe('WasiPolyfill', () => {
       wasi.fd_write(fd, 0, 1, 100);
 
       const data = vfs.readFile('/tmp/test.txt');
-      assert.strictEqual(data.length, 7); // 5 + 2
-      assert.strictEqual(data[0], 65); // 'A'
-      assert.strictEqual(data[1], 66); // 'B'
-      assert.strictEqual(data[2], 0);  // zero-fill
-      assert.strictEqual(data[3], 0);
-      assert.strictEqual(data[4], 0);
-      assert.strictEqual(data[5], 67); // 'C'
-      assert.strictEqual(data[6], 68); // 'D'
+      expect(data.length).toBe(7); // 5 + 2
+      expect(data[0]).toBe(65); // 'A'
+      expect(data[1]).toBe(66); // 'B'
+      expect(data[2]).toBe(0);  // zero-fill
+      expect(data[3]).toBe(0);
+      expect(data[4]).toBe(0);
+      expect(data[5]).toBe(67); // 'C'
+      expect(data[6]).toBe(68); // 'D'
     });
 
     it('discards writes to /dev/null', () => {
@@ -259,8 +258,8 @@ describe('WasiPolyfill', () => {
       writeString(memory, 256, 'discard me');
       writeIovecs(memory, 0, [{ buf: 256, buf_len: 10 }]);
       const errno = wasi.fd_write(fd, 0, 1, 100);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU32(memory, 100), 10);
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU32(memory, 100)).toBe(10);
     });
   });
 
@@ -271,9 +270,9 @@ describe('WasiPolyfill', () => {
       writeIovecs(memory, 0, [{ buf: 256, buf_len: 10 }]);
       // nread at offset 100
       const errno = wasi.fd_read(0, 0, 1, 100);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU32(memory, 100), 5);
-      assert.strictEqual(readString(memory, 256, 5), 'hello');
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU32(memory, 100)).toBe(5);
+      expect(readString(memory, 256, 5)).toBe('hello');
     });
 
     it('reads stdin in chunks across multiple calls', () => {
@@ -281,22 +280,22 @@ describe('WasiPolyfill', () => {
       // Read 3 bytes first
       writeIovecs(memory, 0, [{ buf: 256, buf_len: 3 }]);
       wasi.fd_read(0, 0, 1, 100);
-      assert.strictEqual(readU32(memory, 100), 3);
-      assert.strictEqual(readString(memory, 256, 3), 'abc');
+      expect(readU32(memory, 100)).toBe(3);
+      expect(readString(memory, 256, 3)).toBe('abc');
 
       // Read remaining
       writeIovecs(memory, 0, [{ buf: 256, buf_len: 10 }]);
       wasi.fd_read(0, 0, 1, 100);
-      assert.strictEqual(readU32(memory, 100), 3);
-      assert.strictEqual(readString(memory, 256, 3), 'def');
+      expect(readU32(memory, 100)).toBe(3);
+      expect(readString(memory, 256, 3)).toBe('def');
     });
 
     it('returns 0 bytes at stdin EOF', () => {
       const { wasi, memory } = createTestSetup();
       writeIovecs(memory, 0, [{ buf: 256, buf_len: 10 }]);
       const errno = wasi.fd_read(0, 0, 1, 100);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU32(memory, 100), 0);
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU32(memory, 100)).toBe(0);
     });
 
     it('reads from VFS file', () => {
@@ -306,9 +305,9 @@ describe('WasiPolyfill', () => {
 
       writeIovecs(memory, 0, [{ buf: 256, buf_len: 20 }]);
       const errno = wasi.fd_read(fd, 0, 1, 100);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU32(memory, 100), 14);
-      assert.strictEqual(readString(memory, 256, 14), 'file data here');
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU32(memory, 100)).toBe(14);
+      expect(readString(memory, 256, 14)).toBe('file data here');
     });
 
     it('reads VFS file with cursor advancement', () => {
@@ -319,19 +318,19 @@ describe('WasiPolyfill', () => {
       // Read 3 bytes
       writeIovecs(memory, 0, [{ buf: 256, buf_len: 3 }]);
       wasi.fd_read(fd, 0, 1, 100);
-      assert.strictEqual(readU32(memory, 100), 3);
-      assert.strictEqual(readString(memory, 256, 3), 'ABC');
+      expect(readU32(memory, 100)).toBe(3);
+      expect(readString(memory, 256, 3)).toBe('ABC');
 
       // Read next 3 bytes
       writeIovecs(memory, 0, [{ buf: 256, buf_len: 3 }]);
       wasi.fd_read(fd, 0, 1, 100);
-      assert.strictEqual(readU32(memory, 100), 3);
-      assert.strictEqual(readString(memory, 256, 3), 'DEF');
+      expect(readU32(memory, 100)).toBe(3);
+      expect(readString(memory, 256, 3)).toBe('DEF');
 
       // Read at EOF
       writeIovecs(memory, 0, [{ buf: 256, buf_len: 10 }]);
       wasi.fd_read(fd, 0, 1, 100);
-      assert.strictEqual(readU32(memory, 100), 0);
+      expect(readU32(memory, 100)).toBe(0);
     });
 
     it('reads with multiple iovecs', () => {
@@ -344,17 +343,17 @@ describe('WasiPolyfill', () => {
         { buf: 300, buf_len: 4 },
       ]);
       const errno = wasi.fd_read(fd, 0, 2, 100);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU32(memory, 100), 7);
-      assert.strictEqual(readString(memory, 256, 3), 'ABC');
-      assert.strictEqual(readString(memory, 300, 4), 'DEFG');
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU32(memory, 100)).toBe(7);
+      expect(readString(memory, 256, 3)).toBe('ABC');
+      expect(readString(memory, 300, 4)).toBe('DEFG');
     });
 
     it('returns EBADF for invalid fd', () => {
       const { wasi, memory } = createTestSetup();
       writeIovecs(memory, 0, [{ buf: 256, buf_len: 5 }]);
       const errno = wasi.fd_read(99, 0, 1, 100);
-      assert.strictEqual(errno, ERRNO_EBADF);
+      expect(errno).toBe(ERRNO_EBADF);
     });
 
     it('returns 0 for /dev/null read', () => {
@@ -367,8 +366,8 @@ describe('WasiPolyfill', () => {
 
       writeIovecs(memory, 0, [{ buf: 256, buf_len: 10 }]);
       const errno = wasi.fd_read(fd, 0, 1, 100);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU32(memory, 100), 0);
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU32(memory, 100)).toBe(0);
     });
   });
 
@@ -379,9 +378,9 @@ describe('WasiPolyfill', () => {
       const fd = openVfsFile(fdTable, vfs, '/tmp/test.txt');
 
       const errno = wasi.fd_seek(fd, 5n, 0, 200);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU64(memory, 200), 5n);
-      assert.strictEqual(fdTable.get(fd)!.cursor, 5n);
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU64(memory, 200)).toBe(5n);
+      expect(fdTable.get(fd)!.cursor).toBe(5n);
     });
 
     it('seeks relative to current position (WHENCE_CUR)', () => {
@@ -391,8 +390,8 @@ describe('WasiPolyfill', () => {
       fdTable.get(fd)!.cursor = 3n;
 
       const errno = wasi.fd_seek(fd, 4n, 1, 200);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU64(memory, 200), 7n);
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU64(memory, 200)).toBe(7n);
     });
 
     it('seeks relative to end (WHENCE_END)', () => {
@@ -401,21 +400,21 @@ describe('WasiPolyfill', () => {
       const fd = openVfsFile(fdTable, vfs, '/tmp/test.txt');
 
       const errno = wasi.fd_seek(fd, -3n, 2, 200);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU64(memory, 200), 7n);
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU64(memory, 200)).toBe(7n);
     });
 
     it('returns ESPIPE for stdio fds', () => {
       const { wasi } = createTestSetup();
       const errno = wasi.fd_seek(0, 0n, 0, 200);
-      assert.strictEqual(errno, ERRNO_ESPIPE);
+      expect(errno).toBe(ERRNO_ESPIPE);
     });
 
     it('returns ESPIPE for directory fds', () => {
       const { wasi } = createTestSetup();
       // fd 3 is the pre-opened root directory
       const errno = wasi.fd_seek(3, 0n, 0, 200);
-      assert.strictEqual(errno, ERRNO_ESPIPE);
+      expect(errno).toBe(ERRNO_ESPIPE);
     });
 
     it('returns EINVAL for negative resulting position', () => {
@@ -424,7 +423,7 @@ describe('WasiPolyfill', () => {
       const fd = openVfsFile(fdTable, vfs, '/tmp/test.txt');
 
       const errno = wasi.fd_seek(fd, -10n, 0, 200);
-      assert.strictEqual(errno, ERRNO_EINVAL);
+      expect(errno).toBe(ERRNO_EINVAL);
     });
 
     it('returns EINVAL for invalid whence', () => {
@@ -433,7 +432,7 @@ describe('WasiPolyfill', () => {
       const fd = openVfsFile(fdTable, vfs, '/tmp/test.txt');
 
       const errno = wasi.fd_seek(fd, 0n, 99, 200);
-      assert.strictEqual(errno, ERRNO_EINVAL);
+      expect(errno).toBe(ERRNO_EINVAL);
     });
 
     it('handles non-BigInt offset gracefully', () => {
@@ -442,8 +441,8 @@ describe('WasiPolyfill', () => {
       const fd = openVfsFile(fdTable, vfs, '/tmp/test.txt');
 
       const errno = wasi.fd_seek(fd, 5 as unknown as bigint, 0, 200);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU64(memory, 200), 5n);
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU64(memory, 200)).toBe(5n);
     });
   });
 
@@ -455,20 +454,20 @@ describe('WasiPolyfill', () => {
       fdTable.get(fd)!.cursor = 4n;
 
       const errno = wasi.fd_tell(fd, 200);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU64(memory, 200), 4n);
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU64(memory, 200)).toBe(4n);
     });
 
     it('returns ESPIPE for stdio', () => {
       const { wasi } = createTestSetup();
       const errno = wasi.fd_tell(1, 200);
-      assert.strictEqual(errno, ERRNO_ESPIPE);
+      expect(errno).toBe(ERRNO_ESPIPE);
     });
 
     it('returns EBADF for invalid fd', () => {
       const { wasi } = createTestSetup();
       const errno = wasi.fd_tell(99, 200);
-      assert.strictEqual(errno, ERRNO_EBADF);
+      expect(errno).toBe(ERRNO_EBADF);
     });
   });
 
@@ -477,25 +476,25 @@ describe('WasiPolyfill', () => {
       const { wasi, fdTable, vfs } = createTestSetup();
       vfs.writeFile('/tmp/test.txt', 'data');
       const fd = openVfsFile(fdTable, vfs, '/tmp/test.txt');
-      assert.ok(fdTable.has(fd));
+      expect(fdTable.has(fd)).toBeTruthy();
 
       const errno = wasi.fd_close(fd);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.ok(!fdTable.has(fd));
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(fdTable.has(fd)).toBeFalsy();
     });
 
     it('returns EBADF for invalid fd', () => {
       const { wasi } = createTestSetup();
       const errno = wasi.fd_close(99);
-      assert.strictEqual(errno, ERRNO_EBADF);
+      expect(errno).toBe(ERRNO_EBADF);
     });
 
     it('removes preopen entry when closing preopen fd', () => {
       const { wasi } = createTestSetup();
       const preopens = (wasi as unknown as Record<string, unknown>)._preopens as Map<number, string>;
-      assert.strictEqual(preopens.get(3), '/');
+      expect(preopens.get(3)).toBe('/');
       wasi.fd_close(3);
-      assert.strictEqual(preopens.get(3), undefined);
+      expect(preopens.get(3)).toBe(undefined);
     });
   });
 
@@ -503,42 +502,42 @@ describe('WasiPolyfill', () => {
     it('returns fdstat for stdout', () => {
       const { wasi, memory } = createTestSetup();
       const errno = wasi.fd_fdstat_get(1, 400);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
 
       const view = new DataView(memory.buffer);
       // filetype = CHARACTER_DEVICE = 2
-      assert.strictEqual(view.getUint8(400), FILETYPE_CHARACTER_DEVICE);
+      expect(view.getUint8(400)).toBe(FILETYPE_CHARACTER_DEVICE);
       // fdflags = FDFLAG_APPEND = 1 (stdout has append flag)
-      assert.strictEqual(view.getUint16(402, true), FDFLAG_APPEND);
+      expect(view.getUint16(402, true)).toBe(FDFLAG_APPEND);
       // rights_base should be non-zero
       const rightsBase = view.getBigUint64(408, true);
-      assert.ok(rightsBase > 0n);
+      expect(rightsBase > 0n).toBeTruthy();
       // Should have write rights
-      assert.ok(rightsBase & RIGHT_FD_WRITE);
+      expect(rightsBase & RIGHT_FD_WRITE).toBeTruthy();
     });
 
     it('returns fdstat for stdin', () => {
       const { wasi, memory } = createTestSetup();
       const errno = wasi.fd_fdstat_get(0, 400);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
 
       const view = new DataView(memory.buffer);
-      assert.strictEqual(view.getUint8(400), FILETYPE_CHARACTER_DEVICE);
-      assert.strictEqual(view.getUint16(402, true), 0); // stdin has no flags
+      expect(view.getUint8(400)).toBe(FILETYPE_CHARACTER_DEVICE);
+      expect(view.getUint16(402, true)).toBe(0); // stdin has no flags
       const rightsBase = view.getBigUint64(408, true);
-      assert.ok(rightsBase & RIGHT_FD_READ);
+      expect(rightsBase & RIGHT_FD_READ).toBeTruthy();
     });
 
     it('returns fdstat for pre-opened directory', () => {
       const { wasi, memory } = createTestSetup();
       const errno = wasi.fd_fdstat_get(3, 400);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
 
       const view = new DataView(memory.buffer);
-      assert.strictEqual(view.getUint8(400), FILETYPE_DIRECTORY);
+      expect(view.getUint8(400)).toBe(FILETYPE_DIRECTORY);
       // Inheriting rights should be non-zero for directories
       const rightsInheriting = view.getBigUint64(416, true);
-      assert.ok(rightsInheriting > 0n);
+      expect(rightsInheriting > 0n).toBeTruthy();
     });
 
     it('returns fdstat for regular file', () => {
@@ -547,21 +546,21 @@ describe('WasiPolyfill', () => {
       const fd = openVfsFile(fdTable, vfs, '/tmp/test.txt');
 
       const errno = wasi.fd_fdstat_get(fd, 400);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
 
       const view = new DataView(memory.buffer);
-      assert.strictEqual(view.getUint8(400), FILETYPE_REGULAR_FILE);
+      expect(view.getUint8(400)).toBe(FILETYPE_REGULAR_FILE);
       const rightsBase = view.getBigUint64(408, true);
-      assert.ok(rightsBase & RIGHT_FD_READ);
-      assert.ok(rightsBase & RIGHT_FD_WRITE);
-      assert.ok(rightsBase & RIGHT_FD_SEEK);
-      assert.ok(rightsBase & RIGHT_FD_TELL);
+      expect(rightsBase & RIGHT_FD_READ).toBeTruthy();
+      expect(rightsBase & RIGHT_FD_WRITE).toBeTruthy();
+      expect(rightsBase & RIGHT_FD_SEEK).toBeTruthy();
+      expect(rightsBase & RIGHT_FD_TELL).toBeTruthy();
     });
 
     it('returns EBADF for invalid fd', () => {
       const { wasi } = createTestSetup();
       const errno = wasi.fd_fdstat_get(99, 400);
-      assert.strictEqual(errno, ERRNO_EBADF);
+      expect(errno).toBe(ERRNO_EBADF);
     });
   });
 
@@ -570,17 +569,17 @@ describe('WasiPolyfill', () => {
       const { wasi, fdTable, vfs } = createTestSetup();
       vfs.writeFile('/tmp/test.txt', 'data');
       const fd = openVfsFile(fdTable, vfs, '/tmp/test.txt');
-      assert.strictEqual(fdTable.get(fd)!.fdflags, 0);
+      expect(fdTable.get(fd)!.fdflags).toBe(0);
 
       const errno = wasi.fd_fdstat_set_flags(fd, FDFLAG_APPEND);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(fdTable.get(fd)!.fdflags, FDFLAG_APPEND);
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(fdTable.get(fd)!.fdflags).toBe(FDFLAG_APPEND);
     });
 
     it('returns EBADF for invalid fd', () => {
       const { wasi } = createTestSetup();
       const errno = wasi.fd_fdstat_set_flags(99, 0);
-      assert.strictEqual(errno, ERRNO_EBADF);
+      expect(errno).toBe(ERRNO_EBADF);
     });
   });
 
@@ -588,25 +587,25 @@ describe('WasiPolyfill', () => {
     it('returns prestat for pre-opened directory', () => {
       const { wasi, memory } = createTestSetup();
       const errno = wasi.fd_prestat_get(3, 500);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
 
       const view = new DataView(memory.buffer);
       // pr_type = 0 (PREOPENTYPE_DIR)
-      assert.strictEqual(view.getUint8(500), 0);
+      expect(view.getUint8(500)).toBe(0);
       // pr_name_len = 1 (length of "/")
-      assert.strictEqual(view.getUint32(504, true), 1);
+      expect(view.getUint32(504, true)).toBe(1);
     });
 
     it('returns EBADF for non-preopen fd', () => {
       const { wasi } = createTestSetup();
       const errno = wasi.fd_prestat_get(0, 500);
-      assert.strictEqual(errno, ERRNO_EBADF);
+      expect(errno).toBe(ERRNO_EBADF);
     });
 
     it('returns EBADF for fd 4 (not pre-opened)', () => {
       const { wasi } = createTestSetup();
       const errno = wasi.fd_prestat_get(4, 500);
-      assert.strictEqual(errno, ERRNO_EBADF);
+      expect(errno).toBe(ERRNO_EBADF);
     });
   });
 
@@ -614,14 +613,14 @@ describe('WasiPolyfill', () => {
     it('writes directory name for pre-opened fd', () => {
       const { wasi, memory } = createTestSetup();
       const errno = wasi.fd_prestat_dir_name(3, 600, 1);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readString(memory, 600, 1), '/');
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readString(memory, 600, 1)).toBe('/');
     });
 
     it('returns EBADF for non-preopen fd', () => {
       const { wasi } = createTestSetup();
       const errno = wasi.fd_prestat_dir_name(0, 600, 10);
-      assert.strictEqual(errno, ERRNO_EBADF);
+      expect(errno).toBe(ERRNO_EBADF);
     });
   });
 
@@ -636,8 +635,8 @@ describe('WasiPolyfill', () => {
       writeIovecs(memory, 0, [{ buf: 256, buf_len: 6 }]);
       wasi.fd_write(1, 0, 1, 100);
 
-      assert.strictEqual(wasi.stdoutString, 'hello world');
-      assert.strictEqual(wasi.stdout.length, 11);
+      expect(wasi.stdoutString).toBe('hello world');
+      expect(wasi.stdout.length).toBe(11);
     });
 
     it('stderr getter returns concatenated errors', () => {
@@ -650,13 +649,13 @@ describe('WasiPolyfill', () => {
       writeIovecs(memory, 0, [{ buf: 256, buf_len: 4 }]);
       wasi.fd_write(2, 0, 1, 100);
 
-      assert.strictEqual(wasi.stderrString, 'err1err2');
+      expect(wasi.stderrString).toBe('err1err2');
     });
 
     it('empty stdout returns empty buffer', () => {
       const { wasi } = createTestSetup();
-      assert.strictEqual(wasi.stdout.length, 0);
-      assert.strictEqual(wasi.stdoutString, '');
+      expect(wasi.stdout.length).toBe(0);
+      expect(wasi.stdoutString).toBe('');
     });
   });
 
@@ -670,7 +669,7 @@ describe('WasiPolyfill', () => {
         'fd_prestat_get', 'fd_prestat_dir_name',
       ];
       for (const name of expectedFns) {
-        assert.strictEqual(typeof (imports as unknown as Record<string, unknown>)[name], 'function', `${name} should be a function`);
+        expect(typeof (imports as unknown as Record<string, unknown>)[name]).toBe('function');
       }
     });
 
@@ -681,8 +680,8 @@ describe('WasiPolyfill', () => {
       writeString(memory, 256, 'via import');
       writeIovecs(memory, 0, [{ buf: 256, buf_len: 10 }]);
       const errno = (imports as unknown as Record<string, Function>).fd_write(1, 0, 1, 100);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(wasi.stdoutString, 'via import');
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(wasi.stdoutString).toBe('via import');
     });
   });
 
@@ -696,7 +695,7 @@ describe('WasiPolyfill', () => {
       writeString(memory, 256, 'read me back');
       writeIovecs(memory, 0, [{ buf: 256, buf_len: 12 }]);
       wasi.fd_write(fd, 0, 1, 100);
-      assert.strictEqual(readU32(memory, 100), 12);
+      expect(readU32(memory, 100)).toBe(12);
 
       // Seek back to start
       wasi.fd_seek(fd, 0n, 0, 200);
@@ -704,8 +703,8 @@ describe('WasiPolyfill', () => {
       // Read
       writeIovecs(memory, 0, [{ buf: 400, buf_len: 20 }]);
       wasi.fd_read(fd, 0, 1, 100);
-      assert.strictEqual(readU32(memory, 100), 12);
-      assert.strictEqual(readString(memory, 400, 12), 'read me back');
+      expect(readU32(memory, 100)).toBe(12);
+      expect(readString(memory, 400, 12)).toBe('read me back');
     });
   });
 
@@ -725,9 +724,9 @@ describe('WasiPolyfill', () => {
 
       writeIovecs(memory, 0, [{ buf: 256, buf_len: 20 }]);
       const errno = wasi.fd_read(fd, 0, 1, 100);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU32(memory, 100), 9);
-      assert.strictEqual(readString(memory, 256, 9), 'pipe data');
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU32(memory, 100)).toBe(9);
+      expect(readString(memory, 256, 9)).toBe('pipe data');
     });
 
     it('writes to pipe buffer', () => {
@@ -745,10 +744,10 @@ describe('WasiPolyfill', () => {
       writeString(memory, 256, 'to pipe');
       writeIovecs(memory, 0, [{ buf: 256, buf_len: 7 }]);
       const errno = wasi.fd_write(fd, 0, 1, 100);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU32(memory, 100), 7);
-      assert.strictEqual(pipe.writeOffset, 7);
-      assert.strictEqual(new TextDecoder().decode(pipe.buffer.subarray(0, 7)), 'to pipe');
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU32(memory, 100)).toBe(7);
+      expect(pipe.writeOffset).toBe(7);
+      expect(new TextDecoder().decode(pipe.buffer.subarray(0, 7))).toBe('to pipe');
     });
   });
 });

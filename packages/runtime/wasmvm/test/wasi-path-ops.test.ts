@@ -1,5 +1,4 @@
-import { describe, it, beforeEach } from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, it, beforeEach, expect } from 'vitest';
 import { FDTable, FILETYPE_REGULAR_FILE, FILETYPE_DIRECTORY, FILETYPE_CHARACTER_DEVICE,
   FILETYPE_SYMBOLIC_LINK, FDFLAG_APPEND, ERRNO_SUCCESS, ERRNO_EBADF, ERRNO_EINVAL,
   RIGHT_FD_READ, RIGHT_FD_WRITE, RIGHT_FD_SEEK, RIGHT_FD_READDIR,
@@ -80,9 +79,9 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
 
       const pathLen = writePath(memory, 1000, 'tmp/hello.txt');
       const errno = wasi.path_open(3, 1, 1000, pathLen, 0, RIGHT_FD_READ | RIGHT_FD_WRITE, 0n, 0, 2000);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
       const fd = readU32(memory, 2000);
-      assert.ok(fd >= 4);
+      expect(fd >= 4).toBeTruthy();
     });
 
     it('creates a file with OFLAG_CREAT', () => {
@@ -91,8 +90,8 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
       const pathLen = writePath(memory, 1000, 'tmp/newfile.txt');
       // oflags = 1 (OFLAG_CREAT)
       const errno = wasi.path_open(3, 1, 1000, pathLen, 1, RIGHT_FD_READ | RIGHT_FD_WRITE, 0n, 0, 2000);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.ok(vfs.exists('/tmp/newfile.txt'));
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(vfs.exists('/tmp/newfile.txt')).toBeTruthy();
     });
 
     it('returns ENOENT for non-existent file without CREAT', () => {
@@ -100,7 +99,7 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
 
       const pathLen = writePath(memory, 1000, 'tmp/nope.txt');
       const errno = wasi.path_open(3, 1, 1000, pathLen, 0, RIGHT_FD_READ, 0n, 0, 2000);
-      assert.strictEqual(errno, ERRNO_ENOENT);
+      expect(errno).toBe(ERRNO_ENOENT);
     });
 
     it('returns EEXIST with CREAT|EXCL on existing file', () => {
@@ -110,7 +109,7 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
       const pathLen = writePath(memory, 1000, 'tmp/exists.txt');
       // oflags = 1|4 = 5 (OFLAG_CREAT | OFLAG_EXCL)
       const errno = wasi.path_open(3, 1, 1000, pathLen, 5, RIGHT_FD_READ, 0n, 0, 2000);
-      assert.strictEqual(errno, ERRNO_EEXIST);
+      expect(errno).toBe(ERRNO_EEXIST);
     });
 
     it('truncates file with OFLAG_TRUNC', () => {
@@ -120,10 +119,10 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
       const pathLen = writePath(memory, 1000, 'tmp/trunc.txt');
       // oflags = 8 (OFLAG_TRUNC)
       const errno = wasi.path_open(3, 1, 1000, pathLen, 8, RIGHT_FD_READ | RIGHT_FD_WRITE, 0n, 0, 2000);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
 
       const content = vfs.readFile('/tmp/trunc.txt');
-      assert.strictEqual(content.length, 0);
+      expect(content.length).toBe(0);
     });
 
     it('opens a directory with OFLAG_DIRECTORY', () => {
@@ -133,7 +132,7 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
       const pathLen = writePath(memory, 1000, 'tmp/mydir');
       // oflags = 2 (OFLAG_DIRECTORY)
       const errno = wasi.path_open(3, 1, 1000, pathLen, 2, RIGHT_FD_READDIR, 0n, 0, 2000);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
     });
 
     it('returns ENOTDIR with OFLAG_DIRECTORY on a file', () => {
@@ -143,14 +142,14 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
       const pathLen = writePath(memory, 1000, 'tmp/notdir.txt');
       // oflags = 2 (OFLAG_DIRECTORY)
       const errno = wasi.path_open(3, 1, 1000, pathLen, 2, RIGHT_FD_READ, 0n, 0, 2000);
-      assert.strictEqual(errno, ERRNO_ENOTDIR);
+      expect(errno).toBe(ERRNO_ENOTDIR);
     });
 
     it('returns EBADF for invalid dirfd', () => {
       const { wasi, memory } = createTestSetup();
       const pathLen = writePath(memory, 1000, 'tmp/x.txt');
       const errno = wasi.path_open(99, 1, 1000, pathLen, 0, RIGHT_FD_READ, 0n, 0, 2000);
-      assert.strictEqual(errno, ERRNO_EBADF);
+      expect(errno).toBe(ERRNO_EBADF);
     });
   });
 
@@ -160,10 +159,10 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
 
       const pathLen = writePath(memory, 1000, 'tmp/newdir');
       const errno = wasi.path_create_directory(3, 1000, pathLen);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.ok(vfs.exists('/tmp/newdir'));
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(vfs.exists('/tmp/newdir')).toBeTruthy();
       const stat = vfs.stat('/tmp/newdir');
-      assert.strictEqual(stat.type, 'dir');
+      expect(stat.type).toBe('dir');
     });
 
     it('returns EEXIST if directory already exists', () => {
@@ -172,7 +171,7 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
 
       const pathLen = writePath(memory, 1000, 'tmp/existing');
       const errno = wasi.path_create_directory(3, 1000, pathLen);
-      assert.strictEqual(errno, ERRNO_EEXIST);
+      expect(errno).toBe(ERRNO_EEXIST);
     });
 
     it('returns ENOENT if parent does not exist', () => {
@@ -180,14 +179,14 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
 
       const pathLen = writePath(memory, 1000, 'nonexistent/subdir');
       const errno = wasi.path_create_directory(3, 1000, pathLen);
-      assert.strictEqual(errno, ERRNO_ENOENT);
+      expect(errno).toBe(ERRNO_ENOENT);
     });
 
     it('returns EBADF for invalid dirfd', () => {
       const { wasi, memory } = createTestSetup();
       const pathLen = writePath(memory, 1000, 'tmp/dir');
       const errno = wasi.path_create_directory(99, 1000, pathLen);
-      assert.strictEqual(errno, ERRNO_EBADF);
+      expect(errno).toBe(ERRNO_EBADF);
     });
   });
 
@@ -198,8 +197,8 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
 
       const pathLen = writePath(memory, 1000, 'tmp/deleteme.txt');
       const errno = wasi.path_unlink_file(3, 1000, pathLen);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.ok(!vfs.exists('/tmp/deleteme.txt'));
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(vfs.exists('/tmp/deleteme.txt')).toBeFalsy();
     });
 
     it('returns ENOENT for non-existent file', () => {
@@ -207,7 +206,7 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
 
       const pathLen = writePath(memory, 1000, 'tmp/nope.txt');
       const errno = wasi.path_unlink_file(3, 1000, pathLen);
-      assert.strictEqual(errno, ERRNO_ENOENT);
+      expect(errno).toBe(ERRNO_ENOENT);
     });
 
     it('returns EISDIR when unlinking a directory', () => {
@@ -216,7 +215,7 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
 
       const pathLen = writePath(memory, 1000, 'tmp/adir');
       const errno = wasi.path_unlink_file(3, 1000, pathLen);
-      assert.strictEqual(errno, ERRNO_EISDIR);
+      expect(errno).toBe(ERRNO_EISDIR);
     });
   });
 
@@ -227,8 +226,8 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
 
       const pathLen = writePath(memory, 1000, 'tmp/emptydir');
       const errno = wasi.path_remove_directory(3, 1000, pathLen);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.ok(!vfs.exists('/tmp/emptydir'));
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(vfs.exists('/tmp/emptydir')).toBeFalsy();
     });
 
     it('returns ENOTEMPTY for non-empty directory', () => {
@@ -238,7 +237,7 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
 
       const pathLen = writePath(memory, 1000, 'tmp/fulldir');
       const errno = wasi.path_remove_directory(3, 1000, pathLen);
-      assert.strictEqual(errno, ERRNO_ENOTEMPTY);
+      expect(errno).toBe(ERRNO_ENOTEMPTY);
     });
 
     it('returns ENOTDIR for a file', () => {
@@ -247,7 +246,7 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
 
       const pathLen = writePath(memory, 1000, 'tmp/notadir.txt');
       const errno = wasi.path_remove_directory(3, 1000, pathLen);
-      assert.strictEqual(errno, ERRNO_ENOTDIR);
+      expect(errno).toBe(ERRNO_ENOTDIR);
     });
 
     it('returns ENOENT for non-existent path', () => {
@@ -255,7 +254,7 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
 
       const pathLen = writePath(memory, 1000, 'tmp/nope');
       const errno = wasi.path_remove_directory(3, 1000, pathLen);
-      assert.strictEqual(errno, ERRNO_ENOENT);
+      expect(errno).toBe(ERRNO_ENOENT);
     });
   });
 
@@ -267,11 +266,11 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
       const oldLen = writePath(memory, 1000, 'tmp/old.txt');
       const newLen = writePath(memory, 2000, 'tmp/new.txt');
       const errno = wasi.path_rename(3, 1000, oldLen, 3, 2000, newLen);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.ok(!vfs.exists('/tmp/old.txt'));
-      assert.ok(vfs.exists('/tmp/new.txt'));
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(vfs.exists('/tmp/old.txt')).toBeFalsy();
+      expect(vfs.exists('/tmp/new.txt')).toBeTruthy();
       const content = new TextDecoder().decode(vfs.readFile('/tmp/new.txt'));
-      assert.strictEqual(content, 'content');
+      expect(content).toBe('content');
     });
 
     it('returns ENOENT for non-existent source', () => {
@@ -280,7 +279,7 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
       const oldLen = writePath(memory, 1000, 'tmp/nope.txt');
       const newLen = writePath(memory, 2000, 'tmp/new.txt');
       const errno = wasi.path_rename(3, 1000, oldLen, 3, 2000, newLen);
-      assert.strictEqual(errno, ERRNO_ENOENT);
+      expect(errno).toBe(ERRNO_ENOENT);
     });
   });
 
@@ -292,10 +291,10 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
       const targetLen = writePath(memory, 1000, '/tmp/target.txt');
       const linkLen = writePath(memory, 2000, 'tmp/link.txt');
       const errno = wasi.path_symlink(1000, targetLen, 3, 2000, linkLen);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
 
       const linkTarget = vfs.readlink('/tmp/link.txt');
-      assert.strictEqual(linkTarget, '/tmp/target.txt');
+      expect(linkTarget).toBe('/tmp/target.txt');
     });
 
     it('returns EEXIST if link path already exists', () => {
@@ -305,7 +304,7 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
       const targetLen = writePath(memory, 1000, '/tmp/somewhere');
       const linkLen = writePath(memory, 2000, 'tmp/existing.txt');
       const errno = wasi.path_symlink(1000, targetLen, 3, 2000, linkLen);
-      assert.strictEqual(errno, ERRNO_EEXIST);
+      expect(errno).toBe(ERRNO_EEXIST);
     });
   });
 
@@ -316,11 +315,11 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
 
       const pathLen = writePath(memory, 1000, 'tmp/mylink');
       const errno = wasi.path_readlink(3, 1000, pathLen, 3000, 256, 4000);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
 
       const used = readU32(memory, 4000);
-      assert.strictEqual(used, '/tmp/target'.length);
-      assert.strictEqual(readString(memory, 3000, used), '/tmp/target');
+      expect(used).toBe('/tmp/target'.length);
+      expect(readString(memory, 3000, used)).toBe('/tmp/target');
     });
 
     it('returns EINVAL for non-symlink', () => {
@@ -329,7 +328,7 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
 
       const pathLen = writePath(memory, 1000, 'tmp/regular.txt');
       const errno = wasi.path_readlink(3, 1000, pathLen, 3000, 256, 4000);
-      assert.strictEqual(errno, ERRNO_EINVAL);
+      expect(errno).toBe(ERRNO_EINVAL);
     });
 
     it('returns ENOENT for non-existent path', () => {
@@ -337,7 +336,7 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
 
       const pathLen = writePath(memory, 1000, 'tmp/nope');
       const errno = wasi.path_readlink(3, 1000, pathLen, 3000, 256, 4000);
-      assert.strictEqual(errno, ERRNO_ENOENT);
+      expect(errno).toBe(ERRNO_ENOENT);
     });
 
     it('truncates if buffer is too small', () => {
@@ -346,11 +345,11 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
 
       const pathLen = writePath(memory, 1000, 'tmp/longlink');
       const errno = wasi.path_readlink(3, 1000, pathLen, 3000, 5, 4000);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
 
       const used = readU32(memory, 4000);
-      assert.strictEqual(used, 5);
-      assert.strictEqual(readString(memory, 3000, 5), '/a/ve');
+      expect(used).toBe(5);
+      expect(readString(memory, 3000, 5)).toBe('/a/ve');
     });
   });
 
@@ -362,21 +361,21 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
       const pathLen = writePath(memory, 1000, 'tmp/stat.txt');
       // flags = 1 (LOOKUP_SYMLINK_FOLLOW)
       const errno = wasi.path_filestat_get(3, 1, 1000, pathLen, 5000);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
 
       // ino (offset 8) should be non-zero
       const ino = readU64(memory, 5008);
-      assert.ok(ino > 0n);
+      expect(ino > 0n).toBeTruthy();
       // filetype (offset 16) = REGULAR_FILE = 4
-      assert.strictEqual(readU8(memory, 5016), FILETYPE_REGULAR_FILE);
+      expect(readU8(memory, 5016)).toBe(FILETYPE_REGULAR_FILE);
       // size (offset 32) = 11
-      assert.strictEqual(readU64(memory, 5032), 11n);
+      expect(readU64(memory, 5032)).toBe(11n);
       // nlink (offset 24) = 1
-      assert.strictEqual(readU64(memory, 5024), 1n);
+      expect(readU64(memory, 5024)).toBe(1n);
       // timestamps should be non-zero (in nanoseconds)
-      assert.ok(readU64(memory, 5040) > 0n); // atim
-      assert.ok(readU64(memory, 5048) > 0n); // mtim
-      assert.ok(readU64(memory, 5056) > 0n); // ctim
+      expect(readU64(memory, 5040) > 0n).toBeTruthy(); // atim
+      expect(readU64(memory, 5048) > 0n).toBeTruthy(); // mtim
+      expect(readU64(memory, 5056) > 0n).toBeTruthy(); // ctim
     });
 
     it('returns filestat for a directory', () => {
@@ -384,8 +383,8 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
 
       const pathLen = writePath(memory, 1000, 'tmp');
       const errno = wasi.path_filestat_get(3, 1, 1000, pathLen, 5000);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU8(memory, 5016), FILETYPE_DIRECTORY);
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU8(memory, 5016)).toBe(FILETYPE_DIRECTORY);
     });
 
     it('returns ENOENT for non-existent path', () => {
@@ -393,7 +392,7 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
 
       const pathLen = writePath(memory, 1000, 'tmp/nope');
       const errno = wasi.path_filestat_get(3, 1, 1000, pathLen, 5000);
-      assert.strictEqual(errno, ERRNO_ENOENT);
+      expect(errno).toBe(ERRNO_ENOENT);
     });
 
     it('follows symlinks when flag is set', () => {
@@ -404,9 +403,9 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
       const pathLen = writePath(memory, 1000, 'tmp/symlink.txt');
       // flags = 1 (LOOKUP_SYMLINK_FOLLOW)
       const errno = wasi.path_filestat_get(3, 1, 1000, pathLen, 5000);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU8(memory, 5016), FILETYPE_REGULAR_FILE);
-      assert.strictEqual(readU64(memory, 5032), 12n); // size of 'real content'
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU8(memory, 5016)).toBe(FILETYPE_REGULAR_FILE);
+      expect(readU64(memory, 5032)).toBe(12n); // size of 'real content'
     });
 
     it('returns symlink stat when follow flag not set', () => {
@@ -417,8 +416,8 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
       const pathLen = writePath(memory, 1000, 'tmp/symlink2.txt');
       // flags = 0 (no symlink follow)
       const errno = wasi.path_filestat_get(3, 0, 1000, pathLen, 5000);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU8(memory, 5016), FILETYPE_SYMBOLIC_LINK);
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU8(memory, 5016)).toBe(FILETYPE_SYMBOLIC_LINK);
     });
   });
 
@@ -432,11 +431,11 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
       // atim = 1000000000n ns = 1000ms, mtim = 2000000000n ns = 2000ms
       const errno = wasi.path_filestat_set_times(3, 1, 1000, pathLen,
         1000000000n, 2000000000n, 5);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
 
       const stat = vfs.stat('/tmp/times.txt');
-      assert.strictEqual(stat.atime, 1000);
-      assert.strictEqual(stat.mtime, 2000);
+      expect(stat.atime).toBe(1000);
+      expect(stat.mtime).toBe(2000);
     });
 
     it('sets times to now with FSTFLAG_*_NOW', () => {
@@ -453,11 +452,11 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
       // fst_flags = 2|8 = 10 (FSTFLAG_ATIM_NOW | FSTFLAG_MTIM_NOW)
       const before = Date.now();
       const errno = wasi.path_filestat_set_times(3, 1, 1000, pathLen, 0n, 0n, 10);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
 
       const stat = vfs.stat('/tmp/now.txt');
-      assert.ok(stat.atime >= before);
-      assert.ok(stat.mtime >= before);
+      expect(stat.atime >= before).toBeTruthy();
+      expect(stat.mtime >= before).toBeTruthy();
     });
 
     it('returns ENOENT for non-existent path', () => {
@@ -465,7 +464,7 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
 
       const pathLen = writePath(memory, 1000, 'tmp/nope.txt');
       const errno = wasi.path_filestat_set_times(3, 1, 1000, pathLen, 0n, 0n, 10);
-      assert.strictEqual(errno, ERRNO_ENOENT);
+      expect(errno).toBe(ERRNO_ENOENT);
     });
   });
 
@@ -480,33 +479,33 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
       );
 
       const errno = wasi.fd_filestat_get(fd, 5000);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU8(memory, 5016), FILETYPE_REGULAR_FILE);
-      assert.strictEqual(readU64(memory, 5032), 5n); // size
-      assert.strictEqual(readU64(memory, 5008), BigInt(ino)); // ino
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU8(memory, 5016)).toBe(FILETYPE_REGULAR_FILE);
+      expect(readU64(memory, 5032)).toBe(5n); // size
+      expect(readU64(memory, 5008)).toBe(BigInt(ino)); // ino
     });
 
     it('returns filestat for preopen directory fd', () => {
       const { wasi, memory } = createTestSetup();
 
       const errno = wasi.fd_filestat_get(3, 5000);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU8(memory, 5016), FILETYPE_DIRECTORY);
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU8(memory, 5016)).toBe(FILETYPE_DIRECTORY);
     });
 
     it('returns minimal stat for stdio fd', () => {
       const { wasi, memory } = createTestSetup();
 
       const errno = wasi.fd_filestat_get(1, 5000);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU8(memory, 5016), FILETYPE_CHARACTER_DEVICE);
-      assert.strictEqual(readU64(memory, 5032), 0n); // size = 0
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU8(memory, 5016)).toBe(FILETYPE_CHARACTER_DEVICE);
+      expect(readU64(memory, 5032)).toBe(0n); // size = 0
     });
 
     it('returns EBADF for invalid fd', () => {
       const { wasi } = createTestSetup();
       const errno = wasi.fd_filestat_get(99, 5000);
-      assert.strictEqual(errno, ERRNO_EBADF);
+      expect(errno).toBe(ERRNO_EBADF);
     });
   });
 
@@ -521,9 +520,9 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
       );
 
       const errno = wasi.fd_filestat_set_size(fd, 5n);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
       const content = new TextDecoder().decode(vfs.readFile('/tmp/trunc.txt'));
-      assert.strictEqual(content, 'hello');
+      expect(content).toBe('hello');
     });
 
     it('extends a file with zeros', () => {
@@ -536,27 +535,27 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
       );
 
       const errno = wasi.fd_filestat_set_size(fd, 5n);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
       const data = vfs.readFile('/tmp/extend.txt');
-      assert.strictEqual(data.length, 5);
-      assert.strictEqual(data[0], 65); // 'A'
-      assert.strictEqual(data[1], 66); // 'B'
-      assert.strictEqual(data[2], 0);
-      assert.strictEqual(data[3], 0);
-      assert.strictEqual(data[4], 0);
+      expect(data.length).toBe(5);
+      expect(data[0]).toBe(65); // 'A'
+      expect(data[1]).toBe(66); // 'B'
+      expect(data[2]).toBe(0);
+      expect(data[3]).toBe(0);
+      expect(data[4]).toBe(0);
     });
 
     it('returns EBADF for invalid fd', () => {
       const { wasi } = createTestSetup();
       const errno = wasi.fd_filestat_set_size(99, 0n);
-      assert.strictEqual(errno, ERRNO_EBADF);
+      expect(errno).toBe(ERRNO_EBADF);
     });
 
     it('returns EINVAL for non-vfsFile fd', () => {
       const { wasi } = createTestSetup();
       // fd 1 is stdout (stdio)
       const errno = wasi.fd_filestat_set_size(1, 0n);
-      assert.strictEqual(errno, ERRNO_EBADF);
+      expect(errno).toBe(ERRNO_EBADF);
     });
   });
 
@@ -572,23 +571,23 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
 
       // fst_flags = 1|4 = 5 (FSTFLAG_ATIM | FSTFLAG_MTIM)
       const errno = wasi.fd_filestat_set_times(fd, 3000000000n, 4000000000n, 5);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
 
       const stat = vfs.stat('/tmp/times.txt');
-      assert.strictEqual(stat.atime, 3000);
-      assert.strictEqual(stat.mtime, 4000);
+      expect(stat.atime).toBe(3000);
+      expect(stat.mtime).toBe(4000);
     });
 
     it('returns EBADF for stdio fd (no set_times rights)', () => {
       const { wasi } = createTestSetup();
       const errno = wasi.fd_filestat_set_times(1, 0n, 0n, 10);
-      assert.strictEqual(errno, ERRNO_EBADF);
+      expect(errno).toBe(ERRNO_EBADF);
     });
 
     it('returns EBADF for invalid fd', () => {
       const { wasi } = createTestSetup();
       const errno = wasi.fd_filestat_set_times(99, 0n, 0n, 10);
-      assert.strictEqual(errno, ERRNO_EBADF);
+      expect(errno).toBe(ERRNO_EBADF);
     });
   });
 
@@ -598,10 +597,10 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
 
       // Root directory contains: bin, tmp, home, dev
       const errno = wasi.fd_readdir(3, 5000, 4096, 0n, 6000);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
 
       const bufused = readU32(memory, 6000);
-      assert.ok(bufused > 0);
+      expect(bufused > 0).toBeTruthy();
     });
 
     it('reads entries with correct dirent struct format', () => {
@@ -617,28 +616,28 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
       const dirfd = readU32(memory, 200);
 
       const errno = wasi.fd_readdir(dirfd, 5000, 4096, 0n, 6000);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
 
       const bufused = readU32(memory, 6000);
-      assert.ok(bufused > 0);
+      expect(bufused > 0).toBeTruthy();
 
       // First entry: header (24 bytes) + name
       const d_next = readU64(memory, 5000);
-      assert.strictEqual(d_next, 1n);
+      expect(d_next).toBe(1n);
       const d_namlen = readU32(memory, 5016);
-      assert.strictEqual(d_namlen, 5); // 'a.txt'
+      expect(d_namlen).toBe(5); // 'a.txt'
       const d_type = readU8(memory, 5020);
-      assert.strictEqual(d_type, FILETYPE_REGULAR_FILE);
+      expect(d_type).toBe(FILETYPE_REGULAR_FILE);
       const name = readString(memory, 5024, 5);
-      assert.strictEqual(name, 'a.txt');
+      expect(name).toBe('a.txt');
 
       // Second entry starts at 5024 + 5 = 5029
       const d_next2 = readU64(memory, 5029);
-      assert.strictEqual(d_next2, 2n);
+      expect(d_next2).toBe(2n);
       const d_namlen2 = readU32(memory, 5029 + 16);
-      assert.strictEqual(d_namlen2, 5); // 'b.txt'
+      expect(d_namlen2).toBe(5); // 'b.txt'
       const name2 = readString(memory, 5029 + 24, 5);
-      assert.strictEqual(name2, 'b.txt');
+      expect(name2).toBe('b.txt');
     });
 
     it('supports cookie-based pagination', () => {
@@ -653,16 +652,16 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
 
       // Read starting at cookie 1 (skip first entry)
       const errno = wasi.fd_readdir(dirfd, 5000, 4096, 1n, 6000);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
+      expect(errno).toBe(ERRNO_SUCCESS);
 
       const bufused = readU32(memory, 6000);
-      assert.ok(bufused > 0);
+      expect(bufused > 0).toBeTruthy();
 
       // Should get 'second.txt' as first entry
       const d_namlen = readU32(memory, 5016);
-      assert.strictEqual(d_namlen, 10); // 'second.txt'
+      expect(d_namlen).toBe(10); // 'second.txt'
       const name = readString(memory, 5024, 10);
-      assert.strictEqual(name, 'second.txt');
+      expect(name).toBe('second.txt');
     });
 
     it('handles small buffer', () => {
@@ -676,14 +675,14 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
 
       // Buffer too small for even one header (24 bytes)
       const errno = wasi.fd_readdir(dirfd, 5000, 10, 0n, 6000);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU32(memory, 6000), 0); // nothing written
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU32(memory, 6000)).toBe(0); // nothing written
     });
 
     it('returns EBADF for invalid fd', () => {
       const { wasi, memory } = createTestSetup();
       const errno = wasi.fd_readdir(99, 5000, 4096, 0n, 6000);
-      assert.strictEqual(errno, ERRNO_EBADF);
+      expect(errno).toBe(ERRNO_EBADF);
     });
 
     it('returns ENOTDIR for non-directory fd', () => {
@@ -696,7 +695,7 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
       );
 
       const errno = wasi.fd_readdir(fd, 5000, 4096, 0n, 6000);
-      assert.strictEqual(errno, ERRNO_ENOTDIR);
+      expect(errno).toBe(ERRNO_ENOTDIR);
     });
 
     it('returns 0 bufused for empty directory', () => {
@@ -708,8 +707,8 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
       const dirfd = readU32(memory, 200);
 
       const errno = wasi.fd_readdir(dirfd, 5000, 4096, 0n, 6000);
-      assert.strictEqual(errno, ERRNO_SUCCESS);
-      assert.strictEqual(readU32(memory, 6000), 0);
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU32(memory, 6000)).toBe(0);
     });
   });
 
@@ -730,7 +729,7 @@ describe('WasiPolyfill - Path Operations (US-008)', () => {
         'fd_readdir',
       ];
       for (const name of expectedFns) {
-        assert.strictEqual(typeof imports[name], 'function', `${name} should be a function`);
+        expect(typeof imports[name]).toBe('function');
       }
     });
   });

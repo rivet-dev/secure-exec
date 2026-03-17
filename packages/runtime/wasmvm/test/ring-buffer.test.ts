@@ -2,8 +2,7 @@
  * Tests for ring-buffer.ts — SharedArrayBuffer ring buffer with timeouts.
  */
 
-import { describe, test } from 'node:test';
-import assert from 'node:assert';
+import { describe, test, expect } from 'vitest';
 import { createRingBuffer, RingBufferWriter, RingBufferReader } from '../src/ring-buffer.ts';
 
 describe('RingBuffer - basic read/write', () => {
@@ -18,8 +17,8 @@ describe('RingBuffer - basic read/write', () => {
 
     const buf = new Uint8Array(64);
     const n = reader.read(buf);
-    assert.strictEqual(n, 5);
-    assert.strictEqual(new TextDecoder().decode(buf.subarray(0, n)), 'hello');
+    expect(n).toBe(5);
+    expect(new TextDecoder().decode(buf.subarray(0, n))).toBe('hello');
   });
 
   test('reader returns 0 (EOF) after writer closes', () => {
@@ -31,7 +30,7 @@ describe('RingBuffer - basic read/write', () => {
 
     const buf = new Uint8Array(64);
     const n = reader.read(buf);
-    assert.strictEqual(n, 0);
+    expect(n).toBe(0);
   });
 
   test('multiple writes and reads', () => {
@@ -49,7 +48,7 @@ describe('RingBuffer - basic read/write', () => {
     while ((n = reader.read(buf)) > 0) {
       total += new TextDecoder().decode(buf.subarray(0, n));
     }
-    assert.strictEqual(total, 'abcdef');
+    expect(total).toBe('abcdef');
   });
 });
 
@@ -63,17 +62,17 @@ describe('RingBuffer - writer timeout when reader is dead', () => {
     const fillData = new Uint8Array(8);
     fillData.fill(0x42);
     const written1 = writer.write(fillData);
-    assert.strictEqual(written1, 8);
+    expect(written1).toBe(8);
 
     // Try to write more — no reader is consuming, so writer should timeout
     const moreData = new Uint8Array(4);
     moreData.fill(0x43);
     const written2 = writer.write(moreData);
-    assert.strictEqual(written2, 0, 'should return 0 bytes written after timeout');
+    expect(written2).toBe(0);
 
     // Buffer should be closed (EOF signaled)
     const header = new Int32Array(sab, 0, 4);
-    assert.strictEqual(Atomics.load(header, 2), 1, 'closed flag should be set after timeout');
+    expect(Atomics.load(header, 2)).toBe(1);
   });
 });
 
@@ -85,10 +84,10 @@ describe('RingBuffer - reader timeout when writer is dead', () => {
 
     const buf = new Uint8Array(64);
     const n = reader.read(buf);
-    assert.strictEqual(n, 0, 'should return 0 (EOF) after timeout');
+    expect(n).toBe(0);
 
     // Buffer should be marked closed
     const header = new Int32Array(sab, 0, 4);
-    assert.strictEqual(Atomics.load(header, 2), 1, 'closed flag should be set after timeout');
+    expect(Atomics.load(header, 2)).toBe(1);
   });
 });

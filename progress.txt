@@ -14,6 +14,7 @@ Started: 2026-03-16
 - WasmVM polyfill constructor requires { fileIO, processIO } in options — callers must provide bridge implementations
 - Concrete VFS/FDTable/bridge implementations live in test/helpers/ (test infrastructure only)
 - WasmVM package name is `@secure-exec/runtime-wasmvm` (not `@secure-exec/wasmvm`)
+- WasmVM tests use vitest (describe/it/expect); vitest.config.ts in package root, test script is `vitest run`
 
 ---
 
@@ -151,4 +152,17 @@ Started: 2026-03-16
   - VFS.getInodeByIno() and getIno() are implementation-specific methods needed by polyfill for filestat_set_times — future cleanup should replace with utimes()
   - Integration tests (awk, coreutils, etc.) depend on WasmOS → Pipeline → worker-entry chain; will be recreated as kernel integration tests in US-020+
   - Test helpers re-export from wasi-constants and wasi-types so existing tests can import from one file
+---
+
+## 2026-03-16 - US-015
+- Converted all 8 WasmVM test files from node:test/node:assert to vitest
+- Created vitest.config.ts for the package
+- Updated package.json test script from `node --test test/*.test.ts` to `vitest run`
+- Files changed: 8 test files, vitest.config.ts (new), package.json
+- All 340 tests pass via vitest, typecheck passes
+- **Learnings for future iterations:**
+  - node:assert/strict `assert.equal` is same as `assert.strictEqual` — both map to `expect(a).toBe(b)`
+  - `assert.throws(fn, { name, prop })` has no direct vitest equivalent — use `expect(fn).toThrow(ErrorClass)` + separate property checks
+  - vitest auto-detects SharedArrayBuffer and Worker tests — no special config needed
+  - Conversion is mechanical: imports + assertion API, no logic changes needed
 ---
