@@ -346,34 +346,44 @@ describe('Node RuntimeDriver', () => {
       await kernel?.dispose();
     });
 
-    it('child_process.spawn routes through kernel to other drivers', async () => {
+    it('child_process.spawnSync routes through kernel — spy driver records call', async () => {
       const vfs = new SimpleVFS();
       kernel = createKernel({ filesystem: vfs as any });
 
-      // Mount mock driver for 'bash' (bridge wraps execSync as bash -c '...')
-      const mockDriver = new MockRuntimeDriver(['bash', 'echo'], {
-        echo: { exitCode: 0, stdout: 'mock-echo-output' },
+      // Spy driver records every spawn call for later assertion
+      const spy = { calls: [] as { command: string; args: string[]; callerPid: number }[] };
+      const spyDriver = new MockRuntimeDriver(['echo'], {
+        echo: { exitCode: 0, stdout: 'spy-echo-output' },
       });
-      await kernel.mount(mockDriver);
+      const originalSpawn = spyDriver.spawn.bind(spyDriver);
+      spyDriver.spawn = (command: string, args: string[], ctx: ProcessContext): DriverProcess => {
+        spy.calls.push({ command, args: [...args], callerPid: ctx.ppid });
+        return originalSpawn(command, args, ctx);
+      };
+
+      await kernel.mount(spyDriver);
       await kernel.mount(createNodeRuntime());
 
-      // Node script that spawns 'echo' via child_process.execSync
-      // Bridge wraps this as: bash -c 'echo hello'
-      // Mock driver resolves inner command 'echo' from configs
+      // spawnSync passes command and args directly (no bash -c wrapping)
       const chunks: Uint8Array[] = [];
       const proc = kernel.spawn('node', ['-e', `
-        const { execSync } = require('child_process');
-        const result = execSync('echo hello');
-        console.log('child output:', result.toString().trim());
+        const { spawnSync } = require('child_process');
+        const result = spawnSync('echo', ['hello']);
+        console.log('child output:', result.stdout.toString().trim());
       `], {
         onStdout: (data) => chunks.push(data),
       });
 
       const code = await proc.wait();
       const output = chunks.map(c => new TextDecoder().decode(c)).join('');
-      // execSync must route through kernel to mock driver unconditionally
+
+      // Spy proves routing happened — not just that output appeared
+      expect(spy.calls.length).toBe(1);
+      expect(spy.calls[0].command).toBe('echo');
+      expect(spy.calls[0].args).toEqual(['hello']);
+      expect(spy.calls[0].callerPid).toBeGreaterThan(0);
       expect(code).toBe(0);
-      expect(output).toContain('mock-echo-output');
+      expect(output).toContain('spy-echo-output');
     });
   });
 
