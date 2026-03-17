@@ -626,3 +626,13 @@ PRD: ralph/kernel-hardening (46 stories)
   - os.ts is a polyfill providing a Linux subset — Node.js types include Windows WSA* errno constants and RTLD_DEEPBIND that don't apply; cast sub-objects rather than adding unused constants
   - userInfo needs `nodeOs.UserInfoOptions` parameter type (not raw `{ encoding: BufferEncoding }`) to match overloaded signatures
 ---
+
+## 2026-03-17 - US-040
+- Removed @ts-nocheck from packages/secure-exec/src/bridge/child-process.ts
+- Only 2 type errors: `(code: number)` callback params in `.on("close", ...)` didn't match `EventListener = (...args: unknown[]) => void`
+- Fixed by changing to `(...args: unknown[])` with `const code = args[0] as number` inside
+- Files changed: packages/secure-exec/src/bridge/child-process.ts (2 callbacks on lines 374 and 696)
+- **Learnings for future iterations:**
+  - child-process.ts was nearly type-safe already — only event listener callbacks needed parameter type fixes
+  - The `EventListener = (...args: unknown[]) => void` type used by the ChildProcess polyfill means all `.on()` callbacks must accept `unknown` params
+---
