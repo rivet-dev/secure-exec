@@ -496,3 +496,16 @@ PRD: ralph/kernel-hardening (46 stories)
   - Async exec tests timeout in mock executor setup because streaming dispatch (host→isolate applySync) requires real kernel integration; sync paths are fully testable with mock executors
   - ERR_CHILD_PROCESS_STDIO_MAXBUFFER is the standard Node.js error code for this condition
 ---
+
+## 2026-03-17 - US-033
+- What was implemented: Added fs.cp/cpSync, fs.mkdtemp/mkdtempSync, fs.opendir/opendirSync to bridge
+- Files changed:
+  - packages/secure-exec/src/bridge/fs.ts — added cpSync (recursive directory copy with force/errorOnExist), mkdtempSync (random suffix temp dir), opendirSync (Dir class with readSync/read/async iteration), plus callback and promise forms
+  - packages/secure-exec/tests/runtime-driver/node/index.test.ts — added 12 tests covering all three APIs in sync, callback, and promise forms
+  - prd.json — marked US-033 passes: true
+- **Learnings for future iterations:**
+  - All three APIs can be implemented purely on the isolate side using existing bridge references (readFile, writeFile, readDir, mkdir, stat) — no new host bridge globals needed
+  - Dir class needs Symbol.asyncIterator for `for await (const entry of dir)` — standard async generator pattern works
+  - cpSync for directories requires explicit `{ recursive: true }` to match Node.js semantics — without it, throws ERR_FS_EISDIR
+  - mkdtempSync uses Math.random().toString(36).slice(2, 8) for suffix — good enough for VFS uniqueness, no crypto needed
+---

@@ -139,6 +139,53 @@ class Dirent implements nodeFs.Dirent<string> {
   }
 }
 
+// Dir class for opendir — async-iterable directory handle
+class Dir {
+  readonly path: string;
+  private _entries: Dirent[] | null = null;
+  private _index: number = 0;
+  private _closed: boolean = false;
+
+  constructor(dirPath: string) {
+    this.path = dirPath;
+  }
+
+  private _load(): Dirent[] {
+    if (this._entries === null) {
+      this._entries = fs.readdirSync(this.path, { withFileTypes: true }) as Dirent[];
+    }
+    return this._entries;
+  }
+
+  readSync(): Dirent | null {
+    if (this._closed) throw new Error("Directory handle was closed");
+    const entries = this._load();
+    if (this._index >= entries.length) return null;
+    return entries[this._index++];
+  }
+
+  async read(): Promise<Dirent | null> {
+    return this.readSync();
+  }
+
+  closeSync(): void {
+    this._closed = true;
+  }
+
+  async close(): Promise<void> {
+    this.closeSync();
+  }
+
+  async *[Symbol.asyncIterator](): AsyncIterableIterator<Dirent> {
+    const entries = this._load();
+    for (const entry of entries) {
+      if (this._closed) return;
+      yield entry;
+    }
+    this._closed = true;
+  }
+}
+
 // ReadStream class for createReadStream
 // Provides a proper readable stream implementation that works with stream.pipeline
 class ReadStream {
@@ -817,6 +864,7 @@ const fs = {
 
   Stats,
   Dirent,
+  Dir,
 
   // Sync methods
 
@@ -1037,6 +1085,77 @@ const fs = {
     // readFileSync and writeFileSync already normalize paths
     const content = fs.readFileSync(src);
     fs.writeFileSync(dest, content as Buffer);
+  },
+
+  // Recursive copy
+  cpSync(src: PathLike, dest: PathLike, options?: { recursive?: boolean; force?: boolean; errorOnExist?: boolean }): void {
+    const srcPath = toPathString(src);
+    const destPath = toPathString(dest);
+    const opts = options || {};
+
+    const srcStat = fs.statSync(srcPath);
+
+    if (srcStat.isDirectory()) {
+      if (!opts.recursive) {
+        throw createFsError(
+          "ERR_FS_EISDIR",
+          `Path is a directory: cp '${srcPath}'`,
+          "cp",
+          srcPath
+        );
+      }
+      // Create destination directory
+      try {
+        fs.mkdirSync(destPath, { recursive: true });
+      } catch {
+        // May already exist
+      }
+      // Copy contents recursively
+      const entries = fs.readdirSync(srcPath) as string[];
+      for (const entry of entries) {
+        const srcEntry = srcPath.endsWith("/") ? srcPath + entry : srcPath + "/" + entry;
+        const destEntry = destPath.endsWith("/") ? destPath + entry : destPath + "/" + entry;
+        fs.cpSync(srcEntry, destEntry, opts);
+      }
+    } else {
+      // File copy
+      if (opts.errorOnExist && fs.existsSync(destPath)) {
+        throw createFsError(
+          "EEXIST",
+          `EEXIST: file already exists, cp '${srcPath}' -> '${destPath}'`,
+          "cp",
+          destPath
+        );
+      }
+      if (!opts.force && opts.force !== undefined && fs.existsSync(destPath)) {
+        return; // Skip without error when force is false
+      }
+      fs.copyFileSync(srcPath, destPath);
+    }
+  },
+
+  // Temp directory creation
+  mkdtempSync(prefix: string, _options?: nodeFs.EncodingOption): string {
+    const suffix = Math.random().toString(36).slice(2, 8);
+    const dirPath = prefix + suffix;
+    fs.mkdirSync(dirPath, { recursive: true });
+    return dirPath;
+  },
+
+  // Directory handle (sync)
+  opendirSync(path: PathLike, _options?: nodeFs.OpenDirOptions): Dir {
+    const pathStr = toPathString(path);
+    // Verify directory exists
+    const stat = fs.statSync(pathStr);
+    if (!stat.isDirectory()) {
+      throw createFsError(
+        "ENOTDIR",
+        `ENOTDIR: not a directory, opendir '${pathStr}'`,
+        "opendir",
+        pathStr
+      );
+    }
+    return new Dir(pathStr);
   },
 
   // File descriptor methods
@@ -1510,6 +1629,68 @@ const fs = {
     }
   },
 
+  cp(
+    src: string,
+    dest: string,
+    options?: { recursive?: boolean; force?: boolean; errorOnExist?: boolean } | NodeCallback<void>,
+    callback?: NodeCallback<void>
+  ): Promise<void> | void {
+    if (typeof options === "function") {
+      callback = options;
+      options = undefined;
+    }
+    if (callback) {
+      try {
+        fs.cpSync(src, dest, options as { recursive?: boolean; force?: boolean; errorOnExist?: boolean });
+        callback(null);
+      } catch (e) {
+        callback(e as Error);
+      }
+    } else {
+      return Promise.resolve(fs.cpSync(src, dest, options as { recursive?: boolean; force?: boolean; errorOnExist?: boolean }));
+    }
+  },
+
+  mkdtemp(
+    prefix: string,
+    options?: nodeFs.EncodingOption | NodeCallback<string>,
+    callback?: NodeCallback<string>
+  ): Promise<string> | void {
+    if (typeof options === "function") {
+      callback = options;
+      options = undefined;
+    }
+    if (callback) {
+      try {
+        callback(null, fs.mkdtempSync(prefix, options as nodeFs.EncodingOption));
+      } catch (e) {
+        callback(e as Error);
+      }
+    } else {
+      return Promise.resolve(fs.mkdtempSync(prefix, options as nodeFs.EncodingOption));
+    }
+  },
+
+  opendir(
+    path: string,
+    options?: nodeFs.OpenDirOptions | NodeCallback<Dir>,
+    callback?: NodeCallback<Dir>
+  ): Promise<Dir> | void {
+    if (typeof options === "function") {
+      callback = options;
+      options = undefined;
+    }
+    if (callback) {
+      try {
+        callback(null, fs.opendirSync(path, options as nodeFs.OpenDirOptions));
+      } catch (e) {
+        callback(e as Error);
+      }
+    } else {
+      return Promise.resolve(fs.opendirSync(path, options as nodeFs.OpenDirOptions));
+    }
+  },
+
   open(
     path: string,
     flags: OpenFlags,
@@ -1700,6 +1881,15 @@ const fs = {
     },
     async copyFile(src: string, dest: string) {
       return fs.copyFileSync(src, dest);
+    },
+    async cp(src: string, dest: string, options?: { recursive?: boolean; force?: boolean; errorOnExist?: boolean }) {
+      return fs.cpSync(src, dest, options);
+    },
+    async mkdtemp(prefix: string, options?: nodeFs.EncodingOption) {
+      return fs.mkdtempSync(prefix, options);
+    },
+    async opendir(path: string, options?: nodeFs.OpenDirOptions) {
+      return fs.opendirSync(path, options);
     },
     async access(path: string) {
       if (!fs.existsSync(path)) {

@@ -1275,4 +1275,273 @@ describe("NodeRuntime", () => {
 		]);
 		expect(result.code).not.toBe(-999);
 	});
+
+	// fs.cpSync / fs.cp — recursive directory copy
+	it("copies a single file with fs.cpSync", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data");
+		await vfs.writeFile("/data/src.txt", "content");
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			fs.cpSync('/data/src.txt', '/data/dst.txt');
+			module.exports = fs.readFileSync('/data/dst.txt', 'utf8');
+		`);
+		expect(result.exports).toBe("content");
+	});
+
+	it("recursively copies a directory tree with fs.cpSync", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data/src/sub", { recursive: true });
+		await vfs.writeFile("/data/src/a.txt", "aaa");
+		await vfs.writeFile("/data/src/sub/b.txt", "bbb");
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			fs.cpSync('/data/src', '/data/dst', { recursive: true });
+			const a = fs.readFileSync('/data/dst/a.txt', 'utf8');
+			const b = fs.readFileSync('/data/dst/sub/b.txt', 'utf8');
+			module.exports = { a, b };
+		`);
+		expect(result.exports).toEqual({ a: "aaa", b: "bbb" });
+	});
+
+	it("cpSync without recursive throws for directories", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data/src");
+		await vfs.writeFile("/data/src/a.txt", "aaa");
+
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+			onStdio: capture.onStdio,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			try {
+				fs.cpSync('/data/src', '/data/dst');
+				module.exports = 'no error';
+			} catch (e) {
+				module.exports = e.code || e.message;
+			}
+		`);
+		expect(result.exports).toBe("ERR_FS_EISDIR");
+	});
+
+	it("cp callback form copies a file", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data");
+		await vfs.writeFile("/data/src.txt", "hello");
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			fs.cp('/data/src.txt', '/data/dst.txt', (err) => {
+				if (err) { module.exports = err.message; return; }
+				module.exports = fs.readFileSync('/data/dst.txt', 'utf8');
+			});
+		`);
+		expect(result.exports).toBe("hello");
+	});
+
+	it("fs.promises.cp copies recursively", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data/src/sub", { recursive: true });
+		await vfs.writeFile("/data/src/f.txt", "val");
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			(async () => {
+				await fs.promises.cp('/data/src', '/data/dst', { recursive: true });
+				module.exports = fs.readFileSync('/data/dst/f.txt', 'utf8');
+			})();
+		`);
+		expect(result.exports).toBe("val");
+	});
+
+	// fs.mkdtempSync / fs.mkdtemp — temporary directory creation
+	it("creates a unique temp directory with fs.mkdtempSync", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/tmp", { recursive: true });
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			const dir1 = fs.mkdtempSync('/tmp/prefix-');
+			const dir2 = fs.mkdtempSync('/tmp/prefix-');
+			const exists1 = fs.existsSync(dir1);
+			const exists2 = fs.existsSync(dir2);
+			const stat1 = fs.statSync(dir1);
+			module.exports = {
+				startsWithPrefix: dir1.startsWith('/tmp/prefix-') && dir2.startsWith('/tmp/prefix-'),
+				unique: dir1 !== dir2,
+				exists1,
+				exists2,
+				isDir: stat1.isDirectory(),
+			};
+		`);
+		expect(result.exports).toEqual({
+			startsWithPrefix: true,
+			unique: true,
+			exists1: true,
+			exists2: true,
+			isDir: true,
+		});
+	});
+
+	it("mkdtemp callback form creates a temp directory", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/tmp", { recursive: true });
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			fs.mkdtemp('/tmp/test-', (err, dir) => {
+				if (err) { module.exports = err.message; return; }
+				module.exports = {
+					prefix: dir.startsWith('/tmp/test-'),
+					exists: fs.existsSync(dir),
+				};
+			});
+		`);
+		expect(result.exports).toEqual({ prefix: true, exists: true });
+	});
+
+	it("fs.promises.mkdtemp creates a temp directory", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/tmp", { recursive: true });
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			(async () => {
+				const dir = await fs.promises.mkdtemp('/tmp/async-');
+				module.exports = {
+					prefix: dir.startsWith('/tmp/async-'),
+					exists: fs.existsSync(dir),
+				};
+			})();
+		`);
+		expect(result.exports).toEqual({ prefix: true, exists: true });
+	});
+
+	// fs.opendirSync / fs.opendir — directory handle iteration
+	it("iterates directory entries with fs.opendirSync", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data/dir");
+		await vfs.mkdir("/data/dir/sub");
+		await vfs.writeFile("/data/dir/file.txt", "x");
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			const dir = fs.opendirSync('/data/dir');
+			const entries = [];
+			let entry;
+			while ((entry = dir.readSync()) !== null) {
+				entries.push({ name: entry.name, isDir: entry.isDirectory(), isFile: entry.isFile() });
+			}
+			dir.closeSync();
+			entries.sort((a, b) => a.name.localeCompare(b.name));
+			module.exports = entries;
+		`);
+		expect(result.exports).toEqual([
+			{ name: "file.txt", isDir: false, isFile: true },
+			{ name: "sub", isDir: true, isFile: false },
+		]);
+	});
+
+	it("opendir callback form returns a Dir handle", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data/dir");
+		await vfs.writeFile("/data/dir/a.txt", "a");
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			fs.opendir('/data/dir', (err, dir) => {
+				if (err) { module.exports = err.message; return; }
+				const entry = dir.readSync();
+				dir.closeSync();
+				module.exports = { name: entry.name, path: dir.path };
+			});
+		`);
+		expect(result.exports).toEqual({ name: "a.txt", path: "/data/dir" });
+	});
+
+	it("fs.promises.opendir returns async-iterable Dir", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data/dir");
+		await vfs.writeFile("/data/dir/x.txt", "x");
+		await vfs.writeFile("/data/dir/y.txt", "y");
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			(async () => {
+				const dir = await fs.promises.opendir('/data/dir');
+				const names = [];
+				for await (const entry of dir) {
+					names.push(entry.name);
+				}
+				names.sort();
+				module.exports = names;
+			})();
+		`);
+		expect(result.exports).toEqual(["x.txt", "y.txt"]);
+	});
+
+	it("opendirSync throws ENOENT for missing directory", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data");
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			try {
+				fs.opendirSync('/data/nonexistent');
+				module.exports = 'no error';
+			} catch (e) {
+				module.exports = e.code;
+			}
+		`);
+		expect(result.exports).toBe("ENOENT");
+	});
 });
