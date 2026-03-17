@@ -1,0 +1,319 @@
+---
+title: Interactive Shell & PTY
+description: Open interactive shells, configure terminal behavior, and use process group job control through the kernel.
+icon: "rectangle-terminal"
+---
+
+The kernel includes a full PTY device layer, line discipline, and termios support. This enables interactive shells where programs can detect `isatty()`, handle control characters (^C, ^D, ^Z), and use raw/canonical terminal modes — all inside the sandbox.
+
+## Quick start — `openShell()`
+
+`kernel.openShell()` wires up a PTY, spawns a shell process, and returns a handle for bidirectional I/O:
+
+```ts
+import { createKernel } from "@secure-exec/kernel";
+import { createInMemoryFileSystem } from "@secure-exec/os-browser";
+import { createWasmVmRuntime } from "@secure-exec/runtime-wasmvm";
+
+const vfs = createInMemoryFileSystem();
+const kernel = createKernel({ filesystem: vfs });
+await kernel.mount(createWasmVmRuntime({ wasmBinaryPath: "..." }));
+
+const shell = kernel.openShell();
+
+// Receive output
+shell.onData = (data) => {
+  process.stdout.write(data);
+};
+
+// Send input
+shell.write("echo hello world\n");
+
+// Wait for exit
+const exitCode = await shell.wait();
+await kernel.dispose();
+```
+
+### ShellHandle
+
+`openShell()` returns a `ShellHandle`:
+
+```ts
+interface ShellHandle {
+  pid: number;
+  write(data: Uint8Array | string): void;
+  onData: ((data: Uint8Array) => void) | null;
+  resize(cols: number, rows: number): void;
+  kill(signal?: number): void;
+  wait(): Promise<number>;
+}
+```
+
+| Method | Description |
+|--------|-------------|
+| `write(data)` | Send input through the PTY line discipline |
+| `onData` | Callback for shell output (set this before writing) |
+| `resize(cols, rows)` | Send SIGWINCH to the foreground process group |
+| `kill(signal?)` | Send a signal (default SIGTERM) to the shell |
+| `wait()` | Returns a promise that resolves with the shell exit code |
+
+### Options
+
+```ts
+const shell = kernel.openShell({
+  command: "bash",        // Default: "sh"
+  args: ["--norc"],       // Arguments passed to the shell
+  env: { TERM: "xterm" }, // Environment variables
+  cwd: "/home/user",     // Working directory
+  cols: 120,              // Terminal width
+  rows: 40,               // Terminal height
+});
+```
+
+## Wire to a real terminal — `connectTerminal()`
+
+`connectTerminal()` connects `openShell()` to `process.stdin` and `process.stdout` with raw mode, resize handling, and cleanup:
+
+```ts
+const exitCode = await kernel.connectTerminal({
+  command: "bash",
+  args: ["--norc"],
+});
+// Terminal restored automatically on exit
+process.exit(exitCode);
+```
+
+This is the fastest way to drop into a kernel shell from Node.js. It handles:
+
+- Setting `process.stdin` to raw mode (if running in a TTY)
+- Forwarding stdin → shell and shell output → stdout
+- Listening for terminal resize events → `shell.resize()`
+- Restoring the terminal on exit or error
+
+### CLI entry point
+
+The repository includes a ready-made CLI at `scripts/shell.ts`:
+
+```bash
+npx tsx scripts/shell.ts
+npx tsx scripts/shell.ts --no-node          # WasmVM only
+npx tsx scripts/shell.ts --wasm-path ./path  # Custom WASM binary
+```
+
+## PTY internals
+
+Under the hood, `openShell()` allocates a PTY master/slave pair, spawns the shell with the slave as its stdin/stdout/stderr, and pumps master reads to `onData`.
+
+### PTY pair
+
+```ts
+// Low-level KernelInterface access (inside a RuntimeDriver)
+const { masterFd, slaveFd, path } = ki.openpty(pid);
+// path → "/dev/pts/0", "/dev/pts/1", etc.
+
+ki.isatty(pid, slaveFd);  // true — slave is a terminal
+ki.isatty(pid, masterFd); // false — master is the controlling side
+```
+
+- **Master → slave** is the input direction (keystrokes)
+- **Slave → master** is the output direction (program output)
+- Closing the master causes slave reads to return EIO (terminal hangup)
+- Multiple PTY pairs coexist as `/dev/pts/0`, `/dev/pts/1`, etc.
+
+## Terminal configuration — termios
+
+Each PTY has a `Termios` struct controlling line discipline behavior. The default is canonical mode with echo and signal generation enabled (POSIX standard).
+
+```ts
+interface Termios {
+  icanon: boolean;   // Canonical mode — buffer until newline
+  echo: boolean;     // Echo input back through master
+  isig: boolean;     // Generate signals from control characters
+  cc: TermiosCC;     // Control character mappings
+}
+
+interface TermiosCC {
+  vintr: number;     // ^C (0x03) → SIGINT
+  vquit: number;     // ^\ (0x1C) → SIGQUIT
+  vsusp: number;     // ^Z (0x1A) → SIGTSTP
+  veof: number;      // ^D (0x04) → EOF
+  verase: number;    // DEL (0x7F) → erase last char
+}
+```
+
+### Read/write termios
+
+```ts
+// Get current settings (returns a deep copy)
+const termios = ki.tcgetattr(pid, fd);
+
+// Switch to raw mode
+ki.tcsetattr(pid, fd, { icanon: false, echo: false, isig: false });
+
+// Re-enable canonical mode with custom control chars
+ki.tcsetattr(pid, fd, {
+  icanon: true,
+  echo: true,
+  isig: true,
+  cc: { vintr: 0x03, veof: 0x04, verase: 0x08 },
+});
+```
+
+### Canonical vs raw mode
+
+<Tabs>
+  <Tab title="Canonical mode (default)">
+    Input is buffered until the user presses Enter:
+
+    ```
+    icanon: true
+    ─────────────────────────────────
+    User types: h e l [BS] l o [Enter]
+    Program reads:           "helo\n"
+    ```
+
+    - Backspace (0x7F) erases the last character
+    - ^D on an empty line sends EOF (0 bytes)
+    - ^D with buffered data flushes the buffer without adding a newline
+  </Tab>
+  <Tab title="Raw mode">
+    Every byte delivers immediately — no buffering, no processing:
+
+    ```
+    icanon: false, echo: false, isig: false
+    ─────────────────────────────────
+    User types: h
+    Program reads: "h"   (immediately)
+    ```
+
+    Use raw mode for full-screen TUI apps, editors, or custom key handling.
+  </Tab>
+</Tabs>
+
+### Signal generation
+
+When `isig: true`, control characters generate signals to the foreground process group:
+
+| Input | Signal | Effect |
+|-------|--------|--------|
+| ^C | SIGINT (2) | Interrupt — cancels current command |
+| ^Z | SIGTSTP (20) | Suspend (job control) |
+| ^\ | SIGQUIT (3) | Quit with core dump |
+| ^D | EOF | End of input (canonical mode only) |
+
+<Info>
+Signals are delivered to the **foreground process group**, not just a single process. Set the foreground group with `tcsetpgrp()`.
+</Info>
+
+## Process groups and job control
+
+The kernel tracks process groups (`pgid`) and sessions (`sid`) for job control. Every process has a `pgid` and `sid` inherited from its parent.
+
+### Syscalls
+
+```ts
+// Move a process to a new or existing group
+ki.setpgid(childPid, childPid);   // Make child its own group leader
+
+// Create a new session (process becomes session + group leader)
+const sid = ki.setsid(childPid);  // sid === childPid
+
+// Query
+ki.getpgid(childPid);   // → pgid
+ki.getsid(childPid);    // → sid
+
+// Signal an entire group
+ki.kill(-pgid, 2);       // SIGINT to all processes in the group
+```
+
+### Foreground process group
+
+The PTY's foreground process group determines which group receives signals from ^C, ^Z, and ^\:
+
+```ts
+// Set foreground group on a PTY
+ki.tcsetpgrp(pid, ptyFd, childPgid);
+
+// Query foreground group
+const fgPgid = ki.tcgetpgrp(pid, ptyFd);
+```
+
+When the user presses ^C, SIGINT is delivered to every process in the foreground group — not the shell itself (unless the shell is in the foreground group).
+
+### Window resize
+
+```ts
+shell.resize(120, 40);
+// → SIGWINCH (28) delivered to the foreground process group
+```
+
+Programs like `vim` or `less` catch SIGWINCH to redraw at the new terminal size.
+
+## Wiring to a terminal UI
+
+For browser-based terminals (xterm.js, hterm) or custom UIs:
+
+```ts
+const kernel = createKernel({ filesystem: vfs });
+await kernel.mount(createWasmVmRuntime({ wasmBinaryPath: "..." }));
+
+const shell = kernel.openShell({ cols: 80, rows: 24 });
+
+// Terminal → kernel
+terminal.onData((data) => {
+  shell.write(data);
+});
+
+// Kernel → terminal
+shell.onData = (data) => {
+  terminal.write(data);
+};
+
+// Handle resize
+terminal.onResize(({ cols, rows }) => {
+  shell.resize(cols, rows);
+});
+
+// Clean up on close
+shell.wait().then((code) => {
+  terminal.writeln(`\r\nShell exited with code ${code}`);
+  kernel.dispose();
+});
+```
+
+## Full Node.js CLI example
+
+```ts
+import { createKernel } from "@secure-exec/kernel";
+import { createInMemoryFileSystem } from "@secure-exec/os-browser";
+import { createWasmVmRuntime } from "@secure-exec/runtime-wasmvm";
+import { createNodeRuntime } from "@secure-exec/runtime-node";
+
+const vfs = createInMemoryFileSystem();
+const kernel = createKernel({ filesystem: vfs });
+
+await kernel.mount(createWasmVmRuntime({
+  wasmBinaryPath: "./wasmvm/target/wasm32-wasip1/release/multicall.wasm",
+}));
+await kernel.mount(createNodeRuntime());
+
+// Drop into an interactive shell — ^D or `exit` to quit
+const exitCode = await kernel.connectTerminal();
+
+await kernel.dispose();
+process.exit(exitCode);
+```
+
+## Next steps
+
+<CardGroup cols={3}>
+  <Card title="Kernel API" icon="rectangle-code" href="/kernel/api-reference">
+    Full type reference including PTY, termios, and process group syscalls.
+  </Card>
+  <Card title="Cross-Runtime" icon="arrows-split-up-and-left" href="/kernel/cross-runtime">
+    Pipes, VFS sharing, and npm scripts across runtimes.
+  </Card>
+  <Card title="Custom Runtimes" icon="puzzle-piece" href="/kernel/custom-runtime">
+    Write your own RuntimeDriver with PTY support.
+  </Card>
+</CardGroup>
