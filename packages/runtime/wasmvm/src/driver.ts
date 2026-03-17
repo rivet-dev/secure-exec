@@ -310,6 +310,11 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
       switch (msg.call) {
         case 'fdRead': {
           const result = await kernel.fdRead(pid, msg.args.fd as number, msg.args.length as number);
+          if (result.length > DATA_BUFFER_BYTES) {
+            errno = 76; // EIO — response exceeds SAB capacity
+            break;
+          }
+          data.set(result, 0);
           responseData = result;
           break;
         }
@@ -467,6 +472,12 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
       }
     } catch (err) {
       errno = mapErrorToErrno(err);
+    }
+
+    // Guard against SAB data buffer overflow
+    if (errno === 0 && responseData && responseData.length > DATA_BUFFER_BYTES) {
+      errno = 76; // EIO — response exceeds 1MB SAB capacity
+      responseData = null;
     }
 
     // Write response to signal buffer

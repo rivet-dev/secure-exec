@@ -49,5 +49,25 @@ PRD: ralph/kernel-hardening (46 stories)
 - Bridge process.stdin does NOT emit 'end' for empty stdin ("") — pass undefined for no-stdin case
 - E2E fixture tests: use NodeFileSystem({ root: projectDir }) for real npm package resolution
 - npm/npx in V8 isolate need host filesystem fallback — createHostFallbackVfs wraps kernel VFS
+- WasmVM _handleSyscall fdRead case MUST call data.set(result, 0) to write to SAB — without this, worker reads garbage
+- SAB overflow guard: check responseData.length > DATA_BUFFER_BYTES before writing, return errno 76 (EIO)
 
+---
+
+## 2026-03-17 - US-001
+- Already implemented in prior iteration (fdTableManager.remove(pid) in kernel onExit handler)
+- Marked passes: true in prd.json
+---
+
+## 2026-03-17 - US-002
+- What was implemented: EIO guard for SharedArrayBuffer 1MB overflow in WasmVM syscall RPC
+- Files changed:
+  - packages/runtime/wasmvm/src/driver.ts — fixed fdRead to write data to SAB via data.set(), added overflow guard returning EIO (errno 76) for responses >1MB
+  - packages/runtime/wasmvm/test/driver.test.ts — added SAB overflow protection tests
+  - prd.json — marked US-001 and US-002 as passes: true
+- **Learnings for future iterations:**
+  - fdRead in _handleSyscall was missing data.set(result, 0) — data was never written to SAB, only length was stored
+  - vfsReadFile/vfsReaddir/etc already call data.set() which throws RangeError on overflow, caught as EIO by mapErrorToErrno fallback
+  - General overflow guard after try/catch provides belt-and-suspenders protection for all data-returning syscalls
+  - WASM-gated tests (describe.skipIf(!hasWasmBinary)) skip in CI when binary isn't built — see US-014
 ---

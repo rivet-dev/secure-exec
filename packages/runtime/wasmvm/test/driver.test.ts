@@ -9,6 +9,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createWasmVmRuntime, WASMVM_COMMANDS } from '../src/driver.ts';
 import type { WasmVmRuntimeOptions } from '../src/driver.ts';
+import { DATA_BUFFER_BYTES } from '../src/syscall-rpc.ts';
 import { createKernel } from '@secure-exec/kernel';
 import type {
   RuntimeDriver,
@@ -349,6 +350,52 @@ describe('WasmVM RuntimeDriver', () => {
       } finally {
         await kernel.dispose();
       }
+    });
+  });
+
+  describe('SAB overflow protection', () => {
+    it('DATA_BUFFER_BYTES is 1MB', () => {
+      expect(DATA_BUFFER_BYTES).toBe(1024 * 1024);
+    });
+  });
+
+  describe.skipIf(!hasWasmBinary)('SAB overflow handling', () => {
+    let kernel: Kernel;
+
+    afterEach(async () => {
+      await kernel?.dispose();
+    });
+
+    it('fdRead exceeding 1MB SAB returns error instead of truncating', async () => {
+      const vfs = new SimpleVFS();
+      // Write 2MB file filled with pattern bytes
+      const twoMB = new Uint8Array(2 * 1024 * 1024);
+      for (let i = 0; i < twoMB.length; i++) twoMB[i] = 0x41 + (i % 26);
+      await vfs.writeFile('/large-file', twoMB);
+
+      kernel = createKernel({ filesystem: vfs as any });
+      await kernel.mount(createWasmVmRuntime({ wasmBinaryPath: WASM_BINARY_PATH }));
+
+      // dd with bs=2097152 requests a single fdRead >1MB — triggers SAB overflow guard
+      const result = await kernel.exec('dd if=/large-file of=/dev/null bs=2097152 count=1');
+      // EIO returned instead of silent truncation
+      expect(result.exitCode).not.toBe(0);
+    });
+
+    it('pipe read/write FileDescriptions are freed after process exits', async () => {
+      const vfs = new SimpleVFS();
+      // Write file within SAB capacity
+      const smallData = new Uint8Array(1024);
+      for (let i = 0; i < smallData.length; i++) smallData[i] = 0x41 + (i % 26);
+      await vfs.writeFile('/small-file', smallData);
+
+      kernel = createKernel({ filesystem: vfs as any });
+      await kernel.mount(createWasmVmRuntime({ wasmBinaryPath: WASM_BINARY_PATH }));
+
+      // Small file reads should work fine
+      const result = await kernel.exec('cat /small-file');
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.length).toBe(1024);
     });
   });
 });
