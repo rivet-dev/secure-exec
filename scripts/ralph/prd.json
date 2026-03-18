@@ -1420,6 +1420,420 @@
       "notes": "Phase 2 of terminal-e2e-testing.md spec. Requires WASM binary built. Adversarial review added: cd and export builtins \u2014 state persistence across commands is an interactive-only behavior. cd and ls tests are .todo due to pre-existing WASI path resolution / proc_spawn issues."
     },
     {
+      "id": "US-114",
+      "title": "Add cross-PID authorization to KernelInterface",
+      "description": "As a developer, I need the kernel to prevent a mounted driver from accessing file descriptors, killing processes, or manipulating process groups belonging to other drivers' PIDs.",
+      "acceptanceCriteria": [
+        "KernelInterface methods (fdRead, fdWrite, fdClose, kill, setpgid, etc.) validate that the calling driver owns the target PID",
+        "Test: driver A cannot fdRead/fdWrite FDs belonging to driver B's process",
+        "Test: driver A cannot kill or setpgid on driver B's process",
+        "Test: driver A CAN access its own process's FDs and signals normally",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 84,
+      "passes": false,
+      "notes": "CRITICAL \u2014 kernel.ts:451-749. Single shared KernelInterface given to all drivers; pid parameter trusted without validation. Any driver can read/write FDs, kill, or manipulate process groups of any other driver's processes."
+    },
+    {
+      "id": "US-115",
+      "title": "Fix exec() timeout \u2014 kill process and clear timer",
+      "description": "As a developer, I need exec() to kill the spawned process and clear the timeout timer when execution times out, preventing zombie processes and leaked timers.",
+      "acceptanceCriteria": [
+        "When exec() timeout fires, the spawned process is killed (SIGTERM then SIGKILL)",
+        "stdout/stderr callbacks are detached after timeout to stop accumulation",
+        "setTimeout timer is cleared when process exits normally before timeout",
+        "Test: exec with 100ms timeout on a long-running command \u2014 process is killed, no resource leak",
+        "Test: exec with timeout where process exits early \u2014 timer is cleared",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 85,
+      "passes": false,
+      "notes": "CRITICAL \u2014 kernel.ts:162-175. Timed-out process keeps running, stdout/stderr keep accumulating, timer never cleared on normal exit."
+    },
+    {
+      "id": "US-116",
+      "title": "Cap cryptoRandomFill host allocation size",
+      "description": "As a developer, I need the host-side crypto.getRandomValues bridge to reject requests for excessively large byte arrays to prevent OOM.",
+      "acceptanceCriteria": [
+        "Host-side cryptoRandomFillRef validates byteLength <= 65536 (or similar reasonable cap matching Web Crypto API spec)",
+        "Requests exceeding the cap throw a RangeError matching Node.js behavior",
+        "Test: crypto.getRandomValues(new Uint8Array(65536)) succeeds",
+        "Test: crypto.getRandomValues(new Uint8Array(65537)) throws RangeError",
+        "Test: crypto.getRandomValues(new Uint8Array(2_000_000_000)) throws, does not allocate on host",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 86,
+      "passes": false,
+      "notes": "CRITICAL \u2014 bridge-setup.ts:216-219. Buffer.allocUnsafe(byteLength) with no validation; sandbox can OOM host with single call."
+    },
+    {
+      "id": "US-117",
+      "title": "Clean up host timers on isolate recycling/disposal",
+      "description": "As a developer, I need all host-side setTimeout callbacks created by the bridge to be tracked and cleared when the isolate is recycled or disposed.",
+      "acceptanceCriteria": [
+        "Bridge tracks all host-side timer IDs created via scheduleTimerRef",
+        "On isolate recycling (timeout) or disposal, all tracked host timers are cleared via clearTimeout",
+        "Test: create 100 timers with 60s delay, trigger timeout \u2014 all host timers cleared, no leaked callbacks",
+        "Test: normal execution with timers \u2014 timers cleared on dispose",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 87,
+      "passes": false,
+      "notes": "CRITICAL \u2014 bridge-setup.ts:202-207. Host setTimeout callbacks survive isolate recycling, holding dead isolate references. 100k timers at 24h delay = permanent host leak."
+    },
+    {
+      "id": "US-118",
+      "title": "Harden fetch/Headers/Request/Response/Blob globals as non-writable",
+      "description": "As a developer, I need the network globals installed in the sandbox to be non-writable and non-configurable so sandbox code cannot intercept outbound requests.",
+      "acceptanceCriteria": [
+        "fetch, Headers, Request, Response, Blob are installed via exposeCustomGlobal() (writable: false, configurable: false)",
+        "Test: sandbox code attempting globalThis.fetch = ... throws TypeError",
+        "Test: Object.defineProperty(globalThis, 'fetch', ...) throws TypeError",
+        "Test: fetch still works normally after hardening",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 88,
+      "passes": false,
+      "notes": "CRITICAL \u2014 network.ts:1655-1662. Currently installed via simple property assignment (writable, configurable). Sandbox code can replace fetch and intercept all outbound requests."
+    },
+    {
+      "id": "US-119",
+      "title": "Cap PTY canonical-mode line buffer size",
+      "description": "As a developer, I need the PTY canonical-mode line buffer to have a size cap to prevent unbounded memory growth from input without newlines.",
+      "acceptanceCriteria": [
+        "lineBuffer in canonical mode is capped (e.g., 4096 bytes matching POSIX MAX_CANON)",
+        "Writes exceeding the cap are rejected or the oldest bytes are discarded",
+        "Test: write 10,000 bytes without newline to PTY master in canonical mode \u2014 buffer does not exceed cap",
+        "Test: normal canonical mode operation (type line, press enter) still works correctly",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 89,
+      "passes": false,
+      "notes": "HIGH \u2014 pty.ts:412. lineBuffer is number[] (16 bytes/element on V8), grows without limit until newline. 100M bytes = ~1.6GB."
+    },
+    {
+      "id": "US-120",
+      "title": "Register openShell controller PID and clean up on exit",
+      "description": "As a developer, I need the openShell controller PID to be registered in the process table and its FD table cleaned up when the shell exits.",
+      "acceptanceCriteria": [
+        "openShell() registers the controller PID in the process table",
+        "When the shell process exits, the controller PID's FD table is cleaned up via fdTableManager.remove()",
+        "PTY master FD is closed when the shell exits",
+        "Test: open shell, exit shell, verify controller PID's FD table is removed",
+        "Test: repeated openShell/exit cycles do not leak FD tables or PID numbers",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 90,
+      "passes": false,
+      "notes": "HIGH \u2014 kernel.ts:200-201. Controller PID never registered; FD table, master FD, and PID number leak on every shell open/close cycle."
+    },
+    {
+      "id": "US-121",
+      "title": "Implement fdWrite to VFS for regular files",
+      "description": "As a developer, I need fdWrite on regular file FDs to actually write data to the VFS instead of silently discarding it.",
+      "acceptanceCriteria": [
+        "fdWrite on a regular file FD writes data to VFS at the current cursor position",
+        "Cursor position advances by the number of bytes written",
+        "Test: open file, fdWrite data, fdRead back \u2014 data matches",
+        "Test: fdWrite at offset, fdPread at same offset \u2014 data matches",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 91,
+      "passes": false,
+      "notes": "HIGH \u2014 kernel.ts:509. fdWrite to regular files returns data.length without writing to VFS. Silent data loss."
+    },
+    {
+      "id": "US-122",
+      "title": "Return EPIPE on pipe write after read-end close",
+      "description": "As a developer, I need pipe writes to fail with EPIPE when the read end has been closed, matching POSIX semantics.",
+      "acceptanceCriteria": [
+        "PipeManager.write() checks state.closed.read before buffering data",
+        "If read end is closed, write throws KernelError with code EPIPE",
+        "Test: close pipe read end, write to write end \u2014 throws EPIPE",
+        "Test: normal pipe write with open read end still succeeds",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 92,
+      "passes": false,
+      "notes": "HIGH \u2014 pipe-manager.ts:82-103. Write after read-end close silently succeeds, buffers up to 64KB then EAGAIN. Should be EPIPE."
+    },
+    {
+      "id": "US-123",
+      "title": "Resolve PTY read waiter on same-end close",
+      "description": "As a developer, I need pending PTY reads to be resolved (with EOF/null) when the same end that's reading is closed.",
+      "acceptanceCriteria": [
+        "Closing the slave end resolves any pending inputWaiters with null (EOF)",
+        "Closing the master end resolves any pending outputWaiters with null (EOF)",
+        "Test: start slave read, close slave \u2014 read resolves with null, no hang",
+        "Test: start master read, close master \u2014 read resolves with null, no hang",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 93,
+      "passes": false,
+      "notes": "HIGH \u2014 pty.ts:185-202. Closing same end as pending read leaves promise unresolved forever."
+    },
+    {
+      "id": "US-124",
+      "title": "Clean up child processes and HTTP servers on isolate disposal/timeout",
+      "description": "As a developer, I need spawned child processes and HTTP servers to be terminated when the isolate is recycled or disposed.",
+      "acceptanceCriteria": [
+        "Bridge tracks all spawned child process host handles",
+        "On isolate recycling or disposal, all tracked child processes are killed",
+        "activeHttpServerIds is NOT cleared at start of exec(); servers from previous exec are still tracked",
+        "On recycleIsolate(), all tracked HTTP servers are closed",
+        "Test: spawn child process, trigger timeout \u2014 child process is killed",
+        "Test: start HTTP server in exec(), call exec() again \u2014 previous server is closed",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 94,
+      "passes": false,
+      "notes": "HIGH \u2014 bridge-setup.ts:394,427-472 and execution.ts:142. Child processes survive isolate recycling; activeHttpServerIds cleared on each exec() losing tracking."
+    },
+    {
+      "id": "US-125",
+      "title": "Fix output byte budget enforcement and add default spawnSync maxBuffer",
+      "description": "As a developer, I need the output byte budget to reject messages that would exceed the limit (not just check previous total) and spawnSync to have a default maxBuffer.",
+      "acceptanceCriteria": [
+        "logRef checks if (budgetState.outputBytes + bytes > maxOutputBytes) before emitting, not just if previous total >= limit",
+        "spawnSync applies a default maxBuffer (e.g., 10MB) when caller does not specify one",
+        "exec() bridge-side stops accumulating stdout/stderr after maxBuffer kill",
+        "Test: set maxOutputBytes=1024, console.log 1MB string \u2014 message is NOT emitted",
+        "Test: spawnSync without maxBuffer on high-output command \u2014 output capped at default",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 95,
+      "passes": false,
+      "notes": "HIGH \u2014 bridge-setup.ts:89-107, 495-559 and child-process.ts:346-398. Budget check is before accumulation (off-by-one allows 1 massive message); spawnSync has no default maxBuffer; exec keeps buffering after kill."
+    },
+    {
+      "id": "US-126",
+      "title": "Add bridge-side FD table limit and event listener cap",
+      "description": "As a developer, I need the bridge-side FD table and event listener arrays to have size limits preventing resource exhaustion from sandbox code.",
+      "acceptanceCriteria": [
+        "Bridge FD table enforces a max open files limit (e.g., 1024), throws EMFILE when exceeded",
+        "Event emitter implementations enforce maxListeners (default 10, configurable via setMaxListeners)",
+        "Exceeding maxListeners emits a warning but does not crash (matching Node.js behavior)",
+        "Test: open 1025 files in bridge \u2014 throws EMFILE",
+        "Test: add 1000 listeners \u2014 warning emitted, no crash",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 96,
+      "passes": false,
+      "notes": "HIGH \u2014 fs.ts:13-14 and multiple bridge files. FD table and listener arrays grow unboundedly."
+    },
+    {
+      "id": "US-127",
+      "title": "Validate process.chdir and prevent setInterval(0) CPU spin",
+      "description": "As a developer, I need process.chdir to validate the target directory exists in VFS and setInterval with delay 0 to use a minimum delay preventing infinite microtask loops.",
+      "acceptanceCriteria": [
+        "process.chdir(dir) validates dir exists in the VFS before setting _cwd",
+        "process.chdir to non-existent path throws ENOENT",
+        "setInterval with delay <= 0 uses a minimum effective delay (e.g., 1ms) to prevent microtask spin",
+        "Test: chdir to non-existent path \u2014 throws ENOENT",
+        "Test: setInterval(() => counter++, 0) with 100ms timeout \u2014 counter is bounded, not infinite",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 97,
+      "passes": false,
+      "notes": "HIGH \u2014 process.ts:554-556 and process.ts:983-1034. chdir accepts any path without validation; setInterval(0) creates infinite microtask loop blocking event loop."
+    },
+    {
+      "id": "US-128",
+      "title": "Add network response and readDir payload size limits",
+      "description": "As a developer, I need the host-side bridge to enforce size limits on network response bodies and readDir results before transferring to the isolate.",
+      "acceptanceCriteria": [
+        "Network fetch/httpRequest response body is capped (e.g., to isolateJsonPayloadLimitBytes)",
+        "readDirRef result is capped to a reasonable entry count or JSON size",
+        "Responses exceeding the cap return a truncated result or error",
+        "Test: fetch a response > payload limit \u2014 error or truncation, no OOM",
+        "Test: readDir on directory with 100k entries \u2014 handled safely",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 98,
+      "passes": false,
+      "notes": "MEDIUM \u2014 bridge-setup.ts:268-273,585. Network responses and readDir results transferred without size limits."
+    },
+    {
+      "id": "US-129",
+      "title": "Prevent module-level ID counter collisions across managers",
+      "description": "As a developer, I need FD description IDs, pipe IDs, and PTY IDs to use non-overlapping ranges or per-instance counters to prevent collisions in long-running kernels.",
+      "acceptanceCriteria": [
+        "ID counters are either per-kernel-instance or use sufficiently separated ranges with overflow guards",
+        "Test: create 100 FD descriptions, 100 pipes, 100 PTYs \u2014 all IDs unique, no range overlap",
+        "Test: isPipe() and isPty() return false for FD description IDs and vice versa",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 99,
+      "passes": false,
+      "notes": "MEDIUM \u2014 fd-table.ts:25, pipe-manager.ts:31-32, pty.ts:58-59. Module-level counters shared across instances; after ~100k file opens, FD desc IDs collide with pipe ID range."
+    },
+    {
+      "id": "US-130",
+      "title": "Normalize paths in permission wrapper and fix realpathSync",
+      "description": "As a developer, I need the permission wrapper to normalize paths before checking permissions, and realpathSync to resolve symlinks via the VFS.",
+      "acceptanceCriteria": [
+        "Permission wrapper normalizes paths (resolves .., ., double slashes) before checking",
+        "Path traversal like /allowed/../etc/passwd is correctly denied",
+        "realpathSync calls through to VFS to resolve symlinks",
+        "Test: permission check on path with .. traversal \u2014 denied",
+        "Test: realpathSync on symlink \u2014 returns resolved target path",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 100,
+      "passes": false,
+      "notes": "MEDIUM \u2014 permissions.ts:37-74 and fs.ts:2320-2334. Permission wrapper passes raw paths; realpathSync just normalizes slashes without resolving symlinks."
+    },
+    {
+      "id": "US-131",
+      "title": "Cap WriteStream buffering and add globCollect recursion depth limit",
+      "description": "As a developer, I need WriteStream to limit buffered data and _globCollect to limit recursion depth to prevent memory exhaustion and stack overflow.",
+      "acceptanceCriteria": [
+        "WriteStream._chunks is capped at a reasonable total size (e.g., 256MB), emits error event when exceeded",
+        "_globCollect enforces a max recursion depth (e.g., 100 levels), stops traversal beyond limit",
+        "Test: write > cap to WriteStream without end() \u2014 error event emitted",
+        "Test: glob on directory tree > depth limit \u2014 returns results up to limit, no stack overflow",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 101,
+      "passes": false,
+      "notes": "MEDIUM \u2014 fs.ts:454-573 and fs.ts:872-915. WriteStream accumulates all data until end(); globCollect has no recursion depth limit."
+    },
+    {
+      "id": "US-132",
+      "title": "Isolate module cache across warm executions",
+      "description": "As a developer, I need module caches to be cleared between executions to prevent cache poisoning from a previous execution affecting later ones.",
+      "acceptanceCriteria": [
+        "__unsafeCreateContext clears all module caches (esmModuleCache, moduleFormatCache, packageTypeCache, resolutionCache, dynamicImportCache, dynamicImportPending)",
+        "Test: first execution poisons module cache, second execution gets clean modules",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 102,
+      "passes": false,
+      "notes": "MEDIUM \u2014 execution-driver.ts:108-129. __unsafeCreateContext resets budgetState but NOT module caches. Previous execution's modules leak into next context."
+    },
+    {
+      "id": "US-133",
+      "title": "Add setpgid cross-session check and terminateAll SIGKILL escalation",
+      "description": "As a developer, I need setpgid to enforce same-session restriction per POSIX, and terminateAll to escalate to SIGKILL for processes that ignore SIGTERM.",
+      "acceptanceCriteria": [
+        "setpgid rejects joining a process group in a different session with EPERM",
+        "terminateAll sends SIGTERM, waits briefly, then sends SIGKILL to remaining processes",
+        "Test: process in session A calls setpgid to join group in session B \u2014 EPERM",
+        "Test: terminateAll with a process that ignores SIGTERM \u2014 escalated to SIGKILL",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 103,
+      "passes": false,
+      "notes": "MEDIUM \u2014 process-table.ts:164-185,267-275. setpgid allows cross-session group joining; terminateAll waits 1s with no SIGKILL escalation."
+    },
+    {
+      "id": "US-134",
+      "title": "Optimize fdRead to avoid reading entire file for partial reads",
+      "description": "As a developer, I need fdRead to read only the requested range from the VFS instead of loading the entire file for every read operation.",
+      "acceptanceCriteria": [
+        "fdRead uses a range-based or cursor-aware VFS read instead of reading the entire file",
+        "Small reads on large files do not allocate the full file size",
+        "Test: create 1MB file, fdRead 1 byte at offset 0 \u2014 completes quickly without excessive allocation",
+        "Test: sequential fdRead calls advance cursor correctly",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 104,
+      "passes": false,
+      "notes": "MEDIUM \u2014 kernel.ts:487-494. Every fdRead calls vfs.readFile (full file), slices to range. 1-byte read of 1GB file allocates 1GB."
+    },
+    {
+      "id": "US-135",
+      "title": "Add command registry protection and fix device layer edge cases",
+      "description": "As a developer, I need the command registry to warn on override of built-in commands, and the device layer to handle /dev/zero writes, /dev/fd parsing, and device realpath correctly.",
+      "acceptanceCriteria": [
+        "CommandRegistry logs a warning when a driver overrides an existing command",
+        "/dev/zero and /dev/urandom writes are intercepted (no-op) instead of passing to VFS",
+        "realpath on device paths (/dev/null, /dev/zero, etc.) returns the device path",
+        "/dev/fd/N parsing rejects malformed paths (non-integer, negative)",
+        "Test: override 'sh' command \u2014 warning logged",
+        "Test: write to /dev/zero \u2014 no data stored in VFS",
+        "Test: realpath('/dev/null') returns '/dev/null'",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 105,
+      "passes": false,
+      "notes": "LOW \u2014 command-registry.ts:22, device-layer.ts:89-95,173-175, kernel.ts:458-465."
+    },
+    {
+      "id": "US-136",
+      "title": "Sanitize error messages to prevent host path leakage",
+      "description": "As a developer, I need error messages from module access checks and HTTP server handlers to not leak host filesystem paths to sandbox code.",
+      "acceptanceCriteria": [
+        "Module access errors do not include canonical host paths or hostNodeModulesRoot in error messages",
+        "HTTP server 500 error responses use a generic message, not error.message from handler",
+        "Test: module access error message does not contain host-specific path components",
+        "Test: HTTP handler throws Error('secret path /host/dir') \u2014 response body is generic",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 106,
+      "passes": false,
+      "notes": "LOW \u2014 module-access.ts:253-256 and driver.ts:244-251. Error messages include canonical paths and host roots."
+    },
+    {
+      "id": "US-137",
+      "title": "Fix bridge misc: ChildProcess.pid uniqueness, signal handling, v8.deserialize ordering",
+      "description": "As a developer, I need ChildProcess PIDs to be unique, process.kill to handle all signals, and v8.deserialize to check size before allocation.",
+      "acceptanceCriteria": [
+        "ChildProcess.pid uses a monotonic counter instead of Math.random() for uniqueness",
+        "process.kill(process.pid, signal) handles SIGINT and other signals, not just SIGTERM",
+        "v8.deserialize checks buffer size BEFORE calling buffer.toString()",
+        "Test: spawn 100 child processes \u2014 all PIDs unique",
+        "Test: process.kill(process.pid, 'SIGINT') \u2014 handled (not silently ignored)",
+        "Test: v8.deserialize with buffer > limit \u2014 rejects without full string allocation",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 107,
+      "passes": false,
+      "notes": "LOW \u2014 child-process.ts:121, process.ts:677-689, bridge-initial-globals.ts:239-248."
+    },
+    {
+      "id": "US-138",
+      "title": "Add PTY ONLCR output flag control and kill() signal range validation",
+      "description": "As a developer, I need PTY output processing (ONLCR) to be controllable via termios flags, and kill() to validate signal numbers.",
+      "acceptanceCriteria": [
+        "PTY processOutput respects an opost/onlcr flag in discipline settings",
+        "When ONLCR is disabled, raw \\n bytes pass through without CR insertion",
+        "kill() validates signal range (1-64) and treats signal 0 as existence check",
+        "Test: disable ONLCR, write \\n to PTY \u2014 raw \\n in output (no \\r\\n)",
+        "Test: kill(pid, 0) returns without error if process exists, ESRCH if not",
+        "Test: kill(pid, -1) or kill(pid, 100) throws EINVAL",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 108,
+      "passes": false,
+      "notes": "LOW \u2014 pty.ts:326-348 and process-table.ts:144-162. ONLCR always applied; kill() forwards arbitrary signal values."
+    },
+    {
       "id": "US-104",
       "title": "Fix connectTerminal() raw mode setup outside try block",
       "description": "As a developer, I need connectTerminal() to set raw mode inside the try block so terminal state is always restored on exception.",
@@ -1431,7 +1845,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 84,
+      "priority": 109,
       "passes": false,
       "notes": "HIGH \u2014 found during PTY review. Current code sets raw mode at line ~267 but try starts at ~291. If anything between those lines throws, finally block never runs and terminal is permanently in raw mode."
     },
@@ -1448,7 +1862,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 85,
+      "priority": 110,
       "passes": false,
       "notes": "MEDIUM \u2014 found during PTY review. readPump() is called without await at kernel.ts:~233. Errors are silently caught. Pump outlives shell.wait() resolution."
     },
@@ -1463,7 +1877,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 86,
+      "priority": 111,
       "passes": false,
       "notes": "MEDIUM \u2014 found during PTY review. pty.ts:~444-447 silently drops echo when output buffer full. User types but sees nothing \u2014 violates 'what you type is what you see' principle."
     },
@@ -1480,7 +1894,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 87,
+      "priority": 112,
       "passes": false,
       "notes": "MEDIUM \u2014 found during PTY review. kernel.ts:~691-696 and pty.ts:~274-279 accept any number. Setting foregroundPgid to non-existent group causes ^C to silently fail (caught by try/catch)."
     },
@@ -1496,7 +1910,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 88,
+      "priority": 113,
       "passes": false,
       "notes": "MEDIUM \u2014 test-audit.md M11 flags this as HIGH priority. Current tests only fill buffer to exact limit and check one extra byte. No realistic adversarial patterns."
     },
@@ -1510,7 +1924,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 89,
+      "priority": 114,
       "passes": false,
       "notes": "LOW \u2014 found during PTY review. PTY foregroundPgid goes stale when process exits. Protected by try/catch in kernel constructor wiring but untested."
     },
@@ -1524,7 +1938,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 90,
+      "priority": 115,
       "passes": false,
       "notes": "LOW \u2014 depends on US-106 (echo overflow fix). Tests the specific interaction between buffer fullness and echo."
     },
@@ -1539,7 +1953,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 91,
+      "priority": 116,
       "passes": false,
       "notes": "LOW \u2014 found during PTY review. waitFor() occurrence param and type() edge cases have zero coverage despite being part of TerminalHarness API."
     },
@@ -1553,7 +1967,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 92,
+      "priority": 117,
       "passes": false,
       "notes": "LOW \u2014 found during PTY review. Multi-PTY isolation is tested at raw PTY level but not through openShell() integration path."
     },
@@ -1568,7 +1982,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 93,
+      "priority": 118,
       "passes": false,
       "notes": "LOW \u2014 found during PTY review. pty.ts:~374 calls onSignal?.() with no error handling. Currently protected by kernel try/catch wiring but fragile if wiring changes."
     },
@@ -1587,8 +2001,8 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 94,
-      "passes": false,
+      "priority": 119,
+      "passes": true,
       "notes": "Phase 2 of terminal-e2e-testing.md spec. Completes the WasmVM terminal test suite (excluding cross-runtime). Adversarial review added: stderr rendering, redirection operators, and multi-line input \u2014 all interactive-only behaviors with zero coverage."
     },
     {
@@ -1605,7 +2019,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 95,
+      "priority": 120,
       "passes": false,
       "notes": "Phase 3 of terminal-e2e-testing.md spec. Known risk: cross-runtime stdout routing through proc_spawn \u2192 kernel \u2192 PTY has known issues \u2014 if tests fail, fix is in spawn/stdio wiring, not test infrastructure. Adversarial review added: ^C during cross-runtime spawn \u2014 signal must reach correct process and shell must survive."
     },
@@ -1623,7 +2037,7 @@
       "passes": false,
       "notes": "Prerequisite for yarn layout fixtures. Currently only pnpm/npm/bun are handled in fixture prep.",
       "id": "US-086",
-      "priority": 96
+      "priority": 121
     },
     {
       "title": "Add npm flat layout fixture",
@@ -1640,7 +2054,7 @@
       "passes": false,
       "notes": "npm uses flat hoisting - all deps directly in node_modules/ as real directories (no symlinks, no hardlinks).",
       "id": "US-087",
-      "priority": 97
+      "priority": 122
     },
     {
       "title": "Add yarn classic layout fixture",
@@ -1658,7 +2072,7 @@
       "passes": false,
       "notes": "Yarn classic (v1) uses a hoisted layout similar to npm but with different lockfile format. Depends on US-086 for yarn support.",
       "id": "US-088",
-      "priority": 98
+      "priority": 123
     },
     {
       "title": "Add yarn berry node-modules linker fixture",
@@ -1676,7 +2090,7 @@
       "passes": false,
       "notes": "Yarn berry with node-modules linker still creates node_modules/ but uses a different internal structure than classic. Depends on US-086.",
       "id": "US-089",
-      "priority": 99
+      "priority": 124
     },
     {
       "title": "Add workspace/monorepo layout fixture",
@@ -1694,7 +2108,7 @@
       "passes": false,
       "notes": "Workspace layouts use symlinks between workspace members. Increasingly common (turborepo, nx, etc). Use pnpm or npm workspaces.",
       "id": "US-090",
-      "priority": 100
+      "priority": 125
     },
     {
       "title": "Add peer dependency resolution fixture",
@@ -1711,7 +2125,7 @@
       "passes": false,
       "notes": "Peer deps are resolved differently by each package manager. Tests that the sandbox module resolver handles the hoisting/symlink correctly.",
       "id": "US-091",
-      "priority": 101
+      "priority": 126
     },
     {
       "title": "Add conditional exports (package.json exports field) fixture",
@@ -1728,7 +2142,7 @@
       "passes": false,
       "notes": "The exports field is a major source of module resolution bugs. Tests subpath exports and condition matching.",
       "id": "US-092",
-      "priority": 102
+      "priority": 127
     },
     {
       "title": "Add transitive dependency chain fixture",
@@ -1745,7 +2159,7 @@
       "passes": false,
       "notes": "Verifies the resolver does not break on deep chains, especially with different hoisting strategies across package managers.",
       "id": "US-093",
-      "priority": 103
+      "priority": 128
     },
     {
       "title": "Add optional dependency fixture",
@@ -1761,7 +2175,54 @@
       "passes": false,
       "notes": "Optional deps are common in the ecosystem (e.g., fsevents on macOS). Sandbox must handle missing optional deps identically to host.",
       "id": "US-094",
-      "priority": 104
+      "priority": 129
+    },
+    {
+      "id": "US-139",
+      "title": "Add ICRNL (CR-to-NL) input conversion to PTY line discipline",
+      "description": "As a developer, I need the PTY to convert carriage return (0x0d) to newline (0x0a) in the line discipline so that Enter key works correctly when the host terminal is in raw mode (connectTerminal).",
+      "acceptanceCriteria": [
+        "In packages/kernel/src/pty.ts processInput(), convert byte 0x0d to 0x0a before line discipline processing (before the signal/canonical/echo checks)",
+        "Add shell-terminal or PTY test: writing 'hello\\r' to PTY master in canonical mode delivers 'hello\\n' to slave input buffer",
+        "Add test: CR input echoes as CR+LF (cursor moves to next line, not just carriage return)",
+        "Existing PTY and shell-terminal tests still pass",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 130,
+      "passes": false,
+      "notes": "Root cause: host terminal in raw mode sends CR (0x0d) for Enter, but processInput() only treats LF (0x0a) as newline. Without ICRNL, CR is buffered as a regular character and its echo moves cursor to line start without flushing. This is the POSIX ICRNL flag."
+    },
+    {
+      "id": "US-140",
+      "title": "Fix VFS initialization for interactive shell \u2014 ls IO error",
+      "description": "As a developer, I need ls and other directory-reading commands to work in the interactive shell so that the dev-shell is usable for testing.",
+      "acceptanceCriteria": [
+        "Investigate why ls from brush-shell produces 'ls-error-unknown-io-error' \u2014 trace the VFS RPC path from WASM worker through kernel",
+        "Fix the root cause: ensure the VFS has a properly initialized root directory and cwd before the shell starts, or fix the RPC/VFS stat/readdir path",
+        "Add or update shell-terminal test: run ls in a directory with known contents (after mkdir+touch) and verify output contains expected entries",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 131,
+      "passes": false,
+      "notes": "The InMemoryFileSystem starts nearly empty. brush-shell's ls command goes through WASM -> SharedArrayBuffer RPC -> kernel VFS readdir/stat. The IO error likely comes from missing VFS state, broken RPC handling, or fd_readdir WASI implementation issues. The 'could not retrieve pid for child process' warning is a separate brush-shell issue (proc_spawn return value parsing)."
+    },
+    {
+      "id": "US-141",
+      "title": "Fix exit builtin handling in interactive shell",
+      "description": "As a developer, I need the exit command to properly terminate the interactive shell session so that connectTerminal() returns.",
+      "acceptanceCriteria": [
+        "Investigate why typing 'exit' in the interactive shell doesn't cause it to exit \u2014 trace the path from brush-shell exit builtin through WASI proc_exit, worker exit message, to process wait() resolution",
+        "Fix the root cause in the kernel worker, process table, PTY cleanup, or exit propagation path",
+        "Add or update shell-terminal test: writing 'exit\\n' to the shell causes the shell process wait() to resolve with exit code 0",
+        "Verify Ctrl+D on empty line also exits (delivers EOF which should cause shell to exit)",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 132,
+      "passes": false,
+      "notes": "brush-shell's exit builtin should call WASI proc_exit. The WasiPolyfill should throw WasiProcExit, caught by the kernel worker which sends an exit message. The parent's wait() should then resolve. Something in this chain is broken \u2014 possibly the exit message isn't sent, or the PTY master read pump blocks cleanup."
     },
     {
       "id": "US-095",
@@ -1780,7 +2241,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 105,
+      "priority": 133,
       "passes": false,
       "notes": "CLI E2E Phase 0 \u2014 bridge prerequisite. Gap #2, #5, #6 from cli-tool-e2e.md spec. Files: packages/secure-exec/src/bridge/process.ts, packages/secure-exec/src/node/execution-driver.ts"
     },
@@ -1800,7 +2261,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 106,
+      "priority": 134,
       "passes": false,
       "notes": "CLI E2E Phase 0 \u2014 bridge prerequisite. Gap #1, #3 from cli-tool-e2e.md spec. Required for Pi, Claude Code (Anthropic SSE), and OpenCode SDK (OpenAI SSE)."
     },
@@ -1825,7 +2286,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 107,
+      "priority": 135,
       "passes": false,
       "notes": "CLI E2E Phase 1. Mock LLM server is shared infrastructure for all subsequent CLI tool tests. Pi is tested first because it's pure JS with simplest dependency tree. API tokens (ANTHROPIC_API_KEY, OPENAI_API_KEY) available at ~/misc/env.txt \u2014 source it before running tests that need real or mock-pointed API keys."
     },
@@ -1846,7 +2307,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 108,
+      "priority": 136,
       "passes": false,
       "notes": "CLI E2E Phase 2. Depends on US-080 (TerminalHarness), US-095 (isTTY). Pi uses custom pi-tui with differential rendering and synchronized output sequences (CSI ?2026h/l). API tokens (ANTHROPIC_API_KEY, OPENAI_API_KEY) available at ~/misc/env.txt \u2014 source it before running tests that need real or mock-pointed API keys."
     },
@@ -1871,7 +2332,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 109,
+      "priority": 137,
       "passes": false,
       "notes": "CLI E2E Phase 3, Strategy A. OpenCode is a Bun binary, NOT a Node.js package \u2014 tests the child_process.spawn bridge for complex host binaries. Hardest CLI tool, tested before Claude Code to front-load risk. API tokens (ANTHROPIC_API_KEY, OPENAI_API_KEY) available at ~/misc/env.txt \u2014 source it before running tests that need real or mock-pointed API keys."
     },
@@ -1893,7 +2354,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 110,
+      "priority": 138,
       "passes": false,
       "notes": "CLI E2E Phase 3, Strategy B. Tests HTTP/SSE client bridge by running @opencode-ai/sdk inside the sandbox talking to opencode serve on host. Depends on US-096 (SSE/streams). API tokens (ANTHROPIC_API_KEY, OPENAI_API_KEY) available at ~/misc/env.txt \u2014 source it before running tests that need real or mock-pointed API keys."
     },
@@ -1914,7 +2375,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 111,
+      "priority": 139,
       "passes": false,
       "notes": "CLI E2E Phase 4. Depends on US-080 (TerminalHarness), US-095 (isTTY). OpenCode uses OpenTUI (TypeScript + Zig) with SolidJS \u2014 may render non-standard ANSI sequences. Use waitFor() with content assertions, tighten after empirical capture. API tokens (ANTHROPIC_API_KEY, OPENAI_API_KEY) available at ~/misc/env.txt \u2014 source it before running tests that need real or mock-pointed API keys."
     },
@@ -1937,7 +2398,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 112,
+      "priority": 140,
       "passes": false,
       "notes": "CLI E2E Phase 5. Claude Code is the most complex in-VM tool \u2014 Node.js with native binary, Ink TUI, known spawn stall issue (anthropics/claude-code#771). Consider @anthropic-ai/claude-agent-sdk as fallback entry point. API tokens (ANTHROPIC_API_KEY, OPENAI_API_KEY) available at ~/misc/env.txt \u2014 source it before running tests that need real or mock-pointed API keys."
     },
@@ -1959,7 +2420,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 113,
+      "priority": 141,
       "passes": false,
       "notes": "CLI E2E Phase 6 \u2014 final phase. Depends on US-080 (TerminalHarness), US-095 (isTTY). Claude Code uses Ink (React-based TUI) with cursor movement, screen clearing, and color codes. Known spawn stall risk. API tokens (ANTHROPIC_API_KEY, OPENAI_API_KEY) available at ~/misc/env.txt \u2014 source it before running tests that need real or mock-pointed API keys."
     }

@@ -3,6 +3,10 @@ Started: 2026-03-17
 PRD: ralph/kernel-hardening (46 stories)
 
 ## Codebase Patterns
+- fd_pipe/fd_dup (host_process) return kernel FDs — MUST register in local FDTable + localToKernelFd map for WASI fd_renumber/fd_close to work
+- KernelFDTable.renumber closes kernel FD of overwritten target (POSIX close-on-renumber) — critical for pipe write end closure during stdout restore
+- Kernel fdWrite is async for VFS files (read-modify-write at cursor), sync for pipes/PTYs — return type is number | Promise<number>
+- proc_spawn must convert local FDs to kernel FDs via localToKernelFd before passing to kernel spawn RPC
 - WASI oflags: 0x1=CREAT, 0x2=DIRECTORY, 0x4=EXCL, 0x8=TRUNC — different from POSIX; kernel-worker.ts must map correctly
 - Worker local FD table has preopen FD 3 ("/") absent from kernel FD table — use localToKernelFd map for all file I/O RPCs (kernel-worker.ts)
 - WASI path_open with OFLAG_DIRECTORY bypasses kernel fdOpen — verifies via vfsStat and creates preopen-style local FD for fd_readdir
@@ -1326,4 +1330,28 @@ PRD: ralph/kernel-hardening (46 stories)
   - WASI path_open with OFLAG_DIRECTORY should NOT go through kernel fdOpen — use vfsStat to verify existence and create a local preopen-style FD for fd_readdir
   - Child processes spawned via proc_spawn get their own kernel VFS proxy with lazy directory population — this works but paths must be normalized first
   - brush-shell proc_spawn emits "WARN could not retrieve pid for child process" — this is benign and comes from the Rust binary, cannot be suppressed
+---
+
+## 2026-03-18 - US-084
+- Implemented 6 new WasmVM terminal tests: cat VFS file, pipe data via redirect, bad command, stderr output, file redirection, and multi-line quoted input
+- Fixed kernel-worker FD mapping: fd_pipe and fd_dup now register pipe FDs in local FDTable with kernel mapping, enabling WASI fd_renumber to find them
+- Added KernelFDTable subclass with mapping-aware renumber that closes kernel FDs of overwritten targets (POSIX close-on-renumber semantics)
+- Fixed proc_spawn to convert local FDs to kernel FDs for stdio overrides
+- Added kernel fdWrite VFS support (async write at cursor position) — enables shell output redirection (`echo hello > /tmp/out`)
+- Added close-on-exec for pipe FDs in kernel createChildFDTable (only closes counterpart pipe ends sharing the same pipe ID as stdio overrides)
+- Added PipeManager.pipeIdFor() method for pipe identity lookup
+- Files changed:
+  - packages/kernel/src/kernel.ts (fdWrite VFS support, FDEntry import, vfsWrite helper, close-on-exec for pipe FDs)
+  - packages/kernel/src/pipe-manager.ts (pipeIdFor method)
+  - packages/kernel/src/types.ts (fdWrite return type: number | Promise<number>)
+  - packages/runtime/wasmvm/src/driver.ts (await fdWrite)
+  - packages/runtime/wasmvm/src/kernel-worker.ts (KernelFDTable, fd_pipe local registration, fd_dup mapping, proc_spawn FD conversion, auto-close pipe FDs after spawn)
+  - packages/runtime/wasmvm/test/shell-terminal.test.ts (6 new tests)
+- **Learnings for future iterations:**
+  - fd_pipe (host_process) returns kernel FDs to WASM, but WASI polyfill operations (fd_renumber, fd_write) use local FDTable — pipe FDs MUST be registered in both
+  - KernelFDTable.renumber must close the kernel FD of the overwritten target to implement POSIX close-on-renumber (critical for pipe EOF delivery via fd_renumber restore)
+  - Kernel fdWrite was no-op for regular files — async VFS write (read-modify-write at cursor) was needed for shell output redirection
+  - Shell pipe deadlock (`echo foo | cat`) remains — child inherits parent's pipe FDs via FD table fork; close-on-exec mitigates for stdio-overridden pipes but brush-shell's pipe management still blocks (likely runs echo as builtin without fully closing write end)
+  - brush-shell 0.4 does NOT support backslash line continuation; double-quote continuation works
+  - VFS files MUST end with newline for cat to work correctly (cat reads in a loop and no newline causes repeated reads from position 0)
 ---
