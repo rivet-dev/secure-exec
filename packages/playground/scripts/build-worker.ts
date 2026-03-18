@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { build } from "../../secure-exec/node_modules/esbuild/lib/main.js";
+import { build } from "esbuild";
 
 const playgroundDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const workerSourcePath = resolve(playgroundDir, "../secure-exec/src/browser/worker.ts");
