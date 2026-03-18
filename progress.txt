@@ -1277,3 +1277,10 @@ PRD: ralph/kernel-hardening (46 stories)
   - PTY line discipline handles echo, backspace, ^C→SIGINT — mock shell just reads cooked lines
   - \x03 = ^C (SIGINT), \x04 = ^D (EOF), \x7f = backspace in terminal input
 ---
+
+## 2026-03-17 - US-082
+- Already implemented in shell-terminal.test.ts (same file as US-081) — tests: ^C/SIGINT, ^D/exit, backspace, line wrapping, resize/SIGWINCH, echo disabled
+- All 6 acceptance criteria covered by tests at lines 170-275
+- Tests pass (verified in US-081 run)
+- Marked passes: true in prd.json
+---
