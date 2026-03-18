@@ -1445,3 +1445,15 @@ PRD: ralph/kernel-hardening (46 stories)
 - **Learnings for future iterations:**
   - None new — patterns already documented
 ---
+
+## 2026-03-18 - US-107
+- Implemented PGID validation in tcsetpgrp — throws ESRCH for non-existent process groups
+- Added `hasProcessGroup(pgid)` method to ProcessTable that checks for running processes with matching pgid
+- Added validation check in kernel.ts tcsetpgrp handler before delegating to ptyManager
+- Added two new tests: non-existent pgid throws ESRCH, valid pgid succeeds
+- Files changed: packages/kernel/src/process-table.ts, packages/kernel/src/kernel.ts, packages/kernel/test/kernel-integration.test.ts
+- **Learnings for future iterations:**
+  - ProcessTable already has pgid loop patterns in setpgid() and kill() — hasProcessGroup follows same pattern (iterate entries, check pgid + status)
+  - Validation belongs in kernel.ts (not pty.ts) since process groups are kernel-level concepts; PtyManager shouldn't need to know about ProcessTable
+  - All 158 kernel integration tests pass, including all existing tcsetpgrp tests
+---
