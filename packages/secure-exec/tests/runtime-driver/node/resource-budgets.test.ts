@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { allowAllFs, allowAllChildProcess, NodeRuntime } from "../../../src/index.js";
-import type { CommandExecutor, SpawnedProcess } from "../../../src/types.js";
+import { allowAllFs, allowAllChildProcess, allowAllNetwork, NodeRuntime } from "../../../src/index.js";
+import type { CommandExecutor, NetworkAdapter, SpawnedProcess } from "../../../src/types.js";
 import { createTestNodeRuntime } from "../../test-utils.js";
 
 const RESOURCE_BUDGET_ERROR_CODE = "ERR_RESOURCE_BUDGET_EXCEEDED";
@@ -279,6 +279,149 @@ describe("NodeRuntime resource budgets", () => {
 	// -----------------------------------------------------------------------
 	// Host timer cleanup on disposal / timeout
 	// -----------------------------------------------------------------------
+
+	// -----------------------------------------------------------------------
+	// Child process cleanup on disposal / timeout
+	// -----------------------------------------------------------------------
+
+	describe("child process cleanup", () => {
+		it("kills spawned child processes on timeout and isolate recycle", async () => {
+			const killed: number[] = [];
+			const neverExitExecutor: CommandExecutor = {
+				spawn(
+					_command: string,
+					_args: string[],
+					_options: {
+						cwd?: string;
+						env?: Record<string, string>;
+						onStdout?: (data: Uint8Array) => void;
+						onStderr?: (data: Uint8Array) => void;
+					},
+				): SpawnedProcess {
+					// Process that never exits on its own
+					return {
+						writeStdin() {},
+						closeStdin() {},
+						kill(signal: number) {
+							killed.push(signal);
+						},
+						wait: () => new Promise<number>(() => {}), // never resolves
+					};
+				},
+			};
+
+			proc = createTestNodeRuntime({
+				commandExecutor: neverExitExecutor,
+				permissions: { ...allowAllFs, ...allowAllChildProcess },
+				cpuTimeLimitMs: 200,
+			});
+
+			// Spawn a child process, then spin to trigger timeout
+			const result = await proc.exec(`
+				const { spawn } = require('child_process');
+				spawn('sleep', ['999']);
+				while (true) {}
+			`);
+
+			expect(result.code).toBe(124); // timeout exit code
+			// recycleIsolate should have killed the child process with SIGKILL (9)
+			expect(killed.length).toBeGreaterThanOrEqual(1);
+			expect(killed[0]).toBe(9);
+		});
+
+		it("kills spawned child processes on dispose", async () => {
+			const killed: number[] = [];
+			const neverExitExecutor: CommandExecutor = {
+				spawn(
+					_command: string,
+					_args: string[],
+					_options: {
+						cwd?: string;
+						env?: Record<string, string>;
+						onStdout?: (data: Uint8Array) => void;
+						onStderr?: (data: Uint8Array) => void;
+					},
+				): SpawnedProcess {
+					return {
+						writeStdin() {},
+						closeStdin() {},
+						kill(signal: number) {
+							killed.push(signal);
+						},
+						wait: () => new Promise<number>(() => {}),
+					};
+				},
+			};
+
+			proc = createTestNodeRuntime({
+				commandExecutor: neverExitExecutor,
+				permissions: { ...allowAllFs, ...allowAllChildProcess },
+				cpuTimeLimitMs: 300,
+			});
+
+			// Spawn a child process then spin to trigger timeout (exec returns on timeout)
+			const result = await proc.exec(`
+				const { spawn } = require('child_process');
+				spawn('sleep', ['999']);
+				while (true) {}
+			`);
+			expect(result.code).toBe(124);
+
+			// recycleIsolate already killed child processes; dispose should also handle any remaining
+			proc.dispose();
+			proc = undefined;
+
+			expect(killed.length).toBeGreaterThanOrEqual(1);
+			expect(killed[0]).toBe(9);
+		});
+	});
+
+	// -----------------------------------------------------------------------
+	// HTTP server tracking across exec() calls
+	// -----------------------------------------------------------------------
+
+	describe("HTTP server cleanup on timeout", () => {
+		it("closes tracked HTTP servers on recycleIsolate after timeout", async () => {
+			const closedServerIds: number[] = [];
+
+			const networkAdapter: NetworkAdapter = {
+				async httpServerListen(options) {
+					return { address: { address: "127.0.0.1", family: "IPv4", port: options.port ?? 0 } };
+				},
+				async httpServerClose(serverId: number) {
+					closedServerIds.push(serverId);
+				},
+				async fetch() {
+					return { ok: true, status: 200, statusText: "OK", headers: {}, body: "", url: "", redirected: false };
+				},
+				async dnsLookup() {
+					return { address: "127.0.0.1", family: 4 };
+				},
+				async httpRequest() {
+					return { status: 200, statusText: "OK", headers: {}, body: "", url: "" };
+				},
+			};
+
+			proc = createTestNodeRuntime({
+				networkAdapter,
+				permissions: { ...allowAllFs, ...allowAllChildProcess, ...allowAllNetwork },
+				cpuTimeLimitMs: 300,
+			});
+
+			// Create an HTTP server then spin to trigger timeout
+			// The server stays in activeHttpServerIds since it's never closed by sandbox code
+			const result = await proc.exec(`
+				const http = require('http');
+				const server = http.createServer((req, res) => { res.end('ok'); });
+				server.listen(0, '127.0.0.1');
+				while (true) {}
+			`);
+			expect(result.code).toBe(124);
+
+			// recycleIsolate should have called httpServerClose for the tracked server
+			expect(closedServerIds.length).toBeGreaterThanOrEqual(1);
+		});
+	});
 
 	describe("host timer cleanup", () => {
 		it("clears host timers on dispose after normal execution", async () => {

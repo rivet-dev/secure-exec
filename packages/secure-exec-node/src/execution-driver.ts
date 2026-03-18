@@ -5,7 +5,7 @@ import { createCommandExecutorStub, createFsStub, createNetworkStub, filterEnv, 
 import { executeWithRuntime } from "./execution.js";
 import type { NetworkAdapter, RuntimeDriver } from "@secure-exec/core";
 import type { StdioHook, ExecOptions, ExecResult, RunResult, TimingMitigation } from "@secure-exec/core/internal/shared/api-types";
-import { type DriverDeps, type NodeExecutionDriverOptions, createBudgetState, clearActiveHostTimers, normalizePayloadLimit, getExecutionTimeoutMs, getTimingMitigation, DEFAULT_BRIDGE_BASE64_TRANSFER_BYTES, DEFAULT_ISOLATE_JSON_PAYLOAD_BYTES, DEFAULT_SANDBOX_CWD, DEFAULT_SANDBOX_HOME, DEFAULT_SANDBOX_TMPDIR } from "./isolate-bootstrap.js";
+import { type DriverDeps, type NodeExecutionDriverOptions, createBudgetState, clearActiveHostTimers, killActiveChildProcesses, normalizePayloadLimit, getExecutionTimeoutMs, getTimingMitigation, DEFAULT_BRIDGE_BASE64_TRANSFER_BYTES, DEFAULT_ISOLATE_JSON_PAYLOAD_BYTES, DEFAULT_SANDBOX_CWD, DEFAULT_SANDBOX_HOME, DEFAULT_SANDBOX_TMPDIR } from "./isolate-bootstrap.js";
 import { shouldRunAsESM } from "./module-resolver.js";
 import { precompileDynamicImports, runESM, setupDynamicImport } from "./esm-compiler.js";
 import { setupConsole, setupRequire, setupESMGlobals } from "./bridge-setup.js";
@@ -80,6 +80,7 @@ export class NodeExecutionDriver implements RuntimeDriver {
 			maxChildProcesses: budgets?.maxChildProcesses,
 			budgetState: createBudgetState(),
 			activeHttpServerIds: new Set(),
+			activeChildProcesses: new Map(),
 			activeHostTimers: new Set(),
 			esmModuleCache: new Map(),
 			esmModuleReverseCache: new Map(),
@@ -171,7 +172,6 @@ export class NodeExecutionDriver implements RuntimeDriver {
 				resolutionCache: d.resolutionCache,
 				moduleFormatCache: d.moduleFormatCache,
 				packageTypeCache: d.packageTypeCache,
-				activeHttpServerIds: d.activeHttpServerIds,
 				getTimingMitigation: (mode) => getTimingMitigation(mode, d.timingMitigation),
 				getExecutionTimeoutMs: (override) => getExecutionTimeoutMs(override, d.cpuTimeLimitMs),
 				getExecutionDeadlineMs: (timeoutMs) => getExecutionDeadlineMs(timeoutMs),
@@ -214,6 +214,8 @@ export class NodeExecutionDriver implements RuntimeDriver {
 		if (this.disposed) {
 			return;
 		}
+		killActiveChildProcesses(this.deps);
+		this.closeActiveHttpServers();
 		clearActiveHostTimers(this.deps);
 		this.deps.isolate.dispose();
 		this.deps.isolate = this.runtimeCreateIsolate(this.memoryLimit);
@@ -224,6 +226,8 @@ export class NodeExecutionDriver implements RuntimeDriver {
 			return;
 		}
 		this.disposed = true;
+		killActiveChildProcesses(this.deps);
+		this.closeActiveHttpServers();
 		clearActiveHostTimers(this.deps);
 		this.deps.isolate.dispose();
 	}
@@ -232,6 +236,7 @@ export class NodeExecutionDriver implements RuntimeDriver {
 		if (this.disposed) {
 			return;
 		}
+		killActiveChildProcesses(this.deps);
 		const adapter = this.deps.networkAdapter;
 		if (adapter?.httpServerClose) {
 			const ids = Array.from(this.deps.activeHttpServerIds);
@@ -241,5 +246,20 @@ export class NodeExecutionDriver implements RuntimeDriver {
 		clearActiveHostTimers(this.deps);
 		this.disposed = true;
 		this.deps.isolate.dispose();
+	}
+
+	/** Close all tracked HTTP servers without awaiting. */
+	private closeActiveHttpServers(): void {
+		const adapter = this.deps.networkAdapter;
+		if (adapter?.httpServerClose) {
+			for (const id of this.deps.activeHttpServerIds) {
+				try {
+					adapter.httpServerClose(id);
+				} catch {
+					// Server may already be closed
+				}
+			}
+		}
+		this.deps.activeHttpServerIds.clear();
 	}
 }

@@ -60,6 +60,7 @@ type BridgeDeps = Pick<
 	| "bridgeBase64TransferLimitBytes"
 	| "isolateJsonPayloadLimitBytes"
 	| "activeHttpServerIds"
+	| "activeChildProcesses"
 	| "activeHostTimers"
 	| "resolutionCache"
 >;
@@ -402,7 +403,7 @@ export async function setupRequire(
 	{
 		const executor = deps.commandExecutor ?? createCommandExecutorStub();
 		let nextSessionId = 1;
-		const sessions = new Map<number, SpawnedProcess>();
+		const sessions = deps.activeChildProcesses;
 		const jsonPayloadLimit = deps.isolateJsonPayloadLimitBytes;
 
 		// Lazy-initialized dispatcher reference from isolate

@@ -47,6 +47,7 @@ export interface DriverDeps {
 	maxChildProcesses?: number;
 	budgetState: BudgetState;
 	activeHttpServerIds: Set<number>;
+	activeChildProcesses: Map<number, SpawnedProcess>;
 	activeHostTimers: Set<ReturnType<typeof setTimeout>>;
 	esmModuleCache: Map<string, ivm.Module>;
 	esmModuleReverseCache: Map<ivm.Module, string>;
@@ -138,6 +139,17 @@ export function clearActiveHostTimers(deps: Pick<DriverDeps, "activeHostTimers">
 		clearTimeout(id);
 	}
 	deps.activeHostTimers.clear();
+}
+
+export function killActiveChildProcesses(deps: Pick<DriverDeps, "activeChildProcesses">): void {
+	for (const proc of deps.activeChildProcesses.values()) {
+		try {
+			proc.kill(9); // SIGKILL
+		} catch {
+			// Process may already be dead
+		}
+	}
+	deps.activeChildProcesses.clear();
 }
 
 export function checkBridgeBudget(deps: Pick<DriverDeps, "maxBridgeCalls" | "budgetState">): void {

@@ -51,7 +51,6 @@ type ExecutionRuntime = {
 	resolutionCache: ResolutionCache;
 	moduleFormatCache: Map<string, "esm" | "cjs" | "json">;
 	packageTypeCache: Map<string, "module" | "commonjs" | null>;
-	activeHttpServerIds: Set<number>;
 	getTimingMitigation(mode?: TimingMitigation): TimingMitigation;
 	getExecutionTimeoutMs(override?: number): number | undefined;
 	getExecutionDeadlineMs(timeoutMs?: number): number | undefined;
@@ -139,7 +138,6 @@ export async function executeWithRuntime<T = unknown>(
 	runtime.resolutionCache.statResults.clear();
 	runtime.moduleFormatCache.clear();
 	runtime.packageTypeCache.clear();
-	runtime.activeHttpServerIds.clear();
 
 	const context = await runtime.isolate.createContext();
 	const timingMitigation = runtime.getTimingMitigation(options.timingMitigation);
