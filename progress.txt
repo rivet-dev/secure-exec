@@ -1706,3 +1706,18 @@ PRD: ralph/kernel-hardening (46 stories)
   - Multiple TerminalHarness instances on the same kernel work correctly — each gets its own PTY pair via openShell()
   - MockShellDriver supports multiple concurrent shell processes since each spawn() creates independent state
 ---
+
+## 2026-03-18 - US-113
+- What was implemented: Added try/catch around PTY onSignal callback and tests
+  - pty.ts: wrapped onSignal?.(pgid, signal) in try/catch at line ~393 — errors caught silently, line discipline continues
+  - Test 1: onSignal throws on ^C → PTY doesn't crash, subsequent write/read/echo still works
+  - Test 2: multiple ^C with throwing handler → no accumulated errors, echo and input delivery still work
+- Files changed:
+  - packages/kernel/src/pty.ts — added try/catch around onSignal call
+  - packages/kernel/test/resource-exhaustion.test.ts — added "PTY signal callback error handling" describe with 2 tests
+  - prd.json — marked US-113 (P118) as passes: true
+- **Learnings for future iterations:**
+  - Kernel already wraps onSignal at line 57 (try/catch around processTable.kill), but PTY-level protection is defense-in-depth
+  - PtyManager constructor takes optional onSignal callback — pass a throwing function in tests to verify resilience
+  - setForegroundPgid requires a non-zero pgid for signal delivery to trigger
+---
