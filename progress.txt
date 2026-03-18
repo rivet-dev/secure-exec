@@ -1680,3 +1680,17 @@ PRD: ralph/kernel-hardening (46 stories)
   - `hasProcessGroup(pgid)` in process-table.ts checks for any non-exited process with that pgid — once all members exit, the group is gone
   - MockRuntimeDriver with `neverExit: true` + `killSignals: []` is the standard pattern for testing signal delivery
 ---
+
+## 2026-03-18 - US-111
+- What was implemented: Added three edge-case tests for TerminalHarness API
+  - waitFor with occurrence=2 — runs "echo AAA" and verifies waitFor("AAA", 2) succeeds (text appears in echoed command line + output)
+  - waitFor with occurrence=3 on text appearing only twice — verifies timeout rejection
+  - type() with echo disabled and no newline (zero output) — verifies settlement timer fires after SETTLE_MS (~50ms), not hanging
+- Files changed:
+  - packages/kernel/test/shell-terminal.test.ts — added 3 tests to shell-terminal describe block
+  - prd.json — marked US-111 (P116) as passes: true
+- **Learnings for future iterations:**
+  - PTY echo causes typed text to appear on screen, so "AAA" in "echo AAA" command counts as an occurrence in waitFor
+  - type() starts settlement timer before writing input — even with zero output it resolves after SETTLE_MS (50ms)
+  - Disabling echo via "noecho" command + ptySetDiscipline is a clean way to test zero-output type() scenarios
+---
