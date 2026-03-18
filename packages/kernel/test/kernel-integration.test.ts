@@ -3273,6 +3273,35 @@ describe("kernel + MockRuntimeDriver integration", () => {
 			);
 			expect(output).toContain("hi");
 		});
+
+		it("cleans up stdin listener when openShell throws", async () => {
+			// No driver supports "sh", so openShell's spawnInternal will fail
+			({ kernel } = await createTestKernel({ drivers: [] }));
+
+			const stdin = process.stdin;
+			const listenersBefore = stdin.listenerCount("data");
+
+			await expect(kernel.connectTerminal()).rejects.toThrow();
+
+			// No dangling stdin data listener after the error
+			expect(stdin.listenerCount("data")).toBe(listenersBefore);
+		});
+
+		it("restores terminal state when shell.wait() rejects", async () => {
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { exitCode: 1 },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const stdin = process.stdin;
+			const listenersBefore = stdin.listenerCount("data");
+
+			const code = await kernel.connectTerminal();
+			expect(code).toBe(1);
+
+			// stdin data listener should be removed after connectTerminal returns
+			expect(stdin.listenerCount("data")).toBe(listenersBefore);
+		});
 	});
 
 	// -----------------------------------------------------------------------
