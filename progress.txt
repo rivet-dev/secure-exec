@@ -1407,3 +1407,29 @@ PRD: ralph/kernel-hardening (46 stories)
   - Timeout exit code is 124 (TIMEOUT_EXIT_CODE), not 1
   - Bridge timers use a Promise-based wrapper — the host setTimeout resolve function is the callback, so clearing it prevents dead isolate reference leaks
 ---
+
+## 2026-03-18 - US-118
+- Hardened fetch/Headers/Request/Response/Blob globals as non-writable and non-configurable
+- Replaced direct property assignment with exposeCustomGlobal() calls in network.ts
+- Added all 5 globals to NODE_CUSTOM_GLOBAL_INVENTORY with "hardened" classification
+- Added "fetch API globals remain functional after hardening" test verifying constructors/types work
+- Files changed:
+  - packages/secure-exec-core/src/bridge/network.ts (use exposeCustomGlobal instead of assignment)
+  - packages/secure-exec-core/src/shared/global-exposure.ts (add inventory entries)
+  - packages/secure-exec/tests/runtime-driver/node/index.test.ts (add functional test)
+- **Learnings for future iterations:**
+  - exposeCustomGlobal() is already imported in network.ts — just replace assignment with call
+  - Adding to NODE_CUSTOM_GLOBAL_INVENTORY with "hardened" classification auto-includes in HARDENED_NODE_CUSTOM_GLOBALS
+  - The existing "hardens all custom globals" test automatically covers new hardened entries
+  - Blob uses a conditional check (only installed if undefined) — use exposeCustomGlobal inside the conditional
+---
+
+## 2026-03-18 - US-119
+- Implemented MAX_CANON (4096 bytes) cap on PTY canonical-mode line buffer
+- Bytes exceeding the cap are silently discarded (matching POSIX behavior)
+- Files changed: packages/kernel/src/pty.ts, packages/kernel/test/kernel-integration.test.ts
+- **Learnings for future iterations:**
+  - lineBuffer is `number[]` (not Uint8Array) — cap check uses `.length` comparison
+  - Discarding excess bytes with `continue` is simplest; no need for error since POSIX silently drops excess
+  - MAX_CANON exported from pty.ts alongside MAX_PTY_BUFFER_BYTES for test import
+---
