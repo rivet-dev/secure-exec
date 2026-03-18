@@ -111,6 +111,16 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
+  examples/codemod:
+    dependencies:
+      secure-exec:
+        specifier: workspace:*
+        version: link:../../packages/secure-exec
+    devDependencies:
+      tsx:
+        specifier: ^4.19.2
+        version: 4.21.0
+
   examples/features:
     dependencies:
       '@secure-exec/typescript':
@@ -344,15 +354,16 @@ importers:
 
   packages/secure-exec:
     dependencies:
-      '@secure-exec/browser':
-        specifier: workspace:*
-        version: link:../secure-exec-browser
       '@secure-exec/core':
         specifier: workspace:*
         version: link:../secure-exec-core
       '@secure-exec/node':
         specifier: workspace:*
         version: link:../secure-exec-node
+    optionalDependencies:
+      '@secure-exec/browser':
+        specifier: workspace:*
+        version: link:../secure-exec-browser
       '@secure-exec/python':
         specifier: workspace:*
         version: link:../secure-exec-python

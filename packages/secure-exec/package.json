@@ -22,6 +22,10 @@
     "./browser": {
       "import": "./dist/browser-runtime.js",
       "types": "./dist/browser-runtime.d.ts"
+    },
+    "./python": {
+      "import": "./dist/python-runtime.js",
+      "types": "./dist/python-runtime.d.ts"
     }
   },
   "scripts": {
@@ -37,9 +41,11 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@secure-exec/browser": "workspace:*",
     "@secure-exec/core": "workspace:*",
-    "@secure-exec/node": "workspace:*",
+    "@secure-exec/node": "workspace:*"
+  },
+  "optionalDependencies": {
+    "@secure-exec/browser": "workspace:*",
     "@secure-exec/python": "workspace:*"
   },
   "devDependencies": {
