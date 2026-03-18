@@ -1,7 +1,7 @@
 {
   "project": "secure-exec",
   "branchName": "ralph/kernel-hardening",
-  "description": "Kernel Hardening & Documentation \u2014 fix critical bugs, replace fake tests, add missing coverage, write docs, implement PTY/process groups/positional I/O, harden bridge host protections, and improve compatibility, and split secure-exec into core + runtime-specific packages",
+  "description": "Kernel Hardening & Documentation — fix critical bugs, replace fake tests, add missing coverage, write docs, implement PTY/process groups/positional I/O, harden bridge host protections, and improve compatibility, and split secure-exec into core + runtime-specific packages",
   "userStories": [
     {
       "id": "US-001",
@@ -16,7 +16,7 @@
       ],
       "priority": 1,
       "passes": true,
-      "notes": "P0 \u2014 packages/kernel/src/process-table.ts, fd-table.ts. fdTableManager.remove(pid) exists at fd-table.ts:274 but is never called."
+      "notes": "P0 — packages/kernel/src/process-table.ts, fd-table.ts. fdTableManager.remove(pid) exists at fd-table.ts:274 but is never called."
     },
     {
       "id": "US-002",
@@ -30,7 +30,7 @@
       ],
       "priority": 2,
       "passes": true,
-      "notes": "P0 \u2014 packages/runtime/wasmvm/src/syscall-rpc.ts. 1MB SharedArrayBuffer for all response data."
+      "notes": "P0 — packages/runtime/wasmvm/src/syscall-rpc.ts. 1MB SharedArrayBuffer for all response data."
     },
     {
       "id": "US-003",
@@ -38,16 +38,16 @@
       "description": "As a developer, I need security tests that actually prove host filesystem access is blocked, not just that the VFS is empty.",
       "acceptanceCriteria": [
         "Old negative assertion ('not.toContain root:x:0:0') removed",
-        "New test: fs.readFileSync('/etc/passwd') \u2192 error.code === 'ENOENT'",
-        "New test: symlink /tmp/escape \u2192 /etc/passwd, read /tmp/escape \u2192 ENOENT",
-        "New test: fs.readFileSync('../../etc/passwd') from cwd /app \u2192 ENOENT",
+        "New test: fs.readFileSync('/etc/passwd') → error.code === 'ENOENT'",
+        "New test: symlink /tmp/escape → /etc/passwd, read /tmp/escape → ENOENT",
+        "New test: fs.readFileSync('../../etc/passwd') from cwd /app → ENOENT",
         "All assertions unconditional",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 3,
       "passes": true,
-      "notes": "P1 \u2014 packages/runtime/node/test/driver.test.ts \u2014 'cannot access host filesystem directly'"
+      "notes": "P1 — packages/runtime/node/test/driver.test.ts — 'cannot access host filesystem directly'"
     },
     {
       "id": "US-004",
@@ -63,7 +63,7 @@
       ],
       "priority": 4,
       "passes": true,
-      "notes": "P1 \u2014 packages/runtime/node/test/driver.test.ts \u2014 'child_process.spawn routes through kernel'"
+      "notes": "P1 — packages/runtime/node/test/driver.test.ts — 'child_process.spawn routes through kernel'"
     },
     {
       "id": "US-005",
@@ -78,22 +78,22 @@
       ],
       "priority": 5,
       "passes": true,
-      "notes": "P1 \u2014 packages/runtime/node/test/driver.test.ts \u2014 'cannot spawn unlimited processes'"
+      "notes": "P1 — packages/runtime/node/test/driver.test.ts — 'cannot spawn unlimited processes'"
     },
     {
       "id": "US-006",
-      "title": "Fix stdin tests to verify full stdin\u2192process\u2192stdout pipeline",
-      "description": "As a developer, I need stdin tests that prove the full pipeline works, not just kernel\u2192driver delivery.",
+      "title": "Fix stdin tests to verify full stdin→process→stdout pipeline",
+      "description": "As a developer, I need stdin tests that prove the full pipeline works, not just kernel→driver delivery.",
       "acceptanceCriteria": [
-        "MockRuntimeDriver supports echoStdin config \u2014 writeStdin data immediately emitted as stdout",
-        "Test: writeStdin + closeStdin \u2192 stdout contains written data",
-        "Test: multiple writeStdin calls \u2192 stdout contains all chunks concatenated",
+        "MockRuntimeDriver supports echoStdin config — writeStdin data immediately emitted as stdout",
+        "Test: writeStdin + closeStdin → stdout contains written data",
+        "Test: multiple writeStdin calls → stdout contains all chunks concatenated",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 6,
       "passes": true,
-      "notes": "P1 \u2014 packages/kernel/test/kernel-integration.test.ts \u2014 stdin streaming tests"
+      "notes": "P1 — packages/kernel/test/kernel-integration.test.ts — stdin streaming tests"
     },
     {
       "id": "US-007",
@@ -101,47 +101,47 @@
       "description": "As a developer, I need fdSeek tested for SEEK_SET, SEEK_CUR, SEEK_END, and pipe rejection.",
       "acceptanceCriteria": [
         "Test: write 'hello world', open, fdSeek(0, SEEK_SET), read returns 'hello world'",
-        "Test: read 5 bytes, fdSeek(0, SEEK_SET), read 5 bytes \u2192 both return 'hello'",
-        "Test: fdSeek(0, SEEK_END), read \u2192 returns empty (EOF)",
-        "Test: fdSeek on pipe FD \u2192 throws ESPIPE or similar error",
+        "Test: read 5 bytes, fdSeek(0, SEEK_SET), read 5 bytes → both return 'hello'",
+        "Test: fdSeek(0, SEEK_END), read → returns empty (EOF)",
+        "Test: fdSeek on pipe FD → throws ESPIPE or similar error",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 7,
       "passes": true,
-      "notes": "P2 \u2014 packages/kernel/src/types.ts:167-172 (KernelInterface.fdSeek). Zero test coverage."
+      "notes": "P2 — packages/kernel/src/types.ts:167-172 (KernelInterface.fdSeek). Zero test coverage."
     },
     {
       "id": "US-008",
       "title": "Add permission wrapper deny scenario tests",
       "description": "As a developer, I need tests proving the permission system blocks operations when configured restrictively.",
       "acceptanceCriteria": [
-        "Test: createKernel with permissions: { fs: false }, attempt writeFile \u2192 throws EACCES",
-        "Test: createKernel with permissions: { fs: (req) => req.path.startsWith('/tmp') }, write /tmp \u2192 succeeds, write /etc \u2192 EACCES",
-        "Test: createKernel with permissions: { childProcess: false }, attempt spawn \u2192 throws or blocked",
+        "Test: createKernel with permissions: { fs: false }, attempt writeFile → throws EACCES",
+        "Test: createKernel with permissions: { fs: (req) => req.path.startsWith('/tmp') }, write /tmp → succeeds, write /etc → EACCES",
+        "Test: createKernel with permissions: { childProcess: false }, attempt spawn → throws or blocked",
         "Test: verify env filtering works (filterEnv with restricted keys)",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 8,
       "passes": true,
-      "notes": "P2 \u2014 packages/kernel/src/permissions.ts. Zero test coverage for deny scenarios."
+      "notes": "P2 — packages/kernel/src/permissions.ts. Zero test coverage for deny scenarios."
     },
     {
       "id": "US-009",
       "title": "Add stdio FD override wiring tests",
       "description": "As a developer, I need tests verifying that stdinFd/stdoutFd/stderrFd overrides during spawn correctly wire the FD table.",
       "acceptanceCriteria": [
-        "Test: spawn with stdinFd: pipeReadEnd \u2192 child's FD 0 points to pipe read description",
-        "Test: spawn with stdoutFd: pipeWriteEnd \u2192 child's FD 1 points to pipe write description",
-        "Test: spawn with all three overrides \u2192 FD table has correct descriptions for 0, 1, 2",
+        "Test: spawn with stdinFd: pipeReadEnd → child's FD 0 points to pipe read description",
+        "Test: spawn with stdoutFd: pipeWriteEnd → child's FD 1 points to pipe write description",
+        "Test: spawn with all three overrides → FD table has correct descriptions for 0, 1, 2",
         "Test: parent FD table unchanged after child spawn with overrides",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 9,
       "passes": true,
-      "notes": "P2 \u2014 packages/kernel/src/kernel.ts:432-476. Complex wiring, completely untested in isolation."
+      "notes": "P2 — packages/kernel/src/kernel.ts:432-476. Complex wiring, completely untested in isolation."
     },
     {
       "id": "US-010",
@@ -155,36 +155,36 @@
       ],
       "priority": 10,
       "passes": true,
-      "notes": "P2 \u2014 packages/kernel/test/kernel-integration.test.ts. Current test only spawns 10."
+      "notes": "P2 — packages/kernel/test/kernel-integration.test.ts. Current test only spawns 10."
     },
     {
       "id": "US-011",
       "title": "Add pipe refcount edge case tests (multi-writer EOF)",
       "description": "As a developer, I need tests verifying pipe EOF only triggers when ALL write-end holders close.",
       "acceptanceCriteria": [
-        "Test: create pipe, dup write end (two references), close one \u2192 reader still blocks (not EOF)",
-        "Test: close second write end \u2192 reader gets EOF",
-        "Test: write through both references \u2192 reader receives both writes",
+        "Test: create pipe, dup write end (two references), close one → reader still blocks (not EOF)",
+        "Test: close second write end → reader gets EOF",
+        "Test: write through both references → reader receives both writes",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 11,
       "passes": true,
-      "notes": "P2 \u2014 packages/kernel/src/pipe-manager.ts"
+      "notes": "P2 — packages/kernel/src/pipe-manager.ts"
     },
     {
       "id": "US-012",
       "title": "Add process exit FD cleanup chain verification tests",
-      "description": "As a developer, I need tests proving the full cleanup chain: process exits \u2192 FD table removed \u2192 refcounts decremented \u2192 pipe ends freed.",
+      "description": "As a developer, I need tests proving the full cleanup chain: process exits → FD table removed → refcounts decremented → pipe ends freed.",
       "acceptanceCriteria": [
-        "Test: spawn process with open FD to pipe write end, process exits \u2192 pipe read end gets EOF",
-        "Test: spawn process, open 10 FDs, process exits \u2192 FDTableManager has no entry for that PID",
+        "Test: spawn process with open FD to pipe write end, process exits → pipe read end gets EOF",
+        "Test: spawn process, open 10 FDs, process exits → FDTableManager has no entry for that PID",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 12,
       "passes": true,
-      "notes": "P2 \u2014 depends on US-001 FD leak fix being in place"
+      "notes": "P2 — depends on US-001 FD leak fix being in place"
     },
     {
       "id": "US-013",
@@ -192,13 +192,13 @@
       "description": "As a developer, I need zombie cleanup timers cleared when the kernel is disposed to avoid post-dispose timer firings.",
       "acceptanceCriteria": [
         "Store timer IDs during zombie scheduling, clear them in terminateAll() or new dispose() method",
-        "Test: spawn process, let it exit (becomes zombie), immediately dispose kernel \u2192 no timer warnings",
+        "Test: spawn process, let it exit (becomes zombie), immediately dispose kernel → no timer warnings",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 13,
       "passes": true,
-      "notes": "P2 \u2014 packages/kernel/src/process-table.ts:78-79. 60s setTimeout may fire after dispose."
+      "notes": "P2 — packages/kernel/src/process-table.ts:78-79. 60s setTimeout may fire after dispose."
     },
     {
       "id": "US-014",
@@ -212,7 +212,7 @@
       ],
       "priority": 14,
       "passes": true,
-      "notes": "P2 \u2014 tests gated behind skipIf(!hasWasmBinary) silently skip in CI"
+      "notes": "P2 — tests gated behind skipIf(!hasWasmBinary) silently skip in CI"
     },
     {
       "id": "US-015",
@@ -220,15 +220,15 @@
       "description": "As a developer, I need kernel errors to include a structured code field so WasmVM errno mapping doesn't rely on brittle string matching.",
       "acceptanceCriteria": [
         "Kernel errors include structured code field (e.g., { code: 'EBADF', message: '...' })",
-        "WasmVM kernel-worker maps error.code \u2192 WASI errno instead of string matching",
+        "WasmVM kernel-worker maps error.code → WASI errno instead of string matching",
         "Fallback to string matching only if code field is missing",
-        "Test: throw error with code 'ENOENT' \u2192 worker maps to errno 44",
+        "Test: throw error with code 'ENOENT' → worker maps to errno 44",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 15,
       "passes": true,
-      "notes": "P2 \u2014 packages/runtime/wasmvm/src/kernel-worker.ts. mapErrorToErrno() uses msg.includes('EBADF')."
+      "notes": "P2 — packages/runtime/wasmvm/src/kernel-worker.ts. mapErrorToErrno() uses msg.includes('EBADF')."
     },
     {
       "id": "US-016",
@@ -242,7 +242,7 @@
       ],
       "priority": 16,
       "passes": true,
-      "notes": "P3 \u2014 code-heavy style matching sandbox-agent/docs"
+      "notes": "P3 — code-heavy style matching sandbox-agent/docs"
     },
     {
       "id": "US-017",
@@ -256,7 +256,7 @@
       ],
       "priority": 17,
       "passes": true,
-      "notes": "P3 \u2014 full type reference for kernel package"
+      "notes": "P3 — full type reference for kernel package"
     },
     {
       "id": "US-018",
@@ -297,7 +297,7 @@
       ],
       "priority": 20,
       "passes": true,
-      "notes": "P3 \u2014 update existing docs/docs.json"
+      "notes": "P3 — update existing docs/docs.json"
     },
     {
       "id": "US-021",
@@ -310,57 +310,57 @@
         "kill(-pgid, signal) delivers signal to all processes in group",
         "getpgid(pid) and getsid(pid) return correct values",
         "Child inherits parent's pgid and sid by default",
-        "Test: create process group, spawn 3 children in it, kill(-pgid, SIGTERM) \u2192 all 3 receive signal",
+        "Test: create process group, spawn 3 children in it, kill(-pgid, SIGTERM) → all 3 receive signal",
         "Test: setsid creates new session, process becomes session leader",
-        "Test: setpgid with invalid pgid \u2192 EPERM",
+        "Test: setpgid with invalid pgid → EPERM",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 21,
       "passes": true,
-      "notes": "P4 \u2014 packages/kernel/src/process-table.ts. Prerequisite for PTY/interactive shell."
+      "notes": "P4 — packages/kernel/src/process-table.ts. Prerequisite for PTY/interactive shell."
     },
     {
       "id": "US-022",
-      "title": "Create PTY device layer \u2014 master/slave pair and bidirectional I/O",
+      "title": "Create PTY device layer — master/slave pair and bidirectional I/O",
       "description": "As a developer, I need a PtyManager that allocates PTY master/slave FD pairs with bidirectional data flow.",
       "acceptanceCriteria": [
         "openpty(pid) returns master FD, slave FD, and /dev/pts/N path",
-        "Writing to master \u2192 readable from slave (input direction)",
-        "Writing to slave \u2192 readable from master (output direction)",
+        "Writing to master → readable from slave (input direction)",
+        "Writing to slave → readable from master (output direction)",
         "isatty(slaveFd) returns true, isatty(pipeFd) returns false",
         "Multiple PTY pairs can coexist (separate /dev/pts/0, /dev/pts/1, etc.)",
-        "Master close \u2192 slave reads get EIO (terminal hangup)",
-        "Slave close \u2192 master reads get EIO",
-        "Test: open PTY, write 'hello\\n' to master, read from slave \u2192 'hello\\n'",
-        "Test: open PTY, write 'hello\\n' to slave, read from master \u2192 'hello\\n'",
+        "Master close → slave reads get EIO (terminal hangup)",
+        "Slave close → master reads get EIO",
+        "Test: open PTY, write 'hello\\n' to master, read from slave → 'hello\\n'",
+        "Test: open PTY, write 'hello\\n' to slave, read from master → 'hello\\n'",
         "Test: isatty on slave FD returns true",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 22,
       "passes": true,
-      "notes": "P4 \u2014 new packages/kernel/src/pty.ts. Core infrastructure; line discipline in next story."
+      "notes": "P4 — new packages/kernel/src/pty.ts. Core infrastructure; line discipline in next story."
     },
     {
       "id": "US-023",
-      "title": "Add PTY line discipline \u2014 canonical mode, raw mode, echo, and signal generation",
+      "title": "Add PTY line discipline — canonical mode, raw mode, echo, and signal generation",
       "description": "As a developer, I need the PTY to support canonical/raw modes, echo, and signal character handling.",
       "acceptanceCriteria": [
         "Canonical mode: input buffered until newline, backspace erases last char",
         "Raw mode: bytes pass through immediately with no buffering",
         "Echo mode: input bytes echoed back through master for display",
-        "^C in canonical mode \u2192 SIGINT delivered to foreground process group",
-        "^Z \u2192 SIGTSTP, ^\\ \u2192 SIGQUIT, ^D at start of line \u2192 EOF",
-        "Test: raw mode \u2014 write single byte to master, immediately readable from slave",
-        "Test: canonical mode \u2014 write 'ab\\x7fc\\n' \u2192 slave reads 'ac\\n'",
-        "Test: ^C on master \u2192 SIGINT to foreground pgid",
+        "^C in canonical mode → SIGINT delivered to foreground process group",
+        "^Z → SIGTSTP, ^\\ → SIGQUIT, ^D at start of line → EOF",
+        "Test: raw mode — write single byte to master, immediately readable from slave",
+        "Test: canonical mode — write 'ab\\x7fc\\n' → slave reads 'ac\\n'",
+        "Test: ^C on master → SIGINT to foreground pgid",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 23,
       "passes": true,
-      "notes": "P4 \u2014 extends pty.ts from US-022. Depends on US-021 for process group signal delivery."
+      "notes": "P4 — extends pty.ts from US-022. Depends on US-021 for process group signal delivery."
     },
     {
       "id": "US-024",
@@ -368,9 +368,9 @@
       "description": "As a developer, I need tcgetattr/tcsetattr/tcsetpgrp/tcgetpgrp syscalls so processes can configure terminal behavior.",
       "acceptanceCriteria": [
         "Default termios: canonical mode on, echo on, isig on, standard control characters",
-        "tcsetattr with icanon: false switches to raw mode \u2014 immediate byte delivery",
+        "tcsetattr with icanon: false switches to raw mode — immediate byte delivery",
         "tcsetattr with echo: false disables echo",
-        "tcsetpgrp sets foreground process group \u2014 ^C delivers SIGINT to that group only",
+        "tcsetpgrp sets foreground process group — ^C delivers SIGINT to that group only",
         "Programs can read current termios via tcgetattr",
         "Test: spawn on PTY in canonical mode, verify line buffering",
         "Test: switch to raw mode via tcsetattr, verify immediate byte delivery",
@@ -381,7 +381,7 @@
       ],
       "priority": 24,
       "passes": true,
-      "notes": "P4 \u2014 new packages/kernel/src/termios.ts. Wire into KernelInterface and WasmVM host imports. Depends on US-022/023."
+      "notes": "P4 — new packages/kernel/src/termios.ts. Wire into KernelInterface and WasmVM host imports. Depends on US-022/023."
     },
     {
       "id": "US-025",
@@ -390,10 +390,10 @@
       "acceptanceCriteria": [
         "kernel.openShell() returns handle with write/onData/resize/kill/wait",
         "Shell process sees isatty(0) === true",
-        "Writing 'echo hello\\n' to handle \u2192 onData receives 'hello\\n' (plus prompt/echo)",
-        "Writing ^C \u2192 shell receives SIGINT (doesn't exit, just cancels current line)",
-        "Writing ^D on empty line \u2192 shell exits (EOF)",
-        "resize() \u2192 SIGWINCH delivered to foreground process group",
+        "Writing 'echo hello\\n' to handle → onData receives 'hello\\n' (plus prompt/echo)",
+        "Writing ^C → shell receives SIGINT (doesn't exit, just cancels current line)",
+        "Writing ^D on empty line → shell exits (EOF)",
+        "resize() → SIGWINCH delivered to foreground process group",
         "Test: open shell, write 'echo hello\\n', verify output contains 'hello'",
         "Test: open shell, write ^C, verify shell still running",
         "Test: open shell, write ^D, verify shell exits",
@@ -403,19 +403,19 @@
       ],
       "priority": 25,
       "passes": true,
-      "notes": "P4 \u2014 packages/kernel/src/kernel.ts. Depends on US-021 (process groups), US-022/023 (PTY), US-024 (termios)."
+      "notes": "P4 — packages/kernel/src/kernel.ts. Depends on US-021 (process groups), US-022/023 (PTY), US-024 (termios)."
     },
     {
       "id": "US-026",
       "title": "Create kernel.connectTerminal() and CLI interactive shell",
       "description": "As a developer, I need a reusable connectTerminal() method and a CLI entry point so I can get an interactive shell inside the kernel from any Node program or from the command line.",
       "acceptanceCriteria": [
-        "kernel.connectTerminal(options?) exported \u2014 wires openShell() to process.stdin/stdout/resize, returns Promise<number> (exit code)",
+        "kernel.connectTerminal(options?) exported — wires openShell() to process.stdin/stdout/resize, returns Promise<number> (exit code)",
         "connectTerminal sets raw mode, forwards stdin, forwards stdout, handles resize, restores terminal on exit",
         "connectTerminal accepts same options as openShell (command, args, env, cols, rows) plus onData override",
         "Script at scripts/shell.ts uses kernel.connectTerminal() as a one-liner CLI entry point",
         "Running the script drops into an interactive shell inside the kernel",
-        "process.stdin set to raw mode \u2014 arrow keys, tab, backspace pass through correctly",
+        "process.stdin set to raw mode — arrow keys, tab, backspace pass through correctly",
         "^C sends SIGINT (cancels command, does not exit shell)",
         "^D on empty line exits the shell",
         "Window resize triggers shell.resize() with current terminal dimensions",
@@ -427,7 +427,7 @@
       ],
       "priority": 26,
       "passes": true,
-      "notes": "P4 \u2014 depends on US-025 (kernel.openShell). kernel.connectTerminal() is the reusable API; scripts/shell.ts is the CLI wrapper that calls it."
+      "notes": "P4 — depends on US-025 (kernel.openShell). kernel.connectTerminal() is the reusable API; scripts/shell.ts is the CLI wrapper that calls it."
     },
     {
       "id": "US-027",
@@ -435,20 +435,20 @@
       "description": "As a developer, I need /dev/fd/N paths to work so bash process substitution and heredoc patterns function correctly.",
       "acceptanceCriteria": [
         "readFile('/dev/fd/0') reads from the process's stdin FD",
-        "readFile('/dev/fd/N') where N is an open file FD \u2192 returns file content at current cursor",
+        "readFile('/dev/fd/N') where N is an open file FD → returns file content at current cursor",
         "stat('/dev/fd/N') returns stat for the underlying file",
         "readDir('/dev/fd') lists open FD numbers as directory entries",
         "open('/dev/fd/N') equivalent to dup(N)",
-        "Reading /dev/fd/N where N is not open \u2192 EBADF",
-        "Test: open file as FD 5, read via /dev/fd/5 \u2192 same content",
-        "Test: create pipe, write to write end, read via /dev/fd/<readEnd> \u2192 pipe data",
+        "Reading /dev/fd/N where N is not open → EBADF",
+        "Test: open file as FD 5, read via /dev/fd/5 → same content",
+        "Test: create pipe, write to write end, read via /dev/fd/<readEnd> → pipe data",
         "Test: readDir('/dev/fd') lists 0, 1, 2 at minimum",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 27,
       "passes": true,
-      "notes": "P4 \u2014 packages/kernel/src/device-layer.ts. Requires PID context in device layer operations."
+      "notes": "P4 — packages/kernel/src/device-layer.ts. Requires PID context in device layer operations."
     },
     {
       "id": "US-028",
@@ -458,18 +458,18 @@
         "fdPread(pid, fd, length, offset) reads at offset without changing FD cursor",
         "fdPwrite(pid, fd, data, offset) writes at offset without changing FD cursor",
         "After pread/pwrite, subsequent fdRead/fdWrite continues from original cursor position",
-        "fdPread on pipe \u2192 ESPIPE",
-        "fdPwrite on pipe \u2192 ESPIPE",
-        "Test: write 'hello world', fdPread(0, 5) \u2192 'hello', then fdRead \u2192 'hello world' (cursor at 0)",
-        "Test: fdPread(6, 5) \u2192 'world', cursor unchanged",
-        "Test: fdPwrite at offset 6, fdRead from 0 \u2192 written bytes visible at offset 6",
-        "Test: fdPread on pipe FD \u2192 ESPIPE",
+        "fdPread on pipe → ESPIPE",
+        "fdPwrite on pipe → ESPIPE",
+        "Test: write 'hello world', fdPread(0, 5) → 'hello', then fdRead → 'hello world' (cursor at 0)",
+        "Test: fdPread(6, 5) → 'world', cursor unchanged",
+        "Test: fdPwrite at offset 6, fdRead from 0 → written bytes visible at offset 6",
+        "Test: fdPread on pipe FD → ESPIPE",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 28,
       "passes": true,
-      "notes": "P4 \u2014 packages/kernel/src/fd-table.ts, kernel.ts, wasmvm kernel-worker. Wire into existing WasmVM stubs."
+      "notes": "P4 — packages/kernel/src/fd-table.ts, kernel.ts, wasmvm kernel-worker. Wire into existing WasmVM stubs."
     },
     {
       "id": "US-029",
@@ -483,7 +483,7 @@
       ],
       "priority": 29,
       "passes": true,
-      "notes": "P5 \u2014 depends on US-025 (openShell implementation)"
+      "notes": "P5 — depends on US-025 (openShell implementation)"
     },
     {
       "id": "US-030",
@@ -497,7 +497,7 @@
       ],
       "priority": 30,
       "passes": true,
-      "notes": "P5 \u2014 update existing docs/kernel/api-reference.mdx. Depends on US-017 and P4 stories."
+      "notes": "P5 — update existing docs/kernel/api-reference.mdx. Depends on US-017 and P4 stories."
     },
     {
       "id": "US-031",
@@ -505,39 +505,39 @@
       "description": "As a developer, I need configurable caps on output bytes, bridge calls, timers, and child processes to prevent host resource exhaustion.",
       "acceptanceCriteria": [
         "ResourceBudget config added to NodeRuntimeOptions: maxOutputBytes, maxBridgeCalls, maxTimers, maxChildProcesses",
-        "Exceeding maxOutputBytes \u2192 subsequent writes silently dropped or error returned",
-        "Exceeding maxChildProcesses \u2192 child_process.spawn() returns error",
-        "Exceeding maxTimers \u2192 setInterval/setTimeout throws, existing timers continue",
-        "Exceeding maxBridgeCalls \u2192 bridge returns error, isolate can catch",
+        "Exceeding maxOutputBytes → subsequent writes silently dropped or error returned",
+        "Exceeding maxChildProcesses → child_process.spawn() returns error",
+        "Exceeding maxTimers → setInterval/setTimeout throws, existing timers continue",
+        "Exceeding maxBridgeCalls → bridge returns error, isolate can catch",
         "Kernel: maxProcesses option added to KernelOptions",
-        "Test: set maxOutputBytes=100, write 200 bytes \u2192 only first 100 captured",
-        "Test: set maxChildProcesses=3, spawn 5 \u2192 first 3 succeed, last 2 error",
-        "Test: set maxTimers=5, create 10 intervals \u2192 first 5 succeed, rest throw",
-        "Test: kernel maxProcesses=10, spawn 15 \u2192 first 10 succeed, rest throw EAGAIN",
+        "Test: set maxOutputBytes=100, write 200 bytes → only first 100 captured",
+        "Test: set maxChildProcesses=3, spawn 5 → first 3 succeed, last 2 error",
+        "Test: set maxTimers=5, create 10 intervals → first 5 succeed, rest throw",
+        "Test: kernel maxProcesses=10, spawn 15 → first 10 succeed, rest throw EAGAIN",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 31,
       "passes": true,
-      "notes": "P6 \u2014 packages/secure-exec/src/node/execution-driver.ts, bridge/process.ts, shared/permissions.ts"
+      "notes": "P6 — packages/secure-exec/src/node/execution-driver.ts, bridge/process.ts, shared/permissions.ts"
     },
     {
       "id": "US-032",
       "title": "Enforce maxBuffer on child-process output buffering",
       "description": "As a developer, I need execSync/spawnSync to enforce maxBuffer to prevent host memory exhaustion from unbounded output.",
       "acceptanceCriteria": [
-        "execSync with default maxBuffer (1MB): output >1MB \u2192 throws ERR_CHILD_PROCESS_STDIO_MAXBUFFER",
-        "execSync with maxBuffer: 100 \u2014 output >100 bytes \u2192 throws",
+        "execSync with default maxBuffer (1MB): output >1MB → throws ERR_CHILD_PROCESS_STDIO_MAXBUFFER",
+        "execSync with maxBuffer: 100 — output >100 bytes → throws",
         "spawnSync respects maxBuffer on stdout and stderr independently",
         "Async exec(cmd, cb) enforces maxBuffer, kills child on exceed",
-        "Test: execSync producing 2MB output with maxBuffer=1MB \u2192 throws correct error code",
-        "Test: spawnSync with small maxBuffer \u2192 truncated with correct error",
+        "Test: execSync producing 2MB output with maxBuffer=1MB → throws correct error code",
+        "Test: spawnSync with small maxBuffer → truncated with correct error",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 32,
       "passes": true,
-      "notes": "P6 \u2014 packages/secure-exec/src/bridge/child-process.ts (710 lines, @ts-nocheck). Lines ~348-357."
+      "notes": "P6 — packages/secure-exec/src/bridge/child-process.ts (710 lines, @ts-nocheck). Lines ~348-357."
     },
     {
       "id": "US-033",
@@ -554,7 +554,7 @@
       ],
       "priority": 33,
       "passes": true,
-      "notes": "P6 \u2014 packages/secure-exec/src/bridge/fs.ts. First batch of 8 missing fs APIs."
+      "notes": "P6 — packages/secure-exec/src/bridge/fs.ts. First batch of 8 missing fs APIs."
     },
     {
       "id": "US-034",
@@ -572,7 +572,7 @@
       ],
       "priority": 34,
       "passes": true,
-      "notes": "P6 \u2014 packages/secure-exec/src/bridge/fs.ts. Second batch of missing fs APIs."
+      "notes": "P6 — packages/secure-exec/src/bridge/fs.ts. Second batch of missing fs APIs."
     },
     {
       "id": "US-035",
@@ -585,7 +585,7 @@
         "fs.truncateSync truncates file",
         "fs.utimesSync updates timestamps",
         "fs.chownSync updates ownership",
-        "fs.watch still throws with clear message ('not supported \u2014 use polling')",
+        "fs.watch still throws with clear message ('not supported — use polling')",
         "All available in sync, async callback, and promises forms",
         "Permissions checks applied (denied when permissions.fs blocks)",
         "Typecheck passes",
@@ -593,7 +593,7 @@
       ],
       "priority": 35,
       "passes": true,
-      "notes": "P6 \u2014 packages/secure-exec/src/bridge/fs.ts. Remove 'not supported' throws, wire to VFS."
+      "notes": "P6 — packages/secure-exec/src/bridge/fs.ts. Remove 'not supported' throws, wire to VFS."
     },
     {
       "id": "US-036",
@@ -602,7 +602,7 @@
       "acceptanceCriteria": [
         "packages/secure-exec/tests/projects/express-pass/ created with package.json and index.js",
         "Express app with 2-3 routes, makes requests, verifies responses, prints deterministic stdout, exits 0",
-        "Fixture passes in host Node (node index.js \u2192 exit 0, expected stdout)",
+        "Fixture passes in host Node (node index.js → exit 0, expected stdout)",
         "Fixture passes through kernel project-matrix (e2e-project-matrix.test.ts)",
         "Fixture passes through secure-exec project-matrix (project-matrix.test.ts)",
         "Stdout parity between host and sandbox",
@@ -612,7 +612,7 @@
       ],
       "priority": 36,
       "passes": true,
-      "notes": "P6 \u2014 packages/secure-exec/tests/projects/. Must be sandbox-blind."
+      "notes": "P6 — packages/secure-exec/tests/projects/. Must be sandbox-blind."
     },
     {
       "id": "US-037",
@@ -627,15 +627,15 @@
       ],
       "priority": 37,
       "passes": true,
-      "notes": "P6 \u2014 same pattern as Express fixture (US-035)"
+      "notes": "P6 — same pattern as Express fixture (US-035)"
     },
     {
       "id": "US-038",
       "title": "Add pnpm and bun package manager layout fixtures",
       "description": "As a developer, I need fixtures testing pnpm symlink-based and bun hardlink-based node_modules layouts.",
       "acceptanceCriteria": [
-        "packages/secure-exec/tests/projects/pnpm-layout-pass/ \u2014 require('left-pad') resolves through symlinked .pnpm/ structure",
-        "packages/secure-exec/tests/projects/bun-layout-pass/ \u2014 require('left-pad') resolves through bun's layout",
+        "packages/secure-exec/tests/projects/pnpm-layout-pass/ — require('left-pad') resolves through symlinked .pnpm/ structure",
+        "packages/secure-exec/tests/projects/bun-layout-pass/ — require('left-pad') resolves through bun's layout",
         "Both pass host parity comparison",
         "Both pass through kernel and secure-exec project matrices",
         "Typecheck passes",
@@ -643,7 +643,7 @@
       ],
       "priority": 38,
       "passes": true,
-      "notes": "P6 \u2014 Yarn PnP out of scope (needs .pnp.cjs loader hook support)"
+      "notes": "P6 — Yarn PnP out of scope (needs .pnp.cjs loader hook support)"
     },
     {
       "id": "US-039",
@@ -653,13 +653,13 @@
         "@ts-nocheck removed from packages/secure-exec/src/bridge/polyfills.ts",
         "@ts-nocheck removed from packages/secure-exec/src/bridge/os.ts",
         "Zero type errors from tsc --noEmit",
-        "No runtime behavior changes \u2014 existing tests still pass",
+        "No runtime behavior changes — existing tests still pass",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 39,
       "passes": true,
-      "notes": "P6 \u2014 only add type annotations and casts, do NOT change runtime behavior"
+      "notes": "P6 — only add type annotations and casts, do NOT change runtime behavior"
     },
     {
       "id": "US-040",
@@ -668,13 +668,13 @@
       "acceptanceCriteria": [
         "@ts-nocheck removed from packages/secure-exec/src/bridge/child-process.ts",
         "Zero type errors from tsc --noEmit",
-        "No runtime behavior changes \u2014 existing tests still pass",
+        "No runtime behavior changes — existing tests still pass",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 40,
       "passes": true,
-      "notes": "P6 \u2014 largest bridge file (710 lines). Only type annotations/casts, no behavior changes."
+      "notes": "P6 — largest bridge file (710 lines). Only type annotations/casts, no behavior changes."
     },
     {
       "id": "US-041",
@@ -684,23 +684,23 @@
         "@ts-nocheck removed from packages/secure-exec/src/bridge/process.ts",
         "@ts-nocheck removed from packages/secure-exec/src/bridge/network.ts",
         "Zero type errors from tsc --noEmit",
-        "No runtime behavior changes \u2014 existing tests still pass",
+        "No runtime behavior changes — existing tests still pass",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 41,
       "passes": true,
-      "notes": "P6 \u2014 final two @ts-nocheck files"
+      "notes": "P6 — final two @ts-nocheck files"
     },
     {
       "id": "US-042",
       "title": "Fix v8.serialize/deserialize to use structured clone semantics",
       "description": "As a developer, I need v8.serialize to handle Map, Set, RegExp, Date, circular refs, BigInt, etc. instead of using JSON.",
       "acceptanceCriteria": [
-        "v8.serialize(new Map([['a', 1]])) \u2192 roundtrips to Map { 'a' => 1 }",
-        "v8.serialize(new Set([1, 2])) \u2192 roundtrips to Set { 1, 2 }",
-        "v8.serialize(/foo/gi) \u2192 roundtrips to /foo/gi",
-        "v8.serialize(new Date(0)) \u2192 roundtrips to Date(0)",
+        "v8.serialize(new Map([['a', 1]])) → roundtrips to Map { 'a' => 1 }",
+        "v8.serialize(new Set([1, 2])) → roundtrips to Set { 1, 2 }",
+        "v8.serialize(/foo/gi) → roundtrips to /foo/gi",
+        "v8.serialize(new Date(0)) → roundtrips to Date(0)",
         "Circular references survive roundtrip",
         "undefined, NaN, Infinity, -Infinity, BigInt preserved",
         "ArrayBuffer and typed arrays preserved",
@@ -710,7 +710,7 @@
       ],
       "priority": 42,
       "passes": true,
-      "notes": "P7 \u2014 packages/secure-exec/isolate-runtime/src/inject/bridge-initial-globals.ts. Currently uses JSON.stringify/parse."
+      "notes": "P7 — packages/secure-exec/isolate-runtime/src/inject/bridge-initial-globals.ts. Currently uses JSON.stringify/parse."
     },
     {
       "id": "US-043",
@@ -718,17 +718,17 @@
       "description": "As a developer, I need http.Agent connection pooling, HTTP upgrade (WebSocket), trailer headers, and socket events for compatibility with ws, got, axios.",
       "acceptanceCriteria": [
         "new http.Agent({ keepAlive: true, maxSockets: 5 }) limits concurrent connections",
-        "Request with Connection: upgrade and 101 response \u2192 upgrade event fires",
-        "Response with trailer headers \u2192 response.trailers populated",
+        "Request with Connection: upgrade and 101 response → upgrade event fires",
+        "Response with trailer headers → response.trailers populated",
         "request.on('socket', cb) fires with socket-like object",
-        "Test: Agent with maxSockets=1, two concurrent requests \u2192 second waits for first",
-        "Test: upgrade request \u2192 upgrade event fires with response and socket",
+        "Test: Agent with maxSockets=1, two concurrent requests → second waits for first",
+        "Test: upgrade request → upgrade event fires with response and socket",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 43,
       "passes": true,
-      "notes": "P7 \u2014 packages/secure-exec/src/bridge/network.ts"
+      "notes": "P7 — packages/secure-exec/src/bridge/network.ts"
     },
     {
       "id": "US-044",
@@ -743,7 +743,7 @@
       ],
       "priority": 44,
       "passes": true,
-      "notes": "P7 \u2014 demonstrates primary use case: running untrusted/generated code safely"
+      "notes": "P7 — demonstrates primary use case: running untrusted/generated code safely"
     },
     {
       "id": "US-045",
@@ -754,13 +754,13 @@
         "Extracted modules: isolate-bootstrap.ts, module-resolver.ts, esm-compiler.ts, bridge-setup.ts, execution-lifecycle.ts",
         "Each module has a clear single responsibility",
         "All existing tests pass without modification",
-        "No runtime behavior changes \u2014 pure extraction refactor",
+        "No runtime behavior changes — pure extraction refactor",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 45,
       "passes": true,
-      "notes": "P8 \u2014 packages/secure-exec/src/node/execution-driver.ts. Pure extraction, no behavior changes."
+      "notes": "P8 — packages/secure-exec/src/node/execution-driver.ts. Pure extraction, no behavior changes."
     },
     {
       "id": "US-046",
@@ -775,15 +775,15 @@
       ],
       "priority": 46,
       "passes": true,
-      "notes": "P8 \u2014 packages/secure-exec/src/node/execution-driver.ts (or extracted module-resolver.ts after US-044)"
+      "notes": "P8 — packages/secure-exec/src/node/execution-driver.ts (or extracted module-resolver.ts after US-044)"
     },
     {
       "id": "US-047",
       "title": "Add resolver memoization (negative/positive caches)",
       "description": "As a developer, I need require/import resolution to cache results and avoid repeated miss probes.",
       "acceptanceCriteria": [
-        "Same require('nonexistent') called twice \u2192 only one VFS probe",
-        "Same require('express') called twice \u2192 only one resolution walk",
+        "Same require('nonexistent') called twice → only one VFS probe",
+        "Same require('express') called twice → only one resolution walk",
         "package.json in same directory read once, reused for subsequent resolves",
         "Caches are per-execution (cleared on dispose)",
         "All existing module resolution tests pass",
@@ -792,7 +792,7 @@
       ],
       "priority": 47,
       "passes": true,
-      "notes": "P8 \u2014 packages/secure-exec/src/package-bundler.ts, shared/require-setup.ts, node/execution-driver.ts"
+      "notes": "P8 — packages/secure-exec/src/package-bundler.ts, shared/require-setup.ts, node/execution-driver.ts"
     },
     {
       "id": "US-048",
@@ -800,16 +800,16 @@
       "description": "As a developer, I need the zombie timer cleanup tests to verify timers are actually cleared, not just that dispose() doesn't throw.",
       "acceptanceCriteria": [
         "ProcessTable exposes zombieTimerCount getter (or equivalent) for test observability",
-        "Test: spawn process, let it exit \u2192 zombieTimerCount > 0 (timer was scheduled)",
-        "Test: call kernel.dispose() \u2192 zombieTimerCount === 0 (timer was cleared)",
-        "Test: with vi.useFakeTimers(), advance 60s after dispose \u2192 no callbacks fire, no errors",
+        "Test: spawn process, let it exit → zombieTimerCount > 0 (timer was scheduled)",
+        "Test: call kernel.dispose() → zombieTimerCount === 0 (timer was cleared)",
+        "Test: with vi.useFakeTimers(), advance 60s after dispose → no callbacks fire, no errors",
         "Tests would FAIL if timers are not actually cleared during dispose",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 48,
       "passes": true,
-      "notes": "P9 \u2014 US-013 implementation was pass-vacuous. Tests only checked dispose() didn't throw. packages/kernel/test/kernel-integration.test.ts and packages/kernel/src/process-table.ts"
+      "notes": "P9 — US-013 implementation was pass-vacuous. Tests only checked dispose() didn't throw. packages/kernel/test/kernel-integration.test.ts and packages/kernel/src/process-table.ts"
     },
     {
       "id": "US-049",
@@ -821,14 +821,14 @@
         "node_modules/left-pad is a symlink (not a regular directory)",
         "fixture.json specifies packageManager: pnpm",
         "require(\"left-pad\") resolves through the symlink chain in index.js",
-        "Fixture passes host parity comparison (node index.js \u2192 exit 0)",
+        "Fixture passes host parity comparison (node index.js → exit 0)",
         "Fixture passes through kernel and secure-exec project matrices",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 49,
       "passes": true,
-      "notes": "P9 \u2014 US-038 pnpm fixture was a stub with no .pnpm/ structure or pnpm-lock.yaml. packages/secure-exec/tests/projects/pnpm-layout-pass/"
+      "notes": "P9 — US-038 pnpm fixture was a stub with no .pnpm/ structure or pnpm-lock.yaml. packages/secure-exec/tests/projects/pnpm-layout-pass/"
     },
     {
       "id": "US-050",
@@ -839,14 +839,14 @@
         "fixture.json specifies packageManager: bun (was incorrectly set to npm)",
         "node_modules/left-pad installed via bun layout",
         "require(\"left-pad\") resolves correctly in index.js",
-        "Fixture passes host parity comparison (node index.js \u2192 exit 0)",
+        "Fixture passes host parity comparison (node index.js → exit 0)",
         "Fixture passes through kernel and secure-exec project matrices",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 50,
       "passes": true,
-      "notes": "P9 \u2014 US-038 bun fixture was misnamed. fixture.json said npm, no bun.lockb. packages/secure-exec/tests/projects/bun-layout-pass/"
+      "notes": "P9 — US-038 bun fixture was misnamed. fixture.json said npm, no bun.lockb. packages/secure-exec/tests/projects/bun-layout-pass/"
     },
     {
       "id": "US-051",
@@ -864,7 +864,7 @@
       ],
       "priority": 51,
       "passes": true,
-      "notes": "P9 \u2014 US-036/037 used EventEmitter mock dispatchers instead of real HTTP. packages/secure-exec/tests/projects/express-pass/ and fastify-pass/"
+      "notes": "P9 — US-036/037 used EventEmitter mock dispatchers instead of real HTTP. packages/secure-exec/tests/projects/express-pass/ and fastify-pass/"
     },
     {
       "id": "US-052",
@@ -903,14 +903,14 @@
       ],
       "priority": 53,
       "passes": true,
-      "notes": "Phase 1b. Bridge guest code has zero ivm imports \u2014 Node injects via context.eval(), Browser imports directly. Generated code is used by both Node and Browser."
+      "notes": "Phase 1b. Bridge guest code has zero ivm imports — Node injects via context.eval(), Browser imports directly. Generated code is used by both Node and Browser."
     },
     {
       "id": "US-054",
       "title": "Move runtime facades and module resolution to core",
       "description": "As a developer, I need the NodeRuntime facade and module resolution logic in core since they are runtime-agnostic.",
       "acceptanceCriteria": [
-        "Move runtime.ts (NodeRuntime facade) to core \u2014 export both Runtime and NodeRuntime",
+        "Move runtime.ts (NodeRuntime facade) to core — export both Runtime and NodeRuntime",
         "Move python-runtime.ts to core",
         "Move fs-helpers.ts to core",
         "Move esm-compiler.ts (the ivm-free top-level one, NOT node/esm-compiler.ts) to core",
@@ -924,7 +924,7 @@
       ],
       "priority": 54,
       "passes": true,
-      "notes": "Phase 1c. runtime.ts has zero ivm imports \u2014 it accepts any NodeRuntimeDriverFactory and delegates. Both Node (createNodeRuntimeDriverFactory) and Browser (createBrowserRuntimeDriverFactory) plug into it."
+      "notes": "Phase 1c. runtime.ts has zero ivm imports — it accepts any NodeRuntimeDriverFactory and delegates. Both Node (createNodeRuntimeDriverFactory) and Browser (createBrowserRuntimeDriverFactory) plug into it."
     },
     {
       "id": "US-055",
@@ -939,7 +939,7 @@
       ],
       "priority": 55,
       "passes": true,
-      "notes": "Phase 1d \u2014 final core story. The internal/ prefix signals these are not stable public API. Runtime packages use them but external consumers should not."
+      "notes": "Phase 1d — final core story. The internal/ prefix signals these are not stable public API. Runtime packages use them but external consumers should not."
     },
     {
       "id": "US-056",
@@ -959,7 +959,7 @@
       ],
       "priority": 56,
       "passes": true,
-      "notes": "Phase 2a. execution.ts ExecutionRuntime interface uses ivm.Isolate, ivm.Context, ivm.Module, ivm.Reference throughout \u2014 fully V8-specific."
+      "notes": "Phase 2a. execution.ts ExecutionRuntime interface uses ivm.Isolate, ivm.Context, ivm.Module, ivm.Reference throughout — fully V8-specific."
     },
     {
       "id": "US-057",
@@ -990,7 +990,7 @@
       ],
       "priority": 58,
       "passes": true,
-      "notes": "Phase 2c. This is the primary motivating consumer \u2014 the kernel adapter should not need to pull in the full secure-exec bundle."
+      "notes": "Phase 2c. This is the primary motivating consumer — the kernel adapter should not need to pull in the full secure-exec bundle."
     },
     {
       "id": "US-059",
@@ -1006,7 +1006,7 @@
       ],
       "priority": 59,
       "passes": true,
-      "notes": "Phase 3. Browser worker has its own execution loop (eval + sucrase), never imports isolated-vm. Worker is expected to be bundled \u2014 cross-package imports are transparent to bundlers."
+      "notes": "Phase 3. Browser worker has its own execution loop (eval + sucrase), never imports isolated-vm. Worker is expected to be bundled — cross-package imports are transparent to bundlers."
     },
     {
       "id": "US-060",
@@ -1022,7 +1022,7 @@
       ],
       "priority": 60,
       "passes": true,
-      "notes": "Phase 4. Smallest extraction \u2014 just one file. python-runtime.ts facade already moved to core in US-054."
+      "notes": "Phase 4. Smallest extraction — just one file. python-runtime.ts facade already moved to core in US-054."
     },
     {
       "id": "US-061",
@@ -1042,7 +1042,7 @@
       ],
       "priority": 61,
       "passes": true,
-      "notes": "Phase 5. The barrel re-exports everything \u2014 existing \"import from secure-exec\" statements require zero changes. Tests stay centralized per runtime-driver-test-suite-structure contract."
+      "notes": "Phase 5. The barrel re-exports everything — existing \"import from secure-exec\" statements require zero changes. Tests stay centralized per runtime-driver-test-suite-structure contract."
     },
     {
       "id": "US-062",
@@ -1366,36 +1366,36 @@
       "description": "As a developer, I need terminal-level tests for basic PTY plumbing using MockRuntimeDriver to verify echo, output placement, and screen rendering.",
       "acceptanceCriteria": [
         "packages/kernel/test/shell-terminal.test.ts created with file-level comment documenting exact-match assertion constraint",
-        "Test: clean initial state \u2014 shell opens, screen is empty or shows prompt",
-        "Test: echo on input \u2014 typed text appears on screen via PTY echo",
-        "Test: command output on correct line \u2014 mock echo-back appears below the input line",
-        "Test: output preservation \u2014 multiple commands, all previous output stays visible",
+        "Test: clean initial state — shell opens, screen is empty or shows prompt",
+        "Test: echo on input — typed text appears on screen via PTY echo",
+        "Test: command output on correct line — mock echo-back appears below the input line",
+        "Test: output preservation — multiple commands, all previous output stays visible",
         "All output assertions use exact-match on screenshotTrimmed() (no toContain, no substring checks)",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 81,
       "passes": true,
-      "notes": "Phase 1 of terminal-e2e-testing.md spec. Uses MockRuntimeDriver \u2014 no WASM binary required."
+      "notes": "Phase 1 of terminal-e2e-testing.md spec. Uses MockRuntimeDriver — no WASM binary required."
     },
     {
       "id": "US-082",
       "title": "Add kernel PTY terminal tests: signals, backspace, line wrapping",
       "description": "As a developer, I need terminal-level tests for PTY signal handling, line editing, and wrapping behavior using MockRuntimeDriver.",
       "acceptanceCriteria": [
-        "Test: ^C sends SIGINT \u2014 screen shows ^C, shell stays alive, can type more",
-        "Test: ^D exits cleanly \u2014 shell exits with code 0, no extra output",
-        "Test: backspace erases character \u2014 'helo' + BS + 'lo\\n' \u2192 screen shows 'hello'",
-        "Test: long line wrapping \u2014 input exceeding cols wraps to next row",
-        "Test: resize(cols, rows) triggers SIGWINCH \u2014 shell stays alive, prompt returns on new dimensions",
-        "Test: echo disabled \u2014 type input with echo off, verify typed text does NOT appear on screen (password input scenario)",
+        "Test: ^C sends SIGINT — screen shows ^C, shell stays alive, can type more",
+        "Test: ^D exits cleanly — shell exits with code 0, no extra output",
+        "Test: backspace erases character — 'helo' + BS + 'lo\\n' → screen shows 'hello'",
+        "Test: long line wrapping — input exceeding cols wraps to next row",
+        "Test: resize(cols, rows) triggers SIGWINCH — shell stays alive, prompt returns on new dimensions",
+        "Test: echo disabled — type input with echo off, verify typed text does NOT appear on screen (password input scenario)",
         "All output assertions use exact-match on screenshotTrimmed()",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 82,
       "passes": true,
-      "notes": "Phase 1 of terminal-e2e-testing.md spec. Completes the kernel-level terminal test suite. Adversarial review added: SIGWINCH resize and echo-disabled tests \u2014 both have low-level coverage but no terminal-screen verification."
+      "notes": "Phase 1 of terminal-e2e-testing.md spec. Completes the kernel-level terminal test suite. Adversarial review added: SIGWINCH resize and echo-disabled tests — both have low-level coverage but no terminal-screen verification."
     },
     {
       "id": "US-083",
@@ -1405,47 +1405,47 @@
         "pnpm -F @anthropic-ai/wasmvm add -D @xterm/headless succeeds and package.json updated",
         "packages/runtime/wasmvm/test/shell-terminal.test.ts created, gated with skipUnlessWasmBuilt()",
         "TerminalHarness imported or duplicated in wasmvm test directory",
-        "Test: echo prints output \u2014 'echo hello' \u2192 'hello' on next line, prompt returns",
-        "Test: ls / shows listing \u2014 directory entries rendered correctly",
-        "Test: output preserved across commands \u2014 'echo AAA' then 'echo BBB' \u2014 both visible",
-        "Test: cd changes directory \u2014 'cd /tmp' then 'pwd' \u2192 '/tmp' on screen",
-        "Test: export sets env var \u2014 'export FOO=bar' then 'echo $FOO' \u2192 'bar' on screen",
+        "Test: echo prints output — 'echo hello' → 'hello' on next line, prompt returns",
+        "Test: ls / shows listing — directory entries rendered correctly",
+        "Test: output preserved across commands — 'echo AAA' then 'echo BBB' — both visible",
+        "Test: cd changes directory — 'cd /tmp' then 'pwd' → '/tmp' on screen",
+        "Test: export sets env var — 'export FOO=bar' then 'echo $FOO' → 'bar' on screen",
         "Expected prompt format captured as constant at top of test file",
         "All output assertions use exact-match on screenshotTrimmed()",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 83,
-      "passes": false,
-      "notes": "Phase 2 of terminal-e2e-testing.md spec. Requires WASM binary built. Adversarial review added: cd and export builtins \u2014 state persistence across commands is an interactive-only behavior."
+      "passes": true,
+      "notes": "Phase 2 of terminal-e2e-testing.md spec. Requires WASM binary built. Adversarial review added: cd and export builtins — state persistence across commands is an interactive-only behavior."
     },
     {
       "id": "US-084",
       "title": "Add WasmVM terminal tests: cat, pipe, bad command",
       "description": "As a developer, I need terminal-level tests for VFS file reading, pipes, and error output in the interactive shell.",
       "acceptanceCriteria": [
-        "Test: cat reads VFS file \u2014 write file to VFS, cat it, content appears on screen",
-        "Test: pipe works \u2014 'echo foo | cat' \u2192 'foo' on screen",
-        "Test: exit code on bad command \u2014 'nonexistent' \u2192 error message on screen",
-        "Test: stderr output appears on screen \u2014 command that writes to stderr shows error text",
-        "Test: redirection \u2014 'echo hello > /tmp/out' then 'cat /tmp/out' \u2192 'hello' on screen",
-        "Test: multi-line input \u2014 backslash continuation 'echo hello \\\\' + newline + 'world' \u2192 'hello world' on screen",
+        "Test: cat reads VFS file — write file to VFS, cat it, content appears on screen",
+        "Test: pipe works — 'echo foo | cat' → 'foo' on screen",
+        "Test: exit code on bad command — 'nonexistent' → error message on screen",
+        "Test: stderr output appears on screen — command that writes to stderr shows error text",
+        "Test: redirection — 'echo hello > /tmp/out' then 'cat /tmp/out' → 'hello' on screen",
+        "Test: multi-line input — backslash continuation 'echo hello \\\\' + newline + 'world' → 'hello world' on screen",
         "All output assertions use exact-match on screenshotTrimmed()",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 84,
       "passes": false,
-      "notes": "Phase 2 of terminal-e2e-testing.md spec. Completes the WasmVM terminal test suite (excluding cross-runtime). Adversarial review added: stderr rendering, redirection operators, and multi-line input \u2014 all interactive-only behaviors with zero coverage."
+      "notes": "Phase 2 of terminal-e2e-testing.md spec. Completes the WasmVM terminal test suite (excluding cross-runtime). Adversarial review added: stderr rendering, redirection operators, and multi-line input — all interactive-only behaviors with zero coverage."
     },
     {
       "id": "US-085",
       "title": "Add cross-runtime terminal tests: node -e and python3 -c from brush-shell",
       "description": "As a developer, I need terminal-level tests verifying that cross-runtime spawning from brush-shell produces correct interactive output.",
       "acceptanceCriteria": [
-        "Test: 'node -e \"console.log(42)\"' \u2192 '42' appears on screen (requires Node runtime mounted)",
-        "Test: 'python3 -c \"print(99)\"' \u2192 '99' appears on screen (requires Python runtime mounted)",
-        "Test: ^C during cross-runtime child process \u2014 send SIGINT while 'node -e' is running, verify shell survives and prompt returns",
+        "Test: 'node -e \"console.log(42)\"' → '42' appears on screen (requires Node runtime mounted)",
+        "Test: 'python3 -c \"print(99)\"' → '99' appears on screen (requires Python runtime mounted)",
+        "Test: ^C during cross-runtime child process — send SIGINT while 'node -e' is running, verify shell survives and prompt returns",
         "Tests mount all three runtimes (WasmVM + Node + Python) into the same kernel",
         "Tests gated with appropriate skip guards for WASM binary and runtime availability",
         "All output assertions use exact-match on screenshotTrimmed()",
@@ -1454,7 +1454,7 @@
       ],
       "priority": 85,
       "passes": false,
-      "notes": "Phase 3 of terminal-e2e-testing.md spec. Known risk: cross-runtime stdout routing through proc_spawn \u2192 kernel \u2192 PTY has known issues \u2014 if tests fail, fix is in spawn/stdio wiring, not test infrastructure. Adversarial review added: ^C during cross-runtime spawn \u2014 signal must reach correct process and shell must survive."
+      "notes": "Phase 3 of terminal-e2e-testing.md spec. Known risk: cross-runtime stdout routing through proc_spawn → kernel → PTY has known issues — if tests fail, fix is in spawn/stdio wiring, not test infrastructure. Adversarial review added: ^C during cross-runtime spawn — signal must reach correct process and shell must survive."
     },
     {
       "title": "Add yarn support to project-matrix fixture preparation",
@@ -1622,14 +1622,14 @@
         "setRawMode() throws when isTTY is false (no PTY attached)",
         "Test: spawn sandbox process on PTY, verify isTTY === true inside sandbox",
         "Test: spawn sandbox process without PTY, verify isTTY === false",
-        "Test: setRawMode(true) then type characters \u2014 no echo, immediate byte delivery",
+        "Test: setRawMode(true) then type characters — no echo, immediate byte delivery",
         "Test: setRawMode(false) restores echo and line buffering",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 95,
       "passes": false,
-      "notes": "CLI E2E Phase 0 \u2014 bridge prerequisite. Gap #2, #5, #6 from cli-tool-e2e.md spec. Files: packages/secure-exec/src/bridge/process.ts, packages/secure-exec/src/node/execution-driver.ts"
+      "notes": "CLI E2E Phase 0 — bridge prerequisite. Gap #2, #5, #6 from cli-tool-e2e.md spec. Files: packages/secure-exec/src/bridge/process.ts, packages/secure-exec/src/node/execution-driver.ts"
     },
     {
       "id": "US-096",
@@ -1649,25 +1649,25 @@
       ],
       "priority": 96,
       "passes": false,
-      "notes": "CLI E2E Phase 0 \u2014 bridge prerequisite. Gap #1, #3 from cli-tool-e2e.md spec. Required for Pi, Claude Code (Anthropic SSE), and OpenCode SDK (OpenAI SSE)."
+      "notes": "CLI E2E Phase 0 — bridge prerequisite. Gap #1, #3 from cli-tool-e2e.md spec. Required for Pi, Claude Code (Anthropic SSE), and OpenCode SDK (OpenAI SSE)."
     },
     {
       "id": "US-097",
       "title": "Create shared mock LLM server and Pi headless CLI tool tests",
       "description": "As a developer, I need a mock LLM server utility serving both Anthropic Messages API and OpenAI Chat Completions SSE, plus Pi headless E2E tests proving Pi boots and produces output inside the sandbox.",
       "acceptanceCriteria": [
-        "packages/secure-exec/tests/cli-tools/mock-llm-server.ts created \u2014 exports createMockLlmServer(cannedResponse)",
+        "packages/secure-exec/tests/cli-tools/mock-llm-server.ts created — exports createMockLlmServer(cannedResponse)",
         "Mock server handles POST /messages with Anthropic Messages SSE format (content_block_start, content_block_delta, content_block_stop, message_stop)",
         "Mock server handles POST /chat/completions with OpenAI Chat Completions SSE format (chat.completion.chunk with delta, finish_reason, [DONE])",
         "Mock server returns 404 for unknown routes",
         "@mariozechner/pi-coding-agent added as devDependency to packages/secure-exec",
         "packages/secure-exec/tests/cli-tools/pi-headless.test.ts created",
-        "Test: Pi boots in print mode \u2014 'pi --print \"say hello\"' exits with code 0",
-        "Test: Pi produces output \u2014 stdout contains the canned LLM response",
-        "Test: Pi reads a file \u2014 seed VFS with file, Pi's read tool accesses it",
-        "Test: Pi writes a file \u2014 file exists in VFS after Pi's write tool runs",
-        "Test: Pi runs bash command \u2014 Pi's bash tool executes ls via child_process",
-        "Test: Pi JSON output mode \u2014 'pi --json \"say hello\"' produces valid JSON",
+        "Test: Pi boots in print mode — 'pi --print \"say hello\"' exits with code 0",
+        "Test: Pi produces output — stdout contains the canned LLM response",
+        "Test: Pi reads a file — seed VFS with file, Pi's read tool accesses it",
+        "Test: Pi writes a file — file exists in VFS after Pi's write tool runs",
+        "Test: Pi runs bash command — Pi's bash tool executes ls via child_process",
+        "Test: Pi JSON output mode — 'pi --json \"say hello\"' produces valid JSON",
         "Tests gated with skipUnless(hasPiInstalled()) or equivalent",
         "Typecheck passes",
         "Tests pass"
@@ -1683,11 +1683,11 @@
       "acceptanceCriteria": [
         "packages/secure-exec/tests/cli-tools/pi-interactive.test.ts created",
         "Spawn Pi inside openShell() with PTY, process.stdout.isTTY must be true in sandbox",
-        "Test: Pi TUI renders \u2014 screen shows Pi's prompt/editor UI after boot",
-        "Test: input appears on screen \u2014 type 'hello', text appears in editor area",
-        "Test: submit prompt renders response \u2014 type prompt + Enter, LLM response renders on screen",
-        "Test: ^C interrupts \u2014 send SIGINT during response streaming, Pi stays alive",
-        "Test: exit cleanly \u2014 /exit or ^D, Pi exits, PTY closes",
+        "Test: Pi TUI renders — screen shows Pi's prompt/editor UI after boot",
+        "Test: input appears on screen — type 'hello', text appears in editor area",
+        "Test: submit prompt renders response — type prompt + Enter, LLM response renders on screen",
+        "Test: ^C interrupts — send SIGINT during response streaming, Pi stays alive",
+        "Test: exit cleanly — /exit or ^D, Pi exits, PTY closes",
         "Tests use TerminalHarness with waitFor() for timing-sensitive assertions",
         "Tests gated with skipUnless(hasPiInstalled()) and isTTY support available",
         "Typecheck passes",
@@ -1704,23 +1704,23 @@
       "acceptanceCriteria": [
         "packages/secure-exec/tests/cli-tools/opencode-headless.test.ts created",
         "opencode.json config fixture created with mock server baseURL",
-        "Test: OpenCode boots in run mode \u2014 'opencode run \"say hello\"' exits with code 0",
-        "Test: OpenCode produces output \u2014 stdout contains the canned LLM response",
-        "Test: OpenCode text format \u2014 'opencode run --format text \"say hello\"' produces plain text",
-        "Test: OpenCode JSON format \u2014 'opencode run --format json \"say hello\"' produces valid JSON",
-        "Test: Environment forwarding \u2014 API key and base URL reach the binary",
-        "Test: OpenCode reads sandbox file \u2014 seed VFS, prompt asks to read it",
-        "Test: OpenCode writes sandbox file \u2014 file exists in VFS after write",
-        "Test: SIGINT stops execution \u2014 send SIGINT during run, process terminates cleanly",
-        "Test: Exit code on error \u2014 bad API key \u2192 non-zero exit",
-        "Tests gated with skipUnless(hasOpenCodeBinary()) \u2014 skips if opencode not on PATH",
+        "Test: OpenCode boots in run mode — 'opencode run \"say hello\"' exits with code 0",
+        "Test: OpenCode produces output — stdout contains the canned LLM response",
+        "Test: OpenCode text format — 'opencode run --format text \"say hello\"' produces plain text",
+        "Test: OpenCode JSON format — 'opencode run --format json \"say hello\"' produces valid JSON",
+        "Test: Environment forwarding — API key and base URL reach the binary",
+        "Test: OpenCode reads sandbox file — seed VFS, prompt asks to read it",
+        "Test: OpenCode writes sandbox file — file exists in VFS after write",
+        "Test: SIGINT stops execution — send SIGINT during run, process terminates cleanly",
+        "Test: Exit code on error — bad API key → non-zero exit",
+        "Tests gated with skipUnless(hasOpenCodeBinary()) — skips if opencode not on PATH",
         "XDG_DATA_HOME set to temp directory for test-isolated SQLite storage",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 99,
       "passes": false,
-      "notes": "CLI E2E Phase 3, Strategy A. OpenCode is a Bun binary, NOT a Node.js package \u2014 tests the child_process.spawn bridge for complex host binaries. Hardest CLI tool, tested before Claude Code to front-load risk."
+      "notes": "CLI E2E Phase 3, Strategy A. OpenCode is a Bun binary, NOT a Node.js package — tests the child_process.spawn bridge for complex host binaries. Hardest CLI tool, tested before Claude Code to front-load risk."
     },
     {
       "id": "US-100",
@@ -1731,11 +1731,11 @@
         "Tests added to packages/secure-exec/tests/cli-tools/opencode-headless.test.ts (Strategy B describe block)",
         "opencode serve started as background fixture in beforeAll, health-checked, killed in afterAll",
         "Unique port per test run to avoid conflicts",
-        "Test: SDK client connects \u2014 create client, call health/status endpoint",
-        "Test: SDK sends prompt \u2014 send prompt via SDK, receive streamed response",
-        "Test: SDK session management \u2014 create session, send message, list messages",
-        "Test: SSE streaming works \u2014 response streams incrementally, not all-at-once",
-        "Test: SDK error handling \u2014 invalid session ID \u2192 proper error response",
+        "Test: SDK client connects — create client, call health/status endpoint",
+        "Test: SDK sends prompt — send prompt via SDK, receive streamed response",
+        "Test: SDK session management — create session, send message, list messages",
+        "Test: SSE streaming works — response streams incrementally, not all-at-once",
+        "Test: SDK error handling — invalid session ID → proper error response",
         "Tests gated with skipUnless(hasOpenCodeBinary())",
         "Typecheck passes",
         "Tests pass"
@@ -1751,19 +1751,19 @@
       "acceptanceCriteria": [
         "packages/secure-exec/tests/cli-tools/opencode-interactive.test.ts created",
         "Spawn opencode binary inside openShell() with PTY",
-        "Test: OpenCode TUI renders \u2014 screen shows OpenTUI interface after boot",
-        "Test: Input area works \u2014 type prompt text, appears in input area",
-        "Test: Submit shows response \u2014 enter prompt, streaming response renders on screen",
-        "Test: ^C interrupts \u2014 send SIGINT during streaming, OpenCode stays alive",
-        "Test: Exit cleanly \u2014 :q or ^C, OpenCode exits, PTY closes",
-        "Tests use TerminalHarness with waitFor() \u2014 use content-based assertions (not strict exact-match) due to OpenTUI rendering differences",
+        "Test: OpenCode TUI renders — screen shows OpenTUI interface after boot",
+        "Test: Input area works — type prompt text, appears in input area",
+        "Test: Submit shows response — enter prompt, streaming response renders on screen",
+        "Test: ^C interrupts — send SIGINT during streaming, OpenCode stays alive",
+        "Test: Exit cleanly — :q or ^C, OpenCode exits, PTY closes",
+        "Tests use TerminalHarness with waitFor() — use content-based assertions (not strict exact-match) due to OpenTUI rendering differences",
         "Tests gated with skipUnless(hasOpenCodeBinary())",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 101,
       "passes": false,
-      "notes": "CLI E2E Phase 4. Depends on US-080 (TerminalHarness), US-095 (isTTY). OpenCode uses OpenTUI (TypeScript + Zig) with SolidJS \u2014 may render non-standard ANSI sequences. Use waitFor() with content assertions, tighten after empirical capture."
+      "notes": "CLI E2E Phase 4. Depends on US-080 (TerminalHarness), US-095 (isTTY). OpenCode uses OpenTUI (TypeScript + Zig) with SolidJS — may render non-standard ANSI sequences. Use waitFor() with content assertions, tighten after empirical capture."
     },
     {
       "id": "US-102",
@@ -1772,21 +1772,21 @@
       "acceptanceCriteria": [
         "@anthropic-ai/claude-code added as devDependency to packages/secure-exec (or use @anthropic-ai/claude-agent-sdk if npm package has native binary issues)",
         "packages/secure-exec/tests/cli-tools/claude-headless.test.ts created",
-        "Test: Claude boots in headless mode \u2014 'claude -p \"say hello\"' exits with code 0",
-        "Test: Claude produces text output \u2014 stdout contains canned LLM response",
-        "Test: Claude JSON output \u2014 '--output-format json' produces valid JSON with result field",
-        "Test: Claude stream-json output \u2014 '--output-format stream-json' produces valid NDJSON",
-        "Test: Claude reads a file \u2014 seed VFS, ask Claude to read it via Read tool",
-        "Test: Claude writes a file \u2014 ask Claude to create a file, file exists in VFS after",
-        "Test: Claude runs bash \u2014 ask Claude to run 'echo hello' via Bash tool",
-        "Test: Claude exit codes \u2014 bad API key \u2192 non-zero exit, good prompt \u2192 exit 0",
+        "Test: Claude boots in headless mode — 'claude -p \"say hello\"' exits with code 0",
+        "Test: Claude produces text output — stdout contains canned LLM response",
+        "Test: Claude JSON output — '--output-format json' produces valid JSON with result field",
+        "Test: Claude stream-json output — '--output-format stream-json' produces valid NDJSON",
+        "Test: Claude reads a file — seed VFS, ask Claude to read it via Read tool",
+        "Test: Claude writes a file — ask Claude to create a file, file exists in VFS after",
+        "Test: Claude runs bash — ask Claude to run 'echo hello' via Bash tool",
+        "Test: Claude exit codes — bad API key → non-zero exit, good prompt → exit 0",
         "Tests gated with skipUnless(hasClaudeInstalled()) or equivalent",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 102,
       "passes": false,
-      "notes": "CLI E2E Phase 5. Claude Code is the most complex in-VM tool \u2014 Node.js with native binary, Ink TUI, known spawn stall issue (anthropics/claude-code#771). Consider @anthropic-ai/claude-agent-sdk as fallback entry point."
+      "notes": "CLI E2E Phase 5. Claude Code is the most complex in-VM tool — Node.js with native binary, Ink TUI, known spawn stall issue (anthropics/claude-code#771). Consider @anthropic-ai/claude-agent-sdk as fallback entry point."
     },
     {
       "id": "US-103",
@@ -1795,12 +1795,12 @@
       "acceptanceCriteria": [
         "packages/secure-exec/tests/cli-tools/claude-interactive.test.ts created",
         "Spawn Claude inside openShell() with PTY, isTTY must be true",
-        "Test: Claude TUI renders \u2014 screen shows Ink-based UI after boot",
-        "Test: Input area works \u2014 type prompt text, appears in input area",
-        "Test: Submit shows response \u2014 enter prompt, streaming response renders on screen",
-        "Test: ^C interrupts response \u2014 send SIGINT during streaming, Claude stays alive",
-        "Test: Color output renders \u2014 ANSI color codes render correctly in xterm buffer",
-        "Test: Exit cleanly \u2014 /exit or ^C twice, Claude exits",
+        "Test: Claude TUI renders — screen shows Ink-based UI after boot",
+        "Test: Input area works — type prompt text, appears in input area",
+        "Test: Submit shows response — enter prompt, streaming response renders on screen",
+        "Test: ^C interrupts response — send SIGINT during streaming, Claude stays alive",
+        "Test: Color output renders — ANSI color codes render correctly in xterm buffer",
+        "Test: Exit cleanly — /exit or ^C twice, Claude exits",
         "Tests use TerminalHarness with waitFor() for timing-sensitive assertions",
         "Tests gated with skipUnless(hasClaudeInstalled())",
         "Typecheck passes",
@@ -1808,7 +1808,7 @@
       ],
       "priority": 103,
       "passes": false,
-      "notes": "CLI E2E Phase 6 \u2014 final phase. Depends on US-080 (TerminalHarness), US-095 (isTTY). Claude Code uses Ink (React-based TUI) with cursor movement, screen clearing, and color codes. Known spawn stall risk."
+      "notes": "CLI E2E Phase 6 — final phase. Depends on US-080 (TerminalHarness), US-095 (isTTY). Claude Code uses Ink (React-based TUI) with cursor movement, screen clearing, and color codes. Known spawn stall risk."
     }
   ]
 }
