@@ -25,12 +25,12 @@ Unsupported modules use: `"<module> is not supported in sandbox"`.
 
 | Module | Tier | Status |
 | --- | --- | --- |
-| `fs` | 1 (Bridge) + 4 (Deferred APIs) | Implemented: `readFile`, `writeFile`, `appendFile`, `open`, `read`, `write`, `close`, `readdir`, `mkdir`, `rmdir`, `rm`, `unlink`, `stat`, `lstat`, `rename`, `copyFile`, `exists`, `createReadStream`, `createWriteStream`, `writev`, `access`, `realpath`. Metadata-sensitive operations (`stat`, `exists`, `readdir` with `withFileTypes`) use metadata-native driver paths instead of content probing. `rename` delegates to driver semantics (atomic where supported; explicit limitation errors where not). Deferred deterministic errors remain for `watch`, `watchFile`, `chmod`, `chown`, `link`, `symlink`, `readlink`, `truncate`, `utimes`. |
+| `fs` | 1 (Bridge) + 4 (Deferred APIs) | Implemented: `readFile`, `writeFile`, `appendFile`, `open`, `read`, `write`, `close`, `readdir`, `mkdir`, `rmdir`, `rm`, `unlink`, `stat`, `lstat`, `rename`, `copyFile`, `exists`, `createReadStream`, `createWriteStream`, `writev`, `access`, `realpath`, `chmod`, `chown`, `link`, `symlink`, `readlink`, `truncate`, `utimes`, `cp`, `mkdtemp`, `opendir`, `glob`, `statfs`, `readv`, `fdatasync`, `fsync`. Metadata-sensitive operations (`stat`, `exists`, `readdir` with `withFileTypes`) use metadata-native driver paths instead of content probing. `rename` delegates to driver semantics (atomic where supported; explicit limitation errors where not). Deferred: `watch`, `watchFile`. |
 | `process` | 1 (Bridge) | Env access (permission-gated), cwd/chdir, exit semantics, timers, stdio, eventing, and basic usage/system metadata APIs. |
 | `os` | 1 (Bridge) | Platform/arch/version, user/system info, and `os.constants`. |
 | `child_process` | 1 (Bridge) + 5 (`fork`) | Implemented: `spawn`, `spawnSync`, `exec`, `execSync`, `execFile`, `execFileSync`; `fork` is intentionally unsupported. |
-| `http` | 1 (Bridge) | Implemented: `request`, `get`, `createServer`; bridged request/response/server classes and constants. |
-| `https` | 1 (Bridge) | Implemented: `request`, `get`, `createServer` with the same contract as `http`. |
+| `http` | 1 (Bridge) | Implemented: `request`, `get`, `createServer`; bridged request/response/server classes and constants. Includes `Agent` with connection pooling (`maxSockets`, `keepAlive`), HTTP upgrade (101 Switching Protocols) handling, and trailer headers support. |
+| `https` | 1 (Bridge) | Implemented: `request`, `get`, `createServer` with the same contract as `http`, including `Agent` pooling, upgrade handling, and trailer headers. |
 | `http2` | 3 (Stub) + 5 (Full support) | Provides compatibility classes (`Http2ServerRequest`, `Http2ServerResponse`); `createServer` and `createSecureServer` are unsupported. |
 | `dns` | 1 (Bridge) | Implemented: `lookup`, `resolve`, `resolve4`, `resolve6`, plus `dns.promises` variants. |
 | `module` | 1 (Bridge) | Implements `createRequire`, `Module` basics, and builtin resolution (`require.resolve("fs")` returns builtin identifiers). |
@@ -46,13 +46,48 @@ Unsupported modules use: `"<module> is not supported in sandbox"`.
 | `string_decoder` | 2 (Polyfill) | Polyfill via node-stdlib-browser. |
 | `zlib` | 2 (Polyfill) | Polyfill via node-stdlib-browser. |
 | `vm` | 2 (Polyfill) | Polyfill via node-stdlib-browser. |
+| `punycode` | 2 (Polyfill) | Polyfill via node-stdlib-browser. |
 | `crypto` | 3 (Stub) | Limited bridge/polyfill blend; `getRandomValues()` and `randomUUID()` use host `node:crypto` secure randomness, or throw deterministic unsupported errors if host entropy is unavailable; `subtle.*` methods throw deterministic unsupported errors. |
 | `tty` | 2 (Polyfill) | `tty-browserify`; `isatty()` returns `false`; `ReadStream`/`WriteStream` are compatibility constructors. |
 | `v8` | 3 (Stub) | Pre-registered stub with mock heap stats and JSON-based `serialize`/`deserialize`. |
 | `constants` | 2 (Polyfill) | `constants-browserify`; `os.constants` remains available via `os`. |
 | Fetch globals (`fetch`, `Headers`, `Request`, `Response`) | 1 (Bridge) | Bridged via network bridge implementation. |
-| Deferred modules (`net`, `tls`, `readline`, `perf_hooks`, `async_hooks`, `worker_threads`) | 4 (Deferred) | `require()` returns stubs; APIs throw deterministic unsupported errors when called. |
-| Unsupported modules (`dgram`, `cluster`, `wasi`, `diagnostics_channel`, `inspector`, `repl`, `trace_events`, `domain`) | 5 (Unsupported) | `require()` fails immediately with deterministic unsupported-module errors. |
+| `async_hooks` | 3 (Stub) | `AsyncLocalStorage` (with `run`, `enterWith`, `getStore`, `disable`, `exit`), `AsyncResource` (with `runInAsyncScope`, `emitDestroy`), `createHook` (returns enable/disable no-ops), `executionAsyncId`, `triggerAsyncId`. |
+| `diagnostics_channel` | 3 (Stub) | No-op `channel()` and `tracingChannel()` stubs; channels always report `hasSubscribers: false`; `publish`, `subscribe`, `unsubscribe` are no-ops. Provides Fastify compatibility. |
+| Deferred modules (`net`, `tls`, `readline`, `perf_hooks`, `worker_threads`) | 4 (Deferred) | `require()` returns stubs; APIs throw deterministic unsupported errors when called. |
+| Unsupported modules (`dgram`, `cluster`, `wasi`, `inspector`, `repl`, `trace_events`, `domain`) | 5 (Unsupported) | `require()` fails immediately with deterministic unsupported-module errors. |
+
+## Tested Packages
+
+The [project-matrix test suite](https://github.com/rivet-dev/secure-exec/tree/main/packages/secure-exec/tests/projects) validates that real-world npm packages produce identical output in secure-exec and host Node.js. Each fixture is a black-box Node project with no sandbox-specific code.
+
+| Package | Category | What It Tests |
+| --- | --- | --- |
+| [express](https://npmjs.com/package/express) | Web Framework | HTTP server, middleware, routing |
+| [fastify](https://npmjs.com/package/fastify) | Web Framework | Async middleware, schema validation, plugins |
+| [next](https://npmjs.com/package/next) | Web Framework | React SSR, module resolution, build tooling |
+| [vite](https://npmjs.com/package/vite) | Build Tool | ESM, HMR server, plugin system |
+| [astro](https://npmjs.com/package/astro) | Web Framework | Island architecture, SSR, multi-framework |
+| [hono](https://npmjs.com/package/hono) | Web Framework | ESM imports, lightweight HTTP |
+| [dotenv](https://npmjs.com/package/dotenv) | Configuration | Environment variable loading, fs reads |
+| [semver](https://npmjs.com/package/semver) | Utility | Version parsing and comparison |
+| [rivetkit](https://npmjs.com/package/rivetkit) | SDK | Local vendor package resolution |
+| crypto (builtin) | Crypto | `crypto.randomBytes`, `randomUUID`, `getRandomValues` |
+| fs-metadata-rename | Filesystem | `stat` metadata, `rename` semantics |
+| module-access | Module Resolution | Node modules overlay access |
+| conditional-exports | Module Resolution | Package `exports` field resolution |
+| optional-deps | Module Resolution | Optional dependency handling |
+| peer-deps | Module Resolution | Peer dependency resolution |
+| transitive-deps | Module Resolution | Transitive dependency chains |
+| pnpm-layout | Package Manager | pnpm `node_modules` structure |
+| npm-layout | Package Manager | npm flat `node_modules` layout |
+| yarn-classic-layout | Package Manager | Yarn v1 `node_modules` layout |
+| yarn-berry-layout | Package Manager | Yarn Berry PnP/node_modules layout |
+| bun-layout | Package Manager | Bun `node_modules` layout |
+| workspace-layout | Package Manager | npm workspace `node_modules` layout |
+| net-unsupported (fail) | Error Handling | `net.createServer` correctly errors |
+
+To request a new package be added to the test suite, [open an issue](https://github.com/rivet-dev/secure-exec/issues/new?labels=package-request&title=Package+request:+%5Bpackage-name%5D).
 
 ## Logging Behavior
 
