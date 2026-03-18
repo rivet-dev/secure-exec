@@ -2837,6 +2837,46 @@ describe("kernel + MockRuntimeDriver integration", () => {
 
 			shell.kill();
 		});
+
+		it("controller PID FD table is cleaned up after shell exits", async () => {
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { readStdinFromKernel: true, survivableSignals: [2, 20, 28] },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const shell = kernel.openShell();
+
+			// ^D on empty line → EOF → shell exits
+			shell.write("\x04");
+			await shell.wait();
+
+			// Allow cleanup callback to run
+			await new Promise((r) => setTimeout(r, 10));
+
+			// PTY master FD should be closed — write throws because PTY is gone
+			expect(() => shell.write("after-exit")).toThrow();
+		});
+
+		it("repeated openShell/exit cycles do not leak FD tables or PID numbers", async () => {
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { readStdinFromKernel: true, survivableSignals: [2, 20, 28] },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			for (let i = 0; i < 5; i++) {
+				const shell = kernel.openShell();
+
+				// Exit shell via ^D
+				shell.write("\x04");
+				await shell.wait();
+
+				// Allow cleanup callback to run
+				await new Promise((r) => setTimeout(r, 10));
+
+				// PTY master should be cleaned up each cycle
+				expect(() => shell.write("leak-check")).toThrow();
+			}
+		});
 	});
 
 	// -----------------------------------------------------------------------

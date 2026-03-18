@@ -253,6 +253,11 @@ class KernelImpl implements Kernel {
 		};
 		readPump();
 
+		// Clean up controller PID's FD table (incl. PTY master) when shell exits
+		proc.wait().then(() => {
+			this.cleanupProcessFDs(controllerPid);
+		});
+
 		return {
 			pid: proc.pid,
 			write: (data) => {
