@@ -47,16 +47,6 @@ const BROWSER_OPTION_VALIDATORS = [
 		hasValue: (options: RuntimeDriverOptions) =>
 			options.timingMitigation !== undefined,
 	},
-	{
-		label: "payloadLimits.base64TransferBytes",
-		hasValue: (options: RuntimeDriverOptions) =>
-			options.payloadLimits?.base64TransferBytes !== undefined,
-	},
-	{
-		label: "payloadLimits.jsonPayloadBytes",
-		hasValue: (options: RuntimeDriverOptions) =>
-			options.payloadLimits?.jsonPayloadBytes !== undefined,
-	},
 ];
 
 function serializePermissions(
@@ -159,6 +149,7 @@ export class BrowserRuntimeDriver implements NodeRuntimeDriver {
 			permissions: serializePermissions(options.system.permissions),
 			filesystem: browserSystemOptions.filesystem,
 			networkEnabled: browserSystemOptions.networkEnabled,
+			payloadLimits: options.payloadLimits,
 		};
 
 		this.ready = this.callWorker("init", initPayload).then(() => undefined);

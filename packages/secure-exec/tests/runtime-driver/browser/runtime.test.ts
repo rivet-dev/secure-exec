@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	NodeRuntime,
+	allowAllFs,
 	allowAllNetwork,
 	createBrowserDriver,
 	createBrowserRuntimeDriverFactory,
@@ -16,14 +17,6 @@ const UNSUPPORTED_BROWSER_RUNTIME_OPTIONS: Array<[string, RuntimeOptions]> = [
 	["memoryLimit", { memoryLimit: 128 }],
 	["cpuTimeLimitMs", { cpuTimeLimitMs: 250 }],
 	["timingMitigation", { timingMitigation: "off" }],
-	[
-		"payloadLimits.base64TransferBytes",
-		{ payloadLimits: { base64TransferBytes: 4096 } },
-	],
-	[
-		"payloadLimits.jsonPayloadBytes",
-		{ payloadLimits: { jsonPayloadBytes: 4096 } },
-	],
 ];
 
 describe.skipIf(!IS_BROWSER_ENV)("runtime driver specific: browser", () => {
@@ -36,6 +29,24 @@ describe.skipIf(!IS_BROWSER_ENV)("runtime driver specific: browser", () => {
 			filesystem: "memory",
 			useDefaultNetwork: true,
 			permissions: allowAllNetwork,
+		});
+		const runtime = new NodeRuntime({
+			...options,
+			systemDriver,
+			runtimeDriverFactory: createBrowserRuntimeDriverFactory({
+				workerUrl: new URL("../../../src/browser/worker.ts", import.meta.url),
+			}),
+		});
+		runtimes.add(runtime);
+		return runtime;
+	};
+
+	const createFsRuntime = async (
+		options: RuntimeOptions = {},
+	): Promise<NodeRuntime> => {
+		const systemDriver = await createBrowserDriver({
+			filesystem: "memory",
+			permissions: allowAllFs,
 		});
 		const runtime = new NodeRuntime({
 			...options,
@@ -200,5 +211,61 @@ describe.skipIf(!IS_BROWSER_ENV)("runtime driver specific: browser", () => {
 			channel: "stdout",
 			message: "hardened-ok",
 		});
+	});
+
+	it("accepts payloadLimits as a supported browser runtime option", async () => {
+		const runtime = await createRuntime({
+			payloadLimits: { jsonPayloadBytes: 1024 * 1024 },
+		});
+		const result = await runtime.exec(`console.log("limits-ok");`);
+		expect(result.code).toBe(0);
+	});
+
+	it("rejects oversized text file reads in browser worker", async () => {
+		const runtime = await createFsRuntime({
+			payloadLimits: { jsonPayloadBytes: 1024 },
+		});
+		// Write a file larger than the 1KB limit, then try to read it as text
+		const result = await runtime.exec(`
+			const fs = require('fs');
+			fs.mkdirSync('/data');
+			fs.writeFileSync('/data/big.txt', 'x'.repeat(2048));
+			fs.readFileSync('/data/big.txt', 'utf8');
+		`);
+		expect(result.code).toBe(1);
+		expect(result.errorMessage).toContain("ERR_SANDBOX_PAYLOAD_TOO_LARGE");
+		expect(result.errorMessage).toContain("fs.readFile");
+	});
+
+	it("allows normal-sized text file reads in browser worker", async () => {
+		const events: Array<{ channel: "stdout" | "stderr"; message: string }> = [];
+		const runtime = await createFsRuntime({
+			onStdio: (event) => events.push(event),
+		});
+		const result = await runtime.exec(`
+			const fs = require('fs');
+			fs.mkdirSync('/data');
+			fs.writeFileSync('/data/small.txt', 'hello world');
+			const content = fs.readFileSync('/data/small.txt', 'utf8');
+			console.log(content);
+		`);
+		expect(result.code).toBe(0);
+		const stdout = events.filter(e => e.channel === "stdout").map(e => e.message);
+		expect(stdout).toContain("hello world");
+	});
+
+	it("rejects oversized binary file reads in browser worker", async () => {
+		const runtime = await createFsRuntime({
+			payloadLimits: { base64TransferBytes: 1024 },
+		});
+		const result = await runtime.exec(`
+			const fs = require('fs');
+			fs.mkdirSync('/data');
+			fs.writeFileSync('/data/big.bin', Buffer.alloc(2048));
+			fs.readFileSync('/data/big.bin');
+		`);
+		expect(result.code).toBe(1);
+		expect(result.errorMessage).toContain("ERR_SANDBOX_PAYLOAD_TOO_LARGE");
+		expect(result.errorMessage).toContain("fs.readFileBinary");
 	});
 });

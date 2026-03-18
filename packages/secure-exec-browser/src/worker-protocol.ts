@@ -26,6 +26,10 @@ export type BrowserWorkerInitPayload = {
 	permissions?: SerializedPermissions;
 	filesystem?: "opfs" | "memory";
 	networkEnabled?: boolean;
+	payloadLimits?: {
+		base64TransferBytes?: number;
+		jsonPayloadBytes?: number;
+	};
 };
 
 export type BrowserWorkerRequestMessage =
