@@ -2242,7 +2242,7 @@
         "Tests pass"
       ],
       "priority": 133,
-      "passes": false,
+      "passes": true,
       "notes": "CLI E2E Phase 0 \u2014 bridge prerequisite. Gap #2, #5, #6 from cli-tool-e2e.md spec. Files: packages/secure-exec/src/bridge/process.ts, packages/secure-exec/src/node/execution-driver.ts"
     },
     {
@@ -2262,7 +2262,7 @@
         "Tests pass"
       ],
       "priority": 134,
-      "passes": false,
+      "passes": true,
       "notes": "CLI E2E Phase 0 \u2014 bridge prerequisite. Gap #1, #3 from cli-tool-e2e.md spec. Required for Pi, Claude Code (Anthropic SSE), and OpenCode SDK (OpenAI SSE)."
     },
     {
@@ -2287,7 +2287,7 @@
         "Tests pass"
       ],
       "priority": 135,
-      "passes": false,
+      "passes": true,
       "notes": "CLI E2E Phase 1. Mock LLM server is shared infrastructure for all subsequent CLI tool tests. Pi is tested first because it's pure JS with simplest dependency tree. API tokens (ANTHROPIC_API_KEY, OPENAI_API_KEY) available at ~/misc/env.txt \u2014 source it before running tests that need real or mock-pointed API keys."
     },
     {
@@ -2308,7 +2308,7 @@
         "Tests pass"
       ],
       "priority": 136,
-      "passes": false,
+      "passes": true,
       "notes": "CLI E2E Phase 2. Depends on US-080 (TerminalHarness), US-095 (isTTY). Pi uses custom pi-tui with differential rendering and synchronized output sequences (CSI ?2026h/l). API tokens (ANTHROPIC_API_KEY, OPENAI_API_KEY) available at ~/misc/env.txt \u2014 source it before running tests that need real or mock-pointed API keys."
     },
     {
@@ -2333,7 +2333,7 @@
         "Tests pass"
       ],
       "priority": 137,
-      "passes": false,
+      "passes": true,
       "notes": "CLI E2E Phase 3, Strategy A. OpenCode is a Bun binary, NOT a Node.js package \u2014 tests the child_process.spawn bridge for complex host binaries. Hardest CLI tool, tested before Claude Code to front-load risk. API tokens (ANTHROPIC_API_KEY, OPENAI_API_KEY) available at ~/misc/env.txt \u2014 source it before running tests that need real or mock-pointed API keys."
     },
     {
@@ -2355,7 +2355,7 @@
         "Tests pass"
       ],
       "priority": 138,
-      "passes": false,
+      "passes": true,
       "notes": "CLI E2E Phase 3, Strategy B. Tests HTTP/SSE client bridge by running @opencode-ai/sdk inside the sandbox talking to opencode serve on host. Depends on US-096 (SSE/streams). API tokens (ANTHROPIC_API_KEY, OPENAI_API_KEY) available at ~/misc/env.txt \u2014 source it before running tests that need real or mock-pointed API keys."
     },
     {
@@ -2376,7 +2376,7 @@
         "Tests pass"
       ],
       "priority": 139,
-      "passes": false,
+      "passes": true,
       "notes": "CLI E2E Phase 4. Depends on US-080 (TerminalHarness), US-095 (isTTY). OpenCode uses OpenTUI (TypeScript + Zig) with SolidJS \u2014 may render non-standard ANSI sequences. Use waitFor() with content assertions, tighten after empirical capture. API tokens (ANTHROPIC_API_KEY, OPENAI_API_KEY) available at ~/misc/env.txt \u2014 source it before running tests that need real or mock-pointed API keys."
     },
     {
