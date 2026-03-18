@@ -2196,3 +2196,18 @@ PRD: ralph/kernel-hardening (46 stories)
   - `@secure-exec/python` has no cyclic dependency with `secure-exec` (only depends on core), so direct imports from it are safe
   - 3 pre-existing test failures in node runtime driver (http2, https, upgrade) are unrelated to this change
 ---
+
+## 2026-03-18 - US-165
+- Updated nodejs-compatibility.mdx with current implementation state
+- Files changed: docs/nodejs-compatibility.mdx
+- Changes:
+  - fs entry: moved chmod, chown, link, symlink, readlink, truncate, utimes from Deferred to Implemented; added cp, mkdtemp, opendir, glob, statfs, readv, fdatasync, fsync; only watch/watchFile remain Deferred
+  - http/https entries: added Agent pooling, upgrade handling, and trailer headers support
+  - async_hooks: extracted from Deferred group to Tier 3 Stub with AsyncLocalStorage, AsyncResource, createHook details
+  - diagnostics_channel: extracted from Unsupported group to Tier 3 Stub with no-op channel/tracingChannel details
+  - punycode: added as Tier 2 Polyfill via node-stdlib-browser
+  - Tested Packages section: expanded from 8 to 22 entries covering all project-matrix fixtures
+- **Learnings for future iterations:**
+  - The Tested Packages table had only npm-published packages; project-matrix also tests builtin modules, package manager layouts, and module resolution — all should be listed
+  - async_hooks and diagnostics_channel have custom stub implementations in require-setup.ts (not just the generic deferred error pattern) — they deserve their own rows in the matrix
+---
