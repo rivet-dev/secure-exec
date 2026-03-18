@@ -1433,3 +1433,15 @@ PRD: ralph/kernel-hardening (46 stories)
   - Discarding excess bytes with `continue` is simplest; no need for error since POSIX silently drops excess
   - MAX_CANON exported from pty.ts alongside MAX_PTY_BUFFER_BYTES for test import
 ---
+
+## 2026-03-18 - US-120
+- Implemented controller PID FD table cleanup when shell exits in openShell()
+- Added `proc.wait().then(() => this.cleanupProcessFDs(controllerPid))` to kernel.ts openShell()
+- This ensures the controller's FD table (holding the PTY master FD) is freed when the shell process exits
+- Files changed: packages/kernel/src/kernel.ts, packages/kernel/test/kernel-integration.test.ts
+- **Learnings for future iterations:**
+  - Controller PID in openShell() is a "phantom" PID — allocated but never registered in the process table; only anchors an FD table for the PTY master
+  - cleanupProcessFDs handles both FD table removal and managed resource (pipe/PTY) cleanup when refCounts drop to zero
+  - PTY write/read after cleanup throws EBADF ("PTY not found") — use this as observable assertion in tests
+  - proc.wait() returns a Promise that resolves after the process exits and processTable.markExited runs — safe to chain cleanup
+---
