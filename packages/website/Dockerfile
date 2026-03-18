@@ -2,14 +2,14 @@ FROM node:22-alpine AS build
 WORKDIR /app
 RUN npm install -g pnpm@9
 
-# Copy website package
-COPY frontend/packages/website/package.json ./
-
-# Install dependencies
+# Copy website package manifest and install dependencies
+COPY packages/website/package.json ./
 RUN pnpm install
 
-# Copy website source
-COPY frontend/packages/website/ .
+# Copy website source (preserve node_modules from install step)
+COPY packages/website/src/ ./src/
+COPY packages/website/public/ ./public/
+COPY packages/website/astro.config.* packages/website/tailwind.config.* packages/website/vite.config.* packages/website/tsconfig.json ./
 
 # Build
 RUN pnpm build
