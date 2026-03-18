@@ -2003,3 +2003,16 @@ PRD: ralph/kernel-hardening (46 stories)
   - Internal functions using self.postMessage must capture the reference before hardening blocks it
   - Getter traps on non-configurable properties are permanent — they can't be reconfigured back
 ---
+
+## 2026-03-18 - US-145
+- Verified existing implementation: concurrent host timer cap already fully implemented and tested
+- Bridge-side: `_checkTimerBudget()` in process.ts tracks `_timers.size + _intervals.size` vs `_maxTimers`
+- Host-side: `DEFAULT_MAX_TIMERS = 10_000` in isolate-bootstrap.ts, injected via jail.set("_maxTimers")
+- Cleared timers properly decrement count (Maps delete on clear)
+- 4 tests already passing in resource-budgets.test.ts: exceed cap, survive blocking, clear-and-reuse, normal usage
+- No code changes needed — marked passes: true
+- Files changed: scripts/ralph/prd.json (passes: true)
+- **Learnings for future iterations:**
+  - Some stories may already be implemented but not marked as passing — always check existing code/tests first
+  - Resource budget tests are in packages/secure-exec/tests/runtime-driver/node/resource-budgets.test.ts
+---
