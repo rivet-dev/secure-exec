@@ -8,13 +8,8 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { createKernel } from '../../../kernel/src/index.ts';
-import type {
-  Kernel,
-  RuntimeDriver,
-  DriverProcess,
-  ProcessContext,
-} from '../../../kernel/src/index.ts';
-import { TestFileSystem } from '../../../kernel/test/helpers.ts';
+import type { Kernel } from '../../../kernel/src/index.ts';
+import { MockRuntimeDriver } from '../../../kernel/test/helpers.ts';
 import { createNodeRuntime } from '../../../runtime/node/src/index.ts';
 import { createPythonRuntime } from '../../../runtime/python/src/index.ts';
 import { InMemoryFileSystem } from '../../../os/browser/src/index.ts';
@@ -79,6 +74,50 @@ describe.skipIf(skipReason)('dispose with active processes (integration)', () =>
 
     expect(elapsed).toBeLessThan(5000);
   }, 10_000);
+
+  it('WASM process exits → piped stdout closed, reader gets EOF', async () => {
+    ctx = await createIntegrationKernel({ runtimes: ['wasmvm'] });
+    const { kernel: k, vfs } = ctx;
+
+    // Mount a mock driver to act as the reader process
+    const reader = new MockRuntimeDriver(['reader'], {
+      reader: { neverExit: true },
+    });
+    await k.mount(reader);
+    const ki = reader.kernelInterface!;
+
+    // Spawn reader process to host the pipe
+    const readerProc = k.spawn('reader', []);
+    const { readFd, writeFd } = ki.pipe(readerProc.pid);
+
+    // Spawn WASM echo as child with stdout wired to pipe write end
+    const echoPid = ki.spawn('echo', ['wasm-pipe-data'], {
+      ppid: readerProc.pid,
+      stdoutFd: writeFd,
+    });
+
+    // Close reader's inherited write end (standard pipe setup)
+    ki.fdClose(readerProc.pid, writeFd);
+
+    // Wait for echo to finish — exit triggers FD cleanup → write end closed → EOF
+    await echoPid.wait();
+
+    // Read pipe data + EOF
+    const chunks: Uint8Array[] = [];
+    while (true) {
+      const chunk = await ki.fdRead(readerProc.pid, readFd, 4096);
+      if (chunk.length === 0) break; // EOF
+      chunks.push(chunk);
+    }
+
+    const output = new TextDecoder().decode(
+      new Uint8Array(chunks.reduce((acc, c) => [...acc, ...c], [] as number[])),
+    );
+    expect(output).toContain('wasm-pipe-data');
+
+    readerProc.kill(9);
+    await readerProc.wait();
+  }, 15_000);
 });
 
 // ---------------------------------------------------------------------------
@@ -131,55 +170,39 @@ describe('process cleanup and timer disposal', () => {
   }, 10_000);
 
   it('piped stdout/stderr FDs closed on process exit, readers get EOF', async () => {
-    // Mock driver that writes stdout via kernel FD then exits
-    const mockDriver: RuntimeDriver = {
-      name: 'pipe-eof-mock',
-      commands: ['writer'],
-      async init() {},
-      spawn(_command: string, _args: string[], ctx: ProcessContext): DriverProcess {
-        let exitResolve!: (code: number) => void;
-        const exitPromise = new Promise<number>((r) => { exitResolve = r; });
-
-        const proc: DriverProcess = {
-          writeStdin() {},
-          closeStdin() {},
-          kill() { exitResolve(137); proc.onExit?.(137); },
-          wait: () => exitPromise,
-          onStdout: null,
-          onStderr: null,
-          onExit: null,
-        };
-
-        // Write to stdout then exit — FD cleanup propagates EOF to pipe readers
-        queueMicrotask(() => {
-          const data = new TextEncoder().encode('output');
-          ctx.onStdout?.(data);
-          proc.onStdout?.(data);
-          exitResolve(0);
-          proc.onExit?.(0);
-        });
-
-        return proc;
-      },
-      async dispose() {},
-    };
-
-    const vfs = new TestFileSystem();
-    kernel = createKernel({ filesystem: vfs });
-    await kernel.mount(mockDriver);
-
-    // Capture stdout through onStdout callback
-    const chunks: Uint8Array[] = [];
-    const proc = kernel.spawn('writer', [], {
-      onStdout: (data) => chunks.push(data),
+    const driver = new MockRuntimeDriver(['writer', 'reader'], {
+      writer: { neverExit: true },
+      reader: { neverExit: true },
     });
+    const vfs = new InMemoryFileSystem();
+    kernel = createKernel({ filesystem: vfs });
+    await kernel.mount(driver);
+    const ki = driver.kernelInterface!;
 
-    const code = await proc.wait();
-    expect(code).toBe(0);
-    expect(chunks.length).toBeGreaterThan(0);
+    // Spawn writer, create pipe in its FD table
+    const writer = kernel.spawn('writer', []);
+    const { readFd, writeFd } = ki.pipe(writer.pid);
 
-    const output = new TextDecoder().decode(chunks[0]);
-    expect(output).toBe('output');
+    // Spawn reader as child — inherits both pipe ends
+    const reader = ki.spawn('reader', [], { ppid: writer.pid });
+    // Reader closes inherited write end (standard pipe setup)
+    ki.fdClose(reader.pid, writeFd);
+
+    // Writer sends data through pipe
+    ki.fdWrite(writer.pid, writeFd, new TextEncoder().encode('pipe-data'));
+    const data = await ki.fdRead(reader.pid, readFd, 100);
+    expect(new TextDecoder().decode(data)).toBe('pipe-data');
+
+    // Kill writer — exit triggers cleanupProcessFDs → write end refcount drops → EOF
+    writer.kill(9);
+    await writer.wait();
+
+    // Reader should get EOF (empty Uint8Array)
+    const eof = await ki.fdRead(reader.pid, readFd, 100);
+    expect(eof.length).toBe(0);
+
+    reader.kill(9);
+    await reader.wait();
   });
 
   it('double-dispose on NodeRuntime does not throw', async () => {
