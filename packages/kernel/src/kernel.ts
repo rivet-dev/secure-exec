@@ -400,6 +400,17 @@ class KernelImpl implements Kernel {
 		// Register PID ownership before driver.spawn() so the driver can use it
 		this.driverPids.get(driver.name)?.add(pid);
 
+		// Cross-runtime spawn: parent driver must also track child PID so
+		// it can waitpid/kill/interact with the child process
+		if (callerPid !== undefined) {
+			for (const [name, pids] of this.driverPids) {
+				if (name !== driver.name && pids.has(callerPid)) {
+					pids.add(pid);
+					break;
+				}
+			}
+		}
+
 		// Create FD table — wire pipe FDs when overrides are provided
 		const table = this.createChildFDTable(pid, options, callerPid);
 
@@ -411,6 +422,34 @@ class KernelImpl implements Kernel {
 		const stdoutBuf: Uint8Array[] = [];
 		const stderrBuf: Uint8Array[] = [];
 
+		// Resolve output callbacks: when a child inherits non-piped stdio from
+		// a parent, forward output to the parent's DriverProcess callbacks so
+		// cross-runtime child output reaches the top-level collector.
+		let stdoutCb: ((data: Uint8Array) => void) | undefined;
+		let stderrCb: ((data: Uint8Array) => void) | undefined;
+		if (!stdoutPiped) {
+			if (options?.onStdout) {
+				stdoutCb = options.onStdout;
+			} else if (callerPid !== undefined) {
+				const parent = this.processTable.get(callerPid);
+				if (parent?.driverProcess.onStdout) {
+					stdoutCb = parent.driverProcess.onStdout;
+				}
+			}
+			if (!stdoutCb) stdoutCb = (data) => stdoutBuf.push(data);
+		}
+		if (!stderrPiped) {
+			if (options?.onStderr) {
+				stderrCb = options.onStderr;
+			} else if (callerPid !== undefined) {
+				const parent = this.processTable.get(callerPid);
+				if (parent?.driverProcess.onStderr) {
+					stderrCb = parent.driverProcess.onStderr;
+				}
+			}
+			if (!stderrCb) stderrCb = (data) => stderrBuf.push(data);
+		}
+
 		// Build process context with pre-wired callbacks
 		const ctx: ProcessContext = {
 			pid,
@@ -418,8 +457,8 @@ class KernelImpl implements Kernel {
 			env: { ...this.env, ...options?.env },
 			cwd: options?.cwd ?? this.cwd,
 			fds: { stdin: 0, stdout: 1, stderr: 2 },
-			onStdout: stdoutPiped ? undefined : (data) => stdoutBuf.push(data),
-			onStderr: stderrPiped ? undefined : (data) => stderrBuf.push(data),
+			onStdout: stdoutCb,
+			onStderr: stderrCb,
 		};
 
 		// Spawn via driver
