@@ -1754,3 +1754,15 @@ PRD: ralph/kernel-hardening (46 stories)
   - npm creates symlinks for file: deps — the sandbox module resolver handles these correctly
   - The plugin's require("@peer-test/host") resolves through the peer dep chain to the root node_modules
 ---
+
+## 2026-03-18 - US-093
+- Created transitive dependency chain fixture at packages/secure-exec/tests/projects/transitive-deps-pass/
+- Structure: 3 local packages (@chain-test/level-a → level-b → level-c) with file: dependencies
+- Entry file requires level-a, walks the chain to verify all 3 levels loaded, and prints greeting proving transitive resolution works
+- Uses npm with file: deps for flat node_modules layout
+- Fixture passes project-matrix parity test — host Node and sandbox produce identical output
+- Files created: fixture.json, package.json, package-lock.json, packages/level-{a,b,c}/{package.json,index.js}, src/index.js
+- **Learnings for future iterations:**
+  - Transitive file: deps resolve correctly in both host and sandbox — npm hoists all 3 levels to root node_modules
+  - Walking .child property chain is a clean way to verify all transitive levels loaded correctly
+---
