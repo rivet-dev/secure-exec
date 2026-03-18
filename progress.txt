@@ -708,12 +708,12 @@ PRD: ralph/kernel-hardening (46 stories)
 ## 2026-03-17 - US-044
 - What was implemented: Codemod example project demonstrating safe code transformations in secure-exec sandbox
 - Files changed:
-  - examples/codemod/package.json (new) — @libsandbox/example-codemod package with tsx dev script
+  - examples/codemod/package.json (new) — @secure-exec/example-codemod package with tsx dev script
   - examples/codemod/src/index.ts (new) — reads source → writes to VFS → executes codemod in sandbox → reads transformed result → prints diff
 - **Learnings for future iterations:**
   - esbuild (used by tsx) cannot parse template literal backticks or `${` inside String.raw templates — use `String.fromCharCode(96)` and split `'$' + '{'` to work around
   - Examples don't need tsconfig.json — they inherit from the workspace and use tsx for runtime TS execution
-  - Example naming convention: `@libsandbox/example-<name>` with `"private": true` and `"type": "module"`
+  - Example naming convention: `@secure-exec/example-<name>` with `"private": true` and `"type": "module"`
   - InMemoryFileSystem methods (readTextFile, writeFile) are async (return Promises) — must await them on the host side
 ---
 

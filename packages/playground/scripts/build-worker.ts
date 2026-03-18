@@ -34,6 +34,7 @@ async function buildWorkerBundle(): Promise<void> {
 
 	await build({
 		bundle: true,
+		external: ["path", "fs", "module", "util"],
 		format: "esm",
 		legalComments: "none",
 		minify: true,

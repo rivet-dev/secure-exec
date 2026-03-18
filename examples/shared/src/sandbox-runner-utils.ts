@@ -64,7 +64,7 @@ export async function prepareRunnerInTempDir(
 	sourceDir: string,
 	entryRelativePath: string = path.join("src", "index.ts"),
 ): Promise<{ tempDir: string; entryPath: string }> {
-	const tempDir = await mkdtemp(path.join(tmpdir(), "libsandbox-hono-runner-"));
+	const tempDir = await mkdtemp(path.join(tmpdir(), "secure-exec-hono-runner-"));
 
 	await cp(sourceDir, tempDir, {
 		recursive: true,
