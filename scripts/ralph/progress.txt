@@ -2155,3 +2155,23 @@ PRD: ralph/kernel-hardening (46 stories)
   - esbuild build scripts may be ignored by pnpm approve-builds, but vite build still works because esbuild ships platform-specific prebuilt binaries as optionalDependencies
   - e2e-project-matrix.test.ts (kernel) is globally broken — 22/23 tests fail with "could not retrieve pid for child process"; this is a pre-existing kernel infrastructure issue, not fixture-specific
 ---
+
+## 2026-03-18 - US-163
+- Added Astro project-matrix fixture at packages/secure-exec/tests/projects/astro-pass/
+- Astro project with one page (src/pages/index.astro) and one interactive React island component (src/components/Counter.jsx) using client:load
+- Entry point (src/index.js) runs astro build, validates index.html content, astro-island hydration, and client JS assets in _astro/
+- Files created:
+  - packages/secure-exec/tests/projects/astro-pass/fixture.json
+  - packages/secure-exec/tests/projects/astro-pass/package.json
+  - packages/secure-exec/tests/projects/astro-pass/astro.config.mjs
+  - packages/secure-exec/tests/projects/astro-pass/src/pages/index.astro
+  - packages/secure-exec/tests/projects/astro-pass/src/components/Counter.jsx
+  - packages/secure-exec/tests/projects/astro-pass/src/index.js
+  - scripts/ralph/prd.json — marked US-163 passes: true
+- **Learnings for future iterations:**
+  - Astro wraps hydrated components in `<astro-island>` custom elements — check for this string to verify island architecture in build output
+  - Astro client JS goes to `dist/_astro/` directory (unlike Vite's `dist/assets/`)
+  - ASTRO_TELEMETRY_DISABLED=1 env var disables telemetry during build (similar to NEXT_TELEMETRY_DISABLED)
+  - @astrojs/react integration required for React island components; astro.config.mjs must import and register it
+  - e2e-project-matrix kernel tests still globally broken (23/24 fail) — same pre-existing issue as US-162
+---
