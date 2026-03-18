@@ -1204,3 +1204,14 @@ PRD: ralph/kernel-hardening (46 stories)
   - PythonRuntime has explicit `_disposed` flag for idempotent dispose; NodeRuntimeDriver doesn't need one since it just iterates/clears a map
   - Kernel.dispose() has its own `disposed` flag, so double-dispose on kernel only calls driver.dispose() once — to test driver-level double-dispose, call driver.dispose() directly after kernel.dispose()
 ---
+
+## 2026-03-17 - US-078
+- Added 8 new tests to device-layer.test.ts covering device behavior gaps
+- Tests added: urandom consecutive read uniqueness, /dev/zero write discard, stdin/stdout/stderr stat and read-through, rename EPERM (both source and target), link EPERM, truncate /dev/null no-op
+- Files changed: packages/kernel/test/device-layer.test.ts
+- **Learnings for future iterations:**
+  - Device layer writeFile only intercepts /dev/null (discards); all other device paths (including /dev/stdout) pass through to backing VFS
+  - Device layer readFile only intercepts /dev/null, /dev/zero, /dev/urandom; stdio device reads fall through to backing VFS (ENOENT if not present)
+  - TestFileSystem.writeFile auto-creates parent directories, so writing to paths like /dev/stdout won't throw in tests — it succeeds in the backing FS
+  - rename() checks both oldPath and newPath for device paths, so test both directions
+---
