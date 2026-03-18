@@ -14,6 +14,8 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdtemp, mkdir, rm, writeFile, readFile } from 'node:fs/promises';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -296,6 +298,46 @@ describe.skipIf(skipReason)('Claude Code headless E2E', () => {
   // -------------------------------------------------------------------------
   // Exit codes
   // -------------------------------------------------------------------------
+
+  it(
+    'Claude exit codes — bad API key exits non-zero',
+    async () => {
+      // Tiny server that rejects all requests with 401 (simulates invalid API key)
+      const rejectServer = http.createServer((req, res) => {
+        const chunks: Buffer[] = [];
+        req.on('data', (c: Buffer) => chunks.push(c));
+        req.on('end', () => {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              error: {
+                type: 'authentication_error',
+                message: 'invalid x-api-key',
+              },
+            }),
+          );
+        });
+      });
+      await new Promise<void>((r) =>
+        rejectServer.listen(0, '127.0.0.1', r),
+      );
+      const rejectPort = (rejectServer.address() as AddressInfo).port;
+
+      try {
+        const result = await runClaude(['say hello'], {
+          port: rejectPort,
+          cwd: workDir,
+          timeout: 15_000,
+        });
+        expect(result.exitCode).not.toBe(0);
+      } finally {
+        await new Promise<void>((resolve, reject) => {
+          rejectServer.close((err) => (err ? reject(err) : resolve()));
+        });
+      }
+    },
+    20_000,
+  );
 
   it(
     'Claude exit codes — good prompt exits 0',
