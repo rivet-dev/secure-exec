@@ -7,6 +7,9 @@ Started: Tue Mar 17 02:30:23 AM PDT 2026
 - Tests doing async FD operations (fdRead, fdWrite) must use `neverExit: true` to prevent process from exiting mid-test; kill explicitly at end
 - `fdTableManager.remove(pid)` closes all FDs and removes the table; pipe ends need separate `pipeManager.close()` calls for descriptions whose refCount drops to 0
 - Kernel converts pipe EOF (null) to empty `Uint8Array(0)` in fdRead — test for `.length === 0` not `null`
+- Bridge http.request() only supports `(options, callback)` and `(url, callback)` — NOT the 3-arg `(url, options, callback)` form
+- Bridge HTTP server: Express works as `http.createServer(app)` callback; Fastify v5 routing does NOT work with bridge's ServerIncomingMessage
+- Project-matrix sandbox: requires `createDefaultNetworkAdapter()` + `allowAllNetwork` permissions for HTTP fixtures
 
 ---
 
@@ -59,4 +62,24 @@ Started: Tue Mar 17 02:30:23 AM PDT 2026
 - bun.lock (modern text format, replaces bun.lockb), fixture.json has packageManager: bun
 - secure-exec project-matrix passes bun-layout-pass
 - **Files changed**: `scripts/ralph/prd.json` — marked passes: true
+---
+
+## 2026-03-17 17:25 PDT - US-051 (partial)
+- **Implemented**: Express fixture with real HTTP (works in sandbox). Fastify fixture with real HTTP (host only).
+- **What was done**:
+  - Express: replaced EventEmitter dispatch with http.createServer + http.request (port 0, auto-assign)
+  - Fastify: replaced EventEmitter dispatch with http.createServer + app.routing + http.request
+  - Bridge improvements: ServerIncomingMessage now has socket/connection stubs, readable stream methods, httpVersion, _readableState; ServerResponseBridge now has emit(), socket/connection, assignSocket, _writableState, getHeaderNames, getHeaders; dispatchServerRequest emits data/end events
+  - Project matrix test: added createDefaultNetworkAdapter() + allowAllNetwork permissions
+- **Files changed**:
+  - `packages/secure-exec/src/bridge/network.ts` — ServerIncomingMessage, ServerResponseBridge, ServerResponseCallable, dispatchServerRequest improvements
+  - `packages/secure-exec/tests/project-matrix.test.ts` — network adapter + permissions
+  - `packages/secure-exec/tests/projects/express-pass/src/index.js` — real HTTP
+  - `packages/secure-exec/tests/projects/fastify-pass/src/index.js` — real HTTP
+- **NOT PASSING**: Fastify fails in sandbox. Fastify v5's request pipeline accesses ServerIncomingMessage properties ("Cannot read properties of null (reading 'length')") that the bridge doesn't fully implement. Express passes because its request handler is more tolerant of non-standard req/res implementations.
+- **Learnings for future iterations:**
+  - Bridge's http.request() only supports 2-arg form `(options, callback)` — not the 3-arg `(url, options, callback)` form
+  - Express works with bridge's ServerIncomingMessage; Fastify v5 does not (needs full Node.js stream compatibility)
+  - Enabling network in project-matrix requires both `createDefaultNetworkAdapter()` and `allowAllNetwork` permissions
+  - Bridge's ServerResponseBridge needs `emit()` (not just `_emit`) for frameworks that call `this.emit()`
 ---

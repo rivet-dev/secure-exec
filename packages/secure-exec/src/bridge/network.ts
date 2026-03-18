@@ -998,10 +998,18 @@ class ServerIncomingMessage {
   rawHeaders: string[];
   method: string;
   url: string;
-  socket: { encrypted: boolean };
+  socket: Record<string, unknown>;
+  connection: Record<string, unknown>;
   rawBody?: Buffer;
   destroyed = false;
   errored?: Error;
+  readable = true;
+  httpVersion = "1.1";
+  httpVersionMajor = 1;
+  httpVersionMinor = 1;
+  complete = true;
+  // Readable stream state stub for frameworks that inspect internal state
+  _readableState = { flowing: null, length: 0, ended: false, objectMode: false };
   private _listeners: Record<string, EventListener[]> = {};
 
   constructor(request: SerializedServerRequest) {
@@ -1012,7 +1020,19 @@ class ServerIncomingMessage {
     }
     this.method = request.method || "GET";
     this.url = request.url || "/";
-    this.socket = { encrypted: false };
+    const fakeSocket: Record<string, unknown> = {
+      encrypted: false,
+      remoteAddress: "127.0.0.1",
+      remotePort: 0,
+      writable: true,
+      on() { return fakeSocket; },
+      once() { return fakeSocket; },
+      removeListener() { return fakeSocket; },
+      destroy() {},
+      end() {},
+    };
+    this.socket = fakeSocket;
+    this.connection = fakeSocket;
     const rawHost = this.headers.host;
     if (typeof rawHost === "string" && rawHost.includes(",")) {
       this.headers.host = rawHost.split(",")[0].trim();
@@ -1033,9 +1053,6 @@ class ServerIncomingMessage {
   on(event: string, listener: EventListener): this {
     if (!this._listeners[event]) this._listeners[event] = [];
     this._listeners[event].push(listener);
-    if (event === "end") {
-      Promise.resolve().then(() => listener());
-    }
     return this;
   }
 
@@ -1065,6 +1082,15 @@ class ServerIncomingMessage {
     listeners.slice().forEach((fn) => fn(...args));
     return true;
   }
+
+  // Readable stream stubs for framework compatibility
+  unpipe(): this { return this; }
+  pause(): this { return this; }
+  resume(): this { return this; }
+  read(): null { return null; }
+  pipe(dest: unknown): unknown { return dest; }
+  isPaused(): boolean { return false; }
+  setEncoding(): this { return this; }
 
   destroy(err?: Error): this {
     this.destroyed = true;
@@ -1125,10 +1151,15 @@ class ServerResponseBridge {
     return this.off(event, listener);
   }
 
-  private _emit(event: string, ...args: unknown[]): void {
+  emit(event: string, ...args: unknown[]): boolean {
     const listeners = this._listeners[event];
-    if (!listeners) return;
+    if (!listeners || listeners.length === 0) return false;
     listeners.slice().forEach((fn) => fn(...args));
+    return true;
+  }
+
+  private _emit(event: string, ...args: unknown[]): void {
+    this.emit(event, ...args);
   }
 
   writeHead(
@@ -1184,6 +1215,43 @@ class ServerResponseBridge {
     this._finalize();
     return this;
   }
+
+  getHeaderNames(): string[] {
+    return Array.from(this._headers.keys());
+  }
+
+  getHeaders(): Record<string, string> {
+    const result: Record<string, string> = {};
+    for (const [key, value] of this._headers) result[key] = value;
+    return result;
+  }
+
+  // Writable stream state stub for frameworks that inspect internal state
+  _writableState = { length: 0, ended: false, finished: false, objectMode: false, corked: 0 };
+
+  // Fake socket for frameworks that access res.socket/res.connection
+  socket = {
+    writable: true,
+    on: () => this.socket,
+    once: () => this.socket,
+    removeListener: () => this.socket,
+    destroy: () => {},
+    end: () => {},
+    cork: () => {},
+    uncork: () => {},
+    write: () => true,
+  } as Record<string, unknown>;
+  connection = this.socket;
+
+  // Node.js http.ServerResponse socket/stream compatibility stubs
+  assignSocket(): void { /* no-op */ }
+  detachSocket(): void { /* no-op */ }
+  writeContinue(): void { /* no-op */ }
+  writeProcessing(): void { /* no-op */ }
+  addTrailers(): void { /* no-op */ }
+  cork(): void { /* no-op */ }
+  uncork(): void { /* no-op */ }
+  setTimeout(_msecs?: number): this { return this; }
 
   flushHeaders(): void {
     this.headersSent = true;
@@ -1407,7 +1475,16 @@ async function dispatchServerRequest(
   const outgoing = new ServerResponseBridge();
 
   try {
-    await Promise.resolve(listener(incoming, outgoing));
+    // Call listener synchronously — frameworks register event handlers here
+    const listenerResult = listener(incoming, outgoing);
+
+    // Emit readable stream events so body-parsing middleware (e.g. express.json()) can proceed
+    if (incoming.rawBody && incoming.rawBody.length > 0) {
+      incoming.emit("data", incoming.rawBody);
+    }
+    incoming.emit("end");
+
+    await Promise.resolve(listenerResult);
   } catch (err) {
     outgoing.statusCode = 500;
     outgoing.end(err instanceof Error ? `Error: ${err.message}` : "Error");
@@ -1437,6 +1514,22 @@ function ServerResponseCallable(this: any): void {
   this._closedPromise = new Promise<void>((resolve) => {
     this._resolveClosed = resolve;
   });
+  // Writable stream state stub
+  this._writableState = { length: 0, ended: false, finished: false, objectMode: false, corked: 0 };
+  // Fake socket for frameworks/inject libraries that access res.socket
+  const fakeSocket = {
+    writable: true,
+    on() { return fakeSocket; },
+    once() { return fakeSocket; },
+    removeListener() { return fakeSocket; },
+    destroy() {},
+    end() {},
+    cork() {},
+    uncork() {},
+    write() { return true; },
+  };
+  this.socket = fakeSocket;
+  this.connection = fakeSocket;
 }
 ServerResponseCallable.prototype = Object.create(ServerResponseBridge.prototype, {
   constructor: { value: ServerResponseCallable, writable: true, configurable: true },

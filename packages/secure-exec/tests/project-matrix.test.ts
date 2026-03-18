@@ -8,6 +8,8 @@ import { describe, expect, it } from "vitest";
 import {
 	allowAllEnv,
 	allowAllFs,
+	allowAllNetwork,
+	createDefaultNetworkAdapter,
 	createNodeDriver,
 	NodeFileSystem,
 	NodeRuntime,
@@ -28,6 +30,7 @@ const CACHE_ROOT = path.join(PACKAGE_ROOT, ".cache", "project-matrix");
 const fixturePermissions = {
 	...allowAllFs,
 	...allowAllEnv,
+	...allowAllNetwork,
 };
 
 type PackageManager = "pnpm" | "npm" | "bun";
@@ -459,6 +462,7 @@ async function runSandboxExecution(
 	const capturedEvents: CapturedConsoleEvent[] = [];
 	const proc = createTestNodeRuntime({
 		filesystem: new NodeFileSystem(),
+		networkAdapter: createDefaultNetworkAdapter(),
 		permissions: fixturePermissions,
 		onStdio: (event) => {
 			capturedEvents.push(event);

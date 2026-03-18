@@ -1339,6 +1339,476 @@
       "priority": 79,
       "passes": false,
       "notes": "Audit M32, M33, M34. Only readFile/readTextFile permission denial is tested. Write-side and custom checkers have zero coverage."
+    },
+    {
+      "id": "US-080",
+      "title": "Add @xterm/headless devDependency and create TerminalHarness utility",
+      "description": "As a developer, I need a TerminalHarness test helper that wires openShell() to a headless xterm Terminal so I can assert on exact screen state in tests.",
+      "acceptanceCriteria": [
+        "pnpm -F @secure-exec/kernel add -D @xterm/headless succeeds and package.json updated",
+        "packages/kernel/test/terminal-harness.ts exports TerminalHarness class",
+        "TerminalHarness constructor accepts a Kernel and optional OpenShellOptions, creates headless Terminal at fixed 80x24",
+        "type(input) sends input through PTY, waits until no new bytes received for 50ms, then resolves; rejects if called while previous type() is in-flight",
+        "screenshotTrimmed() returns viewport rows only (not scrollback) from xterm buffer, trailing whitespace trimmed per line, trailing empty lines dropped, joined with newline",
+        "line(row) returns single trimmed row from screen buffer (0-indexed)",
+        "waitFor(text, occurrence?, timeoutMs?) polls screen buffer every 20ms until text found; throws descriptive error on timeout (includes expected text, timeout, and actual screen content); checks shell.exitCode in poll loop and throws immediately if shell died",
+        "exit() sends ^D on empty line and awaits shell exit, returns exit code",
+        "dispose() kills shell and disposes terminal; safe to call multiple times; tests must call in afterEach or use try/finally to prevent resource leaks",
+        "Typecheck passes"
+      ],
+      "priority": 80,
+      "passes": false,
+      "notes": "Phase 1 of terminal-e2e-testing.md spec. TerminalHarness is the foundation for all subsequent terminal tests. Adversarial review identified: must define concrete settlement window for type(), detect shell crash in poll loops, and prevent resource leaks on test failure."
+    },
+    {
+      "id": "US-081",
+      "title": "Add kernel PTY terminal tests: initial state, echo, command output",
+      "description": "As a developer, I need terminal-level tests for basic PTY plumbing using MockRuntimeDriver to verify echo, output placement, and screen rendering.",
+      "acceptanceCriteria": [
+        "packages/kernel/test/shell-terminal.test.ts created with file-level comment documenting exact-match assertion constraint",
+        "Test: clean initial state \u2014 shell opens, screen is empty or shows prompt",
+        "Test: echo on input \u2014 typed text appears on screen via PTY echo",
+        "Test: command output on correct line \u2014 mock echo-back appears below the input line",
+        "Test: output preservation \u2014 multiple commands, all previous output stays visible",
+        "All output assertions use exact-match on screenshotTrimmed() (no toContain, no substring checks)",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 81,
+      "passes": false,
+      "notes": "Phase 1 of terminal-e2e-testing.md spec. Uses MockRuntimeDriver \u2014 no WASM binary required."
+    },
+    {
+      "id": "US-082",
+      "title": "Add kernel PTY terminal tests: signals, backspace, line wrapping",
+      "description": "As a developer, I need terminal-level tests for PTY signal handling, line editing, and wrapping behavior using MockRuntimeDriver.",
+      "acceptanceCriteria": [
+        "Test: ^C sends SIGINT \u2014 screen shows ^C, shell stays alive, can type more",
+        "Test: ^D exits cleanly \u2014 shell exits with code 0, no extra output",
+        "Test: backspace erases character \u2014 'helo' + BS + 'lo\\n' \u2192 screen shows 'hello'",
+        "Test: long line wrapping \u2014 input exceeding cols wraps to next row",
+        "Test: resize(cols, rows) triggers SIGWINCH \u2014 shell stays alive, prompt returns on new dimensions",
+        "Test: echo disabled \u2014 type input with echo off, verify typed text does NOT appear on screen (password input scenario)",
+        "All output assertions use exact-match on screenshotTrimmed()",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 82,
+      "passes": false,
+      "notes": "Phase 1 of terminal-e2e-testing.md spec. Completes the kernel-level terminal test suite. Adversarial review added: SIGWINCH resize and echo-disabled tests \u2014 both have low-level coverage but no terminal-screen verification."
+    },
+    {
+      "id": "US-083",
+      "title": "Add WasmVM terminal tests: echo, ls, output preservation",
+      "description": "As a developer, I need terminal-level tests for real brush-shell commands to verify interactive output through the full WasmVM stack.",
+      "acceptanceCriteria": [
+        "pnpm -F @anthropic-ai/wasmvm add -D @xterm/headless succeeds and package.json updated",
+        "packages/runtime/wasmvm/test/shell-terminal.test.ts created, gated with skipUnlessWasmBuilt()",
+        "TerminalHarness imported or duplicated in wasmvm test directory",
+        "Test: echo prints output \u2014 'echo hello' \u2192 'hello' on next line, prompt returns",
+        "Test: ls / shows listing \u2014 directory entries rendered correctly",
+        "Test: output preserved across commands \u2014 'echo AAA' then 'echo BBB' \u2014 both visible",
+        "Test: cd changes directory \u2014 'cd /tmp' then 'pwd' \u2192 '/tmp' on screen",
+        "Test: export sets env var \u2014 'export FOO=bar' then 'echo $FOO' \u2192 'bar' on screen",
+        "Expected prompt format captured as constant at top of test file",
+        "All output assertions use exact-match on screenshotTrimmed()",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 83,
+      "passes": false,
+      "notes": "Phase 2 of terminal-e2e-testing.md spec. Requires WASM binary built. Adversarial review added: cd and export builtins \u2014 state persistence across commands is an interactive-only behavior."
+    },
+    {
+      "id": "US-084",
+      "title": "Add WasmVM terminal tests: cat, pipe, bad command",
+      "description": "As a developer, I need terminal-level tests for VFS file reading, pipes, and error output in the interactive shell.",
+      "acceptanceCriteria": [
+        "Test: cat reads VFS file \u2014 write file to VFS, cat it, content appears on screen",
+        "Test: pipe works \u2014 'echo foo | cat' \u2192 'foo' on screen",
+        "Test: exit code on bad command \u2014 'nonexistent' \u2192 error message on screen",
+        "Test: stderr output appears on screen \u2014 command that writes to stderr shows error text",
+        "Test: redirection \u2014 'echo hello > /tmp/out' then 'cat /tmp/out' \u2192 'hello' on screen",
+        "Test: multi-line input \u2014 backslash continuation 'echo hello \\\\' + newline + 'world' \u2192 'hello world' on screen",
+        "All output assertions use exact-match on screenshotTrimmed()",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 84,
+      "passes": false,
+      "notes": "Phase 2 of terminal-e2e-testing.md spec. Completes the WasmVM terminal test suite (excluding cross-runtime). Adversarial review added: stderr rendering, redirection operators, and multi-line input \u2014 all interactive-only behaviors with zero coverage."
+    },
+    {
+      "id": "US-085",
+      "title": "Add cross-runtime terminal tests: node -e and python3 -c from brush-shell",
+      "description": "As a developer, I need terminal-level tests verifying that cross-runtime spawning from brush-shell produces correct interactive output.",
+      "acceptanceCriteria": [
+        "Test: 'node -e \"console.log(42)\"' \u2192 '42' appears on screen (requires Node runtime mounted)",
+        "Test: 'python3 -c \"print(99)\"' \u2192 '99' appears on screen (requires Python runtime mounted)",
+        "Test: ^C during cross-runtime child process \u2014 send SIGINT while 'node -e' is running, verify shell survives and prompt returns",
+        "Tests mount all three runtimes (WasmVM + Node + Python) into the same kernel",
+        "Tests gated with appropriate skip guards for WASM binary and runtime availability",
+        "All output assertions use exact-match on screenshotTrimmed()",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 85,
+      "passes": false,
+      "notes": "Phase 3 of terminal-e2e-testing.md spec. Known risk: cross-runtime stdout routing through proc_spawn \u2192 kernel \u2192 PTY has known issues \u2014 if tests fail, fix is in spawn/stdio wiring, not test infrastructure. Adversarial review added: ^C during cross-runtime spawn \u2014 signal must reach correct process and shell must survive."
+    },
+    {
+      "title": "Add yarn support to project-matrix fixture preparation",
+      "description": "As a developer, I need the project-matrix test to support yarn as a packageManager so yarn layout fixtures can be tested.",
+      "acceptanceCriteria": [
+        "project-matrix.test.ts recognizes packageManager: 'yarn' in fixture.json",
+        "Fixture prep runs 'yarn install' (classic) or 'yarn install --immutable' (berry) based on .yarnrc.yml presence",
+        "Cache key includes yarn.lock contents",
+        "e2e-project-matrix.test.ts also supports yarn fixtures",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "passes": false,
+      "notes": "Prerequisite for yarn layout fixtures. Currently only pnpm/npm/bun are handled in fixture prep.",
+      "id": "US-086",
+      "priority": 86
+    },
+    {
+      "title": "Add npm flat layout fixture",
+      "description": "As a developer, I need a fixture that tests npm's flat hoisted node_modules layout to verify module resolution works with standard npm installs.",
+      "acceptanceCriteria": [
+        "Create tests/projects/npm-layout-pass/ with fixture.json setting packageManager to 'npm'",
+        "package.json has a dependency (e.g., left-pad) matching pnpm/bun layout fixtures for comparison",
+        "package-lock.json is committed (lockfileVersion 3)",
+        "Entry file requires the dependency and prints output",
+        "Fixture passes project-matrix parity test (host === sandbox output)",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "passes": false,
+      "notes": "npm uses flat hoisting - all deps directly in node_modules/ as real directories (no symlinks, no hardlinks).",
+      "id": "US-087",
+      "priority": 87
+    },
+    {
+      "title": "Add yarn classic layout fixture",
+      "description": "As a developer, I need a fixture that tests yarn v1 classic hoisted layout.",
+      "acceptanceCriteria": [
+        "Create tests/projects/yarn-classic-layout-pass/ with fixture.json setting packageManager to 'yarn'",
+        "package.json has left-pad dependency matching other layout fixtures",
+        "yarn.lock is committed",
+        "No .yarnrc.yml (signals classic mode)",
+        "Entry file requires the dependency and prints output",
+        "Fixture passes project-matrix parity test (host === sandbox output)",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "passes": false,
+      "notes": "Yarn classic (v1) uses a hoisted layout similar to npm but with different lockfile format. Depends on US-086 for yarn support.",
+      "id": "US-088",
+      "priority": 88
+    },
+    {
+      "title": "Add yarn berry node-modules linker fixture",
+      "description": "As a developer, I need a fixture testing yarn berry (v2+) with nodeLinker: node-modules to verify the newer yarn format works.",
+      "acceptanceCriteria": [
+        "Create tests/projects/yarn-berry-layout-pass/ with fixture.json setting packageManager to 'yarn'",
+        "Include .yarnrc.yml with nodeLinker: node-modules",
+        "package.json has left-pad dependency",
+        "yarn.lock (v2+ format) is committed",
+        "Entry file requires the dependency and prints output",
+        "Fixture passes project-matrix parity test (host === sandbox output)",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "passes": false,
+      "notes": "Yarn berry with node-modules linker still creates node_modules/ but uses a different internal structure than classic. Depends on US-086.",
+      "id": "US-089",
+      "priority": 89
+    },
+    {
+      "title": "Add workspace/monorepo layout fixture",
+      "description": "As a developer, I need a fixture testing monorepo workspace layouts where packages are symlinked between workspace members.",
+      "acceptanceCriteria": [
+        "Create tests/projects/workspace-layout-pass/ with a monorepo structure",
+        "Root package.json has workspaces field pointing to packages/*",
+        "At least 2 workspace packages: packages/app (entry) and packages/lib (dependency)",
+        "packages/app depends on packages/lib via workspace: protocol or file: reference",
+        "Entry in packages/app requires packages/lib and prints output",
+        "Fixture passes project-matrix parity test",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "passes": false,
+      "notes": "Workspace layouts use symlinks between workspace members. Increasingly common (turborepo, nx, etc). Use pnpm or npm workspaces.",
+      "id": "US-090",
+      "priority": 90
+    },
+    {
+      "title": "Add peer dependency resolution fixture",
+      "description": "As a developer, I need a fixture testing that peer dependencies resolve correctly in the sandbox.",
+      "acceptanceCriteria": [
+        "Create tests/projects/peer-deps-pass/ with fixture.json",
+        "package.json has a dependency that declares a peerDependency (e.g., a plugin that peers on its host)",
+        "Both the host package and plugin are installed",
+        "Entry file requires the plugin, which internally requires its peer, and prints output proving both loaded",
+        "Fixture passes project-matrix parity test",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "passes": false,
+      "notes": "Peer deps are resolved differently by each package manager. Tests that the sandbox module resolver handles the hoisting/symlink correctly.",
+      "id": "US-091",
+      "priority": 91
+    },
+    {
+      "title": "Add conditional exports (package.json exports field) fixture",
+      "description": "As a developer, I need a fixture testing that the exports field in package.json is resolved correctly in the sandbox.",
+      "acceptanceCriteria": [
+        "Create tests/projects/conditional-exports-pass/ with fixture.json",
+        "Include a local vendored package that uses the exports field with multiple conditions (require, import, default)",
+        "Entry file requires the package via subpath (e.g., require('pkg/feature')) and prints output",
+        "Entry file also tests the main export (require('pkg'))",
+        "Fixture passes project-matrix parity test",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "passes": false,
+      "notes": "The exports field is a major source of module resolution bugs. Tests subpath exports and condition matching.",
+      "id": "US-092",
+      "priority": 92
+    },
+    {
+      "title": "Add transitive dependency chain fixture",
+      "description": "As a developer, I need a fixture testing deep transitive dependency chains to verify the resolver follows the full chain correctly.",
+      "acceptanceCriteria": [
+        "Create tests/projects/transitive-deps-pass/ with fixture.json",
+        "Install a package with a deep transitive chain (at least 3 levels: A -> B -> C)",
+        "Entry file requires the top-level package and exercises functionality that touches the transitive deps",
+        "Print output proving all levels loaded correctly",
+        "Fixture passes project-matrix parity test",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "passes": false,
+      "notes": "Verifies the resolver does not break on deep chains, especially with different hoisting strategies across package managers.",
+      "id": "US-093",
+      "priority": 93
+    },
+    {
+      "title": "Add optional dependency fixture",
+      "description": "As a developer, I need a fixture testing that missing optional dependencies are handled gracefully in the sandbox.",
+      "acceptanceCriteria": [
+        "Create tests/projects/optional-deps-pass/ with fixture.json",
+        "package.json has an optionalDependency that is intentionally NOT installed (or a platform-specific optional dep)",
+        "Entry file attempts to require the optional dep with try/catch, prints 'available' or 'missing' accordingly",
+        "Fixture passes project-matrix parity test (both host and sandbox should show same availability)",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "passes": false,
+      "notes": "Optional deps are common in the ecosystem (e.g., fsevents on macOS). Sandbox must handle missing optional deps identically to host.",
+      "id": "US-094",
+      "priority": 94
+    },
+    {
+      "id": "US-095",
+      "title": "Add controllable isTTY and setRawMode under PTY",
+      "description": "As a developer, I need process.stdout.isTTY to return true when the sandbox process has a PTY slave as its stdio, and process.stdin.setRawMode() to configure the PTY line discipline.",
+      "acceptanceCriteria": [
+        "When sandbox process is spawned with PTY slave FDs, process.stdout.isTTY and process.stdin.isTTY return true",
+        "When sandbox process is spawned without PTY (default), isTTY remains false (no behavior change for existing tests)",
+        "process.stdin.setRawMode(true) configures PTY line discipline: disables canonical mode, disables echo",
+        "process.stdin.setRawMode(false) restores canonical mode and echo defaults",
+        "setRawMode() throws when isTTY is false (no PTY attached)",
+        "Test: spawn sandbox process on PTY, verify isTTY === true inside sandbox",
+        "Test: spawn sandbox process without PTY, verify isTTY === false",
+        "Test: setRawMode(true) then type characters — no echo, immediate byte delivery",
+        "Test: setRawMode(false) restores echo and line buffering",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 95,
+      "passes": false,
+      "notes": "CLI E2E Phase 0 — bridge prerequisite. Gap #2, #5, #6 from cli-tool-e2e.md spec. Files: packages/secure-exec/src/bridge/process.ts, packages/secure-exec/src/node/execution-driver.ts"
+    },
+    {
+      "id": "US-096",
+      "title": "Verify HTTPS client and Stream Transform/PassThrough in bridge",
+      "description": "As a developer, I need HTTPS with TLS and stream Transform/PassThrough working through the bridge so CLI tools can make LLM API calls and parse SSE streams.",
+      "acceptanceCriteria": [
+        "HTTPS request to a local server with self-signed cert succeeds through bridge (with rejectUnauthorized: false)",
+        "HTTPS request with valid cert chain succeeds through bridge",
+        "stream.Transform pipes data correctly: write chunks in, transformed chunks out",
+        "stream.PassThrough pipes data through unchanged",
+        "SSE parsing pattern works: Transform that splits on 'data: ' lines, emits parsed events",
+        "Test: create HTTPS server with self-signed cert, fetch from sandbox, verify response body",
+        "Test: create stream.Transform that uppercases, pipe data through, verify output",
+        "Test: create stream.PassThrough, pipe 'data: {...}\\n\\n' chunks, verify passthrough",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 96,
+      "passes": false,
+      "notes": "CLI E2E Phase 0 — bridge prerequisite. Gap #1, #3 from cli-tool-e2e.md spec. Required for Pi, Claude Code (Anthropic SSE), and OpenCode SDK (OpenAI SSE)."
+    },
+    {
+      "id": "US-097",
+      "title": "Create shared mock LLM server and Pi headless CLI tool tests",
+      "description": "As a developer, I need a mock LLM server utility serving both Anthropic Messages API and OpenAI Chat Completions SSE, plus Pi headless E2E tests proving Pi boots and produces output inside the sandbox.",
+      "acceptanceCriteria": [
+        "packages/secure-exec/tests/cli-tools/mock-llm-server.ts created — exports createMockLlmServer(cannedResponse)",
+        "Mock server handles POST /messages with Anthropic Messages SSE format (content_block_start, content_block_delta, content_block_stop, message_stop)",
+        "Mock server handles POST /chat/completions with OpenAI Chat Completions SSE format (chat.completion.chunk with delta, finish_reason, [DONE])",
+        "Mock server returns 404 for unknown routes",
+        "@mariozechner/pi-coding-agent added as devDependency to packages/secure-exec",
+        "packages/secure-exec/tests/cli-tools/pi-headless.test.ts created",
+        "Test: Pi boots in print mode — 'pi --print \"say hello\"' exits with code 0",
+        "Test: Pi produces output — stdout contains the canned LLM response",
+        "Test: Pi reads a file — seed VFS with file, Pi's read tool accesses it",
+        "Test: Pi writes a file — file exists in VFS after Pi's write tool runs",
+        "Test: Pi runs bash command — Pi's bash tool executes ls via child_process",
+        "Test: Pi JSON output mode — 'pi --json \"say hello\"' produces valid JSON",
+        "Tests gated with skipUnless(hasPiInstalled()) or equivalent",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 97,
+      "passes": false,
+      "notes": "CLI E2E Phase 1. Mock LLM server is shared infrastructure for all subsequent CLI tool tests. Pi is tested first because it's pure JS with simplest dependency tree."
+    },
+    {
+      "id": "US-098",
+      "title": "Pi interactive PTY CLI tool tests",
+      "description": "As a developer, I need Pi's TUI to render correctly through PTY + headless xterm inside the sandbox, verifying interactive mode works end-to-end.",
+      "acceptanceCriteria": [
+        "packages/secure-exec/tests/cli-tools/pi-interactive.test.ts created",
+        "Spawn Pi inside openShell() with PTY, process.stdout.isTTY must be true in sandbox",
+        "Test: Pi TUI renders — screen shows Pi's prompt/editor UI after boot",
+        "Test: input appears on screen — type 'hello', text appears in editor area",
+        "Test: submit prompt renders response — type prompt + Enter, LLM response renders on screen",
+        "Test: ^C interrupts — send SIGINT during response streaming, Pi stays alive",
+        "Test: exit cleanly — /exit or ^D, Pi exits, PTY closes",
+        "Tests use TerminalHarness with waitFor() for timing-sensitive assertions",
+        "Tests gated with skipUnless(hasPiInstalled()) and isTTY support available",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 98,
+      "passes": false,
+      "notes": "CLI E2E Phase 2. Depends on US-080 (TerminalHarness), US-095 (isTTY). Pi uses custom pi-tui with differential rendering and synchronized output sequences (CSI ?2026h/l)."
+    },
+    {
+      "id": "US-099",
+      "title": "OpenCode headless binary spawn tests (Strategy A)",
+      "description": "As a developer, I need tests proving that the opencode binary can be spawned from inside the sandbox via child_process.spawn and produce correct output.",
+      "acceptanceCriteria": [
+        "packages/secure-exec/tests/cli-tools/opencode-headless.test.ts created",
+        "opencode.json config fixture created with mock server baseURL",
+        "Test: OpenCode boots in run mode — 'opencode run \"say hello\"' exits with code 0",
+        "Test: OpenCode produces output — stdout contains the canned LLM response",
+        "Test: OpenCode text format — 'opencode run --format text \"say hello\"' produces plain text",
+        "Test: OpenCode JSON format — 'opencode run --format json \"say hello\"' produces valid JSON",
+        "Test: Environment forwarding — API key and base URL reach the binary",
+        "Test: OpenCode reads sandbox file — seed VFS, prompt asks to read it",
+        "Test: OpenCode writes sandbox file — file exists in VFS after write",
+        "Test: SIGINT stops execution — send SIGINT during run, process terminates cleanly",
+        "Test: Exit code on error — bad API key → non-zero exit",
+        "Tests gated with skipUnless(hasOpenCodeBinary()) — skips if opencode not on PATH",
+        "XDG_DATA_HOME set to temp directory for test-isolated SQLite storage",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 99,
+      "passes": false,
+      "notes": "CLI E2E Phase 3, Strategy A. OpenCode is a Bun binary, NOT a Node.js package — tests the child_process.spawn bridge for complex host binaries. Hardest CLI tool, tested before Claude Code to front-load risk."
+    },
+    {
+      "id": "US-100",
+      "title": "OpenCode SDK client tests inside sandbox (Strategy B)",
+      "description": "As a developer, I need tests proving that @opencode-ai/sdk running inside the sandbox can communicate with opencode serve on the host via HTTP/SSE.",
+      "acceptanceCriteria": [
+        "@opencode-ai/sdk added as devDependency to packages/secure-exec",
+        "Tests added to packages/secure-exec/tests/cli-tools/opencode-headless.test.ts (Strategy B describe block)",
+        "opencode serve started as background fixture in beforeAll, health-checked, killed in afterAll",
+        "Unique port per test run to avoid conflicts",
+        "Test: SDK client connects — create client, call health/status endpoint",
+        "Test: SDK sends prompt — send prompt via SDK, receive streamed response",
+        "Test: SDK session management — create session, send message, list messages",
+        "Test: SSE streaming works — response streams incrementally, not all-at-once",
+        "Test: SDK error handling — invalid session ID → proper error response",
+        "Tests gated with skipUnless(hasOpenCodeBinary())",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 100,
+      "passes": false,
+      "notes": "CLI E2E Phase 3, Strategy B. Tests HTTP/SSE client bridge by running @opencode-ai/sdk inside the sandbox talking to opencode serve on host. Depends on US-096 (SSE/streams)."
+    },
+    {
+      "id": "US-101",
+      "title": "OpenCode interactive PTY tests",
+      "description": "As a developer, I need OpenCode's OpenTUI to render correctly through PTY + headless xterm, verifying interactive mode works for the Bun binary.",
+      "acceptanceCriteria": [
+        "packages/secure-exec/tests/cli-tools/opencode-interactive.test.ts created",
+        "Spawn opencode binary inside openShell() with PTY",
+        "Test: OpenCode TUI renders — screen shows OpenTUI interface after boot",
+        "Test: Input area works — type prompt text, appears in input area",
+        "Test: Submit shows response — enter prompt, streaming response renders on screen",
+        "Test: ^C interrupts — send SIGINT during streaming, OpenCode stays alive",
+        "Test: Exit cleanly — :q or ^C, OpenCode exits, PTY closes",
+        "Tests use TerminalHarness with waitFor() — use content-based assertions (not strict exact-match) due to OpenTUI rendering differences",
+        "Tests gated with skipUnless(hasOpenCodeBinary())",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 101,
+      "passes": false,
+      "notes": "CLI E2E Phase 4. Depends on US-080 (TerminalHarness), US-095 (isTTY). OpenCode uses OpenTUI (TypeScript + Zig) with SolidJS — may render non-standard ANSI sequences. Use waitFor() with content assertions, tighten after empirical capture."
+    },
+    {
+      "id": "US-102",
+      "title": "Claude Code headless CLI tool tests",
+      "description": "As a developer, I need Claude Code to boot and produce output in -p mode inside the sandbox, verifying the most complex in-VM CLI tool works end-to-end.",
+      "acceptanceCriteria": [
+        "@anthropic-ai/claude-code added as devDependency to packages/secure-exec (or use @anthropic-ai/claude-agent-sdk if npm package has native binary issues)",
+        "packages/secure-exec/tests/cli-tools/claude-headless.test.ts created",
+        "Test: Claude boots in headless mode — 'claude -p \"say hello\"' exits with code 0",
+        "Test: Claude produces text output — stdout contains canned LLM response",
+        "Test: Claude JSON output — '--output-format json' produces valid JSON with result field",
+        "Test: Claude stream-json output — '--output-format stream-json' produces valid NDJSON",
+        "Test: Claude reads a file — seed VFS, ask Claude to read it via Read tool",
+        "Test: Claude writes a file — ask Claude to create a file, file exists in VFS after",
+        "Test: Claude runs bash — ask Claude to run 'echo hello' via Bash tool",
+        "Test: Claude exit codes — bad API key → non-zero exit, good prompt → exit 0",
+        "Tests gated with skipUnless(hasClaudeInstalled()) or equivalent",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 102,
+      "passes": false,
+      "notes": "CLI E2E Phase 5. Claude Code is the most complex in-VM tool — Node.js with native binary, Ink TUI, known spawn stall issue (anthropics/claude-code#771). Consider @anthropic-ai/claude-agent-sdk as fallback entry point."
+    },
+    {
+      "id": "US-103",
+      "title": "Claude Code interactive PTY tests",
+      "description": "As a developer, I need Claude Code's Ink-based TUI to render correctly through PTY + headless xterm inside the sandbox.",
+      "acceptanceCriteria": [
+        "packages/secure-exec/tests/cli-tools/claude-interactive.test.ts created",
+        "Spawn Claude inside openShell() with PTY, isTTY must be true",
+        "Test: Claude TUI renders — screen shows Ink-based UI after boot",
+        "Test: Input area works — type prompt text, appears in input area",
+        "Test: Submit shows response — enter prompt, streaming response renders on screen",
+        "Test: ^C interrupts response — send SIGINT during streaming, Claude stays alive",
+        "Test: Color output renders — ANSI color codes render correctly in xterm buffer",
+        "Test: Exit cleanly — /exit or ^C twice, Claude exits",
+        "Tests use TerminalHarness with waitFor() for timing-sensitive assertions",
+        "Tests gated with skipUnless(hasClaudeInstalled())",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 103,
+      "passes": false,
+      "notes": "CLI E2E Phase 6 — final phase. Depends on US-080 (TerminalHarness), US-095 (isTTY). Claude Code uses Ink (React-based TUI) with cursor movement, screen clearing, and color codes. Known spawn stall risk."
     }
   ]
 }
