@@ -1050,3 +1050,17 @@ PRD: ralph/kernel-hardening (46 stories)
   - Use createConsoleCapture() pattern: collect events via onStdio, read via .stdout() — same pattern as payload-limits.test.ts
   - Bridge globals exposed via __runtimeExposeCustomGlobal are non-writable non-configurable (immutable)
 ---
+
+## 2026-03-17 - US-063
+- What was implemented: Fixed fake option acceptance tests across all three runtimes (wasmvm, node, python)
+- Files changed:
+  - packages/runtime/wasmvm/src/driver.ts — added Object.freeze(WASMVM_COMMANDS) for runtime immutability
+  - packages/runtime/wasmvm/test/driver.test.ts — wasmBinaryPath test now spawns with bogus path, verifies stderr references it; WASMVM_COMMANDS test adds Object.isFrozen() assertion
+  - packages/runtime/node/test/driver.test.ts — memoryLimit test verifies option is stored as _memoryLimit (256 vs default 128)
+  - packages/runtime/python/test/driver.test.ts — cpuTimeLimitMs test verifies option is stored as _cpuTimeLimitMs (5000 vs default undefined)
+- **Learnings for future iterations:**
+  - kernel.spawn() accepts { onStdout, onStderr } as third argument for capturing output
+  - WasmVM worker creation failure (bogus binary path) emits error to ctx.onStderr with the path in the message and exits 127
+  - TypeScript `readonly string[]` only prevents compile-time mutation — use Object.freeze() for runtime immutability
+  - Private fields can be accessed via `(driver as any)._fieldName` for testing option storage
+---
