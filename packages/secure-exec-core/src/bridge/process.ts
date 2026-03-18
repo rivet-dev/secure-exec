@@ -14,6 +14,7 @@ import { Buffer as BufferPolyfill } from "buffer";
 import type {
 	CryptoRandomFillBridgeRef,
 	CryptoRandomUuidBridgeRef,
+	FsFacadeBridge,
 	ProcessErrorBridgeRef,
 	ProcessLogBridgeRef,
 	ScheduleTimerBridgeRef,
@@ -53,6 +54,8 @@ declare const _error: ProcessErrorBridgeRef;
 declare const _scheduleTimer: ScheduleTimerBridgeRef | undefined;
 declare const _cryptoRandomFill: CryptoRandomFillBridgeRef | undefined;
 declare const _cryptoRandomUUID: CryptoRandomUuidBridgeRef | undefined;
+// Filesystem bridge for chdir validation
+declare const _fs: FsFacadeBridge;
 // Timer budget injected by the host when resourceBudgets.maxTimers is set
 declare const _maxTimers: number | undefined;
 
@@ -568,6 +571,27 @@ const process: Record<string, unknown> & {
   },
 
   chdir(dir: string): void {
+    // Validate directory exists in VFS before setting cwd
+    let statJson: string;
+    try {
+      statJson = _fs.stat.applySyncPromise(undefined, [dir]);
+    } catch {
+      const err = new Error(`ENOENT: no such file or directory, chdir '${dir}'`) as Error & { code: string; errno: number; syscall: string; path: string };
+      err.code = "ENOENT";
+      err.errno = -2;
+      err.syscall = "chdir";
+      err.path = dir;
+      throw err;
+    }
+    const parsed = JSON.parse(statJson);
+    if (!parsed.isDirectory) {
+      const err = new Error(`ENOTDIR: not a directory, chdir '${dir}'`) as Error & { code: string; errno: number; syscall: string; path: string };
+      err.code = "ENOTDIR";
+      err.errno = -20;
+      err.syscall = "chdir";
+      err.path = dir;
+      throw err;
+    }
     _cwd = dir;
   },
 
@@ -1007,7 +1031,8 @@ export function setInterval(
   const handle = new TimerHandle(id);
   _intervals.set(id, handle);
 
-  const actualDelay = delay ?? 0;
+  // Enforce minimum 1ms delay to prevent microtask CPU spin
+  const actualDelay = Math.max(1, delay ?? 0);
 
   // Schedule interval execution
   const scheduleNext = () => {

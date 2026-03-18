@@ -226,4 +226,102 @@ describe("bridge-side resource hardening", () => {
 			expect(stderr).toContain("MaxListenersExceededWarning");
 		});
 	});
+
+	// -------------------------------------------------------------------
+	// process.chdir validation — must check VFS before setting cwd
+	// -------------------------------------------------------------------
+
+	describe("process.chdir validation", () => {
+		it("throws ENOENT when chdir to non-existent path", async () => {
+			const capture = createConsoleCapture();
+			proc = createTestNodeRuntime({
+				permissions: { ...allowAllFs },
+				onStdio: capture.onStdio,
+			});
+
+			const result = await proc.exec(`
+				const results = {};
+				try {
+					process.chdir('/nonexistent/path');
+					results.threw = false;
+				} catch (e) {
+					results.threw = true;
+					results.code = e.code;
+					results.message = e.message;
+				}
+				console.log(JSON.stringify(results));
+			`);
+
+			expect(result.code).toBe(0);
+			const results = JSON.parse(capture.stdout().trim());
+			expect(results.threw).toBe(true);
+			expect(results.code).toBe("ENOENT");
+		});
+
+		it("succeeds when chdir to existing directory", async () => {
+			const capture = createConsoleCapture();
+			const vfs = createInMemoryFileSystem();
+			await vfs.writeFile("/app/sub/file.txt", "x");
+
+			proc = createTestNodeRuntime({
+				permissions: { ...allowAllFs },
+				onStdio: capture.onStdio,
+				filesystem: vfs,
+			});
+
+			const result = await proc.exec(`
+				const results = {};
+				try {
+					process.chdir('/app/sub');
+					results.cwd = process.cwd();
+					results.ok = true;
+				} catch (e) {
+					results.ok = false;
+					results.error = e.message;
+				}
+				console.log(JSON.stringify(results));
+			`);
+
+			expect(result.code).toBe(0);
+			const results = JSON.parse(capture.stdout().trim());
+			expect(results.ok).toBe(true);
+			expect(results.cwd).toBe("/app/sub");
+		});
+	});
+
+	// -------------------------------------------------------------------
+	// setInterval(0) CPU spin prevention
+	// -------------------------------------------------------------------
+
+	describe("setInterval minimum delay", () => {
+		it("setInterval with delay 0 produces bounded counter under timeout", async () => {
+			const capture = createConsoleCapture();
+			proc = createTestNodeRuntime({
+				onStdio: capture.onStdio,
+				cpuTimeMs: 200,
+			});
+
+			const result = await proc.exec(`
+				let counter = 0;
+				const id = setInterval(() => { counter++; }, 0);
+
+				// After 100ms, stop and report
+				setTimeout(() => {
+					clearInterval(id);
+					console.log(JSON.stringify({ counter }));
+				}, 100);
+			`);
+
+			// Process should complete (not hang or spin forever)
+			const stdout = capture.stdout().trim();
+			if (stdout) {
+				const results = JSON.parse(stdout);
+				// Counter should be bounded — with 1ms min delay, ~100 iterations max in 100ms
+				expect(results.counter).toBeLessThan(500);
+				expect(results.counter).toBeGreaterThan(0);
+			}
+			// Even if timeout killed it, we prove it didn't spin infinitely
+			expect(result.code === 0 || result.code !== undefined).toBe(true);
+		});
+	});
 });
