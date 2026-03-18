@@ -16,6 +16,30 @@ import type {
 	VirtualFileSystem,
 } from "../types.js";
 
+/** Normalize a filesystem path: collapse //, resolve . and .., strip trailing /. */
+function normalizeFsPath(path: string): string {
+	// Collapse repeated slashes
+	let p = path.replace(/\/+/g, "/");
+	// Resolve . and .. segments
+	const parts = p.split("/");
+	const resolved: string[] = [];
+	for (const seg of parts) {
+		if (seg === ".") continue;
+		if (seg === "..") {
+			// Don't pop past root
+			if (resolved.length > 1) resolved.pop();
+		} else {
+			resolved.push(seg);
+		}
+	}
+	p = resolved.join("/") || "/";
+	// Strip trailing slash (except root)
+	if (p.length > 1 && p.endsWith("/")) {
+		p = p.slice(0, -1);
+	}
+	return p;
+}
+
 /** Run the permission check; throw the deny error if no checker exists or it denies. */
 function checkPermission<T>(
 	check: ((request: T) => { allow: boolean; reason?: string }) | undefined,
@@ -102,170 +126,95 @@ export function wrapFileSystem(
 	fs: VirtualFileSystem,
 	permissions?: Permissions,
 ): VirtualFileSystem {
+	/** Check fs permission with normalized path to prevent traversal bypasses. */
+	function checkFs(op: FsAccessRequest["op"], path: string, reason?: string): void {
+		checkPermission(
+			permissions?.fs,
+			{ op, path: normalizeFsPath(path) },
+			(req, r) => createEaccesError(fsOpToSyscall(req.op), req.path, r),
+		);
+	}
+
 	return {
 		readFile: async (path) => {
-			checkPermission(
-				permissions?.fs,
-				{ op: "read", path },
-				(req, reason) => createEaccesError(fsOpToSyscall(req.op), req.path, reason),
-			);
+			checkFs("read", path);
 			return fs.readFile(path);
 		},
 		readTextFile: async (path) => {
-			checkPermission(
-				permissions?.fs,
-				{ op: "read", path },
-				(req, reason) => createEaccesError(fsOpToSyscall(req.op), req.path, reason),
-			);
+			checkFs("read", path);
 			return fs.readTextFile(path);
 		},
 		readDir: async (path) => {
-			checkPermission(
-				permissions?.fs,
-				{ op: "readdir", path },
-				(req, reason) => createEaccesError(fsOpToSyscall(req.op), req.path, reason),
-			);
+			checkFs("readdir", path);
 			return fs.readDir(path);
 		},
 		readDirWithTypes: async (path) => {
-			checkPermission(
-				permissions?.fs,
-				{ op: "readdir", path },
-				(req, reason) => createEaccesError(fsOpToSyscall(req.op), req.path, reason),
-			);
+			checkFs("readdir", path);
 			return fs.readDirWithTypes(path);
 		},
 		writeFile: async (path, content) => {
-			checkPermission(
-				permissions?.fs,
-				{ op: "write", path },
-				(req, reason) => createEaccesError(fsOpToSyscall(req.op), req.path, reason),
-			);
+			checkFs("write", path);
 			return fs.writeFile(path, content);
 		},
 		createDir: async (path) => {
-			checkPermission(
-				permissions?.fs,
-				{ op: "createDir", path },
-				(req, reason) => createEaccesError(fsOpToSyscall(req.op), req.path, reason),
-			);
+			checkFs("createDir", path);
 			return fs.createDir(path);
 		},
 		mkdir: async (path) => {
-			checkPermission(
-				permissions?.fs,
-				{ op: "mkdir", path },
-				(req, reason) => createEaccesError(fsOpToSyscall(req.op), req.path, reason),
-			);
+			checkFs("mkdir", path);
 			return fs.mkdir(path);
 		},
 		exists: async (path) => {
-			checkPermission(
-				permissions?.fs,
-				{ op: "exists", path },
-				(req, reason) => createEaccesError(fsOpToSyscall(req.op), req.path, reason),
-			);
+			checkFs("exists", path);
 			return fs.exists(path);
 		},
 		stat: async (path) => {
-			checkPermission(
-				permissions?.fs,
-				{ op: "stat", path },
-				(req, reason) => createEaccesError(fsOpToSyscall(req.op), req.path, reason),
-			);
+			checkFs("stat", path);
 			return fs.stat(path);
 		},
 		removeFile: async (path) => {
-			checkPermission(
-				permissions?.fs,
-				{ op: "rm", path },
-				(req, reason) => createEaccesError(fsOpToSyscall(req.op), req.path, reason),
-			);
+			checkFs("rm", path);
 			return fs.removeFile(path);
 		},
 		removeDir: async (path) => {
-			checkPermission(
-				permissions?.fs,
-				{ op: "rm", path },
-				(req, reason) => createEaccesError(fsOpToSyscall(req.op), req.path, reason),
-			);
+			checkFs("rm", path);
 			return fs.removeDir(path);
 		},
 		rename: async (oldPath, newPath) => {
-			checkPermission(
-				permissions?.fs,
-				{ op: "rename", path: oldPath },
-				(req, reason) => createEaccesError(fsOpToSyscall(req.op), req.path, reason),
-			);
-			checkPermission(
-				permissions?.fs,
-				{ op: "rename", path: newPath },
-				(req, reason) => createEaccesError(fsOpToSyscall(req.op), req.path, reason),
-			);
+			checkFs("rename", oldPath);
+			checkFs("rename", newPath);
 			return fs.rename(oldPath, newPath);
 		},
 		symlink: async (target, linkPath) => {
-			checkPermission(
-				permissions?.fs,
-				{ op: "symlink", path: linkPath },
-				(req, reason) => createEaccesError(fsOpToSyscall(req.op), req.path, reason),
-			);
+			checkFs("symlink", linkPath);
 			return fs.symlink(target, linkPath);
 		},
 		readlink: async (path) => {
-			checkPermission(
-				permissions?.fs,
-				{ op: "readlink", path },
-				(req, reason) => createEaccesError(fsOpToSyscall(req.op), req.path, reason),
-			);
+			checkFs("readlink", path);
 			return fs.readlink(path);
 		},
 		lstat: async (path) => {
-			checkPermission(
-				permissions?.fs,
-				{ op: "stat", path },
-				(req, reason) => createEaccesError(fsOpToSyscall(req.op), req.path, reason),
-			);
+			checkFs("stat", path);
 			return fs.lstat(path);
 		},
 		link: async (oldPath, newPath) => {
-			checkPermission(
-				permissions?.fs,
-				{ op: "link", path: newPath },
-				(req, reason) => createEaccesError(fsOpToSyscall(req.op), req.path, reason),
-			);
+			checkFs("link", newPath);
 			return fs.link(oldPath, newPath);
 		},
 		chmod: async (path, mode) => {
-			checkPermission(
-				permissions?.fs,
-				{ op: "chmod", path },
-				(req, reason) => createEaccesError(fsOpToSyscall(req.op), req.path, reason),
-			);
+			checkFs("chmod", path);
 			return fs.chmod(path, mode);
 		},
 		chown: async (path, uid, gid) => {
-			checkPermission(
-				permissions?.fs,
-				{ op: "chown", path },
-				(req, reason) => createEaccesError(fsOpToSyscall(req.op), req.path, reason),
-			);
+			checkFs("chown", path);
 			return fs.chown(path, uid, gid);
 		},
 		utimes: async (path, atime, mtime) => {
-			checkPermission(
-				permissions?.fs,
-				{ op: "utimes", path },
-				(req, reason) => createEaccesError(fsOpToSyscall(req.op), req.path, reason),
-			);
+			checkFs("utimes", path);
 			return fs.utimes(path, atime, mtime);
 		},
 		truncate: async (path, length) => {
-			checkPermission(
-				permissions?.fs,
-				{ op: "truncate", path },
-				(req, reason) => createEaccesError(fsOpToSyscall(req.op), req.path, reason),
-			);
+			checkFs("truncate", path);
 			return fs.truncate(path, length);
 		},
 	};

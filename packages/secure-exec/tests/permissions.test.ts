@@ -255,6 +255,59 @@ describe("custom permission checker", () => {
 		expect((thrown as Error).message).toContain("policy");
 	});
 
+	it("normalizes paths with .. traversal before checking permissions", async () => {
+		const checked: string[] = [];
+		const permissions: Permissions = {
+			fs: (req) => {
+				checked.push(req.path);
+				// Only allow /data/*
+				return { allow: req.path.startsWith("/data") };
+			},
+		};
+		const guardedFs = wrapFileSystem(baseFs, permissions);
+
+		// /data/../etc/passwd normalizes to /etc/passwd — should be denied
+		let thrown: unknown;
+		try {
+			await guardedFs.readFile("/data/../etc/passwd");
+		} catch (error) {
+			thrown = error;
+		}
+		expect(thrown).toMatchObject({ code: "EACCES" });
+		// The path passed to the checker should be normalized
+		expect(checked[0]).toBe("/etc/passwd");
+	});
+
+	it("normalizes paths with double slashes and dot segments before checking", async () => {
+		const checked: string[] = [];
+		const permissions: Permissions = {
+			fs: (req) => {
+				checked.push(req.path);
+				return { allow: true };
+			},
+		};
+		const guardedFs = wrapFileSystem(baseFs, permissions);
+
+		await guardedFs.readFile("/data//./subdir/../file.txt");
+		expect(checked[0]).toBe("/data/file.txt");
+	});
+
+	it("normalizes paths for all fs operations (write, stat, readdir, etc.)", async () => {
+		const checked: string[] = [];
+		const permissions: Permissions = {
+			fs: (req) => {
+				checked.push(req.path);
+				return { allow: true };
+			},
+		};
+		const guardedFs = wrapFileSystem(baseFs, permissions);
+
+		await guardedFs.writeFile("/a/../b/file", new Uint8Array());
+		await guardedFs.stat("/c/./d/../e");
+		await guardedFs.readDir("/x//y");
+		expect(checked).toEqual(["/b/file", "/c/e", "/x/y"]);
+	});
+
 	it("childProcess checker receives cwd parameter in request", () => {
 		const captured: { command: string; args: string[]; cwd?: string }[] = [];
 		const permissions: Permissions = {

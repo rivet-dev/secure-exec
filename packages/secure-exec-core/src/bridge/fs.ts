@@ -2324,16 +2324,68 @@ const fs = {
 
   realpathSync: Object.assign(
     function realpathSync(path: PathLike): string {
-      // In our virtual fs, just normalize the path (keep /data prefix for consistency)
-      return toPathString(path)
-        .replace(/\/\/+/g, "/")
-        .replace(/\/$/, "") || "/";
+      // Resolve symlinks by walking each path component via lstat + readlink
+      const MAX_SYMLINK_DEPTH = 40;
+      let symlinksFollowed = 0;
+      const raw = toPathString(path);
+
+      // Build initial queue: normalize . and .. segments
+      const pending: string[] = [];
+      for (const seg of raw.split("/")) {
+        if (!seg || seg === ".") continue;
+        if (seg === "..") { if (pending.length > 0) pending.pop(); }
+        else pending.push(seg);
+      }
+
+      // Walk each component, resolving symlinks via a queue
+      const resolved: string[] = [];
+      while (pending.length > 0) {
+        const seg = pending.shift()!;
+        if (seg === ".") continue;
+        if (seg === "..") { if (resolved.length > 0) resolved.pop(); continue; }
+        resolved.push(seg);
+        const currentPath = "/" + resolved.join("/");
+        try {
+          const stat = fs.lstatSync(currentPath);
+          if (stat.isSymbolicLink()) {
+            if (++symlinksFollowed > MAX_SYMLINK_DEPTH) {
+              const err = new Error(`ELOOP: too many levels of symbolic links, realpath '${raw}'`) as NodeJS.ErrnoException;
+              err.code = "ELOOP";
+              err.syscall = "realpath";
+              err.path = raw;
+              throw err;
+            }
+            const target = fs.readlinkSync(currentPath);
+            // Prepend target segments to pending for re-resolution
+            const targetSegs = target.split("/").filter(Boolean);
+            if (target.startsWith("/")) {
+              // Absolute symlink — restart from root
+              resolved.length = 0;
+            } else {
+              // Relative symlink — drop current component
+              resolved.pop();
+            }
+            // Prepend target segments so they're processed next
+            pending.unshift(...targetSegs);
+          }
+        } catch (e: unknown) {
+          const err = e as NodeJS.ErrnoException;
+          if (err.code === "ELOOP") throw e;
+          if (err.code === "ENOENT" || err.code === "ENOTDIR") {
+            const enoent = new Error(`ENOENT: no such file or directory, realpath '${raw}'`) as NodeJS.ErrnoException;
+            enoent.code = "ENOENT";
+            enoent.syscall = "realpath";
+            enoent.path = raw;
+            throw enoent;
+          }
+          break;
+        }
+      }
+      return "/" + resolved.join("/") || "/";
     },
     {
       native(path: PathLike): string {
-        return toPathString(path)
-          .replace(/\/\/+/g, "/")
-          .replace(/\/$/, "") || "/";
+        return fs.realpathSync(path);
       }
     }
   ),

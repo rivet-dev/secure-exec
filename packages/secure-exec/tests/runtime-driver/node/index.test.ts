@@ -2418,6 +2418,58 @@ describe("NodeRuntime", () => {
 		});
 	});
 
+	it("fs.realpathSync resolves symlink to target path", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data");
+		await vfs.writeFile("/data/real.txt", "content");
+		await vfs.symlink("/data/real.txt", "/data/link.txt");
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			module.exports = fs.realpathSync('/data/link.txt');
+		`);
+		expect(result.exports).toBe("/data/real.txt");
+	});
+
+	it("fs.realpathSync normalizes . and .. segments", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data");
+		await vfs.mkdir("/data/sub");
+		await vfs.writeFile("/data/sub/file.txt", "ok");
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			module.exports = fs.realpathSync('/data/sub/../sub/./file.txt');
+		`);
+		expect(result.exports).toBe("/data/sub/file.txt");
+	});
+
+	it("fs.realpathSync resolves chained symlinks", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data");
+		await vfs.writeFile("/data/target.txt", "hello");
+		await vfs.symlink("/data/target.txt", "/data/link1");
+		await vfs.symlink("/data/link1", "/data/link2");
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			module.exports = fs.realpathSync('/data/link2');
+		`);
+		expect(result.exports).toBe("/data/target.txt");
+	});
+
 	it("fs.linkSync creates hard link", async () => {
 		const vfs = createFs();
 		await vfs.mkdir("/data");
