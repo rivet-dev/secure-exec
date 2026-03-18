@@ -451,6 +451,7 @@ class ReadStream {
 
 // WriteStream class for createWriteStream
 // This provides a type-safe implementation that satisfies nodeFs.WriteStream
+const MAX_WRITE_STREAM_BYTES = 16 * 1024 * 1024; // 16MB cap to prevent memory exhaustion
 // We use 'as' assertion at the return site since the full interface is complex
 class WriteStream {
   // WriteStream-specific properties
@@ -515,6 +516,18 @@ class WriteStream {
       data = chunk;
     } else {
       data = Buffer.from(String(chunk));
+    }
+
+    // Cap buffered data to prevent memory exhaustion
+    if (this.writableLength + data.length > MAX_WRITE_STREAM_BYTES) {
+      const err = new Error(`WriteStream buffer exceeded ${MAX_WRITE_STREAM_BYTES} bytes`);
+      this.errored = err;
+      this.destroyed = true;
+      this.writable = false;
+      const cb = typeof encodingOrCallback === "function" ? encodingOrCallback : callback;
+      if (cb) Promise.resolve().then(() => cb(err));
+      Promise.resolve().then(() => this.emit("error", err));
+      return false;
     }
 
     this._chunks.push(data);
@@ -870,11 +883,14 @@ function _globGetBase(pattern: string): string {
 
 // Recursively walk VFS directory and collect matching paths
 // We use a reference to `fs` via late-binding in the fs object method
+const MAX_GLOB_DEPTH = 100; // Prevent stack overflow on deeply nested trees
+
 function _globCollect(pattern: string, results: string[]): void {
   const regex = _globToRegex(pattern);
   const base = _globGetBase(pattern);
 
-  const walk = (dir: string): void => {
+  const walk = (dir: string, depth: number): void => {
+    if (depth > MAX_GLOB_DEPTH) return;
     let entries: string[];
     try {
       entries = _globReadDir(dir);
@@ -891,7 +907,7 @@ function _globCollect(pattern: string, results: string[]): void {
       try {
         const stat = _globStat(fullPath);
         if (stat.isDirectory()) {
-          walk(fullPath);
+          walk(fullPath, depth + 1);
         }
       } catch {
         // Not a directory or stat failed — skip
@@ -909,7 +925,7 @@ function _globCollect(pattern: string, results: string[]): void {
         return;
       }
     }
-    walk(base);
+    walk(base, 0);
   } catch {
     // Base doesn't exist — no matches
   }

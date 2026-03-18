@@ -2377,6 +2377,77 @@ describe("NodeRuntime", () => {
 		expect(result.exports).toEqual(["/data/a.ts"]);
 	});
 
+	// WriteStream buffer cap — prevent memory exhaustion from unbounded buffering
+	it("WriteStream emits error when buffered data exceeds cap", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data");
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+			memoryLimit: 64,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			const ws = fs.createWriteStream('/data/big.bin');
+			// Write 1MB chunks until we exceed the 16MB cap
+			const chunk = Buffer.alloc(1024 * 1024, 0x41);
+			let writeFailed = false;
+			for (let i = 0; i < 20; i++) {
+				const ok = ws.write(chunk);
+				if (!ok) {
+					writeFailed = true;
+					break;
+				}
+			}
+			module.exports = {
+				writeFailed,
+				destroyed: ws.destroyed,
+				errorMessage: ws.errored ? ws.errored.message : null,
+			};
+		`);
+		expect(result.exports.writeFailed).toBe(true);
+		expect(result.exports.destroyed).toBe(true);
+		expect(result.exports.errorMessage).toContain("WriteStream buffer exceeded");
+	});
+
+	// globSync recursion depth limit — prevent stack overflow on deep trees
+	it("globSync stops traversal beyond max recursion depth", async () => {
+		const vfs = createFs();
+		// Build a directory tree deeper than the 100-level limit
+		let path = "";
+		for (let i = 0; i < 105; i++) {
+			path += `/d${i}`;
+			await vfs.mkdir(path, { recursive: true });
+		}
+		// Place a file at depth 105
+		await vfs.writeFile(`${path}/deep.txt`, "deep");
+		// Place a file at depth 50 (within limit)
+		let shallowPath = "";
+		for (let i = 0; i < 50; i++) {
+			shallowPath += `/d${i}`;
+		}
+		await vfs.writeFile(`${shallowPath}/shallow.txt`, "shallow");
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			const matches = fs.globSync('/**/*.txt');
+			module.exports = {
+				hasShallow: matches.some(m => m.includes('shallow.txt')),
+				hasDeep: matches.some(m => m.includes('deep.txt')),
+				count: matches.length,
+			};
+		`);
+		// File within depth limit should be found
+		expect(result.exports.hasShallow).toBe(true);
+		// File beyond depth limit should NOT be found (traversal stopped)
+		expect(result.exports.hasDeep).toBe(false);
+	});
+
 	// --- Deferred fs APIs: chmod, chown, link, symlink, readlink, truncate, utimes ---
 
 	it("fs.chmodSync succeeds on existing file", async () => {
