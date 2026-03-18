@@ -1557,3 +1557,15 @@ PRD: ralph/kernel-hardening (46 stories)
   - WriteStream cap must be testable within V8 isolate memory limits — 16MB is practical; 256MB would exceed typical isolate heap
   - _globCollect walk() needs explicit depth parameter threading — JavaScript doesn't have built-in recursion depth limits
 ---
+
+## 2026-03-18 - US-133
+- Implemented setpgid cross-session check: rejects joining a process group in a different session with EPERM (POSIX)
+- Implemented terminateAll SIGKILL escalation: after 1s SIGTERM grace period, sends SIGKILL to surviving processes
+- Files changed:
+  - packages/kernel/src/process-table.ts (setpgid session check + terminateAll SIGKILL escalation)
+  - packages/kernel/test/kernel-integration.test.ts (2 new tests)
+- **Learnings for future iterations:**
+  - MockRuntimeDriver `survivableSignals: [15]` makes a process ignore SIGTERM but still die on SIGKILL — useful for testing signal escalation
+  - setsid requires the process NOT be a group leader (pgid !== pid); spawned children inherit parent's pgid, so they're not leaders by default
+  - After terminateAll SIGTERM wait, check `e.status === "running"` on the original running list to find survivors
+---
