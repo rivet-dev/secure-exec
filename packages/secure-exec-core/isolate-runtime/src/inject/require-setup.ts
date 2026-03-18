@@ -344,6 +344,9 @@
         return stub;
       }
 
+      // Capture the real module cache for internal use before exposing a read-only view
+      const __internalModuleCache = _moduleCache;
+
       const __require = function require(moduleName) {
         return _requireFrom(moduleName, _currentModule.dirname);
       };
@@ -362,7 +365,6 @@
       globalThis.require.resolve = function resolve(moduleName) {
         return _resolveFrom(moduleName, _currentModule.dirname);
       };
-      globalThis.require.cache = _moduleCache;
 
       function _debugRequire(phase, moduleName, extra) {
         if (globalThis.__sandboxRequireDebug !== true) {
@@ -403,26 +405,26 @@
         const isRelative = name.startsWith('./') || name.startsWith('../');
 
         // Get cached modules for bare/absolute specifiers up front.
-        if (!isRelative && _moduleCache[name]) {
+        if (!isRelative && __internalModuleCache[name]) {
           _debugRequire('cache-hit', name, name);
-          return _moduleCache[name];
+          return __internalModuleCache[name];
         }
 
         // Special handling for fs module
         if (name === 'fs') {
-          if (_moduleCache['fs']) return _moduleCache['fs'];
+          if (__internalModuleCache['fs']) return __internalModuleCache['fs'];
           const fsModule = globalThis.bridge?.fs || globalThis.bridge?.default || globalThis._fsModule || {};
-          _moduleCache['fs'] = fsModule;
+          __internalModuleCache['fs'] = fsModule;
           _debugRequire('loaded', name, 'fs-special');
           return fsModule;
         }
 
         // Special handling for fs/promises module
         if (name === 'fs/promises') {
-          if (_moduleCache['fs/promises']) return _moduleCache['fs/promises'];
+          if (__internalModuleCache['fs/promises']) return __internalModuleCache['fs/promises'];
           // Get fs module first, then extract promises
           const fsModule = _requireFrom('fs', fromDir);
-          _moduleCache['fs/promises'] = fsModule.promises;
+          __internalModuleCache['fs/promises'] = fsModule.promises;
           _debugRequire('loaded', name, 'fs-promises-special');
           return fsModule.promises;
         }
@@ -430,7 +432,7 @@
         // Special handling for stream/promises module.
         // Expose promise-based wrappers backed by stream callback APIs.
         if (name === 'stream/promises') {
-          if (_moduleCache['stream/promises']) return _moduleCache['stream/promises'];
+          if (__internalModuleCache['stream/promises']) return __internalModuleCache['stream/promises'];
           const streamModule = _requireFrom('stream', fromDir);
           const promisesModule = {
             finished(stream, options) {
@@ -482,63 +484,63 @@
               });
             },
           };
-          _moduleCache['stream/promises'] = promisesModule;
+          __internalModuleCache['stream/promises'] = promisesModule;
           _debugRequire('loaded', name, 'stream-promises-special');
           return promisesModule;
         }
 
         // Special handling for child_process module
         if (name === 'child_process') {
-          if (_moduleCache['child_process']) return _moduleCache['child_process'];
-          _moduleCache['child_process'] = _childProcessModule;
+          if (__internalModuleCache['child_process']) return __internalModuleCache['child_process'];
+          __internalModuleCache['child_process'] = _childProcessModule;
           _debugRequire('loaded', name, 'child-process-special');
           return _childProcessModule;
         }
 
         // Special handling for http module
         if (name === 'http') {
-          if (_moduleCache['http']) return _moduleCache['http'];
-          _moduleCache['http'] = _httpModule;
+          if (__internalModuleCache['http']) return __internalModuleCache['http'];
+          __internalModuleCache['http'] = _httpModule;
           _debugRequire('loaded', name, 'http-special');
           return _httpModule;
         }
 
         // Special handling for https module
         if (name === 'https') {
-          if (_moduleCache['https']) return _moduleCache['https'];
-          _moduleCache['https'] = _httpsModule;
+          if (__internalModuleCache['https']) return __internalModuleCache['https'];
+          __internalModuleCache['https'] = _httpsModule;
           _debugRequire('loaded', name, 'https-special');
           return _httpsModule;
         }
 
         // Special handling for http2 module
         if (name === 'http2') {
-          if (_moduleCache['http2']) return _moduleCache['http2'];
-          _moduleCache['http2'] = _http2Module;
+          if (__internalModuleCache['http2']) return __internalModuleCache['http2'];
+          __internalModuleCache['http2'] = _http2Module;
           _debugRequire('loaded', name, 'http2-special');
           return _http2Module;
         }
 
         // Special handling for dns module
         if (name === 'dns') {
-          if (_moduleCache['dns']) return _moduleCache['dns'];
-          _moduleCache['dns'] = _dnsModule;
+          if (__internalModuleCache['dns']) return __internalModuleCache['dns'];
+          __internalModuleCache['dns'] = _dnsModule;
           _debugRequire('loaded', name, 'dns-special');
           return _dnsModule;
         }
 
         // Special handling for os module
         if (name === 'os') {
-          if (_moduleCache['os']) return _moduleCache['os'];
-          _moduleCache['os'] = _osModule;
+          if (__internalModuleCache['os']) return __internalModuleCache['os'];
+          __internalModuleCache['os'] = _osModule;
           _debugRequire('loaded', name, 'os-special');
           return _osModule;
         }
 
         // Special handling for module module
         if (name === 'module') {
-          if (_moduleCache['module']) return _moduleCache['module'];
-          _moduleCache['module'] = _moduleModule;
+          if (__internalModuleCache['module']) return __internalModuleCache['module'];
+          __internalModuleCache['module'] = _moduleModule;
           _debugRequire('loaded', name, 'module-special');
           return _moduleModule;
         }
@@ -553,7 +555,7 @@
         // Special handling for async_hooks.
         // This provides the minimum API surface needed by tracing libraries.
         if (name === 'async_hooks') {
-          if (_moduleCache['async_hooks']) return _moduleCache['async_hooks'];
+          if (__internalModuleCache['async_hooks']) return __internalModuleCache['async_hooks'];
 
           class AsyncLocalStorage {
             constructor() {
@@ -622,14 +624,14 @@
             executionAsyncResource() { return null; },
           };
 
-          _moduleCache['async_hooks'] = asyncHooksModule;
+          __internalModuleCache['async_hooks'] = asyncHooksModule;
           _debugRequire('loaded', name, 'async-hooks-special');
           return asyncHooksModule;
         }
 
         // No-op diagnostics_channel stub — channels report no subscribers
         if (name === 'diagnostics_channel') {
-          if (_moduleCache[name]) return _moduleCache[name];
+          if (__internalModuleCache[name]) return __internalModuleCache[name];
 
           function _createChannel() {
             return {
@@ -660,16 +662,16 @@
             },
           };
 
-          _moduleCache[name] = dcModule;
+          __internalModuleCache[name] = dcModule;
           _debugRequire('loaded', name, 'diagnostics-channel-special');
           return dcModule;
         }
 
         // Get deferred module stubs
         if (_deferredCoreModules.has(name)) {
-          if (_moduleCache[name]) return _moduleCache[name];
+          if (__internalModuleCache[name]) return __internalModuleCache[name];
           const deferredStub = _createDeferredModuleStub(name);
-          _moduleCache[name] = deferredStub;
+          __internalModuleCache[name] = deferredStub;
           _debugRequire('loaded', name, 'deferred-stub');
           return deferredStub;
         }
@@ -682,7 +684,7 @@
         // Try to load polyfill first (for built-in modules like path, events, etc.)
         const polyfillCode = _loadPolyfill.applySyncPromise(undefined, [name]);
         if (polyfillCode !== null) {
-          if (_moduleCache[name]) return _moduleCache[name];
+          if (__internalModuleCache[name]) return __internalModuleCache[name];
 
           const moduleObj = { exports: {} };
           _pendingModules[name] = moduleObj;
@@ -695,10 +697,10 @@
             moduleObj.exports = result;
           }
 
-          _moduleCache[name] = moduleObj.exports;
+          __internalModuleCache[name] = moduleObj.exports;
           delete _pendingModules[name];
           _debugRequire('loaded', name, 'polyfill');
-          return _moduleCache[name];
+          return __internalModuleCache[name];
         }
 
         // Resolve module path using host-side resolution
@@ -708,9 +710,9 @@
         cacheKey = resolved;
 
         // Check cache with resolved path
-        if (_moduleCache[cacheKey]) {
+        if (__internalModuleCache[cacheKey]) {
           _debugRequire('cache-hit', name, cacheKey);
-          return _moduleCache[cacheKey];
+          return __internalModuleCache[cacheKey];
         }
 
         // Check if we're currently loading this module (circular dep)
@@ -730,7 +732,7 @@
 	        // Handle JSON files
 	        if (resolved.endsWith('.json')) {
 	          const parsed = JSON.parse(source);
-	          _moduleCache[cacheKey] = parsed;
+	          __internalModuleCache[cacheKey] = parsed;
 	          return parsed;
 	        }
 
@@ -813,7 +815,7 @@
         }
 
         // Cache with resolved path
-        _moduleCache[cacheKey] = module.exports;
+        __internalModuleCache[cacheKey] = module.exports;
         delete _pendingModules[cacheKey];
         _debugRequire('loaded', name, cacheKey);
 
@@ -822,3 +824,52 @@
 
       // Expose _requireFrom globally so module polyfill can access it
       __requireExposeCustomGlobal("_requireFrom", _requireFrom);
+
+      // Block module cache poisoning: create a read-only Proxy over the real cache.
+      // Internal require writes go through __internalModuleCache (captured above);
+      // sandbox code sees only this Proxy which rejects set/delete/defineProperty.
+      const __moduleCacheProxy = new Proxy(__internalModuleCache, {
+        get(target, prop, receiver) {
+          return Reflect.get(target, prop, receiver);
+        },
+        set(_target, prop) {
+          throw new TypeError("Cannot set require.cache['" + String(prop) + "']");
+        },
+        deleteProperty(_target, prop) {
+          throw new TypeError("Cannot delete require.cache['" + String(prop) + "']");
+        },
+        defineProperty(_target, prop) {
+          throw new TypeError("Cannot define property '" + String(prop) + "' on require.cache");
+        },
+        has(target, prop) {
+          return Reflect.has(target, prop);
+        },
+        ownKeys(target) {
+          return Reflect.ownKeys(target);
+        },
+        getOwnPropertyDescriptor(target, prop) {
+          return Reflect.getOwnPropertyDescriptor(target, prop);
+        },
+      });
+
+      // Expose read-only proxy as require.cache
+      globalThis.require.cache = __moduleCacheProxy;
+
+      // Replace _moduleCache global with read-only proxy so sandbox code
+      // cannot bypass require.cache protection via the raw global.
+      // Keep configurable:true — applyCustomGlobalExposurePolicy will lock it
+      // down to non-configurable after all bridge setup completes.
+      Object.defineProperty(globalThis, '_moduleCache', {
+        value: __moduleCacheProxy,
+        writable: false,
+        configurable: true,
+        enumerable: false,
+      });
+
+      // Update Module._cache references to use the read-only proxy
+      if (typeof _moduleModule !== 'undefined') {
+        if (_moduleModule.Module) {
+          _moduleModule.Module._cache = __moduleCacheProxy;
+        }
+        _moduleModule._cache = __moduleCacheProxy;
+      }

@@ -417,6 +417,119 @@ describe("bridge-side resource hardening", () => {
 	});
 
 	// -------------------------------------------------------------------
+	// Module cache poisoning prevention (US-119-B)
+	// -------------------------------------------------------------------
+
+	describe("module cache poisoning prevention", () => {
+		it("require.cache assignment throws TypeError", async () => {
+			proc = createTestNodeRuntime({
+				permissions: allowAllFs,
+			});
+
+			const result = await proc.run(`
+				let threw = false;
+				try {
+					require.cache['crypto'] = { exports: { fake: true } };
+				} catch (e) {
+					threw = e instanceof TypeError;
+				}
+				module.exports = { threw };
+			`);
+
+			expect(result.code).toBe(0);
+			expect(result.exports).toEqual({ threw: true });
+		});
+
+		it("require.cache deletion throws TypeError", async () => {
+			proc = createTestNodeRuntime({
+				permissions: allowAllFs,
+			});
+
+			const result = await proc.run(`
+				let threw = false;
+				try {
+					delete require.cache['crypto'];
+				} catch (e) {
+					threw = e instanceof TypeError;
+				}
+				module.exports = { threw };
+			`);
+
+			expect(result.code).toBe(0);
+			expect(result.exports).toEqual({ threw: true });
+		});
+
+		it("normal require() still works and caches correctly", async () => {
+			const fs = createInMemoryFileSystem();
+			await fs.writeFile("/app/mod.js", new TextEncoder().encode(
+				`module.exports = { val: 42 };`
+			));
+
+			proc = createTestNodeRuntime({
+				filesystem: fs,
+				permissions: allowAllFs,
+			});
+
+			const result = await proc.run(`
+				const mod1 = require('/app/mod.js');
+				const mod2 = require('/app/mod.js');
+				module.exports = {
+					val: mod1.val,
+					sameRef: mod1 === mod2,
+				};
+			`);
+
+			expect(result.code).toBe(0);
+			expect(result.exports).toEqual({ val: 42, sameRef: true });
+		});
+
+		it("_moduleCache global is not writable by sandbox code", async () => {
+			proc = createTestNodeRuntime({
+				permissions: allowAllFs,
+			});
+
+			const result = await proc.run(`
+				let setThrew = false;
+				let deleteThrew = false;
+				try {
+					_moduleCache['crypto'] = { exports: { fake: true } };
+				} catch (e) {
+					setThrew = e instanceof TypeError;
+				}
+				try {
+					delete _moduleCache['crypto'];
+				} catch (e) {
+					deleteThrew = e instanceof TypeError;
+				}
+				module.exports = { setThrew, deleteThrew };
+			`);
+
+			expect(result.code).toBe(0);
+			expect(result.exports).toEqual({ setThrew: true, deleteThrew: true });
+		});
+
+		it("Module._cache is also protected from writes", async () => {
+			proc = createTestNodeRuntime({
+				permissions: allowAllFs,
+			});
+
+			const result = await proc.run(`
+				const Module = require('module');
+				let threw = false;
+				try {
+					Module._cache['crypto'] = { exports: { fake: true } };
+				} catch (e) {
+					threw = e instanceof TypeError;
+				}
+				module.exports = { threw };
+			`);
+
+			expect(result.code).toBe(0);
+			expect(result.exports).toEqual({ threw: true });
+		});
+	});
+
+	// -------------------------------------------------------------------
 	// ChildProcess.pid uniqueness — monotonic counter, not random
 	// -------------------------------------------------------------------
 

@@ -315,8 +315,8 @@ export const NODE_CUSTOM_GLOBAL_INVENTORY: readonly CustomGlobalInventoryEntry[]
 	},
 	{
 		name: "_moduleCache",
-		classification: "mutable-runtime-state",
-		rationale: "Per-execution CommonJS/require cache state.",
+		classification: "hardened",
+		rationale: "Per-execution CommonJS/require cache — hardened via read-only Proxy to prevent cache poisoning.",
 	},
 	{
 		name: "_pendingModules",
