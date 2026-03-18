@@ -8,7 +8,7 @@
 import { describe, it, expect } from "vitest";
 import { PipeManager, MAX_PIPE_BUFFER_BYTES } from "../src/pipe-manager.js";
 import { ProcessFDTable, FDTableManager, MAX_FDS_PER_PROCESS, type DescriptionAllocator } from "../src/fd-table.js";
-import { PtyManager, MAX_PTY_BUFFER_BYTES } from "../src/pty.js";
+import { PtyManager, MAX_PTY_BUFFER_BYTES, MAX_CANON } from "../src/pty.js";
 import { KernelError } from "../src/types.js";
 
 let _testDescId = 1;
@@ -201,6 +201,252 @@ describe("PTY buffer limit", () => {
 		manager.write(master.description.id, new Uint8Array([0x42])); // 'B'
 		const echo = await manager.read(master.description.id, 1);
 		expect(echo[0]).toBe(0x42);
+	});
+});
+
+describe("PTY adversarial stress", () => {
+	it("rapid sequential writes (100+ chunks) with no slave reader — EAGAIN and bounded memory", () => {
+		const manager = new PtyManager();
+		const { master, slave } = manager.createPty();
+
+		// Raw mode so writes go directly to input buffer
+		manager.setDiscipline(master.description.id, {
+			canonical: false,
+			echo: false,
+			isig: false,
+		});
+
+		// Write 1KB chunks until EAGAIN
+		const chunk = new Uint8Array(1024);
+		let writtenChunks = 0;
+		let hitEagain = false;
+
+		for (let i = 0; i < 200; i++) {
+			try {
+				manager.write(master.description.id, chunk);
+				writtenChunks++;
+			} catch (err) {
+				expect(err).toBeInstanceOf(KernelError);
+				expect((err as KernelError).code).toBe("EAGAIN");
+				hitEagain = true;
+				break;
+			}
+		}
+
+		// Must have hit EAGAIN before writing all 200 chunks
+		expect(hitEagain).toBe(true);
+		// Written bytes must be bounded by MAX_PTY_BUFFER_BYTES
+		expect(writtenChunks * 1024).toBeLessThanOrEqual(MAX_PTY_BUFFER_BYTES);
+
+		// Keep references alive
+		expect(manager.isPty(slave.description.id)).toBe(true);
+	});
+
+	it("single large write (1MB+) — immediate EAGAIN, no partial buffering", () => {
+		const manager = new PtyManager();
+		const { master, slave } = manager.createPty();
+
+		// Raw mode for direct pass-through
+		manager.setDiscipline(master.description.id, {
+			canonical: false,
+			echo: false,
+			isig: false,
+		});
+
+		// 1MB write should fail immediately (buffer limit is 64KB)
+		const megabyte = new Uint8Array(1024 * 1024);
+		expect(() => manager.write(master.description.id, megabyte)).toThrowError(
+			expect.objectContaining({ code: "EAGAIN" }),
+		);
+
+		// Verify no partial data was buffered — slave read should block (no data available)
+		let readResolved = false;
+		const readPromise = manager.read(slave.description.id, 1).then(() => {
+			readResolved = true;
+		});
+
+		// After a microtask, read should still be pending (nothing was buffered)
+		return Promise.resolve().then(() => {
+			expect(readResolved).toBe(false);
+			// Clean up: close master so pending read resolves with null
+			manager.close(master.description.id);
+			return readPromise;
+		});
+	});
+
+	it("single large slave write (1MB+) — immediate EAGAIN, no partial buffering", () => {
+		const manager = new PtyManager();
+		const { master, slave } = manager.createPty();
+
+		// 1MB slave write should fail immediately
+		const megabyte = new Uint8Array(1024 * 1024);
+		expect(() => manager.write(slave.description.id, megabyte)).toThrowError(
+			expect.objectContaining({ code: "EAGAIN" }),
+		);
+
+		// Verify no partial data in output buffer — master read should block
+		let readResolved = false;
+		const readPromise = manager.read(master.description.id, 1).then(() => {
+			readResolved = true;
+		});
+
+		return Promise.resolve().then(() => {
+			expect(readResolved).toBe(false);
+			manager.close(slave.description.id);
+			return readPromise;
+		});
+	});
+
+	it("multiple PTY pairs simultaneously filled — isolation between pairs", () => {
+		const manager = new PtyManager();
+		const pairs = Array.from({ length: 5 }, () => manager.createPty());
+
+		// Set all to raw mode
+		for (const { master } of pairs) {
+			manager.setDiscipline(master.description.id, {
+				canonical: false,
+				echo: false,
+				isig: false,
+			});
+		}
+
+		// Fill each pair's input buffer to the limit
+		const chunk = new Uint8Array(MAX_PTY_BUFFER_BYTES);
+		for (const { master } of pairs) {
+			manager.write(master.description.id, chunk);
+		}
+
+		// Each pair should independently reject the next write
+		for (const { master } of pairs) {
+			expect(() =>
+				manager.write(master.description.id, new Uint8Array(1)),
+			).toThrowError(expect.objectContaining({ code: "EAGAIN" }));
+		}
+
+		// Drain one pair — the rest should remain full
+		const drainIdx = 2;
+		manager.read(pairs[drainIdx].slave.description.id, MAX_PTY_BUFFER_BYTES);
+
+		// Drained pair should accept writes again
+		expect(() =>
+			manager.write(pairs[drainIdx].master.description.id, new Uint8Array(1024)),
+		).not.toThrow();
+
+		// Other pairs should still reject
+		for (let i = 0; i < pairs.length; i++) {
+			if (i === drainIdx) continue;
+			expect(() =>
+				manager.write(pairs[i].master.description.id, new Uint8Array(1)),
+			).toThrowError(expect.objectContaining({ code: "EAGAIN" }));
+		}
+	});
+
+	it("canonical mode line buffer under sustained input without newline — bounded at MAX_CANON", () => {
+		const manager = new PtyManager();
+		const { master, slave } = manager.createPty();
+
+		// Default canonical + echo mode. Disable echo to isolate input buffering.
+		manager.setDiscipline(master.description.id, {
+			canonical: true,
+			echo: false,
+			isig: false,
+		});
+
+		// Write 2× MAX_CANON bytes without newline — excess should be silently dropped
+		const oversizedInput = new Uint8Array(MAX_CANON * 2).fill(0x41); // 'A'
+		manager.write(master.description.id, oversizedInput);
+
+		// No data delivered to slave yet (canonical mode waits for newline)
+		let readResolved = false;
+		const readPromise = manager.read(slave.description.id, MAX_CANON * 2).then((data) => {
+			readResolved = true;
+			return data;
+		});
+
+		return Promise.resolve().then(async () => {
+			expect(readResolved).toBe(false);
+
+			// Send newline to flush the line buffer
+			manager.write(master.description.id, new Uint8Array([0x0a]));
+
+			const data = await readPromise;
+			// Line buffer capped at MAX_CANON, plus the newline byte
+			expect(data!.length).toBe(MAX_CANON + 1);
+			// All buffered bytes should be 'A' (capped) + newline
+			expect(data![0]).toBe(0x41);
+			expect(data![MAX_CANON]).toBe(0x0a);
+		});
+	});
+
+	it("canonical mode with echo — sustained input stays bounded despite echo output", async () => {
+		const manager = new PtyManager();
+		const { master, slave } = manager.createPty();
+
+		// Canonical + echo, no signals
+		manager.setDiscipline(master.description.id, {
+			canonical: true,
+			echo: true,
+			isig: false,
+		});
+
+		// Start a master reader to drain echo output (prevent echo backpressure)
+		const echoChunks: Uint8Array[] = [];
+		const drainEcho = async () => {
+			try {
+				while (true) {
+					const data = await manager.read(master.description.id, 4096);
+					if (data === null) break;
+					echoChunks.push(data);
+				}
+			} catch {
+				// EBADF after close — drain is done
+			}
+		};
+		const echoDrain = drainEcho();
+
+		// Write MAX_CANON + 1000 bytes without newline — excess silently dropped
+		const input = new Uint8Array(MAX_CANON + 1000).fill(0x42); // 'B'
+		manager.write(master.description.id, input);
+
+		// Flush with newline and read from slave
+		manager.write(master.description.id, new Uint8Array([0x0a]));
+
+		const data = await manager.read(slave.description.id, MAX_CANON * 2);
+		// Line capped at MAX_CANON + newline
+		expect(data!.length).toBe(MAX_CANON + 1);
+
+		// Echo output should be at most MAX_CANON bytes of chars + CR+LF for newline
+		manager.close(slave.description.id);
+		manager.close(master.description.id);
+		await echoDrain;
+		const totalEcho = echoChunks.reduce((sum, c) => sum + c.length, 0);
+		expect(totalEcho).toBeLessThanOrEqual(MAX_CANON + 2); // chars + CR+LF
+	});
+
+	it("rapid sequential slave writes (100+ chunks) with no master reader — EAGAIN and bounded memory", () => {
+		const manager = new PtyManager();
+		const { master, slave } = manager.createPty();
+
+		const chunk = new Uint8Array(1024);
+		let writtenChunks = 0;
+		let hitEagain = false;
+
+		for (let i = 0; i < 200; i++) {
+			try {
+				manager.write(slave.description.id, chunk);
+				writtenChunks++;
+			} catch (err) {
+				expect(err).toBeInstanceOf(KernelError);
+				expect((err as KernelError).code).toBe("EAGAIN");
+				hitEagain = true;
+				break;
+			}
+		}
+
+		expect(hitEagain).toBe(true);
+		expect(writtenChunks * 1024).toBeLessThanOrEqual(MAX_PTY_BUFFER_BYTES);
+
+		expect(manager.isPty(master.description.id)).toBe(true);
 	});
 });
 
