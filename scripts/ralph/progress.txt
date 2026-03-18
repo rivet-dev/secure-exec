@@ -97,6 +97,9 @@ PRD: ralph/kernel-hardening (46 stories)
 - `declare module` for untyped npm packages must live in a `.d.ts` file (not `.ts`) — TypeScript treats it as augmentation in `.ts` files and fails with TS2665
 - Host httpRequest adapter must use `http` or `https` transport based on URL protocol — always using `https` breaks localhost HTTP requests from sandbox
 - To test sandbox http.request() client behavior, create an external nodeHttp server in the test code and have the sandbox request to it
+- PTY newline echo uses `\r\n` (CR+LF) — xterm.js LF alone only moves cursor down, not to column 0
+- `translateToString(true)` preserves explicitly-written spaces — `$ ` stays `$ `, not `$`
+- Shell terminal tests use MockShellDriver (kernel FD-based REPL loop) with TerminalHarness for exact-match screen assertions
 - NodeExecutionDriver split into 5 modules in src/node/: isolate-bootstrap.ts (types+utilities), module-resolver.ts, esm-compiler.ts, bridge-setup.ts, execution-lifecycle.ts; facade is execution-driver.ts (<300 lines)
 - Source policy tests (isolate-runtime-injection-policy, bridge-registry-policy) read specific source files by path — update them when moving code between files
 - esmModuleCache has a sibling esmModuleReverseCache (Map<ivm.Module, string>) for O(1) module→path lookup — both must be updated together and cleared together in execution.ts
@@ -1249,4 +1252,22 @@ PRD: ralph/kernel-hardening (46 stories)
   - IBuffer.getLine(viewportY + row) gives viewport-relative rows; .translateToString(true) trims trailing whitespace
   - @xterm/headless is pure JS, no native addons or DOM — works in vitest/Node.js without any polyfills
   - Shell output arrives via shell.onData callback as Uint8Array — term.write accepts both string and Uint8Array
+---
+
+## 2026-03-17 - US-081
+- Implemented kernel PTY terminal tests with MockShellDriver and TerminalHarness
+- Created `packages/kernel/test/shell-terminal.test.ts` with 4 tests:
+  - clean initial state — screen shows prompt `$ `
+  - echo on input — typed text appears via PTY echo
+  - command output on correct line — output below input line
+  - output preservation — multiple commands all visible
+- Fixed PTY newline echo: `\n` → `\r\n` in `packages/kernel/src/pty.ts` (line discipline must echo CR+LF for correct terminal cursor positioning)
+- Updated existing echo test assertion in `kernel-integration.test.ts` for `\r\n`
+- Files changed: `packages/kernel/src/pty.ts`, `packages/kernel/test/shell-terminal.test.ts` (new), `packages/kernel/test/kernel-integration.test.ts`
+- **Learnings for future iterations:**
+  - PTY line discipline must echo newline as `\r\n` (CR+LF), not bare `\n` — xterm.js treats LF as cursor-down only, not CR+LF; without CR the cursor stays at current column
+  - `translateToString(true)` preserves explicitly-written space characters (e.g., `$ ` → `$ `, not `$`) — xterm distinguishes written cells from default/empty cells
+  - Mock shell for terminal tests should use kernel FDs (`ki.fdRead`/`ki.fdWrite`) with PTY slave, not DriverProcess callbacks — PTY I/O goes through kernel FD table
+  - Shell output must use `\r\n` for line breaks since the kernel has no ONLCR output processing — programs are responsible for CR+LF in their PTY output
+  - MockShellDriver pattern: async REPL loop reading from stdin FD, dispatching simple commands, writing prompt — reusable for US-082 signal/backspace tests
 ---
