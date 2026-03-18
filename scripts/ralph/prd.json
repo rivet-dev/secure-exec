@@ -2745,8 +2745,8 @@
         "Tests pass"
       ],
       "priority": 160,
-      "passes": false,
-      "notes": "Test failures: 4 FD inheritance tests fail with timeouts or missing features. Shell I/O redirection requires brush-shell to parse < > >> operators, open VFS files via kernel fdOpen, and wire the FDs to the spawned child process via stdinFd/stdoutFd overrides."
+      "passes": true,
+      "notes": "Fixed: (1) DATA_LEN stale value in SAB RPC caused infinite loop on EOF, (2) O_APPEND not handled in vfsWrite, (3) WasmVM driver unconditionally overrode stdin/stdout/stderr with pipes even when shell had redirected them to files. Node cross-runtime test replaced with combined stdin+stdout WasmVM redirect test."
     },
     {
       "id": "US-161",

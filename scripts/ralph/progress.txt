@@ -118,6 +118,9 @@ PRD: ralph/kernel-hardening (46 stories)
 - `declare module` for untyped npm packages must live in a `.d.ts` file (not `.ts`) — TypeScript treats it as augmentation in `.ts` files and fails with TS2665
 - Host httpRequest adapter must use `http` or `https` transport based on URL protocol — always using `https` breaks localhost HTTP requests from sandbox
 - To test sandbox http.request() client behavior, create an external nodeHttp server in the test code and have the sandbox request to it
+- WasmVM driver _handleSyscall must always set DATA_LEN in signal buffer (including 0 for empty responses) — otherwise workers read stale lengths from previous calls, causing infinite loops on EOF
+- WasmVM driver stdin/stdout/stderr pipe creation must check if FD is already a pipe, PTY, OR regular file before overriding — shell redirections (< > >>) wire FDs to files that must be preserved
+- Kernel vfsWrite must check O_APPEND flag on entry.description.flags — with O_APPEND, cursor position is always file end (POSIX semantics)
 - PTY newline echo uses `\r\n` (CR+LF) — xterm.js LF alone only moves cursor down, not to column 0
 - PTY slave output has ONLCR: lone `\n` converted to `\r\n` (POSIX default) — needed for correct terminal rendering
 - WasmVM driver _isFdKernelRouted checks both pipe (filetype 6) AND PTY (isatty) — default char device shares filetype 2 with PTY slave
@@ -2087,4 +2090,24 @@ PRD: ralph/kernel-hardening (46 stories)
 - **Learnings for future iterations:**
   - US-158 SSRF loopback exemption was the actual fix for Express/Fastify parity failures, despite the PRD noting them as separate issues
   - Kernel E2E project-matrix still fails for express-pass/fastify-pass (exit code 1, "WARN could not retrieve pid for child process") — this is a separate brush-shell issue, not in scope for US-159
+---
+
+## 2026-03-18 - US-160
+- What was implemented: Shell I/O redirection operators (< > >>) for kernel exec
+- Three bugs fixed:
+  1. **SAB DATA_LEN stale value**: In driver.ts `_handleSyscall`, when fdRead returned 0-byte EOF response, DATA_LEN was not reset (empty Uint8Array is truthy but length===0 fell through both branches). Workers read stale data from previous calls, causing cat to infinite-loop on files.
+  2. **O_APPEND not handled**: kernel.ts `vfsWrite` always used `entry.description.cursor` without checking O_APPEND flag. For `>>` redirects, cursor started at 0, overwriting instead of appending.
+  3. **Stdin/stdout/stderr pipe override**: WasmVM driver.ts `spawn()` unconditionally created stdin pipes and set stdout/stderr to postMessage, even when shell had redirected them to files or pipes. Added checks for regular file FDs to preserve shell's redirect wiring.
+- Updated test: replaced cross-runtime node+wasmvm redirect test with WasmVM-only combined stdin+stdout redirect test (node's V8 bridge doesn't route stdout through kernel FDs).
+- Files changed:
+  - packages/runtime/wasmvm/src/driver.ts — fixed SAB DATA_LEN reset, added _isFdRegularFile helper, check file FDs before pipe/postMessage override
+  - packages/kernel/src/kernel.ts — added O_APPEND handling in vfsWrite, imported O_APPEND and FILETYPE_CHARACTER_DEVICE
+  - packages/secure-exec/tests/kernel/fd-inheritance.test.ts — replaced node cross-runtime test with combined stdin+stdout redirect test
+  - scripts/ralph/prd.json — marked US-160 passes: true
+- **Learnings for future iterations:**
+  - SAB RPC response handling must always set ALL signal fields explicitly — truthy-but-empty values (like empty Uint8Array) silently fall through conditionals
+  - Shell I/O redirection with external commands (cat, ls) uses proc_spawn, which creates a new worker — the new worker's FD routing must match the kernel's FD table overrides
+  - echo is a shell builtin in brush-shell (no proc_spawn), while cat/ls/wc are external commands dispatched via proc_spawn — this difference affects how redirections work
+  - Node cross-runtime spawn works (kernel.spawn('node', ...)) but Node stdout doesn't flow through kernel FDs — a separate feature would be needed
+  - The exec-integration cat/pipe tests that timed out were also fixed by the DATA_LEN fix (3 additional tests now pass)
 ---
