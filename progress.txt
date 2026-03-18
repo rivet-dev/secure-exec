@@ -1284,3 +1284,20 @@ PRD: ralph/kernel-hardening (46 stories)
 - Tests pass (verified in US-081 run)
 - Marked passes: true in prd.json
 ---
+
+## 2026-03-17 - US-083 (partial)
+- What was implemented:
+  - Converted `cd /tmp` + `pwd` test from `.todo()` to a passing test (was blocked by WASI hang, now works)
+  - Added VFS lazy directory entry population in kernel-worker.ts (populateDirEntries, inoToPath, populatedDirs)
+  - Updated `ls` `.todo()` comment with better root cause analysis
+- Files changed:
+  - packages/runtime/wasmvm/src/kernel-worker.ts — added lazy directory population in createKernelVfs()
+  - packages/runtime/wasmvm/test/shell-terminal.test.ts — converted cd test from .todo() to real test, updated ls comment
+- Status: 4/5 tests pass, `ls /` remains .todo() due to child process WASI VFS access issue
+- The `ls` blocker: child processes spawned via proc_spawn have their own Worker and WASI polyfill, but ls fails with "ls-error-cannot-access-no-such-file" — the child's WASI path_open/fd_readdir cannot access directories despite VFS being available via RPC. brush-shell also reports "WARN could not retrieve pid for child process" suggesting proc_spawn PID tracking has issues.
+- **Learnings for future iterations:**
+  - cd builtin no longer hangs — the prior WASI path_filestat_get blocking issue was fixed in an earlier iteration
+  - brush-shell glob expansion (`echo /tmp/*`) does NOT work — outputs literal glob pattern
+  - Child process WASI VFS requires getInodeByIno to lazy-populate directory entries, but the root ls failure is in child Worker WASI initialization, not VFS population
+  - Pre-existing failures in driver.test.ts: cat /dev/null exits 1 (not 0), writeStdin to cat times out — not related to terminal tests
+---
