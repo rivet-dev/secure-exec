@@ -447,9 +447,11 @@ export function Hero() {
                 transition={{ duration: 0.6, delay: 0.7 }}
                 className="mx-auto mb-10 max-w-2xl text-lg text-zinc-500 leading-relaxed"
               >
-                <span className="whitespace-nowrap">A lightweight library for secure Node.js execution using V8 isolates.</span>
+                <span className="whitespace-nowrap">A lightweight library for secure Node.js execution.</span>
                 <br />
                 <span className="whitespace-nowrap">No containers, no VMs — just npm-compatible sandboxing out of the box.</span>
+				<br />
+                <span className="whitespace-nowrap"> Powered by the same tech as Cloudflare Workers.</span>
               </motion.p>
 
               <motion.div
@@ -487,7 +489,7 @@ export function Hero() {
         </div>
       </section>
 
-      <section className="relative px-6 pb-24">
+      <section className="relative px-6 pb-48">
         <div className="mx-auto w-full max-w-3xl">
           <motion.div
             initial={{ opacity: 0, y: 30 }}

@@ -1,0 +1,46 @@
+---
+title: "Sandbox vs. Secure Exec"
+description: "When to use a container sandbox vs. Secure Exec for code execution"
+---
+
+## How They Work
+
+**Container sandboxes** (e2b, Daytona, Modal, Cloudflare Containers) run each execution in an isolated VM or container with its own OS, filesystem, and network stack. You connect over a network API.
+
+**Secure Exec** runs each execution in a V8 isolate inside your Node.js process. There is no separate container, no network hop, and no vendor dependency. Isolation is enforced at the V8 engine level — the same technology that powers Cloudflare Workers.
+
+## Comparison
+
+| Dimension              | Secure Exec                    | Container Sandbox              |
+| ---------------------- | ------------------------------ | ------------------------------ |
+| Isolation              | V8 isolate                     | VM / container                 |
+| Performance            | Native V8                      | Native container               |
+| Cold start             | ~16 ms (p95)                   | ~950 ms (best provider)        |
+| Memory baseline        | ~3.4 MB                        | ~256 MB minimum                |
+| Permissions            | Granular, deny-by-default      | Coarse-grained                 |
+| Infrastructure         | `npm install`                  | Vendor account + API keys      |
+| Hardware               | Your choice                    | Vendor-locked                  |
+| Egress                 | None (in-process)              | Per-GB fees                    |
+| Language support        | Node.js, Python                | Any (full OS)                  |
+| Filesystem             | Virtual, scoped                | Full OS filesystem             |
+| Network access         | Configurable per-execution     | Full (or firewall rules)       |
+
+## When to Use Each
+
+### Use Secure Exec when:
+
+- You need **fast, lightweight** code execution (AI tool calls, user scripts, plugins)
+- You want **no vendor dependency** and full control over infrastructure
+- You need **granular permissions** (file, network, module-level)
+- Cost matters at scale — especially for high-concurrency lightweight workloads
+
+### Use a container sandbox when:
+
+- You need a **full OS environment** (install system packages, run arbitrary binaries)
+- You need languages beyond Node.js/Python with full OS-level access
+- You need **persistent, long-lived** environments (multi-hour dev sessions)
+- Workloads are heavyweight enough that the 256 MB minimum doesn't matter
+
+## Cost
+
+See [Cost Evaluation](/docs/cost-evaluation) for detailed per-second cost comparison across providers.

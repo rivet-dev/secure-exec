@@ -63,7 +63,7 @@ export function Footer() {
             <a href="https://rivet.dev" className="inline-block">
               <img src="/rivet-logo-text-white.svg" alt="Rivet" className="h-6 w-auto opacity-90 hover:opacity-100 transition-opacity" />
             </a>
-            <p className="text-sm leading-6 text-zinc-500">Infrastructure for software that thinks</p>
+            <p className="text-sm leading-6 text-zinc-500">The primitive for stateful workloads</p>
             <div className="flex space-x-4">
               {footer.social.map((item) => (
                 <a key={item.name} href={item.href} className="text-zinc-500 hover:text-white transition-colors" target="_blank" rel="noopener noreferrer">

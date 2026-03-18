@@ -1,3 +1,7 @@
+## Brand
+
+- accent color: #CC0000 (red), light variant: #FF3333
+
 ## Tooling
 
 - use pnpm, vitest, and tsc for type checks

@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Server, Package, Shield, Gauge, Globe, Cpu } from "lucide-react";
+import { Server, Package, Bot, Shield, Gauge, Globe } from "lucide-react";
 
 const features = [
   {
@@ -22,6 +22,14 @@ const features = [
     chromeAngle: "200deg",
   },
   {
+    icon: Bot,
+    title: "Built for AI agents",
+    description:
+      "Give your AI agent the ability to write and run code safely. Works with the Vercel AI SDK, LangChain, and any tool-use framework.",
+    hoverColor: "group-hover:text-pink-400",
+    chromeAngle: "260deg",
+  },
+  {
     icon: Shield,
     title: "Deny-by-default permissions",
     description:
@@ -36,14 +44,6 @@ const features = [
       "CPU time budgets and memory caps. Runaway code is terminated deterministically with exit code 124 — no OOM crashes, no infinite loops, no host exhaustion.",
     hoverColor: "group-hover:text-amber-400",
     chromeAngle: "45deg",
-  },
-  {
-    icon: Cpu,
-    title: "Fast cold starts & low memory",
-    description:
-      "No container to boot, no filesystem image to mount, no process to fork. Isolate creation is measured in milliseconds. Memory overhead is measured in single-digit megabytes.",
-    hoverColor: "group-hover:text-pink-400",
-    chromeAngle: "260deg",
   },
   {
     icon: Globe,
@@ -77,7 +77,7 @@ export function FeatureGrid() {
             transition={{ duration: 0.5, delay: 0.1 }}
             className="max-w-xl text-base leading-relaxed text-zinc-500"
           >
-            V8 isolate-based execution with full Node.js compatibility, granular permissions, and resource limits.
+            Give your AI agent the ability to write and run code safely. Works with the Vercel AI SDK, LangChain, and any tool-use framework.
           </motion.p>
         </div>
 
