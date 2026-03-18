@@ -1355,3 +1355,19 @@ PRD: ralph/kernel-hardening (46 stories)
   - brush-shell 0.4 does NOT support backslash line continuation; double-quote continuation works
   - VFS files MUST end with newline for cat to work correctly (cat reads in a loop and no newline causes repeated reads from position 0)
 ---
+
+## 2026-03-18 - US-114
+- Implemented cross-PID authorization for KernelInterface
+- Each driver's KernelInterface is now scoped: `assertOwns(pid)` validates the calling driver owns the target PID
+- Added `driverPids: Map<string, Set<number>>` to KernelImpl for tracking PID ownership per driver
+- PIDs registered to driver set in `spawnInternal()` before `driver.spawn()`; cleaned up in `onProcessExit`
+- Negative PIDs (process group kills) bypass ownership check — kernel-managed via process table
+- `waitpid` wraps assertOwns in try/catch to return rejected Promise (matching existing behavior)
+- Non-existent PIDs throw ESRCH; cross-driver PIDs throw EPERM
+- Files changed: packages/kernel/src/kernel.ts, packages/kernel/test/cross-pid-auth.test.ts (new)
+- **Learnings for future iterations:**
+  - SpyDriver in tests must call `driverProc.onExit?.(code)` (deferred via queueMicrotask) so the kernel's process table learns about exit — otherwise PID cleanup never fires
+  - `assertOwns` must distinguish ESRCH (PID doesn't exist anywhere) from EPERM (PID exists but belongs to another driver) — iterates all driver PID sets
+  - Async KernelInterface methods (waitpid) that previously returned rejected Promises need assertOwns wrapped in try/catch to preserve the rejection pattern
+  - Process group kills (negative PID in kill) must bypass per-driver ownership since groups can span drivers
+---
