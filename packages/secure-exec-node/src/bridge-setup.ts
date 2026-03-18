@@ -675,6 +675,9 @@ export async function setupRequire(
 			},
 		);
 
+		// Track server IDs created in this context for ownership validation
+		const ownedHttpServers = new Set<number>();
+
 		// Lazy dispatcher reference for in-sandbox HTTP server callbacks
 		let httpServerDispatchRef: ivm.Reference<
 			(serverId: number, requestJson: string) => Promise<string>
@@ -730,6 +733,7 @@ export async function setupRequire(
 							}>("network.httpServer response", String(responseJson), jsonPayloadLimit);
 						},
 					});
+					ownedHttpServers.add(options.serverId);
 					deps.activeHttpServerIds.add(options.serverId);
 					return JSON.stringify(result);
 				})();
@@ -738,14 +742,22 @@ export async function setupRequire(
 
 		// Reference for closing an in-sandbox HTTP server
 		const networkHttpServerCloseRef = new ivm.Reference(
-			async (serverId: number): Promise<void> => {
+			(serverId: number): Promise<void> => {
 				if (!adapter.httpServerClose) {
 					throw new Error(
 						"http.createServer close requires NetworkAdapter.httpServerClose support",
 					);
 				}
-				await adapter.httpServerClose(serverId);
-				deps.activeHttpServerIds.delete(serverId);
+				// Ownership check: only allow closing servers created in this context
+				if (!ownedHttpServers.has(serverId)) {
+					throw new Error(
+						`Cannot close server ${serverId}: not owned by this execution context`,
+					);
+				}
+				return adapter.httpServerClose(serverId).then(() => {
+					ownedHttpServers.delete(serverId);
+					deps.activeHttpServerIds.delete(serverId);
+				});
 			},
 		);
 

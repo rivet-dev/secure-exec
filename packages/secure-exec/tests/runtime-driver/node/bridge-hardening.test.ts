@@ -1,6 +1,6 @@
 import ivm from "isolated-vm";
 import { afterEach, describe, expect, it } from "vitest";
-import { allowAllFs, allowAllChildProcess, createInMemoryFileSystem, createDefaultNetworkAdapter } from "../../../src/index.js";
+import { allowAllFs, allowAllChildProcess, allowAllNetwork, createInMemoryFileSystem, createDefaultNetworkAdapter } from "../../../src/index.js";
 import type { NodeRuntime } from "../../../src/index.js";
 import { createTestNodeRuntime } from "../../test-utils.js";
 
@@ -359,6 +359,85 @@ describe("bridge-side resource hardening", () => {
 					await adapter.httpServerClose!(999);
 				}
 			}
+		});
+	});
+
+	// -------------------------------------------------------------------
+	// HTTP server ownership — close only servers created in this context
+	// -------------------------------------------------------------------
+
+	describe("HTTP server ownership", () => {
+		it("sandbox can close a server it created", async () => {
+			const adapter = createDefaultNetworkAdapter();
+			const capture = createConsoleCapture();
+
+			proc = createTestNodeRuntime({
+				permissions: { ...allowAllNetwork },
+				networkAdapter: adapter,
+				onStdio: capture.onStdio,
+			});
+
+			const result = await proc.exec(`
+				const http = require('http');
+				const server = http.createServer((req, res) => {
+					res.writeHead(200);
+					res.end('ok');
+				});
+
+				(async () => {
+					await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+					await new Promise((resolve, reject) => {
+						server.close((err) => err ? reject(err) : resolve());
+					});
+					console.log('close:ok');
+				})();
+			`);
+
+			expect(result.code).toBe(0);
+			expect(capture.stdout()).toContain("close:ok");
+		});
+
+		it("sandbox cannot close a server it did not create", async () => {
+			const adapter = createDefaultNetworkAdapter();
+			const capture = createConsoleCapture();
+
+			// Pre-register a server in the adapter that was NOT created by this context
+			await adapter.httpServerListen!({
+				serverId: 42,
+				port: 0,
+				hostname: "127.0.0.1",
+				onRequest: async () => ({ status: 200 }),
+			});
+
+			proc = createTestNodeRuntime({
+				permissions: { ...allowAllNetwork },
+				networkAdapter: adapter,
+				onStdio: capture.onStdio,
+			});
+
+			const result = await proc.exec(`
+				const http = require('http');
+
+				(async () => {
+					try {
+						// Attempt to call the host bridge reference directly with an unowned serverId
+						await _networkHttpServerCloseRaw.apply(
+							undefined, [42], { result: { promise: true } }
+						);
+						console.log('close:unexpected');
+					} catch (e) {
+						console.log('close:denied');
+						console.log('error:' + e.message);
+					}
+				})();
+			`);
+
+			expect(capture.stdout()).toContain("close:denied");
+			expect(capture.stdout()).toContain("not owned by this execution context");
+			expect(capture.stdout()).not.toContain("close:unexpected");
+
+			// Clean up the externally-created server
+			await adapter.httpServerClose!(42);
 		});
 	});
 
