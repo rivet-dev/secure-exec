@@ -1,0 +1,97 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 0.1.0-rc.2)"
+        required: true
+        type: string
+      npm-tag:
+        description: "npm dist-tag"
+        required: true
+        type: choice
+        options:
+          - latest
+          - rc
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          ref: v${{ inputs.version }}
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm turbo check-types
+
+      - name: Build
+        run: pnpm turbo build
+
+      - name: Publish to npm
+        run: |
+          FAILURES=""
+          for dir in $(pnpm -r ls --json --depth -1 | jq -r '.[] | select(.private != true) | .path'); do
+            # Skip the root package
+            if [ "$dir" = "$(pwd)" ]; then
+              continue
+            fi
+            NAME=$(jq -r .name "$dir/package.json")
+            VERSION="${{ inputs.version }}"
+            # Skip if already published
+            if npm view "${NAME}@${VERSION}" version >/dev/null 2>&1; then
+              echo "⏭ ${NAME}@${VERSION} already published, skipping."
+              continue
+            fi
+            echo "Publishing ${NAME}@${VERSION}..."
+            if ! (cd "$dir" && pnpm publish --access public --tag ${{ inputs.npm-tag }} --no-git-checks); then
+              FAILURES="${FAILURES} ${NAME}"
+            fi
+          done
+          if [ -n "$FAILURES" ]; then
+            echo "::error::Failed to publish:${FAILURES}"
+            exit 1
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub release
+        run: |
+          if gh release view "v${{ inputs.version }}" >/dev/null 2>&1; then
+            echo "GitHub release v${{ inputs.version }} already exists, skipping."
+          else
+            PRERELEASE=""
+            if [ "${{ inputs.npm-tag }}" = "rc" ]; then
+              PRERELEASE="--prerelease"
+            fi
+            gh release create "v${{ inputs.version }}" \
+              --title "v${{ inputs.version }}" \
+              --generate-notes \
+              $PRERELEASE
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}

@@ -27,11 +27,6 @@ function tryRun(cmd: string, opts?: { cwd?: string; stdio?: "pipe" | "inherit" }
   }
 }
 
-function isPublished(name: string, version: string): boolean {
-  const { ok } = tryRun(`npm view ${name}@${version} version`);
-  return ok;
-}
-
 function fatal(msg: string): never {
   console.error(`\x1b[31mError:\x1b[0m ${msg}`);
   process.exit(1);
@@ -155,13 +150,6 @@ async function main() {
     process.exit(0);
   }
 
-  // Typecheck & build
-  console.log("\n\x1b[1mRunning typecheck...\x1b[0m");
-  run("pnpm turbo check-types", { stdio: "inherit" });
-
-  console.log("\n\x1b[1mRunning build...\x1b[0m");
-  run("pnpm turbo build", { stdio: "inherit" });
-
   // Bump versions
   console.log(`\n\x1b[1mBumping versions to ${version}...\x1b[0m`);
   setVersion(ROOT, version);
@@ -183,7 +171,7 @@ async function main() {
     console.log("  No version changes to commit, skipping.");
   }
 
-  // Git tag & GitHub release
+  // Git tag
   console.log(`\n\x1b[1mCreating git tag v${version}...\x1b[0m`);
   const tagExists = tryRun(`git rev-parse v${version}`).ok;
   if (tagExists) {
@@ -193,39 +181,12 @@ async function main() {
     run(`git push origin v${version}`);
   }
 
-  const prerelease = tag === "rc" ? "--prerelease" : "";
-  const releaseExists = tryRun(`gh release view v${version}`).ok;
-  if (releaseExists) {
-    console.log(`  GitHub release v${version} already exists, skipping.`);
-  } else {
-    console.log("\n\x1b[1mCreating GitHub release...\x1b[0m");
-    run(
-      `gh release create v${version} --title "v${version}" --generate-notes ${prerelease}`.trim(),
-      { stdio: "inherit" },
-    );
-  }
+  // Trigger CI release workflow
+  console.log(`\n\x1b[1mTriggering CI release workflow...\x1b[0m`);
+  run(`gh workflow run release.yml -f version=${version} -f npm-tag=${tag}`, { stdio: "inherit" });
 
-  // Publish
-  console.log(`\n\x1b[1mPublishing to npm (tag: ${tag})...\x1b[0m`);
-  const failures: string[] = [];
-  for (const pkg of packages) {
-    const name = JSON.parse(readFileSync(join(pkg, "package.json"), "utf-8")).name;
-    if (isPublished(name, version)) {
-      console.log(`  \x1b[33m⏭ ${name}@${version} already published, skipping.\x1b[0m`);
-      continue;
-    }
-    console.log(`  Publishing ${name}...`);
-    const { ok } = tryRun(`pnpm publish --access public --tag ${tag} --no-git-checks`, { cwd: pkg, stdio: "inherit" });
-    if (!ok) {
-      failures.push(name);
-    }
-  }
-
-  if (failures.length > 0) {
-    fatal(`Failed to publish: ${failures.join(", ")}`);
-  }
-
-  console.log(`\n\x1b[32m✓ Released v${version}\x1b[0m`);
+  console.log(`\n\x1b[32m✓ Tag v${version} pushed — CI will handle publish + GitHub release.\x1b[0m`);
+  console.log(`  Watch progress: \x1b[36mhttps://github.com/rivet-dev/secure-exec/actions/workflows/release.yml\x1b[0m`);
 }
 
 main().catch((err) => {
