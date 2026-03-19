@@ -3,6 +3,11 @@ Started: 2026-03-17
 PRD: ralph/kernel-hardening (46 stories)
 
 ## Codebase Patterns
+- V8Runtime (Rust process) is heavyweight — use shared singleton (getSharedV8Runtime) across all NodeExecutionDrivers; each driver creates its own V8Session
+- Bridge code composition order: ivm-compat shim → config injections → globalExposureHelpers → initialBridgeGlobals → consoleSetup → setupFsFacade → bridgeBundle → bridgeAttach → timingMitigation → requireSetup
+- Rust SYNC_BRIDGE_FNS/ASYNC_BRIDGE_FNS in session.rs must match HOST_BRIDGE_GLOBAL_KEYS from bridge-contract.ts — update both when adding new bridge functions
+- SharedArrayBuffer removal must happen AFTER bridge bundle loads (applyTimingMitigationFreeze JS), not in Rust inject_globals
+- ivm-compat shim adds .applySync/.applySyncPromise to Rust-registered functions; .apply() works via Function.prototype.apply (no shim needed)
 - @secure-exec/v8 is ESM — use `fileURLToPath(import.meta.url)` for __dirname, not `require()` or `__dirname` global
 - Claude binary at ~/.claude/local/claude — not on PATH by default; skip helpers must check this fallback location
 - Claude Code --output-format stream-json requires --verbose flag; uses ANTHROPIC_BASE_URL natively (no fetch interceptor)
@@ -2170,4 +2175,26 @@ PRD: ralph/kernel-hardening (46 stories)
   - Session message routing uses Map<sessionId, handler> — each execute() call registers its own handler, cleaned up on ExecutionResult
   - Bridge call args/results are MessagePack-encoded Uint8Array — must decode args and encode results in the JS-side handler
   - Child stderr is buffered (capped at 8KB) for error reporting on spawn failure
+---
+
+## 2026-03-18 - US-022
+- What was implemented: Updated NodeExecutionDriver to use @secure-exec/v8 instead of isolated-vm
+- Files changed:
+  - packages/secure-exec-node/src/execution-driver.ts — rewrote to use V8Runtime/V8Session, lazy-init shared runtime, compose bridge code for Rust V8 process
+  - packages/secure-exec-node/src/bridge-handlers.ts — NEW: builds BridgeHandlers map (plain functions) from DriverDeps for session.execute()
+  - packages/secure-exec-node/src/ivm-compat.ts — NEW: JS shim adding .applySync/.applySyncPromise methods to Rust-registered bridge functions
+  - packages/secure-exec-node/src/isolate-bootstrap.ts — removed ivm.Isolate from DriverDeps (kept legacy fields as `any` for backward compat)
+  - packages/secure-exec-node/package.json — added @secure-exec/v8 and @msgpack/msgpack dependencies
+  - crates/v8-runtime/src/session.rs — updated SYNC_BRIDGE_FNS (30 entries) and ASYNC_BRIDGE_FNS (8 entries) to match bridge contract
+  - crates/v8-runtime/src/execution.rs — moved SharedArrayBuffer removal from inject_globals to JS-side timing mitigation (bridge bundle needs SAB during init)
+  - pnpm-lock.yaml — updated for new deps
+- **Learnings for future iterations:**
+  - V8Runtime startup is slow (~5s first time); must use shared singleton across all drivers to avoid per-test timeouts
+  - SharedArrayBuffer removal must happen AFTER bridge bundle loads (whatwg-url/webidl-conversions depends on it during init)
+  - Bridge code uses .applySync()/.applySyncPromise() ivm.Reference methods — need compatibility shim since Rust registers plain FunctionTemplate functions
+  - .apply() calls work via Function.prototype.apply (third arg ignored) — no shim needed for async bridge calls
+  - _fs facade is created by setupFsFacade runtime script — must be included in bridge code composition after individual _fs* functions are registered
+  - Stdin data must be injected via preamble code before user code (setStdinData runtime script)
+  - Rust SYNC_BRIDGE_FNS/ASYNC_BRIDGE_FNS are hardcoded in session.rs — must match HOST_BRIDGE_GLOBAL_KEYS from bridge-contract.ts
+  - BridgeCall errors serialize only err.message — .code property preserved via message pattern detection (same as ivm architecture)
 ---
