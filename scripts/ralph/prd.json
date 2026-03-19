@@ -634,8 +634,8 @@
         "Tests pass"
       ],
       "priority": 38,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Replaced ChannelMessageReader (which re-serialized BinaryFrame→bytes→BinaryFrame) with ChannelResponseReceiver that passes BinaryFrame directly through the session channel. Added ResponseReceiver trait and ReaderResponseReceiver for test backward compatibility."
     },
     {
       "id": "US-039",

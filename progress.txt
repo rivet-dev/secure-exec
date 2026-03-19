@@ -136,7 +136,7 @@ PRD: ralph/kernel-hardening (46 stories)
 - esmModuleCache has a sibling esmModuleReverseCache (Map<ivm.Module, string>) for O(1) module→path lookup — both must be updated together and cleared together in execution.ts
 - V8 runtime event loop uses crossbeam Receiver<SessionCommand> — run_event_loop(scope, rx, pending) polls channel for BridgeResponse/StreamEvent/TerminateExecution
 - CallIdRouter (Arc<Mutex<HashMap<u32,String>>>) maps call_id→session_id for BridgeResponse routing; populated by BridgeCallContext, consumed by connection handler
-- ChannelMessageReader wraps crossbeam Receiver as io::Read for BridgeCallContext sync_call compatibility — serializes HostMessage back to length-prefixed bytes
+- ChannelResponseReceiver implements ResponseReceiver trait — passes BinaryFrame directly from session channel to sync_call without re-serialization; BridgeCallContext::new() wraps reader in ReaderResponseReceiver (for tests), with_receiver() takes ResponseReceiver directly (production)
 - Per-connection SessionManager: each UDS connection gets its own SharedWriter and CallIdRouter (not global)
 - After iso.terminate_execution() in tests, call iso.cancel_terminate_execution() to allow continued isolate use
 
@@ -2422,4 +2422,16 @@ PRD: ralph/kernel-hardening (46 stories)
   - V8 ValueDeserializer may throw a V8 exception (not just return None) on invalid data — must use v8::TryCatch scope to prevent exception from propagating to sandbox code
   - BinaryFrame::BridgeResponse status byte: 0=V8-serialized success, 1=UTF-8 error, 2=raw binary (Uint8Array)
   - InjectGlobals with V8 payload: store raw bytes, deserialize in V8 scope at execution time (inject_globals_from_payload); no intermediate Rust structs needed
+---
+
+## 2026-03-19 - US-038
+- Eliminated the triple decode/encode/decode cycle in session.rs where ChannelMessageReader re-serialized BinaryFrame to bytes for BridgeCallContext sync_call to re-deserialize
+- Added `ResponseReceiver` trait in host_call.rs with `recv_response() -> Result<BinaryFrame, String>`
+- Added `ReaderResponseReceiver` (wraps `Box<dyn Read>` via `ipc_binary::read_frame`) for backward-compatible test constructors
+- Replaced `ChannelMessageReader` (io::Read adapter with internal buffer + write_frame) with `ChannelResponseReceiver` (passes BinaryFrame directly from channel)
+- Changed `BridgeCallContext::with_router()` to `with_receiver()` taking `Box<dyn ResponseReceiver>` instead of `Box<dyn Read>`
+- Files changed: crates/v8-runtime/src/host_call.rs, crates/v8-runtime/src/session.rs
+- **Learnings for future iterations:**
+  - BridgeCallContext::new() still accepts Box<dyn Read> for test convenience — only production path uses with_receiver()
+  - ChannelResponseReceiver is #[cfg(not(test))] since V8 lifecycle in tests causes SIGSEGV; session management tests don't exercise V8
 ---
