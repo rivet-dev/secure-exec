@@ -36,6 +36,9 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
 - Use `RefCell<HashMap<u32, v8::Global<v8::PromiseResolver>>>` for single-threaded pending promise storage
 - `scope.perform_microtask_checkpoint()` flushes .then() handlers after promise resolution
 - `async_send` and `sync_call` share the `next_call_id` counter — no cross-convention call_id collisions
+- `TimeoutGuard::new(ms, isolate_handle, abort_tx)` spawns a timer thread; `cancel()` or `Drop` joins it; `timed_out()` checks if it fired
+- Use `crossbeam_channel::select!` + abort channel pattern to unblock both `ChannelMessageReader` and `run_event_loop` on timeout
+- `cpu_time_limit_ms` is set on `CreateSession` and passed to the session thread; the `TimeoutGuard` is created per-`Execute`
 - `execute_script(scope, bridge_code, user_code)` in `execution.rs` compiles+runs CJS code and returns `(i32, Option<ExecutionError>)`
 - `extract_error_info(scope, exception)` extracts structured error info from V8 exception values via property access (constructor.name, message, stack, code)
 - Use `tc.exception()` then pass result + tc to helper — Local phantom lifetime doesn't block mutable scope reuse
@@ -253,4 +256,21 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - `dispatch_stream_event` does not call `perform_microtask_checkpoint()` itself — the caller (`run_event_loop`) handles it, keeping microtask policy centralized
   - When a dispatch function is not registered on the V8 global, `global.get(scope, key)` returns `undefined` (not None) — check `.is_function()` before calling
   - Stream event tests need a pending promise in the event loop (via `_asyncFn('keep-alive')`) to prevent immediate exit before the StreamEvent is processed
+---
+
+## 2026-03-18 - US-015
+- Implemented per-session timeout enforcement via dedicated timer thread
+- `timeout.rs`: `TimeoutGuard` spawns a timer thread using `crossbeam_channel::after()` for precise timing; uses a cancel channel for clean shutdown; calls `v8::Isolate::terminate_execution()` and drops an abort sender on timeout
+- `session.rs`: `ChannelMessageReader::with_abort()` uses `crossbeam_channel::select!` to monitor both the command channel and an abort channel; `run_event_loop()` also accepts optional abort receiver for timeout during async promise resolution
+- `session.rs`: `create_session()` now accepts `cpu_time_limit_ms`; timer guard is started before execution and cancelled after; timeout error reported as `ERR_SCRIPT_EXECUTION_TIMEOUT`
+- `main.rs`: passes `cpu_time_limit_ms` from `CreateSession` to `SessionManager::create_session()`
+- 4 V8 integration tests: timeout terminates infinite loop, timeout cancelled on normal completion, timeout fires during event loop (unblocks abort channel), timeout error structure verification
+- Files changed: `crates/v8-runtime/src/timeout.rs`, `crates/v8-runtime/src/session.rs`, `crates/v8-runtime/src/execution.rs`, `crates/v8-runtime/src/main.rs`
+- **Learnings for future iterations:**
+  - `crossbeam_channel::after(duration)` returns a channel that fires once after the duration — perfect for select!-based timers without polling
+  - `crossbeam_channel::select!` can multiplex on multiple channels efficiently — use for abort patterns (drop sender to unblock receivers)
+  - `v8::OwnedIsolate::thread_safe_handle()` returns a `v8::IsolateHandle` that is Send+Sync — safe to call `terminate_execution()` from another thread
+  - When `terminate_execution()` is called while V8 is running JS, execution stops immediately; when blocked on I/O (channel read), need a separate abort mechanism to unblock the thread
+  - `TimeoutGuard` cancel via dropping a Sender<()> is cleaner than AtomicBool polling — the select! in the timer thread wakes up immediately
+  - Abort channel approach works for both `ChannelMessageReader` (sync bridge calls) and `run_event_loop` (async promise event loop)
 ---
