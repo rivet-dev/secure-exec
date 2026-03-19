@@ -2142,3 +2142,16 @@ PRD: ralph/kernel-hardening (46 stories)
   - Bridge function names (SYNC_BRIDGE_FNS, ASYNC_BRIDGE_FNS) are registered before execute — must match bridge-contract.ts names
   - After TerminateExecution in tests, call iso.cancel_terminate_execution() to allow continued isolate use
 ---
+
+## 2026-03-18 - US-017
+- What was implemented: FD hygiene in the Rust V8 runtime process — close inherited FDs on startup, set CLOEXEC on all new FDs
+- Files changed:
+  - crates/v8-runtime/Cargo.toml — added libc dependency
+  - crates/v8-runtime/src/main.rs — added close_inherited_fds() (reads /proc/self/fd, closes all > 2), set_cloexec() (fcntl F_SETFD with FD_CLOEXEC), wired both into main() and accept loop; added 5 new tests
+- **Learnings for future iterations:**
+  - Rust stdlib already sets CLOEXEC on sockets (SOCK_CLOEXEC) and clones (F_DUPFD_CLOEXEC) on Linux, but explicit set_cloexec is defense-in-depth
+  - close_inherited_fds reads /proc/self/fd and collects FD numbers before closing — the ReadDir handle is dropped after collect(), so its own FD is already gone before the close loop runs
+  - libc::pipe() does NOT set CLOEXEC (unlike pipe2), making it ideal for testing set_cloexec transitions from 0 to 1
+  - Cannot test close_inherited_fds directly in cargo test — it would close test harness FDs; tested indirectly via set_cloexec and CLOEXEC verification on socket types
+  - set_cloexec uses F_GETFD/F_SETFD (file descriptor flags), not F_GETFL/F_SETFL (file status flags) — these are different fcntl flag spaces
+---
