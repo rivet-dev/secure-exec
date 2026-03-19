@@ -2197,4 +2197,29 @@ PRD: ralph/kernel-hardening (46 stories)
   - Stdin data must be injected via preamble code before user code (setStdinData runtime script)
   - Rust SYNC_BRIDGE_FNS/ASYNC_BRIDGE_FNS are hardcoded in session.rs — must match HOST_BRIDGE_GLOBAL_KEYS from bridge-contract.ts
   - BridgeCall errors serialize only err.message — .code property preserved via message pattern detection (same as ivm architecture)
+- Bridge code calls host functions directly (fn(args)) — no more .applySync()/.applySyncPromise()/.apply() wrapper methods
+- After changing bridge source (src/bridge/*.ts), rebuild with `pnpm run build:bridge` in core; for isolate-runtime inject code, rebuild with `pnpm run build:isolate-runtime` in core
+---
+
+## 2026-03-19 - US-023 (+ US-024)
+- What was implemented: Replaced all ivm.Reference type interfaces (BridgeApplyRef, BridgeApplySyncRef, BridgeApplySyncPromiseRef) in bridge-contract.ts with plain function type signatures. Updated all bridge code call sites from .applySync()/.applySyncPromise()/.apply() to direct function calls. This also completed US-024 since changing types required updating call sites for typecheck to pass.
+- Files changed:
+  - packages/secure-exec-core/src/shared/bridge-contract.ts — removed 3 generic interfaces, replaced all type aliases with plain function types
+  - packages/secure-exec-core/src/index.ts — removed re-exports of 3 generic interfaces
+  - packages/secure-exec/src/shared/bridge-contract.ts — removed re-exports of 3 generic interfaces
+  - packages/secure-exec-core/src/bridge/fs.ts — .applySyncPromise() → direct calls (20+ sites)
+  - packages/secure-exec-core/src/bridge/child-process.ts — .applySync()/.applySyncPromise() → direct calls
+  - packages/secure-exec-core/src/bridge/network.ts — .apply() with options → direct calls
+  - packages/secure-exec-core/src/bridge/process.ts — .applySync()/.apply() → direct calls
+  - packages/secure-exec-core/src/bridge/module.ts — .applySyncPromise() → direct calls
+  - packages/secure-exec-core/src/shared/console-formatter.ts — .applySync() → direct calls in generated JS
+  - packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts — .applySyncPromise() → direct calls
+  - packages/secure-exec-core/isolate-runtime/src/inject/setup-dynamic-import.ts — .apply() → direct call
+  - packages/secure-exec-core/src/generated/isolate-runtime.ts — regenerated (build:isolate-runtime)
+  - packages/secure-exec/tests/console-formatter.test.ts — updated mock from {applySync} to plain function
+- **Learnings for future iterations:**
+  - US-023 and US-024 are tightly coupled: changing bridge-contract types to plain functions breaks typecheck unless you also update bridge code call sites
+  - LoadPolyfillBridgeRef was typed as BridgeApplyRef (async) but called via .applySyncPromise() — a pre-existing type mismatch; corrected to sync return type
+  - Bridge bundle must be rebuilt (pnpm run build:bridge in core) after changing bridge source — not just isolate-runtime
+  - Pre-existing test failures: injection-policy CJS globals, node test suite run()/ESM, all Python tests — not caused by this change
 ---
