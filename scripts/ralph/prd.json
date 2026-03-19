@@ -690,8 +690,8 @@
         "Tests pass"
       ],
       "priority": 41,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added BridgeCodeCache struct with FNV-1a hash for invalidation. run_bridge_cached() compiles with NoCompileOptions on first run, creates code cache via UnboundScript::create_code_cache(), consumes via ConsumeCodeCache on subsequent runs. Cache stored per-session in session.rs. 5 new tests: cache population, cache reuse, hash invalidation, module mode, empty bridge."
     },
     {
       "id": "US-042",

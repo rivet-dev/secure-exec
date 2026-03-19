@@ -7,6 +7,7 @@ PRD: ralph/kernel-hardening (46 stories)
 - V8Runtime (Rust process) is heavyweight — use shared singleton (getSharedV8Runtime) across all NodeExecutionDrivers; each driver creates its own V8Session
 - Bridge code composition order: ivm-compat shim → config injections → globalExposureHelpers → initialBridgeGlobals → consoleSetup → setupFsFacade → bridgeBundle → bridgeAttach → timingMitigation → requireSetup
 - Rust SYNC_BRIDGE_FNS/ASYNC_BRIDGE_FNS in session.rs must match HOST_BRIDGE_GLOBAL_KEYS from bridge-contract.ts — update both when adding new bridge functions
+- V8 code caching: use `v8::script_compiler::compile()` (not `Script::compile()`) with `Source` + `CompileOptions`; generate cache via `UnboundScript::create_code_cache()`; resource name in ScriptOrigin is required
 - SharedArrayBuffer removal must happen AFTER bridge bundle loads (applyTimingMitigationFreeze JS), not in Rust inject_globals
 - ivm-compat shim adds .applySync/.applySyncPromise to Rust-registered functions; .apply() works via Function.prototype.apply (no shim needed)
 - @secure-exec/v8 is ESM — use `fileURLToPath(import.meta.url)` for __dirname, not `require()` or `__dirname` global
@@ -2470,4 +2471,22 @@ PRD: ralph/kernel-hardening (46 stories)
   - SharedArrayBuffer removal is done by JS bridge code (applyTimingMitigationFreeze), NOT by Rust inject_globals — test was wrong since isolate creation
   - V8 ICU data: localeCompare and Intl APIs fail with "Internal error. Icu error." in V8 runtime — the v8 crate may need ICU initialization or data bundle
   - Pre-existing test failures (from US-033 V8 runtime integration) are documented in US-033 progress notes line 2369
+---
+
+## 2026-03-19 - US-041
+- What was implemented: V8 code caching for bridge code compilation
+  - Added `BridgeCodeCache` struct in execution.rs with FNV-1a source hash for cache invalidation
+  - Added `run_bridge_cached()` helper that compiles bridge code with `NoCompileOptions` on first run, creates code cache via `UnboundScript::create_code_cache()`, and consumes it via `ConsumeCodeCache` on subsequent runs
+  - Cache stored per-session in session.rs (`bridge_cache: Option<BridgeCodeCache>`)
+  - Updated `execute_script()` and `execute_module()` signatures to accept `&mut Option<BridgeCodeCache>`
+  - If V8 rejects the cache (version mismatch, etc.), it's invalidated and regenerated next execution
+- Files changed:
+  - crates/v8-runtime/src/execution.rs — BridgeCodeCache struct, run_bridge_cached(), updated execute_script/execute_module signatures, 5 new tests (Parts 60-64)
+  - crates/v8-runtime/src/session.rs — bridge_cache per-session state, passed to execute calls
+- **Learnings for future iterations:**
+  - V8 `Script::compile()` doesn't support code cache — must use `v8::script_compiler::compile()` with `Source` + `CompileOptions`
+  - Code cache is generated from `UnboundScript::create_code_cache()` (get unbound via `script.get_unbound_script()`)
+  - V8 code cache requires a resource name in ScriptOrigin — anonymous scripts don't cache well
+  - Helper functions that take `&mut TryCatch` and return `Local<Script>` cause lifetime conflicts when the caller needs to create another TryCatch afterwards — must contain the TryCatch within the helper (compile+run together)
+  - `CachedData::new(bytes)` creates a BufferNotOwned reference — the bytes must outlive the Source
 ---
