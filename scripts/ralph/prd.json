@@ -740,8 +740,8 @@
         "Typecheck passes"
       ],
       "priority": 44,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Replaced non-blocking accept + 10ms sleep loop with poll(2) on listener FD + self-pipe. SIGTERM/SIGINT write to self-pipe via signal_hook::low_level::register, waking poll. No busy-wait or sleep remains in accept path."
     },
     {
       "id": "US-045",

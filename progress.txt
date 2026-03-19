@@ -2518,3 +2518,19 @@ PRD: ralph/kernel-hardening (46 stories)
   - Buffer.allocUnsafe is safe here since we always write before reading
   - The subarray() calls for body extraction are still zero-copy views into the pre-allocated buffer; Buffer.from(body) copy is needed because decodeFrame may reference the data after readPos advances
 ---
+
+## 2026-03-19 - US-044
+- Replaced non-blocking accept + 10ms sleep loop with poll(2) on listener FD + self-pipe for signal wakeup
+- SIGTERM/SIGINT handlers write a byte to the self-pipe via signal_hook::low_level::register (async-signal-safe)
+- poll(2) blocks on both listener FD and signal pipe read end — wakes instantly on either
+- No busy-wait or sleep loop remains in the accept path
+- Connection latency is now sub-millisecond (no 10ms poll delay)
+- Files changed:
+  - crates/v8-runtime/src/main.rs — added create_self_pipe(), drain_pipe(), replaced accept loop with poll(2), added 4 new tests
+  - scripts/ralph/prd.json — marked US-044 passes: true
+- **Learnings for future iterations:**
+  - signal_hook::low_level::register allows async-signal-safe closures (unlike flag::register which only sets AtomicBool)
+  - libc::write in a signal handler is async-signal-safe; only write a single byte to keep it minimal
+  - poll(2) returns -1 with EINTR when interrupted by a signal — must re-check pollfds after EINTR
+  - Self-pipe read end must be non-blocking to allow drain_pipe to consume all pending bytes without blocking
+---
