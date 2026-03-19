@@ -4,6 +4,7 @@
 // Handler names match HOST_BRIDGE_GLOBAL_KEYS from the bridge contract.
 
 import { randomFillSync, randomUUID } from "node:crypto";
+import { serialize as v8Serialize, deserialize as v8Deserialize } from "node:v8";
 import {
 	loadFile,
 	resolveModule,
@@ -262,12 +263,6 @@ export function buildBridgeHandlers(options: BuildBridgeHandlersOptions): Bridge
 		let nextSessionId = 1;
 		const sessions = deps.activeChildProcesses;
 		const jsonPayloadLimit = deps.isolateJsonPayloadLimitBytes;
-		// Lazy-import encode for stream payloads
-		let encodeModule: typeof import("@msgpack/msgpack") | null = null;
-		const getEncode = async () => {
-			if (!encodeModule) encodeModule = await import("@msgpack/msgpack");
-			return encodeModule.encode;
-		};
 
 		handlers[K.childProcessSpawnStart] = (command: unknown, argsJson: unknown, optionsJson: unknown): number => {
 			checkBridgeBudget(deps);
@@ -284,23 +279,15 @@ export function buildBridgeHandlers(options: BuildBridgeHandlersOptions): Bridge
 				cwd: spawnOpts.cwd,
 				env: childEnv,
 				onStdout: (data) => {
-					// Dispatch into V8 via stream event
-					void (async () => {
-						const encode = await getEncode();
-						sendStreamEvent("child_stdout", new Uint8Array(encode([sessionId, "stdout", data])));
-					})();
+					sendStreamEvent("child_stdout", new Uint8Array(v8Serialize([sessionId, "stdout", data])));
 				},
 				onStderr: (data) => {
-					void (async () => {
-						const encode = await getEncode();
-						sendStreamEvent("child_stderr", new Uint8Array(encode([sessionId, "stderr", data])));
-					})();
+					sendStreamEvent("child_stderr", new Uint8Array(v8Serialize([sessionId, "stderr", data])));
 				},
 			});
 
-			proc.wait().then(async (code) => {
-				const encode = await getEncode();
-				sendStreamEvent("child_exit", new Uint8Array(encode([sessionId, "exit", code])));
+			proc.wait().then((code) => {
+				sendStreamEvent("child_exit", new Uint8Array(v8Serialize([sessionId, "exit", code])));
 				sessions.delete(sessionId);
 			});
 
@@ -399,15 +386,12 @@ export function buildBridgeHandlers(options: BuildBridgeHandlersOptions): Bridge
 			const originalCallback = options.onStreamCallback;
 			options.onStreamCallback = (callbackType: string, payload: Uint8Array) => {
 				if (callbackType === "http_response") {
-					void (async () => {
-						const { decode } = await import("@msgpack/msgpack");
-						const [requestId, response] = decode(payload) as [number, unknown];
-						const pending = pendingHttpResponses.get(requestId);
-						if (pending) {
-							pendingHttpResponses.delete(requestId);
-							pending.resolve(response);
-						}
-					})();
+					const [requestId, response] = v8Deserialize(payload) as [number, unknown];
+					const pending = pendingHttpResponses.get(requestId);
+					if (pending) {
+						pendingHttpResponses.delete(requestId);
+						pending.resolve(response);
+					}
 					return;
 				}
 				originalCallback(callbackType, payload);
@@ -430,8 +414,7 @@ export function buildBridgeHandlers(options: BuildBridgeHandlersOptions): Bridge
 						const requestJson = JSON.stringify(request);
 
 						// Send request into V8 via stream event
-						const { encode } = await import("@msgpack/msgpack");
-						sendStreamEvent("http_request", new Uint8Array(encode([listenOpts.serverId, requestId, requestJson])));
+						sendStreamEvent("http_request", new Uint8Array(v8Serialize([listenOpts.serverId, requestId, requestJson])));
 
 						// Wait for response via stream callback
 						return new Promise((resolve, reject) => {
