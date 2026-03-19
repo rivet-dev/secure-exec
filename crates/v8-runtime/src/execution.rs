@@ -82,13 +82,17 @@ pub fn execute_script(
         let script = match v8::Script::compile(tc, source, None) {
             Some(s) => s,
             None => {
-                let exc = tc.exception();
-                return (1, exc.map(|e| extract_error_info(tc, e)));
+                return match tc.exception() {
+                    Some(e) => { let (c, err) = exception_to_result(tc, e); (c, Some(err)) }
+                    None => (1, None),
+                };
             }
         };
         if script.run(tc).is_none() {
-            let exc = tc.exception();
-            return (1, exc.map(|e| extract_error_info(tc, e)));
+            return match tc.exception() {
+                Some(e) => { let (c, err) = exception_to_result(tc, e); (c, Some(err)) }
+                None => (1, None),
+            };
         }
     }
 
@@ -112,17 +116,61 @@ pub fn execute_script(
         let script = match v8::Script::compile(tc, source, None) {
             Some(s) => s,
             None => {
-                let exc = tc.exception();
-                return (1, exc.map(|e| extract_error_info(tc, e)));
+                return match tc.exception() {
+                    Some(e) => { let (c, err) = exception_to_result(tc, e); (c, Some(err)) }
+                    None => (1, None),
+                };
             }
         };
         if script.run(tc).is_none() {
-            let exc = tc.exception();
-            return (1, exc.map(|e| extract_error_info(tc, e)));
+            return match tc.exception() {
+                Some(e) => { let (c, err) = exception_to_result(tc, e); (c, Some(err)) }
+                None => (1, None),
+            };
         }
     }
 
     (0, None)
+}
+
+/// Check if a V8 exception is a ProcessExitError (has `_isProcessExit: true` sentinel).
+/// Returns `Some(exit_code)` if detected, `None` otherwise.
+///
+/// ProcessExitError is detected by sentinel property, not by regex matching on the
+/// error message or constructor name.
+pub fn extract_process_exit_code(
+    scope: &mut v8::HandleScope,
+    exception: v8::Local<v8::Value>,
+) -> Option<i32> {
+    if !exception.is_object() {
+        return None;
+    }
+    let obj = v8::Local::<v8::Object>::try_from(exception).ok()?;
+    let sentinel_key = v8::String::new(scope, "_isProcessExit")?;
+    let sentinel_val = obj.get(scope, sentinel_key.into())?;
+    if !sentinel_val.is_true() {
+        return None;
+    }
+    // Extract numeric exit code from .code property
+    let code_key = v8::String::new(scope, "code")?;
+    let code_val = obj.get(scope, code_key.into())?;
+    if code_val.is_number() {
+        Some(code_val.int32_value(scope).unwrap_or(1))
+    } else {
+        Some(1)
+    }
+}
+
+/// Extract error info and exit code from a V8 exception.
+/// For ProcessExitError (detected via _isProcessExit sentinel), returns the error's exit code.
+/// For other errors, returns exit code 1.
+fn exception_to_result(
+    scope: &mut v8::HandleScope,
+    exception: v8::Local<v8::Value>,
+) -> (i32, ExecutionError) {
+    let exit_code = extract_process_exit_code(scope, exception).unwrap_or(1);
+    let error = extract_error_info(scope, exception);
+    (exit_code, error)
 }
 
 /// Extract structured error information from a V8 exception value.
@@ -326,15 +374,19 @@ pub fn execute_module(
         let script = match v8::Script::compile(tc, source, None) {
             Some(s) => s,
             None => {
-                let exc = tc.exception();
                 clear_module_state();
-                return (1, None, exc.map(|e| extract_error_info(tc, e)));
+                return match tc.exception() {
+                    Some(e) => { let (c, err) = exception_to_result(tc, e); (c, None, Some(err)) }
+                    None => (1, None, None),
+                };
             }
         };
         if script.run(tc).is_none() {
-            let exc = tc.exception();
             clear_module_state();
-            return (1, None, exc.map(|e| extract_error_info(tc, e)));
+            return match tc.exception() {
+                Some(e) => { let (c, err) = exception_to_result(tc, e); (c, None, Some(err)) }
+                None => (1, None, None),
+            };
         }
     }
 
@@ -378,9 +430,11 @@ pub fn execute_module(
         let module = match v8::script_compiler::compile_module(tc, &mut source) {
             Some(m) => m,
             None => {
-                let exc = tc.exception();
                 clear_module_state();
-                return (1, None, exc.map(|e| extract_error_info(tc, e)));
+                return match tc.exception() {
+                    Some(e) => { let (c, err) = exception_to_result(tc, e); (c, None, Some(err)) }
+                    None => (1, None, None),
+                };
             }
         };
 
@@ -395,24 +449,29 @@ pub fn execute_module(
 
         // Instantiate (calls resolve callback for each import)
         if module.instantiate_module(tc, module_resolve_callback).is_none() {
-            let exc = tc.exception();
             clear_module_state();
-            return (1, None, exc.map(|e| extract_error_info(tc, e)));
+            return match tc.exception() {
+                Some(e) => { let (c, err) = exception_to_result(tc, e); (c, None, Some(err)) }
+                None => (1, None, None),
+            };
         }
 
         // Evaluate
         let eval_result = module.evaluate(tc);
         if eval_result.is_none() {
-            let exc = tc.exception();
             clear_module_state();
-            return (1, None, exc.map(|e| extract_error_info(tc, e)));
+            return match tc.exception() {
+                Some(e) => { let (c, err) = exception_to_result(tc, e); (c, None, Some(err)) }
+                None => (1, None, None),
+            };
         }
 
         // Check module status for errors (handles TLA rejection case)
         if module.get_status() == v8::ModuleStatus::Errored {
             let exc = module.get_exception();
             clear_module_state();
-            return (1, None, Some(extract_error_info(tc, exc)));
+            let (exit_code, err) = exception_to_result(tc, exc);
+            return (exit_code, None, Some(err));
         }
 
         // Serialize module namespace (exports)
@@ -2820,6 +2879,199 @@ use std::num::NonZeroI32;
             assert_eq!(err.error_type, "Error");
             assert_eq!(err.message, "Script execution timed out");
             assert_eq!(err.code, Some("ERR_SCRIPT_EXECUTION_TIMEOUT".into()));
+        }
+
+        // --- Part 47: ProcessExitError detected via _isProcessExit sentinel ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let scope = &mut v8::HandleScope::new(&mut iso);
+            let local = v8::Local::new(scope, &ctx);
+            let scope = &mut v8::ContextScope::new(scope, local);
+
+            // Simulate ProcessExitError: an Error object with _isProcessExit: true and code: 42
+            let code = r#"
+                var err = new Error("process.exit(42)");
+                err._isProcessExit = true;
+                err.code = 42;
+                throw err;
+            "#;
+
+            let (exit_code, error) = execute_script(scope, "", code);
+            assert_eq!(exit_code, 42, "ProcessExitError should return the error's exit code");
+            let err = error.unwrap();
+            assert_eq!(err.error_type, "Error");
+            assert!(err.message.contains("process.exit(42)"));
+            // Numeric .code should NOT appear in the string code field
+            assert_eq!(err.code, None);
+        }
+
+        // --- Part 48: ProcessExitError with exit code 0 ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let scope = &mut v8::HandleScope::new(&mut iso);
+            let local = v8::Local::new(scope, &ctx);
+            let scope = &mut v8::ContextScope::new(scope, local);
+
+            let code = r#"
+                var err = new Error("process.exit(0)");
+                err._isProcessExit = true;
+                err.code = 0;
+                throw err;
+            "#;
+
+            let (exit_code, error) = execute_script(scope, "", code);
+            assert_eq!(exit_code, 0, "ProcessExitError code 0 should return exit code 0");
+            assert!(error.is_some());
+        }
+
+        // --- Part 49: Non-ProcessExitError returns exit code 1 ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let scope = &mut v8::HandleScope::new(&mut iso);
+            let local = v8::Local::new(scope, &ctx);
+            let scope = &mut v8::ContextScope::new(scope, local);
+
+            // Regular error without _isProcessExit sentinel
+            let code = r#"throw new TypeError("not a process exit")"#;
+
+            let (exit_code, error) = execute_script(scope, "", code);
+            assert_eq!(exit_code, 1, "Regular errors should return exit code 1");
+            let err = error.unwrap();
+            assert_eq!(err.error_type, "TypeError");
+            assert_eq!(err.message, "not a process exit");
+        }
+
+        // --- Part 50: ProcessExitError with custom constructor name ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let scope = &mut v8::HandleScope::new(&mut iso);
+            let local = v8::Local::new(scope, &ctx);
+            let scope = &mut v8::ContextScope::new(scope, local);
+
+            // Custom ProcessExitError class
+            let code = r#"
+                class ProcessExitError extends Error {
+                    constructor(exitCode) {
+                        super("process exited with code " + exitCode);
+                        this._isProcessExit = true;
+                        this.code = exitCode;
+                    }
+                }
+                throw new ProcessExitError(7);
+            "#;
+
+            let (exit_code, error) = execute_script(scope, "", code);
+            assert_eq!(exit_code, 7);
+            let err = error.unwrap();
+            assert_eq!(err.error_type, "ProcessExitError");
+            assert!(err.message.contains("process exited with code 7"));
+        }
+
+        // --- Part 51: extract_process_exit_code returns None for non-objects ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let scope = &mut v8::HandleScope::new(&mut iso);
+            let local = v8::Local::new(scope, &ctx);
+            let scope = &mut v8::ContextScope::new(scope, local);
+
+            // Thrown string — not an object, should not be detected as ProcessExitError
+            let code = r#"throw "just a string""#;
+            let (exit_code, error) = execute_script(scope, "", code);
+            assert_eq!(exit_code, 1);
+            let err = error.unwrap();
+            assert_eq!(err.error_type, "Error");
+            assert_eq!(err.message, "just a string");
+
+            // Object without _isProcessExit sentinel
+            let code2 = r#"
+                var obj = new Error("no sentinel");
+                obj._isProcessExit = false;
+                obj.code = 99;
+                throw obj;
+            "#;
+            let (exit_code2, error2) = execute_script(scope, "", code2);
+            assert_eq!(exit_code2, 1, "_isProcessExit:false should not be detected");
+            assert!(error2.is_some());
+        }
+
+        // --- Part 52: Error with string code field (Node-style) preserved ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let scope = &mut v8::HandleScope::new(&mut iso);
+            let local = v8::Local::new(scope, &ctx);
+            let scope = &mut v8::ContextScope::new(scope, local);
+
+            let code = r#"
+                var err = new Error("Cannot find module './missing'");
+                err.code = "ERR_MODULE_NOT_FOUND";
+                throw err;
+            "#;
+
+            let (exit_code, error) = execute_script(scope, "", code);
+            assert_eq!(exit_code, 1);
+            let err = error.unwrap();
+            assert_eq!(err.error_type, "Error");
+            assert_eq!(err.code, Some("ERR_MODULE_NOT_FOUND".into()));
+        }
+
+        // --- Part 53: Error type from constructor name for standard errors ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let scope = &mut v8::HandleScope::new(&mut iso);
+            let local = v8::Local::new(scope, &ctx);
+            let scope = &mut v8::ContextScope::new(scope, local);
+
+            // SyntaxError
+            let (_, err) = execute_script(scope, "", "eval('function(')");
+            let err = err.unwrap();
+            assert_eq!(err.error_type, "SyntaxError");
+
+            // RangeError
+            let (_, err2) = execute_script(scope, "", "new Array(-1)");
+            let err2 = err2.unwrap();
+            assert_eq!(err2.error_type, "RangeError");
+
+            // ReferenceError
+            let (_, err3) = execute_script(scope, "", "undefinedVariable");
+            let err3 = err3.unwrap();
+            assert_eq!(err3.error_type, "ReferenceError");
+        }
+
+        // --- Part 54: Stack trace extracted from error.stack property ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let scope = &mut v8::HandleScope::new(&mut iso);
+            let local = v8::Local::new(scope, &ctx);
+            let scope = &mut v8::ContextScope::new(scope, local);
+
+            let code = r#"
+                function innerFn() { throw new Error("deep error"); }
+                function outerFn() { innerFn(); }
+                outerFn();
+            "#;
+
+            let (_, error) = execute_script(scope, "", code);
+            let err = error.unwrap();
+            assert_eq!(err.error_type, "Error");
+            assert_eq!(err.message, "deep error");
+            assert!(err.stack.contains("innerFn"), "stack should contain innerFn");
+            assert!(err.stack.contains("outerFn"), "stack should contain outerFn");
         }
     }
 }

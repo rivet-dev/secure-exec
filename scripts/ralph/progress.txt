@@ -41,6 +41,8 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
 - `cpu_time_limit_ms` is set on `CreateSession` and passed to the session thread; the `TimeoutGuard` is created per-`Execute`
 - `execute_script(scope, bridge_code, user_code)` in `execution.rs` compiles+runs CJS code and returns `(i32, Option<ExecutionError>)`
 - `extract_error_info(scope, exception)` extracts structured error info from V8 exception values via property access (constructor.name, message, stack, code)
+- `extract_process_exit_code(scope, exception)` returns `Option<i32>` — detects ProcessExitError via `_isProcessExit: true` sentinel, extracts numeric exit code
+- `exception_to_result(scope, exception)` combines both: returns `(exit_code, ExecutionError)` with correct exit code for ProcessExitError
 - Use `tc.exception()` then pass result + tc to helper — Local phantom lifetime doesn't block mutable scope reuse
 - `v8::script_compiler::compile_module(scope, &mut source)` — takes `&mut Source`, not owned `Source`
 - `module.get_identity_hash()` returns `NonZero<i32>` (not plain `i32`) — use as HashMap key directly
@@ -273,4 +275,18 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - When `terminate_execution()` is called while V8 is running JS, execution stops immediately; when blocked on I/O (channel read), need a separate abort mechanism to unblock the thread
   - `TimeoutGuard` cancel via dropping a Sender<()> is cleaner than AtomicBool polling — the select! in the timer thread wakes up immediately
   - Abort channel approach works for both `ChannelMessageReader` (sync bridge calls) and `run_event_loop` (async promise event loop)
+---
+
+## 2026-03-18 - US-016
+- Implemented structured error serialization with ProcessExitError detection
+- Added `extract_process_exit_code()`: checks for `_isProcessExit: true` sentinel property on V8 exception objects and extracts the numeric exit code
+- Added `exception_to_result()` helper: combines ProcessExitError exit code extraction with structured error extraction
+- Updated `execute_script()` and `execute_module()` to use ProcessExitError exit code instead of always returning 1 on error
+- 8 new V8 integration tests (Parts 47-54): ProcessExitError sentinel detection, exit code 0 handling, non-ProcessExitError returns 1, custom ProcessExitError class, non-object throws, _isProcessExit:false not detected, Node-style string error code preserved, error type from constructor name for standard errors (SyntaxError/RangeError/ReferenceError), stack trace with function names
+- Files changed: `crates/v8-runtime/src/execution.rs`, `scripts/ralph/prd.json`
+- **Learnings for future iterations:**
+  - `extract_process_exit_code` checks `_isProcessExit: true` sentinel via `v8::Local<v8::Object>::get()` — sentinel-based detection is robust regardless of constructor name
+  - ProcessExitError `.code` is a numeric exit code (not a string error code), so `extract_error_info`'s string-only `.code` filter correctly excludes it
+  - `v8::Local<v8::Value>` is Copy-like (phantom lifetime) — safe to pass to both `extract_process_exit_code()` and `extract_error_info()` sequentially
+  - `exception.is_true()` checks strict boolean true — an object with `_isProcessExit: 1` or `_isProcessExit: "yes"` would NOT match, only `true`
 ---
