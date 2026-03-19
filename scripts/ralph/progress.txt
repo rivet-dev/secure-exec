@@ -36,6 +36,9 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
 - Use `RefCell<HashMap<u32, v8::Global<v8::PromiseResolver>>>` for single-threaded pending promise storage
 - `scope.perform_microtask_checkpoint()` flushes .then() handlers after promise resolution
 - `async_send` and `sync_call` share the `next_call_id` counter — no cross-convention call_id collisions
+- `execute_script(scope, bridge_code, user_code)` in `execution.rs` compiles+runs CJS code and returns `(i32, Option<ExecutionError>)`
+- `extract_error_info(scope, exception)` extracts structured error info from V8 exception values via property access (constructor.name, message, stack, code)
+- Use `tc.exception()` then pass result + tc to helper — Local phantom lifetime doesn't block mutable scope reuse
 ---
 
 ## 2026-03-18 - US-001
@@ -186,4 +189,21 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - `async_send` shares the `next_call_id` AtomicU32 with `sync_call` — no duplicate call_ids between sync and async
   - Promise state can be checked directly via `promise.state()` (Pending/Fulfilled/Rejected) and `promise.result(scope)` without needing `.then()` wrappers
   - Out-of-order promise resolution works correctly — resolving call_id=2 before call_id=1 is fine
+---
+
+## 2026-03-18 - US-011
+- Implemented CJS script compilation and execution in `execution.rs`
+- `execute_script(scope, bridge_code, user_code)` returns `(i32, Option<ExecutionError>)`
+- Bridge code IIFE is compiled and executed first (if non-empty), then user code
+- `extract_error_info(scope, exception)` extracts structured error from V8 exceptions: type (constructor.name), message, stack, optional code
+- Handles SyntaxError (compilation), runtime errors (TypeError, etc.), thrown strings, and error codes
+- Updated `session.rs` to handle Execute messages with mode=Exec
+- 8 V8 integration tests (Parts 17-24): success, bridge-before-user ordering, SyntaxError in user/bridge code, TypeError with stack, empty bridge skip, error code extraction, thrown string handling
+- Files changed: `crates/v8-runtime/src/execution.rs`, `crates/v8-runtime/src/session.rs`
+- **Learnings for future iterations:**
+  - `tc.exception()` returns `Option<Local<Value>>` — Local is Copy-like (phantom lifetime), so immutable borrow from `exception()` doesn't block subsequent mutable use of the TryCatch scope
+  - Error type extraction: use `error.constructor.name` via property access (get "constructor", then get "name") — avoids needing `Function::get_name()` API
+  - Non-Error throws (e.g., `throw "string"`) — `exception.is_object()` is false, fall back to `to_rust_string_lossy` for message
+  - `v8::Script::compile(scope, source, None)` returns None on syntax error; the TryCatch catches the exception
+  - Session `#[cfg(not(test))]` blocks need matching cfg for imports like `ExecuteMode` to avoid unused-import warnings in test builds
 ---
