@@ -22,6 +22,8 @@ PRD: ralph/wasmvm-dynamic-modules (19 stories)
 - `isWasmBinary()` (async) and `isWasmBinarySync()` are in `packages/runtime/wasmvm/src/wasm-magic.ts`
 - Driver in commandDirs mode: commands discovered from filesystem scan, _commandPaths maps name→path
 - Driver in legacy mode (wasmBinaryPath only): uses static WASMVM_COMMANDS list, all commands use single binary
+- Permission enforcement is in kernel-worker.ts (WASI host imports), not the driver — use `permission-check.ts` helpers
+- `PermissionTier` type is in syscall-rpc.ts; driver resolves tier via `_resolvePermissionTier(command)`
 
 ## 2026-03-19 12:04 PM PDT - US-001
 - Implemented path-based resolution in CommandRegistry.resolve() — extracts basename when command contains '/'
@@ -186,4 +188,35 @@ PRD: ralph/wasmvm-dynamic-modules (19 stories)
   - Test manifests must use real SHA-256 hashes of the test WASM bytes — pre-compute with `sha256Hex()` in beforeEach
   - `BinaryStorage` interface (get/put/delete) is easily mockable with an in-memory Map for tests
   - The driver now uses `WebAssembly.compile(bytes)` instead of `compileStreaming(fetch)` when reading from persistent cache — since we already have the bytes
+---
+
+## 2026-03-19 2:10 PM PDT - US-018
+- Defined `PermissionTier` type ('full' | 'read-write' | 'read-only' | 'isolated') in syscall-rpc.ts
+- Added `permissionTier` field to `WorkerInitData`
+- Added `permissions: Record<string, PermissionTier>` to `WasmVmRuntimeOptions`
+- Driver resolves permission tier per-command: exact name match → '*' wildcard → 'read-write' default
+- Created `permission-check.ts` with pure helper functions (`isWriteBlocked`, `isPathInCwd`)
+- Enforcement in kernel-worker.ts:
+  - `fdOpen`: blocks write flags (O_CREAT, O_TRUNC, O_APPEND, O_WRONLY) for read-only/isolated tiers
+  - `fdOpen`: restricts path reads to cwd subtree for isolated tier
+  - `fdWrite`: blocks non-stdio FD writes for read-only/isolated tiers
+  - VFS ops (mkdir, writeFile, unlink, rmdir, rename, symlink): blocked for read-only/isolated
+  - VFS read ops (readFile, readdir, stat): restricted to cwd subtree for isolated tier
+- Added 17 unit tests for permission helpers (isWriteBlocked, isPathInCwd)
+- Added 8 driver tests for permission tier resolution (exact match, wildcard, default)
+- Added 3 WASM-gated integration tests (read-only write blocked, read-only stdout allowed, full tier writes)
+- Files changed:
+  - packages/runtime/wasmvm/src/syscall-rpc.ts (PermissionTier type, permissionTier field)
+  - packages/runtime/wasmvm/src/driver.ts (permissions config, _resolvePermissionTier)
+  - packages/runtime/wasmvm/src/kernel-worker.ts (enforcement in fdOpen, fdWrite, VFS)
+  - packages/runtime/wasmvm/src/permission-check.ts (new)
+  - packages/runtime/wasmvm/src/index.ts (PermissionTier export)
+  - packages/runtime/wasmvm/test/permission-check.test.ts (new)
+  - packages/runtime/wasmvm/test/driver.test.ts (permission tests)
+- **Learnings for future iterations:**
+  - Permission enforcement is at the kernel-worker level (WASI host imports), not the driver level — WASM binaries can't bypass it
+  - Extract pure helper functions into separate files for testability (permission-check.ts pattern)
+  - `ERRNO_EACCES` (value 2) is the appropriate WASI errno for permission denials
+  - VFS write operations (mkdir, writeFile, unlink, etc.) are a separate write path from fd_open — both need enforcement
+  - isPathInCwd must handle relative paths, path traversal (..), trailing slashes, and prefix collisions (projectX vs project)
 ---

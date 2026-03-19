@@ -347,7 +347,7 @@
         "Tests pass"
       ],
       "priority": 18,
-      "passes": false,
+      "passes": true,
       "notes": "See spec Section 9. First half of permission system (split from original monolithic story for sizing). PermissionTier flows: options.permissions[commandName] -> WorkerInitData.permissionTier -> kernel-worker.ts enforcement. The WASM binary cannot bypass enforcement since all I/O goes through kernel RPC. US-019 adds process enforcement and wildcard patterns."
     },
     {
