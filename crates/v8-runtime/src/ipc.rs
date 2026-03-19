@@ -97,22 +97,22 @@ pub enum HostMessage {
         token: String,
     },
     CreateSession {
-        session_id: u32,
+        session_id: String,
         heap_limit_mb: Option<u32>,
         cpu_time_limit_ms: Option<u32>,
     },
     DestroySession {
-        session_id: u32,
+        session_id: String,
     },
     Execute {
-        session_id: u32,
+        session_id: String,
         bridge_code: String,
         user_code: String,
         file_path: Option<String>,
         mode: ExecuteMode,
     },
     InjectGlobals {
-        session_id: u32,
+        session_id: String,
         process_config: ProcessConfig,
         os_config: OsConfig,
     },
@@ -123,13 +123,13 @@ pub enum HostMessage {
         error: Option<String>,
     },
     StreamEvent {
-        session_id: u32,
+        session_id: String,
         event_type: String,
         #[serde(with = "serde_bytes")]
         payload: Vec<u8>,
     },
     TerminateExecution {
-        session_id: u32,
+        session_id: String,
     },
 }
 
@@ -139,25 +139,25 @@ pub enum HostMessage {
 pub enum RustMessage {
     BridgeCall {
         call_id: u32,
-        session_id: u32,
+        session_id: String,
         method: String,
         #[serde(with = "serde_bytes")]
         args: Vec<u8>,
     },
     ExecutionResult {
-        session_id: u32,
+        session_id: String,
         code: i32,
         #[serde(with = "serde_bytes")]
         exports: Option<Vec<u8>>,
         error: Option<ExecutionError>,
     },
     Log {
-        session_id: u32,
+        session_id: String,
         channel: LogChannel,
         message: String,
     },
     StreamCallback {
-        session_id: u32,
+        session_id: String,
         callback_type: String,
         #[serde(with = "serde_bytes")]
         payload: Vec<u8>,
@@ -189,7 +189,7 @@ mod tests {
     #[test]
     fn roundtrip_create_session() {
         roundtrip(&HostMessage::CreateSession {
-            session_id: 42,
+            session_id: "42".into(),
             heap_limit_mb: Some(128),
             cpu_time_limit_ms: None,
         });
@@ -198,7 +198,7 @@ mod tests {
     #[test]
     fn roundtrip_create_session_no_limits() {
         roundtrip(&HostMessage::CreateSession {
-            session_id: 1,
+            session_id: "1".into(),
             heap_limit_mb: None,
             cpu_time_limit_ms: None,
         });
@@ -206,13 +206,13 @@ mod tests {
 
     #[test]
     fn roundtrip_destroy_session() {
-        roundtrip(&HostMessage::DestroySession { session_id: 7 });
+        roundtrip(&HostMessage::DestroySession { session_id: "7".into() });
     }
 
     #[test]
     fn roundtrip_execute_exec_mode() {
         roundtrip(&HostMessage::Execute {
-            session_id: 1,
+            session_id: "1".into(),
             bridge_code: "(function(){ /* bridge */ })()".into(),
             user_code: "console.log('hello')".into(),
             file_path: None,
@@ -223,7 +223,7 @@ mod tests {
     #[test]
     fn roundtrip_execute_run_mode() {
         roundtrip(&HostMessage::Execute {
-            session_id: 2,
+            session_id: "2".into(),
             bridge_code: "(function(){ /* bridge */ })()".into(),
             user_code: "export default 42".into(),
             file_path: Some("/app/index.mjs".into()),
@@ -238,7 +238,7 @@ mod tests {
         env.insert("PATH".into(), "/usr/bin".into());
 
         roundtrip(&HostMessage::InjectGlobals {
-            session_id: 3,
+            session_id: "3".into(),
             process_config: ProcessConfig {
                 cwd: "/app".into(),
                 env,
@@ -257,7 +257,7 @@ mod tests {
     #[test]
     fn roundtrip_inject_globals_no_frozen_time() {
         roundtrip(&HostMessage::InjectGlobals {
-            session_id: 4,
+            session_id: "4".into(),
             process_config: ProcessConfig {
                 cwd: "/app".into(),
                 env: HashMap::new(),
@@ -294,7 +294,7 @@ mod tests {
     #[test]
     fn roundtrip_stream_event() {
         roundtrip(&HostMessage::StreamEvent {
-            session_id: 5,
+            session_id: "5".into(),
             event_type: "child_stdout".into(),
             payload: vec![0x48, 0x65, 0x6c, 0x6c, 0x6f],
         });
@@ -302,7 +302,7 @@ mod tests {
 
     #[test]
     fn roundtrip_terminate_execution() {
-        roundtrip(&HostMessage::TerminateExecution { session_id: 6 });
+        roundtrip(&HostMessage::TerminateExecution { session_id: "6".into() });
     }
 
     // -- RustMessage variants --
@@ -311,7 +311,7 @@ mod tests {
     fn roundtrip_bridge_call() {
         roundtrip(&RustMessage::BridgeCall {
             call_id: 200,
-            session_id: 1,
+            session_id: "1".into(),
             method: "_fsReadFile".into(),
             args: vec![0x91, 0xa5, 0x2f, 0x74, 0x6d, 0x70],
         });
@@ -320,7 +320,7 @@ mod tests {
     #[test]
     fn roundtrip_execution_result_success() {
         roundtrip(&RustMessage::ExecutionResult {
-            session_id: 1,
+            session_id: "1".into(),
             code: 0,
             exports: Some(vec![0xc0]),
             error: None,
@@ -330,7 +330,7 @@ mod tests {
     #[test]
     fn roundtrip_execution_result_with_error() {
         roundtrip(&RustMessage::ExecutionResult {
-            session_id: 2,
+            session_id: "2".into(),
             code: 1,
             exports: None,
             error: Some(ExecutionError {
@@ -345,7 +345,7 @@ mod tests {
     #[test]
     fn roundtrip_execution_result_with_error_code() {
         roundtrip(&RustMessage::ExecutionResult {
-            session_id: 3,
+            session_id: "3".into(),
             code: 1,
             exports: None,
             error: Some(ExecutionError {
@@ -360,7 +360,7 @@ mod tests {
     #[test]
     fn roundtrip_log_stdout() {
         roundtrip(&RustMessage::Log {
-            session_id: 1,
+            session_id: "1".into(),
             channel: LogChannel::Stdout,
             message: "hello world\n".into(),
         });
@@ -369,7 +369,7 @@ mod tests {
     #[test]
     fn roundtrip_log_stderr() {
         roundtrip(&RustMessage::Log {
-            session_id: 1,
+            session_id: "1".into(),
             channel: LogChannel::Stderr,
             message: "warning: deprecated API\n".into(),
         });
@@ -378,7 +378,7 @@ mod tests {
     #[test]
     fn roundtrip_stream_callback() {
         roundtrip(&RustMessage::StreamCallback {
-            session_id: 1,
+            session_id: "1".into(),
             callback_type: "child_dispatch".into(),
             payload: vec![0x92, 0x01, 0xa3, 0x66, 0x6f, 0x6f],
         });
@@ -426,13 +426,13 @@ mod tests {
             error: None,
         });
         roundtrip(&HostMessage::StreamEvent {
-            session_id: 0,
+            session_id: "0".into(),
             event_type: "".into(),
             payload: vec![],
         });
         roundtrip(&RustMessage::BridgeCall {
             call_id: 0,
-            session_id: 0,
+            session_id: "0".into(),
             method: "".into(),
             args: vec![],
         });
@@ -443,7 +443,7 @@ mod tests {
     #[test]
     fn framing_roundtrip_host_message() {
         let msg = HostMessage::CreateSession {
-            session_id: 99,
+            session_id: "99".into(),
             heap_limit_mb: Some(256),
             cpu_time_limit_ms: Some(5000),
         };
@@ -457,7 +457,7 @@ mod tests {
     #[test]
     fn framing_roundtrip_rust_message() {
         let msg = RustMessage::Log {
-            session_id: 1,
+            session_id: "1".into(),
             channel: LogChannel::Stderr,
             message: "test log".into(),
         };
@@ -470,7 +470,7 @@ mod tests {
 
     #[test]
     fn framing_length_prefix_is_big_endian() {
-        let msg = HostMessage::DestroySession { session_id: 1 };
+        let msg = HostMessage::DestroySession { session_id: "1".into() };
         let mut buf = Vec::new();
         write_message(&mut buf, &msg).expect("write");
         // First 4 bytes are the BE length prefix
@@ -482,11 +482,11 @@ mod tests {
     fn framing_multiple_messages() {
         let msgs = vec![
             HostMessage::CreateSession {
-                session_id: 1,
+                session_id: "1".into(),
                 heap_limit_mb: None,
                 cpu_time_limit_ms: None,
             },
-            HostMessage::DestroySession { session_id: 1 },
+            HostMessage::DestroySession { session_id: "1".into() },
         ];
         let mut buf = Vec::new();
         for m in &msgs {
@@ -554,7 +554,7 @@ mod tests {
     #[test]
     fn framing_roundtrip_with_binary_data() {
         let msg = HostMessage::StreamEvent {
-            session_id: 42,
+            session_id: "42".into(),
             event_type: "child_stdout".into(),
             payload: vec![0u8; 1024], // 1KB of zeros
         };
@@ -582,7 +582,7 @@ mod tests {
             env.insert(format!("VAR_{}", i), format!("value_{}", i));
         }
         roundtrip(&HostMessage::InjectGlobals {
-            session_id: 10,
+            session_id: "10".into(),
             process_config: ProcessConfig {
                 cwd: "/".into(),
                 env,
