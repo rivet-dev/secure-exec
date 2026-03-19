@@ -11,6 +11,11 @@ PRD: ralph/wasmvm-dynamic-modules (19 stories)
 - MockRuntimeDriver in test/helpers.ts has an optional `tryResolve` property for on-demand discovery tests
 - spawnInternal extracts basename before calling tryResolve — drivers always receive the bare command name
 - populateBinEntry is async but called fire-and-forget from spawnInternal (sync context); tests need a microtask yield to observe the result
+- Standalone binary crate naming: libs use `secureexec-*` (e.g. `secureexec-grep`), command crates use `cmd-*` (e.g. `cmd-grep`)
+- Library crates go in `wasmvm/crates/libs/`, binary crates in `wasmvm/crates/commands/`
+- Binary crates use `[[bin]] name = "command-name"` and depend on the corresponding library crate
+- `cargo build -p cmd-grep --target wasm32-wasip1 -Z build-std=std,panic_abort --release` for WASM builds
+- Standalone grep binary is ~864K vs ~15MB multicall — significant size reduction
 
 ## 2026-03-19 12:04 PM PDT - US-001
 - Implemented path-based resolution in CommandRegistry.resolve() — extracts basename when command contains '/'
@@ -42,4 +47,27 @@ PRD: ralph/wasmvm-dynamic-modules (19 stories)
   - tryResolve receives the basename, not the full path — kernel does basename extraction
   - driver.spawn() still receives the original command string (including path); drivers are responsible for internal handling
   - MockRuntimeDriver.spawn uses the full command string as config key — path-based tests must account for this
+---
+
+## 2026-03-19 12:22 PM PDT - US-003
+- Created `wasmvm/crates/libs/grep/` library crate with unified `main()` entry point dispatching on argv[0]
+- Created `wasmvm/crates/commands/grep/` binary crate with `[[bin]] name = "grep"`
+- Library exports `main()` (argv[0] dispatch), `grep()`, `egrep()`, `fgrep()`, `rg()` functions
+- rg module included in library for future use (US-005 rg binary crate)
+- Updated workspace Cargo.toml to include both new crates
+- Multicall continues to build in parallel (unchanged)
+- Files changed:
+  - wasmvm/Cargo.toml (workspace members)
+  - wasmvm/Cargo.lock (auto-updated)
+  - wasmvm/crates/libs/grep/Cargo.toml
+  - wasmvm/crates/libs/grep/src/lib.rs
+  - wasmvm/crates/libs/grep/src/rg_cmd.rs
+  - wasmvm/crates/commands/grep/Cargo.toml
+  - wasmvm/crates/commands/grep/src/main.rs
+- **Learnings for future iterations:**
+  - Use `version.workspace = true` and `edition.workspace = true` for new crates inheriting workspace settings
+  - The unified `main()` reads argv[0] via `Path::new(args[0]).file_name()` and matches on it for mode dispatch
+  - Keep multicall building — don't modify or remove it until US-019
+  - Standalone grep binary is ~864K vs ~15MB multicall binary
+  - The `regex` crate is the only dependency needed for the grep library (no wasi-ext or shims)
 ---

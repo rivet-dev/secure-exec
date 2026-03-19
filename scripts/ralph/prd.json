@@ -56,7 +56,7 @@
         "Tests pass"
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": "Current code: wasmvm/crates/multicall/src/grep.rs has separate grep()/egrep()/fgrep() functions with hardcoded modes. Refactor to a single main(args) that reads argv[0] basename (Path::new(args[0]).file_name()) and matches on it. The rg command can share the libs/grep crate or get its own. See spec Section 5.2 and 5.3. Keep multicall building in parallel during transition."
     },
     {
