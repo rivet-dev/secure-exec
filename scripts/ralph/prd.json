@@ -775,8 +775,8 @@
         "Tests pass"
       ],
       "priority": 46,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Replaced SharedWriter (Arc<Mutex<Box<dyn Write>>>) with per-session ChannelFrameSender + dedicated writer thread per connection. Added FrameSender trait, frame_to_bytes() for lock-free serialization, and ipc_writer_thread. Removed MutexWriter adapter. 7 new tests for channel sender and frame serialization."
     },
     {
       "id": "US-047",

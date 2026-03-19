@@ -7,6 +7,7 @@ PRD: ralph/kernel-hardening (46 stories)
 - V8Runtime (Rust process) is heavyweight — use shared singleton (getSharedV8Runtime) across all NodeExecutionDrivers; each driver creates its own V8Session
 - Bridge code composition order: ivm-compat shim → config injections → globalExposureHelpers → initialBridgeGlobals → consoleSetup → setupFsFacade → bridgeBundle → bridgeAttach → timingMitigation → requireSetup
 - Rust SYNC_BRIDGE_FNS/ASYNC_BRIDGE_FNS in session.rs must match HOST_BRIDGE_GLOBAL_KEYS from bridge-contract.ts — update both when adding new bridge functions
+- IPC writes use per-session ChannelFrameSender (crossbeam channel) + one writer thread per connection — never use shared mutex for socket writes; serialize via frame_to_bytes() first
 - V8 code caching: use `v8::script_compiler::compile()` (not `Script::compile()`) with `Source` + `CompileOptions`; generate cache via `UnboundScript::create_code_cache()`; resource name in ScriptOrigin is required
 - SharedArrayBuffer removal must happen AFTER bridge bundle loads (applyTimingMitigationFreeze JS), not in Rust inject_globals
 - ivm-compat shim adds .applySync/.applySyncPromise to Rust-registered functions; .apply() works via Function.prototype.apply (no shim needed)
@@ -2556,4 +2557,26 @@ PRD: ralph/kernel-hardening (46 stories)
   - Payload size checks that relied on JSON string length need to be replaced with field-level estimates when switching to object returns
   - assertPayloadByteLength uses strict > (not >=), so size estimates must account for object structure overhead
   - Bridge code (fs.ts, network.ts, etc.) is bundled by core's build scripts — must force rebuild core after bridge source changes
+---
+
+## 2026-03-19 - US-046
+- Replaced SharedWriter (Arc<Mutex<Box<dyn Write + Send>>>) with per-session ChannelFrameSender + dedicated writer thread per connection
+- Added FrameSender trait abstracting frame sending (ChannelFrameSender for production, WriterFrameSender for tests)
+- Added frame_to_bytes() to ipc_binary.rs for lock-free frame serialization
+- Added ipc_writer_thread() in main.rs — one writer thread per connection drains the frame channel
+- Removed MutexWriter adapter (was wrapping SharedWriter with double-lock pattern)
+- Updated BridgeCallContext to use FrameSender instead of Mutex<Box<dyn Write + Send>>
+- Updated SessionManager to hold IpcSender (crossbeam Sender<Vec<u8>>) instead of SharedWriter
+- 7 new tests: frame_to_bytes correctness, ChannelFrameSender delivery, concurrent sender contention, and BridgeCallContext with channel end-to-end
+- Files changed:
+  - crates/v8-runtime/src/ipc_binary.rs — added frame_to_bytes(), refactored write_frame to use it, 3 new tests
+  - crates/v8-runtime/src/host_call.rs — added FrameSender trait, ChannelFrameSender, WriterFrameSender, updated BridgeCallContext, 4 new tests
+  - crates/v8-runtime/src/session.rs — replaced SharedWriter/MutexWriter with IpcSender/ChannelFrameSender, updated send_message
+  - crates/v8-runtime/src/main.rs — added ipc_writer_thread, spawn writer thread per connection, pass IpcSender to SessionManager
+  - scripts/ralph/prd.json — marked US-046 passes: true
+- **Learnings for future iterations:**
+  - write_frame() makes two write_all calls (length prefix + body) — with MutexWriter, these were separate lock/unlock cycles allowing interleaving across sessions
+  - frame_to_bytes() builds the complete frame as a single Vec<u8>, ensuring atomic writes through the channel
+  - crossbeam Sender<Vec<u8>> is Clone + Send — no Arc needed, each session thread clones the sender directly
+  - Writer thread ownership: when all senders are dropped (after session thread joins), rx.recv() returns Err and writer thread exits cleanly
 ---
