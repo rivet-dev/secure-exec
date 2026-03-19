@@ -1,4 +1,3 @@
-import ivm from "isolated-vm";
 import {
 	createBuiltinESMWrapper,
 	getStaticBuiltinWrapperSource,
@@ -28,6 +27,13 @@ import {
 import type { DriverDeps } from "./isolate-bootstrap.js";
 import { getModuleFormat, resolveESMPath } from "./module-resolver.js";
 
+// Legacy types — isolated-vm has been removed.
+/* eslint-disable @typescript-eslint/no-explicit-any */
+type LegacyContext = any;
+type LegacyModule = any;
+type LegacyReference<_T = unknown> = any;
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 type CompilerDeps = Pick<
 	DriverDeps,
 	| "isolate"
@@ -44,12 +50,14 @@ type CompilerDeps = Pick<
 
 /**
  * Load and compile an ESM module, handling both ESM and CJS sources.
+ *
+ * @deprecated Legacy function for isolated-vm. V8-based driver handles ESM natively.
  */
 export async function compileESMModule(
 	deps: CompilerDeps,
 	filePath: string,
-	_context: ivm.Context,
-): Promise<ivm.Module> {
+	_context: LegacyContext,
+): Promise<LegacyModule> {
 	// Check cache first
 	const cached = deps.esmModuleCache.get(filePath);
 	if (cached) {
@@ -73,13 +81,11 @@ export async function compileESMModule(
 		if (staticWrapperCode !== null) {
 			code = staticWrapperCode;
 		} else if (hostBuiltinNamedExports.length > 0) {
-			// Prefer the runtime builtin bridge when host exports are known.
 			code = createBuiltinESMWrapper(
 				runtimeBuiltinBinding,
 				mergedBuiltinNamedExports,
 			);
 		} else if (hasPolyfill(moduleName)) {
-			// Get polyfill code and wrap for ESM.
 			let polyfillCode = polyfillCodeCache.get(moduleName);
 			if (!polyfillCode) {
 				polyfillCode = await bundlePolyfill(moduleName);
@@ -102,26 +108,21 @@ export async function compileESMModule(
 				),
 			);
 		} else {
-			// Fall back to the runtime require bridge for built-ins without
-			// dedicated polyfills so ESM named imports can still bind.
 			code = createBuiltinESMWrapper(
 				runtimeBuiltinBinding,
 				mergedBuiltinNamedExports,
 			);
 		}
 	} else {
-		// Load from filesystem
 		const source = await loadFile(filePath, deps.filesystem);
 		if (source === null) {
 			throw new Error(`Cannot load module: ${filePath}`);
 		}
 
-		// Classify source module format using extension + package metadata.
 		const moduleFormat = await getModuleFormat(deps, filePath, source);
 		if (moduleFormat === "json") {
 			code = "export default " + source + ";";
 		} else if (moduleFormat === "cjs") {
-			// Transform CommonJS modules into ESM default exports.
 			code = wrapCJSForESMWithModulePath(source, filePath);
 		} else {
 			code = source;
@@ -142,16 +143,16 @@ export async function compileESMModule(
 
 /**
  * Create the ESM resolver callback for module.instantiate().
+ *
+ * @deprecated Legacy function for isolated-vm. V8-based driver handles ESM natively.
  */
 export function createESMResolver(
 	deps: CompilerDeps,
-	context: ivm.Context,
-): (specifier: string, referrer: ivm.Module) => Promise<ivm.Module> {
-	return async (specifier: string, referrer: ivm.Module) => {
-		// O(1) reverse lookup via dedicated reverse cache
+	context: LegacyContext,
+): (specifier: string, referrer: LegacyModule) => Promise<LegacyModule> {
+	return async (specifier: string, referrer: LegacyModule) => {
 		const referrerPath = deps.esmModuleReverseCache.get(referrer) ?? "/";
 
-		// Resolve the specifier
 		const resolved = await resolveESMPath(deps, specifier, referrerPath);
 		if (!resolved) {
 			throw new Error(
@@ -159,32 +160,30 @@ export function createESMResolver(
 			);
 		}
 
-		// Compile and return the module
 		return compileESMModule(deps, resolved, context);
 	};
 }
 
 /**
  * Run ESM code.
+ *
+ * @deprecated Legacy function for isolated-vm. V8-based driver handles ESM natively.
  */
 export async function runESM(
 	deps: CompilerDeps,
 	code: string,
-	context: ivm.Context,
+	context: LegacyContext,
 	filePath: string = "/<entry>.mjs",
 	executionDeadlineMs?: number,
 ): Promise<unknown> {
-	// Compile the entry module
 	const entryModule = await deps.isolate.compileModule(code, {
 		filename: filePath,
 	});
 	deps.esmModuleCache.set(filePath, entryModule);
 	deps.esmModuleReverseCache.set(entryModule, filePath);
 
-	// Instantiate with resolver (this resolves all dependencies)
 	await entryModule.instantiate(context, createESMResolver(deps, context));
 
-	// Evaluate before reading exports so namespace bindings are initialized.
 	await runWithExecutionDeadline(
 		entryModule.evaluate({
 			promise: true,
@@ -193,19 +192,16 @@ export async function runESM(
 		executionDeadlineMs,
 	);
 
-	// Set namespace on the isolate global so we can serialize a plain object.
 	const jail = context.global;
 	const namespaceGlobalKey = "__entryNamespace__";
 	await jail.set(namespaceGlobalKey, entryModule.namespace.derefInto());
 
 	try {
-		// Get namespace exports for run() to mirror module.exports semantics.
 		return context.eval("Object.fromEntries(Object.entries(globalThis.__entryNamespace__))", {
 			copy: true,
 			...getExecutionRunOptions(executionDeadlineMs),
 		});
 	} finally {
-		// Clean up temporary namespace binding after copying exports.
 		await jail.delete(namespaceGlobalKey);
 	}
 }
@@ -224,34 +220,32 @@ export function isAlreadyInstantiatedModuleError(error: unknown): boolean {
 
 /**
  * Get a cached namespace or evaluate the module on first dynamic import.
+ *
+ * @deprecated Legacy function for isolated-vm. V8-based driver handles dynamic imports natively.
  */
 export async function resolveDynamicImportNamespace(
 	deps: CompilerDeps,
 	specifier: string,
-	context: ivm.Context,
+	context: LegacyContext,
 	referrerPath: string,
 	executionDeadlineMs?: number,
-): Promise<ivm.Reference<unknown> | null> {
-	// Get directly cached namespaces first.
+): Promise<LegacyReference | null> {
 	const cached = deps.dynamicImportCache.get(specifier);
 	if (cached) {
 		return cached;
 	}
 
-	// Resolve before compile/evaluate.
 	const resolved = await resolveESMPath(deps, specifier, referrerPath);
 	if (!resolved) {
 		return null;
 	}
 
-	// Get resolved-path cache entry.
 	const resolvedCached = deps.dynamicImportCache.get(resolved);
 	if (resolvedCached) {
 		deps.dynamicImportCache.set(specifier, resolvedCached);
 		return resolvedCached;
 	}
 
-	// Wait for an existing evaluation in progress.
 	const pending = deps.dynamicImportPending.get(resolved);
 	if (pending) {
 		const namespace = await pending;
@@ -259,8 +253,7 @@ export async function resolveDynamicImportNamespace(
 		return namespace;
 	}
 
-	// Evaluate once, then cache by both resolved path and original specifier.
-		const evaluateModule = (async (): Promise<ivm.Reference<unknown>> => {
+		const evaluateModule = (async (): Promise<LegacyReference> => {
 			const module = await compileESMModule(deps, resolved, context);
 			try {
 				await module.instantiate(context, createESMResolver(deps, context));
@@ -293,24 +286,23 @@ export async function resolveDynamicImportNamespace(
 
 /**
  * Pre-compile all static dynamic import specifiers found in the code.
- * This must be called BEFORE running the code to avoid deadlocks.
+ *
+ * @deprecated Legacy function for isolated-vm. V8-based driver handles this natively.
  */
 export async function precompileDynamicImports(
 	deps: CompilerDeps,
 	transformedCode: string,
-	context: ivm.Context,
+	context: LegacyContext,
 	referrerPath: string = "/",
 ): Promise<void> {
 	const specifiers = extractDynamicImportSpecifiers(transformedCode);
 
 	for (const specifier of specifiers) {
-		// Resolve the module path
 		const resolved = await resolveESMPath(deps, specifier, referrerPath);
 		if (!resolved) {
-			continue; // Skip unresolvable modules, error will be thrown at runtime
+			continue;
 		}
 
-		// Compile only to warm module cache without triggering side effects.
 		try {
 			await compileESMModule(deps, resolved, context);
 		} catch {
@@ -321,19 +313,20 @@ export async function precompileDynamicImports(
 
 /**
  * Set up dynamic import() function for ESM.
- * Note: precompileDynamicImports must be called BEFORE running user code.
- * Falls back to require() for CommonJS modules when not pre-compiled.
+ *
+ * @deprecated Legacy function for isolated-vm. V8-based driver handles dynamic imports natively.
  */
 export async function setupDynamicImport(
 	deps: CompilerDeps,
-	context: ivm.Context,
-	jail: ivm.Reference<Record<string, unknown>>,
+	context: LegacyContext,
+	jail: LegacyReference,
 	referrerPath: string = "/",
 	executionDeadlineMs?: number,
 ): Promise<void> {
-	// Set up async module resolution/evaluation for first dynamic import.
-	const dynamicImportRef = new ivm.Reference(
-		async (specifier: string, fromPath?: string) => {
+	const dynamicImportRef = {
+		apply: async (_ctx: unknown, args: unknown[]) => {
+			const specifier = args[0] as string;
+			const fromPath = args[1] as string | undefined;
 			const effectiveReferrer =
 				typeof fromPath === "string" && fromPath.length > 0
 					? fromPath
@@ -350,7 +343,7 @@ export async function setupDynamicImport(
 			}
 			return namespace.derefInto();
 		},
-	);
+	};
 
 	await jail.set(HOST_BRIDGE_GLOBAL_KEYS.dynamicImport, dynamicImportRef);
 	await jail.set(
@@ -358,6 +351,5 @@ export async function setupDynamicImport(
 		{ referrerPath },
 		{ copy: true },
 	);
-	// Resolve in ESM mode first and only use require() fallback for explicit CJS/JSON.
 	await context.eval(getIsolateRuntimeSource("setupDynamicImport"));
 }

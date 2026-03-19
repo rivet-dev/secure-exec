@@ -52,9 +52,7 @@ export interface DriverDeps {
 	/** Optional callback for PTY setRawMode — wired by kernel when PTY is attached. */
 	onPtySetRawMode?: (mode: boolean) => void;
 
-	// Legacy ivm fields — retained for backward compatibility with esm-compiler.ts,
-	// module-resolver.ts, and bridge-setup.ts until isolated-vm is fully removed (US-028).
-	// Typed as `any` so the V8-based driver can provide dummies without importing ivm.
+	// Legacy fields for backward compatibility with esm-compiler.ts and module-resolver.ts.
 	/* eslint-disable @typescript-eslint/no-explicit-any */
 	isolate: any;
 	esmModuleCache: Map<string, any>;

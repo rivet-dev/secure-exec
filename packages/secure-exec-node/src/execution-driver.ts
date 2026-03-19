@@ -109,7 +109,7 @@ export class NodeExecutionDriver implements RuntimeDriver {
 			activeChildProcesses: new Map(),
 			activeHostTimers: new Set(),
 			resolutionCache: createResolutionCache(),
-			// Legacy ivm fields — unused by V8-based driver, provided for DriverDeps compatibility
+			// Legacy fields — unused by V8-based driver, provided for DriverDeps compatibility
 			isolate: null,
 			esmModuleCache: new Map(),
 			esmModuleReverseCache: new Map(),
