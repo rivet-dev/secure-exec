@@ -1896,3 +1896,16 @@ PRD: ralph/kernel-hardening (46 stories)
   - Worker hardening order: bridge setup → dangerous API blocking → onmessage lock → postMessage block → set initialized
   - Real postMessage saved as `_realPostMessage` in closure before any sandbox code can touch it
 ---
+
+## 2026-03-18 - US-145
+- What was implemented: Verified concurrent host timer cap already in place
+- Bridge-side `_checkTimerBudget()` in process.ts enforces `_maxTimers` (default 10000) by checking `_timers.size + _intervals.size`
+- Host-side `_scheduleTimer` in bridge-setup.ts tracks active timers via `activeHostTimers` Set with auto-cleanup on fire
+- Tests in resource-budgets.test.ts cover: cap enforcement, existing timers survive, cleared timers free slots, normal usage works
+- Files changed:
+  - prd.json — marked US-145 as passes: true
+- **Learnings for future iterations:**
+  - Timer budget is bridge-side (synchronous check) not host-side — prevents timer creation before host is contacted
+  - `_maxTimers` counts both `_timers` and `_intervals` Maps combined
+  - DEFAULT_MAX_TIMERS = 10,000 defined in isolate-bootstrap.ts
+---

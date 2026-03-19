@@ -2492,7 +2492,7 @@
         "Tests pass"
       ],
       "priority": 145,
-      "passes": false,
+      "passes": true,
       "notes": "Audit H3 (partial gap). US-117 handles cleanup on disposal but does not cap concurrent active timers. Sandbox code can create millions of pending host timers exhausting event loop and memory. Also covers audit M4 (isolate-side timer maps)."
     },
     {
