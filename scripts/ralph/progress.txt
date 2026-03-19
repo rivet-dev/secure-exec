@@ -330,3 +330,18 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - `ExecutionError` in `ipc-types.ts` is the wire format type (field `type`); `V8ExecutionError` in `session.ts` is the public API type — same shape, different names to avoid export conflicts
   - Net socket `connect` event fires after successful UDS connection; error before connect fires should reject the connect promise
 ---
+
+## 2026-03-18 - US-021
+- Completed JS-side session abstraction with full StreamEvent/StreamCallback support
+- Added `sendStreamEvent(eventType, payload)` method to V8Session interface and implementation
+- Added `onStreamCallback` option to V8ExecutionOptions for receiving stream callbacks from V8
+- Wired StreamCallback message handling in session handler to route to `onStreamCallback`
+- Replaced dynamic `await import("@msgpack/msgpack")` with static imports in runtime.ts
+- Session lifecycle: createSession → execute (InjectGlobals + Execute + BridgeCall routing) → destroy
+- Files changed: `packages/secure-exec-v8/src/session.ts`, `packages/secure-exec-v8/src/runtime.ts`
+- **Learnings for future iterations:**
+  - Session abstraction is implemented inline in runtime.ts (not as a separate class) — the V8Session interface is the public API, implemented as an object literal inside createSession()
+  - `sendStreamEvent` is used by the host to push events into V8 (child process stdout/stderr, HTTP requests); `onStreamCallback` receives callbacks back from V8
+  - Static imports of `@msgpack/msgpack` are cleaner than dynamic `await import()` — encode/decode are used in the hot path of bridge call handling
+  - The session message handler routes all 4 RustMessage types: BridgeCall → bridgeHandlers, ExecutionResult → resolve promise, Log → stdout/stderr, StreamCallback → onStreamCallback
+---
