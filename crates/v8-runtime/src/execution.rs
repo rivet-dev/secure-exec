@@ -474,8 +474,33 @@ pub fn execute_module(
         }
 
         // Serialize module namespace (exports)
+        // If the ESM namespace is empty, fall back to globalThis.module.exports
+        // for CJS compatibility (code using module.exports = {...}).
         let namespace = module.get_module_namespace();
-        let exports_bytes = crate::bridge::v8_value_to_msgpack(tc, namespace);
+        let namespace_obj = namespace.to_object(tc).unwrap();
+        let prop_names = namespace_obj
+            .get_own_property_names(tc, v8::GetPropertyNamesArgs::default())
+            .unwrap();
+        let exports_bytes = if prop_names.length() == 0 {
+            // No ESM exports — check CJS module.exports fallback
+            let ctx = tc.get_current_context();
+            let global = ctx.global(tc);
+            let module_key = v8::String::new(tc, "module").unwrap();
+            let cjs_exports = global
+                .get(tc, module_key.into())
+                .and_then(|m| m.to_object(tc))
+                .and_then(|m| {
+                    let exports_key = v8::String::new(tc, "exports").unwrap();
+                    m.get(tc, exports_key.into())
+                })
+                .filter(|v| !v.is_undefined() && !v.is_null_or_undefined());
+            match cjs_exports {
+                Some(val) => crate::bridge::v8_value_to_msgpack(tc, val),
+                None => crate::bridge::v8_value_to_msgpack(tc, namespace),
+            }
+        } else {
+            crate::bridge::v8_value_to_msgpack(tc, namespace)
+        };
 
         clear_module_state();
         (0, Some(exports_bytes), None)

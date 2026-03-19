@@ -22,6 +22,7 @@ import { getConsoleSetupCode } from "@secure-exec/core/internal/shared/console-f
 import { getRequireSetupCode } from "@secure-exec/core/internal/shared/require-setup";
 import { createCommandExecutorStub, createFsStub, createNetworkStub, filterEnv, wrapCommandExecutor, wrapFileSystem, wrapNetworkAdapter } from "@secure-exec/core/internal/shared/permissions";
 import { transformDynamicImport } from "@secure-exec/core/internal/shared/esm-utils";
+import { HARDENED_NODE_CUSTOM_GLOBALS, MUTABLE_NODE_CUSTOM_GLOBALS } from "@secure-exec/core/internal/shared/global-exposure";
 import type { NetworkAdapter, RuntimeDriver } from "@secure-exec/core";
 import type { StdioHook, ExecOptions, ExecResult, RunResult, TimingMitigation } from "@secure-exec/core/internal/shared/api-types";
 import { type DriverDeps, type NodeExecutionDriverOptions, createBudgetState, clearActiveHostTimers, killActiveChildProcesses, normalizePayloadLimit, getExecutionTimeoutMs, getTimingMitigation, DEFAULT_BRIDGE_BASE64_TRANSFER_BYTES, DEFAULT_ISOLATE_JSON_PAYLOAD_BYTES, DEFAULT_MAX_TIMERS, DEFAULT_MAX_HANDLES, DEFAULT_SANDBOX_CWD, DEFAULT_SANDBOX_HOME, DEFAULT_SANDBOX_TMPDIR, PAYLOAD_LIMIT_ERROR_CODE } from "./isolate-bootstrap.js";
@@ -220,6 +221,16 @@ export class NodeExecutionDriver implements RuntimeDriver {
 		// 9. Require setup
 		parts.push(getRequireSetupCode());
 
+		// 10. CJS module/exports globals (for run() and exec() with filePath)
+		parts.push(getIsolateRuntimeSource("initCommonjsModuleGlobals"));
+
+		// 11. Harden custom globals (non-writable/configurable for hardened, mutable for mutable)
+		parts.push(`globalThis.__runtimeCustomGlobalPolicy = ${JSON.stringify({
+			hardenedGlobals: HARDENED_NODE_CUSTOM_GLOBALS,
+			mutableGlobals: MUTABLE_NODE_CUSTOM_GLOBALS,
+		})};`);
+		parts.push(getIsolateRuntimeSource("applyCustomGlobalPolicy"));
+
 		// Note: bridge code depends on timing (frozenTimeMs) so we don't cache
 		// when timing mitigation is 'freeze' since frozenTimeMs changes per execution.
 		const code = parts.join("\n");
@@ -270,8 +281,15 @@ export class NodeExecutionDriver implements RuntimeDriver {
 		// Transform user code (dynamic import → __dynamicImport)
 		const userCode = transformDynamicImport(options.code);
 
-		// Build per-execution preamble for stdin, env/cwd overrides
+		// Build per-execution preamble for stdin, env/cwd overrides, and CJS file globals
 		const execPreamble: string[] = [];
+		if (options.filePath) {
+			const dirname = options.filePath.includes("/")
+				? options.filePath.substring(0, options.filePath.lastIndexOf("/")) || "/"
+				: "/";
+			execPreamble.push(`globalThis.__runtimeCommonJsFileConfig = ${JSON.stringify({ filePath: options.filePath, dirname })};`);
+			execPreamble.push(getIsolateRuntimeSource("setCommonjsFileGlobals"));
+		}
 		if (options.stdin !== undefined) {
 			execPreamble.push(`globalThis.__runtimeStdinData = ${JSON.stringify(options.stdin)};`);
 			execPreamble.push(getIsolateRuntimeSource("setStdinData"));
@@ -358,9 +376,15 @@ export class NodeExecutionDriver implements RuntimeDriver {
 				};
 			}
 
+			// Deserialize module exports from msgpack binary (Rust V8 serializes namespace)
+			let exports: T | undefined;
+			if (result.exports && result.exports.byteLength > 0) {
+				const { decode: decodeMsgpack } = await import("@msgpack/msgpack");
+				exports = decodeMsgpack(result.exports) as T;
+			}
 			return {
 				code: result.code,
-				exports: undefined as T, // Module exports serialization handled in later stories
+				exports,
 			};
 		} catch (err) {
 			const errMessage = err instanceof Error ? err.message : String(err);

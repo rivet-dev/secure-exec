@@ -237,7 +237,7 @@ fn session_thread(
     // Create V8 isolate and context
     // In test mode, skip V8 to avoid inter-test SIGSEGV (V8 lifecycle tested in isolate::tests)
     #[cfg(not(test))]
-    let (mut v8_isolate, v8_context) = {
+    let (mut v8_isolate, _v8_context) = {
         isolate::init_v8_platform();
         let mut iso = isolate::create_isolate(heap_limit_mb);
         // Disable WASM compilation before any code execution
@@ -248,6 +248,12 @@ fn session_thread(
 
     #[cfg(not(test))]
     let pending = bridge::PendingPromises::new();
+
+    // Store latest InjectGlobals config for re-injection into fresh contexts
+    #[cfg(not(test))]
+    let mut last_process_config: Option<ipc::ProcessConfig> = None;
+    #[cfg(not(test))]
+    let mut last_os_config: Option<ipc::OsConfig> = None;
 
     // Process commands until shutdown or channel close
     loop {
@@ -261,10 +267,9 @@ fn session_thread(
                         os_config,
                         ..
                     } => {
-                        let scope = &mut v8::HandleScope::new(&mut v8_isolate);
-                        let ctx = v8::Local::new(scope, &v8_context);
-                        let scope = &mut v8::ContextScope::new(scope, ctx);
-                        execution::inject_globals(scope, &process_config, &os_config);
+                        // Store config for injection into fresh context at Execute time
+                        last_process_config = Some(process_config);
+                        last_os_config = Some(os_config);
                     }
                     HostMessage::Execute {
                         session_id,
@@ -273,6 +278,17 @@ fn session_thread(
                         mode,
                         file_path,
                     } => {
+                        // Create a fresh V8 context per execution (clean global scope)
+                        let exec_context = isolate::create_context(&mut v8_isolate);
+
+                        // Inject globals from last InjectGlobals into the fresh context
+                        if let (Some(ref pc), Some(ref oc)) = (&last_process_config, &last_os_config) {
+                            let scope = &mut v8::HandleScope::new(&mut v8_isolate);
+                            let ctx = v8::Local::new(scope, &exec_context);
+                            let scope = &mut v8::ContextScope::new(scope, ctx);
+                            execution::inject_globals(scope, pc, oc);
+                        }
+
                         // Create abort channel for timeout enforcement
                         let (maybe_abort_tx, maybe_abort_rx) = if cpu_time_limit_ms.is_some() {
                             let (tx, rx) = crossbeam_channel::bounded::<()>(0);
@@ -298,7 +314,7 @@ fn session_thread(
                         let _async_store;
                         {
                             let scope = &mut v8::HandleScope::new(&mut v8_isolate);
-                            let ctx = v8::Local::new(scope, &v8_context);
+                            let ctx = v8::Local::new(scope, &exec_context);
                             let scope = &mut v8::ContextScope::new(scope, ctx);
 
                             _sync_store = bridge::register_sync_bridge_fns(
@@ -324,17 +340,17 @@ fn session_thread(
                             _ => None,
                         };
 
-                        // Execute code
+                        // Execute code (fresh context per execution)
                         let (code, exports, error) = if mode == ExecuteMode::Exec {
                             let scope = &mut v8::HandleScope::new(&mut v8_isolate);
-                            let ctx = v8::Local::new(scope, &v8_context);
+                            let ctx = v8::Local::new(scope, &exec_context);
                             let scope = &mut v8::ContextScope::new(scope, ctx);
                             let (c, e) =
                                 execution::execute_script(scope, &bridge_code, &user_code);
                             (c, None, e)
                         } else {
                             let scope = &mut v8::HandleScope::new(&mut v8_isolate);
-                            let ctx = v8::Local::new(scope, &v8_context);
+                            let ctx = v8::Local::new(scope, &exec_context);
                             let scope = &mut v8::ContextScope::new(scope, ctx);
                             execution::execute_module(
                                 scope,
@@ -348,7 +364,7 @@ fn session_thread(
                         // Run event loop if there are pending async promises
                         let terminated = if pending.len() > 0 {
                             let scope = &mut v8::HandleScope::new(&mut v8_isolate);
-                            let ctx = v8::Local::new(scope, &v8_context);
+                            let ctx = v8::Local::new(scope, &exec_context);
                             let scope = &mut v8::ContextScope::new(scope, ctx);
                             !run_event_loop(scope, &rx, &pending, maybe_abort_rx.as_ref())
                         } else {
@@ -411,7 +427,7 @@ fn session_thread(
     // Drop V8 resources (only present in non-test mode)
     #[cfg(not(test))]
     {
-        drop(v8_context);
+        drop(_v8_context);
         drop(v8_isolate);
     }
 
@@ -430,13 +446,14 @@ fn session_thread(
 /// Sync functions block V8 while the host processes the call (applySync/applySyncPromise).
 /// Async functions return a Promise to V8, resolved when the host responds (apply).
 #[cfg(not(test))]
-const SYNC_BRIDGE_FNS: [&str; 30] = [
+const SYNC_BRIDGE_FNS: [&str; 31] = [
     // Console
     "_log",
     "_error",
     // Module loading (syncPromise — host resolves async, Rust blocks)
     "_resolveModule",
     "_loadFile",
+    "_loadPolyfill",
     // Crypto
     "_cryptoRandomFill",
     "_cryptoRandomUUID",
@@ -469,10 +486,9 @@ const SYNC_BRIDGE_FNS: [&str; 30] = [
 ];
 
 #[cfg(not(test))]
-const ASYNC_BRIDGE_FNS: [&str; 8] = [
+const ASYNC_BRIDGE_FNS: [&str; 7] = [
     // Module loading (async)
     "_dynamicImport",
-    "_loadPolyfill",
     // Timer
     "_scheduleTimer",
     // Network (async)
