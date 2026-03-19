@@ -2370,3 +2370,18 @@ PRD: ralph/kernel-hardening (46 stories)
   - CJS run() mode in V8: ESM namespace is empty for code using module.exports; Rust execute_module must check globalThis.module.exports as fallback
   - Pre-existing failures: python runtime (PythonRuntime not a constructor), isTTY/setRawMode, env-leakage, payload-limits, project-matrix (some), resource-limits, resource-budgets, ssrf-protection (1), bridge-hardening HTTP response body cap — all unchanged from before this story
 ---
+
+## 2026-03-19 - US-035
+- Implemented `ipc_binary.rs` module with binary header wire format for all 11 message types
+- `write_frame()` encodes frames: [4B len][1B type][1B sid_len][N sid][type-specific fields][payload]
+- `read_frame()` decodes frames back to `BinaryFrame` enum
+- `extract_session_id()` routes by session_id from raw bytes without full deserialization
+- Files changed: `crates/v8-runtime/src/ipc_binary.rs` (new), `crates/v8-runtime/src/main.rs` (mod declaration)
+- 31 unit tests: round-trip for all 11 types, edge cases (empty payloads, empty session_id, large payloads), framing validation, session_id extraction, wire format byte verification
+- **Learnings for future iterations:**
+  - Rust borrow checker: `buf.len() - pos` cannot be used as arg alongside `&mut pos` — compute `let remaining = buf.len() - pos` first
+  - Binary crate tests run with `cargo test` (not `cargo test --lib`) since there are no library targets
+  - Pre-existing SharedArrayBuffer freeze test failure is unrelated (confirmed by stash test)
+  - Wire format: Authenticate (0x01) has sid_len=0 (no session_id); extract_session_id returns None for it
+  - ExecutionResult uses flag byte (bit 0 = has_exports, bit 1 = has_error) to conditionally include variable-length sections
+---
