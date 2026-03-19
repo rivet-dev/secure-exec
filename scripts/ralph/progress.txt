@@ -19,7 +19,12 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
 - Consolidate V8 tests into a single `#[test]` fn to avoid inter-test isolate state issues
 - V8 platform MUST be initialized on the main thread before spawning session threads (SIGSEGV otherwise)
 - Session tests use `#[cfg(not(test))]` to skip V8 isolate creation; V8 lifecycle tested in `execution::tests`
-- ALL V8 tests live in `execution::tests::v8_inject_globals_and_hardening` — do NOT add new `#[test]` fns that create V8 isolates
+- ALL V8 tests live in `execution::tests::v8_consolidated_tests` — do NOT add new `#[test]` fns that create V8 isolates
+- Use `rmpv::Value` for dynamic V8 ↔ MessagePack conversion; `rmpv::encode::write_value` for encoding, `rmpv::decode::read_value` for decoding
+- Bridge functions use `v8::FunctionTemplate::builder(callback).data(external).build(scope)` to attach per-function data via `v8::External`
+- Split `scope.throw_exception(v8::Exception::error(scope, msg))` into two statements to avoid double mutable borrow
+- `BridgeCallContext` uses `Mutex<Box<dyn Write + Send>>` / `Mutex<Box<dyn Read + Send>>` for testable IPC abstraction
+- `BridgeFnStore` must be kept alive alongside the V8 context — it owns the heap allocations pointed to by v8::External
 - Use `obj.set_integrity_level(scope, v8::IntegrityLevel::Frozen)` for Object.freeze()
 - Use `obj.define_own_property(scope, key, val, READ_ONLY | DONT_DELETE)` for non-writable, non-configurable properties
 - Use `isolate.set_allow_wasm_code_generation_callback(fn)` to disable WASM — callback returns false
@@ -132,4 +137,27 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - `Object.freeze()` is `set_integrity_level(scope, IntegrityLevel::Frozen)` — only shallow-freezes, so nested objects (like env) need separate freeze calls
   - `obj.delete(scope, key.into())` removes a property from global (used for SharedArrayBuffer removal)
   - `deny_wasm_code_generation` callback must be `extern "C"` with signature `fn(Local<Context>, Local<String>) -> bool`
+---
+
+## 2026-03-18 - US-009
+- Implemented sync-blocking bridge call host functions in `bridge.rs` and `host_call.rs`
+- `BridgeCallContext`: holds IPC reader/writer, session_id, atomic call_id counter, and pending-call HashSet for duplicate rejection
+- `sync_call(method, args)`: generates call_id, registers in pending set, writes BridgeCall, blocks on read for BridgeResponse, validates call_id match, returns result or error
+- `register_sync_bridge_fns(scope, ctx, methods)`: creates v8::FunctionTemplate per method with v8::External data pointing to per-function SyncBridgeFnData
+- V8 ↔ MessagePack conversion via `rmpv::Value`: handles null, bool, number (int/float), string, binary (Uint8Array), array, object/map
+- Error responses from the host throw V8 exceptions via `scope.throw_exception()`
+- `BridgeFnStore` opaque type keeps heap allocations alive for the V8 context lifetime
+- 7 unit tests for host_call.rs (success, null result, error, call_id increment, pending cleanup, call_id mismatch, unexpected message type)
+- 4 V8 integration tests added to consolidated test (Parts 8-11: success return, error throw, multiple functions with args, null/undefined result)
+- Renamed consolidated V8 test to `v8_consolidated_tests`
+- Added `rmpv = "1"` dependency to Cargo.toml
+- Files changed: `crates/v8-runtime/Cargo.toml`, `crates/v8-runtime/src/host_call.rs`, `crates/v8-runtime/src/bridge.rs`, `crates/v8-runtime/src/execution.rs`
+- **Learnings for future iterations:**
+  - `v8::FunctionTemplate::builder(callback).data(external.into()).build(scope)` works in contextful scopes via DerefMut coercion
+  - `v8::External::new(scope, ptr)` also works in contextful scopes — `HandleScope<'s, Context>` DerefMut to `HandleScope<'s, ()>`
+  - Must split `scope.throw_exception(v8::Exception::error(scope, msg))` into two statements — Rust borrow checker rejects double `&mut scope`
+  - `rmpv::Value::String(s.into())` converts `String` → `rmpv::Utf8String` via `From<String>`
+  - `rmpv::Integer::from(n as i64)` and `from(n as u64)` for compact integer encoding
+  - V8 `ArrayBuffer::get_backing_store().data()` returns `None` for zero-length buffers — always guard with `if len > 0`
+  - `BridgeCallContext` reader/writer use `Mutex<Box<dyn Write + Send>>` pattern for testability with in-memory Cursor/Vec
 ---
