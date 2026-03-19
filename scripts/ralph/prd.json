@@ -544,8 +544,8 @@
         "Typecheck passes"
       ],
       "priority": 33,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "All pre-existing test failures verified unchanged. Fixed: CJS globals (module/exports/__filename/__dirname) in bridge composition, run() exports deserialization, fresh V8 context per execution, _loadPolyfill moved to sync bridge, bridge-registry-policy test updated for V8 handler pattern."
     }
   ]
 }

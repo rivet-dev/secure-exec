@@ -117,6 +117,10 @@ PRD: ralph/kernel-hardening (46 stories)
 - Bridge fs.ts `bridgeCall()` helper wraps applySyncPromise calls with ENOENT/EACCES/EEXIST error re-creation — use it for ALL new bridge fs methods
 - runtime-node has two VFS adapters (createKernelVfsAdapter, createHostFallbackVfs) that both need new VFS methods forwarded
 - diagnostics_channel is Tier 4 (deferred) with a custom no-op stub in require-setup.ts — channels report no subscribers, publish is no-op; needed for Fastify compatibility
+- V8 session creates a FRESH context per execute() — globals from previous executions (non-configurable hardened globals) must not persist; store InjectGlobals config and re-inject into each fresh context
+- _loadPolyfill MUST be in SYNC_BRIDGE_FNS (not ASYNC) — require() calls it synchronously; if async, it returns a Promise that bypasses the null check and breaks module loading
+- composeBridgeCode must include initCommonjsModuleGlobals + applyCustomGlobalPolicy after requireSetup; per-execution preamble must inject __runtimeCommonJsFileConfig + setCommonjsFileGlobals when filePath is provided
+- V8 execute_module falls back to globalThis.module.exports when ESM namespace has no own properties (CJS compat for run() mode)
 - Fastify fixture uses `app.routing(req, res)` for programmatic dispatch — avoids light-my-request's deep ServerResponse dependency; `app.server.emit("request")` won't work because sandbox Server lacks full EventEmitter
 - Sandbox Server class needs `setTimeout`, `keepAliveTimeout`, `requestTimeout` properties for framework compatibility — added as no-ops
 - Moving a module from Unsupported (Tier 5) to Deferred (Tier 4) requires changes in: module-resolver.ts, require-setup.ts, node-stdlib.md contract, and adding BUILTIN_NAMED_EXPORTS entry
@@ -2343,4 +2347,20 @@ PRD: ralph/kernel-hardening (46 stories)
 - **Learnings for future iterations:**
   - security-model.mdx is under docs/ in the Advanced section of docs.json navigation — no special placement needed
   - The V8 runtime spec at docs-internal/specs/v8-runtime.md has a detailed "IPC Security" section and "Security model documentation" subsection that specifies exactly what the docs update should cover
+---
+
+## 2026-03-19 - US-033
+- What was implemented: Fixed V8 runtime to pass existing test suite — bridge code composition gaps, module exports deserialization, fresh context per execution, sync bridge function classification
+- Files changed:
+  - crates/v8-runtime/src/execution.rs — added CJS module.exports fallback in execute_module when ESM namespace has no own properties (for run() mode CJS compatibility)
+  - crates/v8-runtime/src/session.rs — moved _loadPolyfill from ASYNC_BRIDGE_FNS to SYNC_BRIDGE_FNS (require() calls it synchronously); create fresh V8 context per Execute (avoids non-configurable global conflicts); store InjectGlobals config and re-inject into fresh context
+  - packages/secure-exec-node/src/execution-driver.ts — added initCommonjsModuleGlobals and applyCustomGlobalPolicy to composeBridgeCode(); added setCommonjsFileGlobals to per-execution preamble when filePath is provided; added msgpack deserialization of V8ExecutionResult.exports for run() mode
+  - packages/secure-exec/tests/bridge-registry-policy.test.ts — added bridge-handlers.ts to scanned source files; updated assertions to accept K.xxx alias form for HOST_BRIDGE_GLOBAL_KEYS usage
+  - crates/v8-runtime/Cargo.lock — downgraded home dep for Rust 1.85 compatibility
+- **Learnings for future iterations:**
+  - Async bridge functions (ASYNC_BRIDGE_FNS) return Promises when called directly — any bridge function called from sync code paths (require, module resolution) MUST be in SYNC_BRIDGE_FNS
+  - Non-configurable globals (hardened by applyCustomGlobalPolicy) cannot be redefined in subsequent executions on the same V8 context — must create fresh context per execution
+  - Bridge code composition order matters: initCommonjsModuleGlobals must come AFTER requireSetup (require depends on _moduleCache set by bridgeInitialGlobals), and applyCustomGlobalPolicy must come LAST (it hardens all globals including module/exports)
+  - CJS run() mode in V8: ESM namespace is empty for code using module.exports; Rust execute_module must check globalThis.module.exports as fallback
+  - Pre-existing failures: python runtime (PythonRuntime not a constructor), isTTY/setRawMode, env-leakage, payload-limits, project-matrix (some), resource-limits, resource-budgets, ssrf-protection (1), bridge-hardening HTTP response body cap — all unchanged from before this story
 ---
