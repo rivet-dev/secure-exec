@@ -2553,3 +2553,19 @@ PRD: ralph/kernel-hardening (46 stories)
   - All 9 binary crates compile for wasm32-wasip1 without any patches needed
   - Pre-existing test failures: @secure-exec/example-ai-sdk typecheck (missing node_modules), kernel PTY adversarial stress test
 ---
+
+## 2026-03-19 - US-007
+- What was implemented: Extracted gzip and tar from multicall into standalone library + binary crates with argv[0] dispatch for gzip/gunzip/zcat
+- Files changed:
+  - wasmvm/crates/libs/gzip/ — library crate (secureexec-gzip), depends on flate2 with rust_backend, dispatches on argv[0] for gzip/gunzip/zcat modes
+  - wasmvm/crates/libs/tar/ — library crate (secureexec-tar), depends on flate2 and tar crates
+  - wasmvm/crates/commands/gzip/ — binary crate (cmd-gzip), [[bin]] name = "gzip"
+  - wasmvm/crates/commands/tar/ — binary crate (cmd-tar), [[bin]] name = "tar"
+  - wasmvm/Cargo.toml — added 4 new workspace members
+- **Learnings for future iterations:**
+  - gzip argv[0] dispatch uses rfind('/') to extract basename (same approach as multicall), not Path::file_name() like grep lib uses — both work
+  - flate2 must use `default-features = false, features = ["rust_backend"]` for WASM compatibility — native C backend won't compile for wasm32-wasip1
+  - tar crate also needs flate2 for gzip-compressed archives (-z flag, .tar.gz/.tgz auto-detection)
+  - Symlinks (gunzip->gzip, zcat->gzip) are NOT created here — they belong in the build system (US-011)
+  - Both crates compile for wasm32-wasip1 with no patches needed
+---

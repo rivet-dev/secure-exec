@@ -132,7 +132,7 @@
         "Tests pass"
       ],
       "priority": 7,
-      "passes": false,
+      "passes": true,
       "notes": "Extract from multicall's gzip.rs and tar_cmd.rs. gzip uses flate2, tar uses the tar crate. Symlinks (gunzip->gzip, zcat->gzip) are created in the build system (US-011). The gzip binary must dispatch on argv[0] like grep does. See spec Section 5.3."
     },
     {
