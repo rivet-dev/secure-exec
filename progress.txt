@@ -2495,3 +2495,17 @@ PRD: ralph/kernel-hardening (46 stories)
   - Interactive shell cleanup: send 'exit\n' and race shell.wait() with a timeout to avoid test hangs from dispose()
   - kernel.exec('tree /') runs in under 1 second; interactive shell 'tree /' completes within 200ms after command is dispatched
 ---
+
+## 2026-03-19 - US-004
+- What was implemented: Created standalone sh binary crate at wasmvm/crates/commands/sh/
+- Files changed:
+  - wasmvm/crates/commands/sh/Cargo.toml — new crate with brush-shell dependency (features = ["minimal"])
+  - wasmvm/crates/commands/sh/src/main.rs — calls brush_shell::entry::run()
+  - wasmvm/Cargo.toml — added crates/commands/sh to workspace members
+  - wasmvm/Cargo.lock — updated with new workspace member
+- **Learnings for future iterations:**
+  - brush_shell::entry::run() reads from std::env::args() and calls std::process::exit() internally — no need to collect args or handle exit code
+  - brush-shell must be compiled with default-features = false, features = ["minimal"] — no readline/reedline for WASM target
+  - Standalone command binary crate pattern: cmd-<name> package name, [[bin]] name = '<command>', minimal main.rs
+  - The 'bash' alias will be a symlink to sh (handled in US-011 build system), not a separate binary
+---
