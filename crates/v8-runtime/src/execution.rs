@@ -1,6 +1,6 @@
 // Script compilation, CJS/ESM execution, module loading
 
-use crate::ipc::{OsConfig, ProcessConfig};
+use crate::ipc::{ExecutionError, OsConfig, ProcessConfig};
 
 /// Callback that denies all WebAssembly code generation.
 extern "C" fn deny_wasm_code_generation(
@@ -45,6 +45,148 @@ pub fn inject_globals(
     if process_config.timing_mitigation == "freeze" {
         let sab_key = v8::String::new(scope, "SharedArrayBuffer").unwrap();
         global.delete(scope, sab_key.into());
+    }
+}
+
+/// Execute user code as a CJS script (mode='exec').
+///
+/// Runs bridge_code as IIFE first (if non-empty), then compiles and runs user_code
+/// via v8::Script. Returns (exit_code, error) — exit code 0 on success, 1 on error.
+pub fn execute_script(
+    scope: &mut v8::HandleScope,
+    bridge_code: &str,
+    user_code: &str,
+) -> (i32, Option<ExecutionError>) {
+    // Run bridge code IIFE
+    if !bridge_code.is_empty() {
+        let tc = &mut v8::TryCatch::new(scope);
+        let source = match v8::String::new(tc, bridge_code) {
+            Some(s) => s,
+            None => {
+                return (
+                    1,
+                    Some(ExecutionError {
+                        error_type: "Error".into(),
+                        message: "bridge code string too large for V8".into(),
+                        stack: String::new(),
+                        code: None,
+                    }),
+                )
+            }
+        };
+        let script = match v8::Script::compile(tc, source, None) {
+            Some(s) => s,
+            None => {
+                let exc = tc.exception();
+                return (1, exc.map(|e| extract_error_info(tc, e)));
+            }
+        };
+        if script.run(tc).is_none() {
+            let exc = tc.exception();
+            return (1, exc.map(|e| extract_error_info(tc, e)));
+        }
+    }
+
+    // Run user code
+    {
+        let tc = &mut v8::TryCatch::new(scope);
+        let source = match v8::String::new(tc, user_code) {
+            Some(s) => s,
+            None => {
+                return (
+                    1,
+                    Some(ExecutionError {
+                        error_type: "Error".into(),
+                        message: "user code string too large for V8".into(),
+                        stack: String::new(),
+                        code: None,
+                    }),
+                )
+            }
+        };
+        let script = match v8::Script::compile(tc, source, None) {
+            Some(s) => s,
+            None => {
+                let exc = tc.exception();
+                return (1, exc.map(|e| extract_error_info(tc, e)));
+            }
+        };
+        if script.run(tc).is_none() {
+            let exc = tc.exception();
+            return (1, exc.map(|e| extract_error_info(tc, e)));
+        }
+    }
+
+    (0, None)
+}
+
+/// Extract structured error information from a V8 exception value.
+///
+/// Reads constructor.name for error type, .message for the message,
+/// .stack for the stack trace, and optional .code for Node-style error codes.
+pub fn extract_error_info(
+    scope: &mut v8::HandleScope,
+    exception: v8::Local<v8::Value>,
+) -> ExecutionError {
+    if !exception.is_object() {
+        // Non-object throw (e.g., `throw "string"`)
+        return ExecutionError {
+            error_type: "Error".into(),
+            message: exception.to_rust_string_lossy(scope),
+            stack: String::new(),
+            code: None,
+        };
+    }
+
+    let obj = v8::Local::<v8::Object>::try_from(exception).unwrap();
+
+    // Error type from constructor.name
+    let error_type = {
+        let ctor_key = v8::String::new(scope, "constructor").unwrap();
+        let name_key = v8::String::new(scope, "name").unwrap();
+        obj.get(scope, ctor_key.into())
+            .filter(|v| v.is_object())
+            .and_then(|ctor| {
+                let ctor_obj = v8::Local::<v8::Object>::try_from(ctor).ok()?;
+                ctor_obj.get(scope, name_key.into())
+            })
+            .filter(|v| v.is_string())
+            .map(|v| v.to_rust_string_lossy(scope))
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| "Error".into())
+    };
+
+    // Message from error.message property
+    let message = {
+        let msg_key = v8::String::new(scope, "message").unwrap();
+        obj.get(scope, msg_key.into())
+            .filter(|v| v.is_string())
+            .map(|v| v.to_rust_string_lossy(scope))
+            .unwrap_or_else(|| exception.to_rust_string_lossy(scope))
+    };
+
+    // Stack trace from error.stack property
+    let stack = {
+        let stack_key = v8::String::new(scope, "stack").unwrap();
+        obj.get(scope, stack_key.into())
+            .filter(|v| v.is_string())
+            .map(|v| v.to_rust_string_lossy(scope))
+            .unwrap_or_default()
+    };
+
+    // Optional error code (e.g., ERR_MODULE_NOT_FOUND)
+    let code = {
+        let code_key = v8::String::new(scope, "code").unwrap();
+        obj.get(scope, code_key.into())
+            .filter(|v| v.is_string())
+            .map(|v| v.to_rust_string_lossy(scope))
+    };
+
+    ExecutionError {
+        error_type,
+        message,
+        stack,
+        code,
     }
 }
 
@@ -983,6 +1125,159 @@ mod tests {
 
             // After resolution + microtask flush, _thenRan should be true
             assert!(eval_bool(&mut iso, &ctx, "_thenRan === true"));
+        }
+
+        // --- Part 17: CJS execution — successful execution returns exit code 0 ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let (code, error) = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                execute_script(scope, "", "var x = 1 + 2;")
+            };
+
+            assert_eq!(code, 0);
+            assert!(error.is_none());
+            // Verify the code actually ran
+            assert_eq!(eval(&mut iso, &ctx, "x"), "3");
+        }
+
+        // --- Part 18: Bridge code IIFE executed before user code ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let bridge = "(function() { globalThis._bridgeReady = true; })()";
+            let user = "var _sawBridge = _bridgeReady;";
+            let (code, error) = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                execute_script(scope, bridge, user)
+            };
+
+            assert_eq!(code, 0);
+            assert!(error.is_none());
+            assert!(eval_bool(&mut iso, &ctx, "_sawBridge === true"));
+            assert!(eval_bool(&mut iso, &ctx, "_bridgeReady === true"));
+        }
+
+        // --- Part 19: SyntaxError in user code returns structured error ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let (code, error) = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                execute_script(scope, "", "var x = {;")
+            };
+
+            assert_eq!(code, 1);
+            let err = error.unwrap();
+            assert_eq!(err.error_type, "SyntaxError");
+            assert!(!err.message.is_empty());
+        }
+
+        // --- Part 20: Runtime TypeError returns structured error ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let (code, error) = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                execute_script(scope, "", "null.foo")
+            };
+
+            assert_eq!(code, 1);
+            let err = error.unwrap();
+            assert_eq!(err.error_type, "TypeError");
+            assert!(!err.message.is_empty());
+            assert!(!err.stack.is_empty());
+        }
+
+        // --- Part 21: SyntaxError in bridge code returns error ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let (code, error) = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                execute_script(scope, "function {", "var x = 1;")
+            };
+
+            assert_eq!(code, 1);
+            let err = error.unwrap();
+            assert_eq!(err.error_type, "SyntaxError");
+            // User code should NOT have run
+            assert!(eval_bool(&mut iso, &ctx, "typeof x === 'undefined'"));
+        }
+
+        // --- Part 22: Empty bridge code is skipped ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let (code, error) = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                execute_script(scope, "", "'hello'")
+            };
+
+            assert_eq!(code, 0);
+            assert!(error.is_none());
+        }
+
+        // --- Part 23: Runtime error with error code ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let (code, error) = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                execute_script(
+                    scope,
+                    "",
+                    "var e = new Error('not found'); e.code = 'ERR_MODULE_NOT_FOUND'; throw e;",
+                )
+            };
+
+            assert_eq!(code, 1);
+            let err = error.unwrap();
+            assert_eq!(err.error_type, "Error");
+            assert_eq!(err.message, "not found");
+            assert_eq!(err.code, Some("ERR_MODULE_NOT_FOUND".into()));
+        }
+
+        // --- Part 24: Thrown string (non-Error object) handled ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let (code, error) = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                execute_script(scope, "", "throw 'raw string error';")
+            };
+
+            assert_eq!(code, 1);
+            let err = error.unwrap();
+            assert_eq!(err.error_type, "Error");
+            assert_eq!(err.message, "raw string error");
+            assert!(err.stack.is_empty());
+            assert!(err.code.is_none());
         }
     }
 }

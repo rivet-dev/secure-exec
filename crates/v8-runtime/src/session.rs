@@ -8,6 +8,8 @@ use crossbeam_channel::{Receiver, Sender};
 
 use crate::ipc::HostMessage;
 #[cfg(not(test))]
+use crate::ipc::ExecuteMode;
+#[cfg(not(test))]
 use crate::{execution, isolate};
 
 /// Commands sent to a session thread
@@ -226,6 +228,22 @@ fn session_thread(
                         let ctx = v8::Local::new(scope, &v8_context);
                         let scope = &mut v8::ContextScope::new(scope, ctx);
                         execution::inject_globals(scope, &process_config, &os_config);
+                    }
+                    HostMessage::Execute {
+                        bridge_code,
+                        user_code,
+                        mode,
+                        ..
+                    } => {
+                        if mode == ExecuteMode::Exec {
+                            let scope = &mut v8::HandleScope::new(&mut v8_isolate);
+                            let ctx = v8::Local::new(scope, &v8_context);
+                            let scope = &mut v8::ContextScope::new(scope, ctx);
+                            let (_code, _error) =
+                                execution::execute_script(scope, &bridge_code, &user_code);
+                            // ExecutionResult sent via IPC in later stories (US-013)
+                        }
+                        // ESM mode handled in US-012
                     }
                     _ => {
                         // Other messages handled in later stories
