@@ -253,6 +253,10 @@ fn session_thread(
     #[cfg(not(test))]
     let mut last_globals_payload: Option<Vec<u8>> = None;
 
+    // Bridge code cache for V8 code caching across executions
+    #[cfg(not(test))]
+    let mut bridge_cache: Option<execution::BridgeCodeCache> = None;
+
     // Process commands until shutdown or channel close
     loop {
         match rx.recv() {
@@ -343,7 +347,7 @@ fn session_thread(
                             let ctx = v8::Local::new(scope, &exec_context);
                             let scope = &mut v8::ContextScope::new(scope, ctx);
                             let (c, e) =
-                                execution::execute_script(scope, &bridge_code, &user_code);
+                                execution::execute_script(scope, &bridge_code, &user_code, &mut bridge_cache);
                             (c, None, e)
                         } else {
                             let scope = &mut v8::HandleScope::new(&mut v8_isolate);
@@ -355,6 +359,7 @@ fn session_thread(
                                 &bridge_code,
                                 &user_code,
                                 file_path_opt,
+                                &mut bridge_cache,
                             )
                         };
 

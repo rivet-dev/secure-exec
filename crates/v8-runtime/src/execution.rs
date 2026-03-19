@@ -8,6 +8,31 @@ use crate::bridge::{deserialize_v8_value, serialize_v8_value};
 use crate::host_call::BridgeCallContext;
 use crate::ipc::{ExecutionError, OsConfig, ProcessConfig};
 
+/// Cached V8 code cache data for bridge code compilation.
+///
+/// Stores the compiled bytecode from V8's ScriptCompiler::CreateCodeCache
+/// along with a hash of the source for invalidation. On subsequent
+/// compilations with the same bridge code, the cache is consumed via
+/// CompileOptions::ConsumeCodeCache, skipping parsing and initial compilation.
+pub struct BridgeCodeCache {
+    /// FNV-1a hash of the bridge code source string
+    source_hash: u64,
+    /// Raw code cache bytes from UnboundScript::create_code_cache()
+    cached_data: Vec<u8>,
+}
+
+impl BridgeCodeCache {
+    /// Compute FNV-1a hash of bridge code source
+    fn hash_source(source: &str) -> u64 {
+        let mut hash: u64 = 0xcbf29ce484222325;
+        for byte in source.as_bytes() {
+            hash ^= *byte as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        hash
+    }
+}
+
 /// Callback that denies all WebAssembly code generation.
 extern "C" fn deny_wasm_code_generation(
     _context: v8::Local<v8::Context>,
@@ -105,46 +130,129 @@ pub fn inject_globals_from_payload(
     }
 }
 
-/// Execute user code as a CJS script (mode='exec').
+/// Compile and run bridge code as a V8 Script, using code cache if available.
 ///
-/// Runs bridge_code as IIFE first (if non-empty), then compiles and runs user_code
-/// via v8::Script. Returns (exit_code, error) — exit code 0 on success, 1 on error.
-pub fn execute_script(
+/// On cache miss (first compilation or hash mismatch): compiles with
+/// NoCompileOptions and creates a code cache from the resulting UnboundScript.
+/// On cache hit: compiles with ConsumeCodeCache using the cached bytecode.
+/// Creates its own TryCatch scope internally so the caller's scope is released.
+/// Returns (exit_code, error) — exit code 0 on success.
+fn run_bridge_cached(
     scope: &mut v8::HandleScope,
     bridge_code: &str,
-    user_code: &str,
+    cache: &mut Option<BridgeCodeCache>,
 ) -> (i32, Option<ExecutionError>) {
-    // Run bridge code IIFE
-    if !bridge_code.is_empty() {
-        let tc = &mut v8::TryCatch::new(scope);
-        let source = match v8::String::new(tc, bridge_code) {
-            Some(s) => s,
-            None => {
-                return (
-                    1,
-                    Some(ExecutionError {
-                        error_type: "Error".into(),
-                        message: "bridge code string too large for V8".into(),
-                        stack: String::new(),
-                        code: None,
-                    }),
-                )
+    let tc = &mut v8::TryCatch::new(scope);
+
+    let v8_source = match v8::String::new(tc, bridge_code) {
+        Some(s) => s,
+        None => {
+            return (
+                1,
+                Some(ExecutionError {
+                    error_type: "Error".into(),
+                    message: "bridge code string too large for V8".into(),
+                    stack: String::new(),
+                    code: None,
+                }),
+            );
+        }
+    };
+
+    // Resource name for bridge code (needed for code cache to work)
+    let resource_name = v8::String::new(tc, "<bridge>").unwrap();
+    let origin = v8::ScriptOrigin::new(
+        tc,
+        resource_name.into(),
+        0, 0, false, -1, None, false, false, false, None,
+    );
+
+    let source_hash = BridgeCodeCache::hash_source(bridge_code);
+
+    // Check if cache is valid for this bridge code
+    let cache_hit = cache
+        .as_ref()
+        .map_or(false, |c| c.source_hash == source_hash);
+
+    let script = if cache_hit {
+        // Consume cached bytecode
+        let cached_bytes = &cache.as_ref().unwrap().cached_data;
+        let cached_data = v8::script_compiler::CachedData::new(cached_bytes);
+        let mut source =
+            v8::script_compiler::Source::new_with_cached_data(v8_source, Some(&origin), cached_data);
+        let compiled = v8::script_compiler::compile(
+            tc,
+            &mut source,
+            v8::script_compiler::CompileOptions::ConsumeCodeCache,
+            v8::script_compiler::NoCacheReason::NoReason,
+        );
+        // If cache was rejected, invalidate it (will be regenerated next time)
+        if source
+            .get_cached_data()
+            .map_or(false, |cd| cd.rejected())
+        {
+            *cache = None;
+        }
+        compiled
+    } else {
+        // First compilation or cache invalidated — compile without cache
+        let mut source = v8::script_compiler::Source::new(v8_source, Some(&origin));
+        let compiled = v8::script_compiler::compile(
+            tc,
+            &mut source,
+            v8::script_compiler::CompileOptions::NoCompileOptions,
+            v8::script_compiler::NoCacheReason::NoReason,
+        );
+        // Generate code cache from the compiled script
+        if let Some(ref script) = compiled {
+            let unbound = script.get_unbound_script(tc);
+            if let Some(code_cache) = unbound.create_code_cache() {
+                *cache = Some(BridgeCodeCache {
+                    source_hash,
+                    cached_data: code_cache.to_vec(),
+                });
             }
-        };
-        let script = match v8::Script::compile(tc, source, None) {
-            Some(s) => s,
-            None => {
-                return match tc.exception() {
-                    Some(e) => { let (c, err) = exception_to_result(tc, e); (c, Some(err)) }
-                    None => (1, None),
-                };
-            }
-        };
-        if script.run(tc).is_none() {
+        }
+        compiled
+    };
+
+    // Run the compiled script
+    let script = match script {
+        Some(s) => s,
+        None => {
             return match tc.exception() {
                 Some(e) => { let (c, err) = exception_to_result(tc, e); (c, Some(err)) }
                 None => (1, None),
             };
+        }
+    };
+
+    if script.run(tc).is_none() {
+        return match tc.exception() {
+            Some(e) => { let (c, err) = exception_to_result(tc, e); (c, Some(err)) }
+            None => (1, None),
+        };
+    }
+
+    (0, None)
+}
+
+/// Execute user code as a CJS script (mode='exec').
+///
+/// Runs bridge_code as IIFE first (if non-empty), then compiles and runs user_code
+/// via v8::Script. Returns (exit_code, error) — exit code 0 on success, 1 on error.
+/// The `bridge_cache` parameter enables code caching for repeated bridge compilations.
+pub fn execute_script(
+    scope: &mut v8::HandleScope,
+    bridge_code: &str,
+    user_code: &str,
+    bridge_cache: &mut Option<BridgeCodeCache>,
+) -> (i32, Option<ExecutionError>) {
+    // Run bridge code IIFE (with code caching)
+    if !bridge_code.is_empty() {
+        let (code, err) = run_bridge_cached(scope, bridge_code, bridge_cache);
+        if code != 0 {
+            return (code, err);
         }
     }
 
@@ -388,12 +496,14 @@ fn clear_module_state() {
 /// user_code as a v8::Module. The ResolveModuleCallback sends sync-blocking IPC
 /// calls via BridgeCallContext to resolve import specifiers and load sources.
 /// Returns (exit_code, serialized_exports, error).
+/// The `bridge_cache` parameter enables code caching for repeated bridge compilations.
 pub fn execute_module(
     scope: &mut v8::HandleScope,
     bridge_ctx: &BridgeCallContext,
     bridge_code: &str,
     user_code: &str,
     file_path: Option<&str>,
+    bridge_cache: &mut Option<BridgeCodeCache>,
 ) -> (i32, Option<Vec<u8>>, Option<ExecutionError>) {
     // Set up thread-local resolve state
     MODULE_RESOLVE_STATE.with(|cell| {
@@ -404,41 +514,12 @@ pub fn execute_module(
         });
     });
 
-    // Run bridge code IIFE (same as CJS mode)
+    // Run bridge code IIFE (same as CJS mode, with code caching)
     if !bridge_code.is_empty() {
-        let tc = &mut v8::TryCatch::new(scope);
-        let source = match v8::String::new(tc, bridge_code) {
-            Some(s) => s,
-            None => {
-                clear_module_state();
-                return (
-                    1,
-                    None,
-                    Some(ExecutionError {
-                        error_type: "Error".into(),
-                        message: "bridge code string too large for V8".into(),
-                        stack: String::new(),
-                        code: None,
-                    }),
-                );
-            }
-        };
-        let script = match v8::Script::compile(tc, source, None) {
-            Some(s) => s,
-            None => {
-                clear_module_state();
-                return match tc.exception() {
-                    Some(e) => { let (c, err) = exception_to_result(tc, e); (c, None, Some(err)) }
-                    None => (1, None, None),
-                };
-            }
-        };
-        if script.run(tc).is_none() {
+        let (code, err) = run_bridge_cached(scope, bridge_code, bridge_cache);
+        if code != 0 {
             clear_module_state();
-            return match tc.exception() {
-                Some(e) => { let (c, err) = exception_to_result(tc, e); (c, None, Some(err)) }
-                None => (1, None, None),
-            };
+            return (code, None, err);
         }
     }
 
@@ -1685,7 +1766,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, "", "var x = 1 + 2;")
+                execute_script(scope, "", "var x = 1 + 2;", &mut None)
             };
 
             assert_eq!(code, 0);
@@ -1705,7 +1786,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, bridge, user)
+                execute_script(scope, bridge, user, &mut None)
             };
 
             assert_eq!(code, 0);
@@ -1723,7 +1804,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, "", "var x = {;")
+                execute_script(scope, "", "var x = {;", &mut None)
             };
 
             assert_eq!(code, 1);
@@ -1741,7 +1822,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, "", "null.foo")
+                execute_script(scope, "", "null.foo", &mut None)
             };
 
             assert_eq!(code, 1);
@@ -1760,7 +1841,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, "function {", "var x = 1;")
+                execute_script(scope, "function {", "var x = 1;", &mut None)
             };
 
             assert_eq!(code, 1);
@@ -1779,7 +1860,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, "", "'hello'")
+                execute_script(scope, "", "'hello'", &mut None)
             };
 
             assert_eq!(code, 0);
@@ -1799,6 +1880,7 @@ mod tests {
                     scope,
                     "",
                     "var e = new Error('not found'); e.code = 'ERR_MODULE_NOT_FOUND'; throw e;",
+                    &mut None,
                 )
             };
 
@@ -1818,7 +1900,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, "", "throw 'raw string error';")
+                execute_script(scope, "", "throw 'raw string error';", &mut None)
             };
 
             assert_eq!(code, 1);
@@ -1845,7 +1927,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_module(scope, &bridge_ctx, "", user_code, None)
+                execute_module(scope, &bridge_ctx, "", user_code, None, &mut None)
             };
 
             assert_eq!(code, 0);
@@ -1880,7 +1962,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_module(scope, &bridge_ctx, "", "export default 'world';", None)
+                execute_module(scope, &bridge_ctx, "", "export default 'world';", None, &mut None)
             };
 
             assert_eq!(code, 0);
@@ -1913,7 +1995,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_module(scope, &bridge_ctx, "", "export const x = {;", None)
+                execute_module(scope, &bridge_ctx, "", "export const x = {;", None, &mut None)
             };
 
             assert_eq!(code, 1);
@@ -1942,6 +2024,7 @@ mod tests {
                     "",
                     "const x = null; x.foo;",
                     None,
+                    &mut None,
                 )
             };
 
@@ -1967,7 +2050,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_module(scope, &bridge_ctx, bridge, user, None)
+                execute_module(scope, &bridge_ctx, bridge, user, None, &mut None)
             };
 
             assert_eq!(code, 0);
@@ -2037,6 +2120,7 @@ mod tests {
                     "",
                     user_code,
                     Some("/app/main.mjs"),
+                    &mut None,
                 )
             };
 
@@ -2834,7 +2918,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, "", "while(true) {}")
+                execute_script(scope, "", "while(true) {}", &mut None)
             };
 
             assert!(guard.timed_out(), "timeout should have fired");
@@ -2861,7 +2945,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, "", "1 + 1")
+                execute_script(scope, "", "1 + 1", &mut None)
             };
 
             assert!(!guard.timed_out(), "timeout should not have fired");
@@ -2919,7 +3003,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, "", "_slowFn('never-responds')")
+                execute_script(scope, "", "_slowFn('never-responds')", &mut None)
             };
 
             assert_eq!(pending.len(), 1, "should have 1 pending promise");
@@ -2975,7 +3059,7 @@ mod tests {
                 throw err;
             "#;
 
-            let (exit_code, error) = execute_script(scope, "", code);
+            let (exit_code, error) = execute_script(scope, "", code, &mut None);
             assert_eq!(exit_code, 42, "ProcessExitError should return the error's exit code");
             let err = error.unwrap();
             assert_eq!(err.error_type, "Error");
@@ -3000,7 +3084,7 @@ mod tests {
                 throw err;
             "#;
 
-            let (exit_code, error) = execute_script(scope, "", code);
+            let (exit_code, error) = execute_script(scope, "", code, &mut None);
             assert_eq!(exit_code, 0, "ProcessExitError code 0 should return exit code 0");
             assert!(error.is_some());
         }
@@ -3017,7 +3101,7 @@ mod tests {
             // Regular error without _isProcessExit sentinel
             let code = r#"throw new TypeError("not a process exit")"#;
 
-            let (exit_code, error) = execute_script(scope, "", code);
+            let (exit_code, error) = execute_script(scope, "", code, &mut None);
             assert_eq!(exit_code, 1, "Regular errors should return exit code 1");
             let err = error.unwrap();
             assert_eq!(err.error_type, "TypeError");
@@ -3045,7 +3129,7 @@ mod tests {
                 throw new ProcessExitError(7);
             "#;
 
-            let (exit_code, error) = execute_script(scope, "", code);
+            let (exit_code, error) = execute_script(scope, "", code, &mut None);
             assert_eq!(exit_code, 7);
             let err = error.unwrap();
             assert_eq!(err.error_type, "ProcessExitError");
@@ -3063,7 +3147,7 @@ mod tests {
 
             // Thrown string — not an object, should not be detected as ProcessExitError
             let code = r#"throw "just a string""#;
-            let (exit_code, error) = execute_script(scope, "", code);
+            let (exit_code, error) = execute_script(scope, "", code, &mut None);
             assert_eq!(exit_code, 1);
             let err = error.unwrap();
             assert_eq!(err.error_type, "Error");
@@ -3076,7 +3160,7 @@ mod tests {
                 obj.code = 99;
                 throw obj;
             "#;
-            let (exit_code2, error2) = execute_script(scope, "", code2);
+            let (exit_code2, error2) = execute_script(scope, "", code2, &mut None);
             assert_eq!(exit_code2, 1, "_isProcessExit:false should not be detected");
             assert!(error2.is_some());
         }
@@ -3096,7 +3180,7 @@ mod tests {
                 throw err;
             "#;
 
-            let (exit_code, error) = execute_script(scope, "", code);
+            let (exit_code, error) = execute_script(scope, "", code, &mut None);
             assert_eq!(exit_code, 1);
             let err = error.unwrap();
             assert_eq!(err.error_type, "Error");
@@ -3113,17 +3197,17 @@ mod tests {
             let scope = &mut v8::ContextScope::new(scope, local);
 
             // SyntaxError
-            let (_, err) = execute_script(scope, "", "eval('function(')");
+            let (_, err) = execute_script(scope, "", "eval('function(')", &mut None);
             let err = err.unwrap();
             assert_eq!(err.error_type, "SyntaxError");
 
             // RangeError
-            let (_, err2) = execute_script(scope, "", "new Array(-1)");
+            let (_, err2) = execute_script(scope, "", "new Array(-1)", &mut None);
             let err2 = err2.unwrap();
             assert_eq!(err2.error_type, "RangeError");
 
             // ReferenceError
-            let (_, err3) = execute_script(scope, "", "undefinedVariable");
+            let (_, err3) = execute_script(scope, "", "undefinedVariable", &mut None);
             let err3 = err3.unwrap();
             assert_eq!(err3.error_type, "ReferenceError");
         }
@@ -3143,7 +3227,7 @@ mod tests {
                 outerFn();
             "#;
 
-            let (_, error) = execute_script(scope, "", code);
+            let (_, error) = execute_script(scope, "", code, &mut None);
             let err = error.unwrap();
             assert_eq!(err.error_type, "Error");
             assert_eq!(err.message, "deep error");
@@ -3480,6 +3564,169 @@ mod tests {
             let self_obj = v8::Local::<v8::Object>::try_from(self_ref).unwrap();
             let k = v8::String::new(scope, "a").unwrap();
             assert_eq!(self_obj.get(scope, k.into()).unwrap().int32_value(scope).unwrap(), 1);
+        }
+
+        // --- V8 Code Caching tests ---
+
+        // Part 60: First execution populates the cache
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+            let mut cache: Option<BridgeCodeCache> = None;
+
+            let bridge = "(function() { globalThis._cached = 'yes'; })()";
+            let (code, error) = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                execute_script(scope, bridge, "var _saw = _cached;", &mut cache)
+            };
+
+            assert_eq!(code, 0);
+            assert!(error.is_none());
+            assert_eq!(eval(&mut iso, &ctx, "_saw"), "yes");
+            // Cache should be populated after first compile
+            assert!(cache.is_some(), "cache should be populated after first execution");
+            assert!(!cache.as_ref().unwrap().cached_data.is_empty());
+        }
+
+        // Part 61: Second execution uses the cache and produces correct results
+        {
+            let mut iso = isolate::create_isolate(None);
+            let mut cache: Option<BridgeCodeCache> = None;
+            let bridge = "(function() { globalThis._counter = (globalThis._counter || 0) + 1; })()";
+
+            // First execution — populates cache
+            {
+                let ctx = isolate::create_context(&mut iso);
+                let (code, _) = {
+                    let scope = &mut v8::HandleScope::new(&mut iso);
+                    let local = v8::Local::new(scope, &ctx);
+                    let scope = &mut v8::ContextScope::new(scope, local);
+                    execute_script(scope, bridge, "", &mut cache)
+                };
+                assert_eq!(code, 0);
+                assert!(cache.is_some());
+            }
+
+            let cached_data_len = cache.as_ref().unwrap().cached_data.len();
+
+            // Second execution — consumes cache (fresh context)
+            {
+                let ctx = isolate::create_context(&mut iso);
+                let (code, _) = {
+                    let scope = &mut v8::HandleScope::new(&mut iso);
+                    let local = v8::Local::new(scope, &ctx);
+                    let scope = &mut v8::ContextScope::new(scope, local);
+                    execute_script(scope, bridge, "", &mut cache)
+                };
+                assert_eq!(code, 0);
+                // Cache should still be present (not invalidated)
+                assert!(cache.is_some(), "cache should persist after second execution");
+                // Cached data should be same size (same code, same cache)
+                assert_eq!(cache.as_ref().unwrap().cached_data.len(), cached_data_len);
+                // Bridge code executed correctly
+                assert_eq!(eval(&mut iso, &ctx, "String(_counter)"), "1");
+            }
+        }
+
+        // Part 62: Cache is invalidated when bridge code changes
+        {
+            let mut iso = isolate::create_isolate(None);
+            let mut cache: Option<BridgeCodeCache> = None;
+
+            // Populate cache with bridge A
+            {
+                let ctx = isolate::create_context(&mut iso);
+                let (code, _) = {
+                    let scope = &mut v8::HandleScope::new(&mut iso);
+                    let local = v8::Local::new(scope, &ctx);
+                    let scope = &mut v8::ContextScope::new(scope, local);
+                    execute_script(scope, "(function() { globalThis.x = 'A'; })()", "", &mut cache)
+                };
+                assert_eq!(code, 0);
+                assert!(cache.is_some());
+            }
+
+            let hash_a = cache.as_ref().unwrap().source_hash;
+
+            // Execute with different bridge code — cache should be replaced
+            {
+                let ctx = isolate::create_context(&mut iso);
+                let (code, _) = {
+                    let scope = &mut v8::HandleScope::new(&mut iso);
+                    let local = v8::Local::new(scope, &ctx);
+                    let scope = &mut v8::ContextScope::new(scope, local);
+                    execute_script(scope, "(function() { globalThis.x = 'B'; })()", "", &mut cache)
+                };
+                assert_eq!(code, 0);
+                assert!(cache.is_some());
+                // Hash should be different
+                assert_ne!(cache.as_ref().unwrap().source_hash, hash_a);
+                // Code should have executed correctly
+                assert_eq!(eval(&mut iso, &ctx, "x"), "B");
+            }
+        }
+
+        // Part 63: Code caching works with execute_module
+        {
+            let mut iso = isolate::create_isolate(None);
+            let mut cache: Option<BridgeCodeCache> = None;
+
+            let output = Arc::new(Mutex::new(Vec::new()));
+            let writer = SharedWriter(Arc::clone(&output));
+            let reader = Cursor::new(Vec::new());
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(writer),
+                Box::new(reader),
+                "test-session".into(),
+            );
+
+            let bridge = "(function() { globalThis._moduleBridge = true; })()";
+
+            // First execution populates cache
+            {
+                let ctx = isolate::create_context(&mut iso);
+                let (code, _, _) = {
+                    let scope = &mut v8::HandleScope::new(&mut iso);
+                    let local = v8::Local::new(scope, &ctx);
+                    let scope = &mut v8::ContextScope::new(scope, local);
+                    execute_module(scope, &bridge_ctx, bridge, "export const a = 1;", None, &mut cache)
+                };
+                assert_eq!(code, 0);
+                assert!(cache.is_some());
+            }
+
+            // Second execution consumes cache
+            {
+                let ctx = isolate::create_context(&mut iso);
+                let (code, exports, _) = {
+                    let scope = &mut v8::HandleScope::new(&mut iso);
+                    let local = v8::Local::new(scope, &ctx);
+                    let scope = &mut v8::ContextScope::new(scope, local);
+                    execute_module(scope, &bridge_ctx, bridge, "export const b = 2;", None, &mut cache)
+                };
+                assert_eq!(code, 0);
+                assert!(exports.is_some());
+                assert!(cache.is_some());
+            }
+        }
+
+        // Part 64: Empty bridge code does not populate cache
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+            let mut cache: Option<BridgeCodeCache> = None;
+
+            let (code, _) = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                execute_script(scope, "", "var x = 1;", &mut cache)
+            };
+
+            assert_eq!(code, 0);
+            assert!(cache.is_none(), "cache should not be populated for empty bridge code");
         }
     }
 }
