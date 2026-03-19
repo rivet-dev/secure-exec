@@ -469,7 +469,7 @@
         "Tests pass"
       ],
       "priority": 24,
-      "passes": false,
+      "passes": true,
       "notes": "See spec Section 4.6. Same parity approach as project-matrix tests in packages/secure-exec/tests/projects/. The harness should handle test setup (creating temp files for fread/fwrite, providing stdin input for cat/wc/sort/sha256). Native binaries are pre-compiled by the C Makefile. Both WASM and native binaries must exist (use skip guards for both). Add a helper like skipUnlessNativeBuilt() for native compiler availability."
     },
     {

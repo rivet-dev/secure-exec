@@ -36,6 +36,8 @@ PRD: ralph/wasmvm-dynamic-modules (19 stories)
 - wasi-sdk cached in `wasmvm/c/vendor/wasi-sdk/`; vanilla sysroot at `vendor/wasi-sdk/share/wasi-sysroot`
 - C WASM output goes to `wasmvm/c/build/`; native test binaries to `wasmvm/c/build/native/`
 - Per-program Makefile overrides for multi-file compilation (cJSON, SQLite): define `$(BUILD_DIR)/prog:` target
+- C parity test: `commandDirs: [C_BUILD_DIR, COMMANDS_DIR]` — C first for precedence, COMMANDS_DIR for `sh`
+- C parity test skip: check `existsSync` for hello binary in all 3 dirs (COMMANDS_DIR, C_BUILD_DIR, NATIVE_DIR)
 
 ## 2026-03-19 12:04 PM PDT - US-001
 - Implemented path-based resolution in CommandRegistry.resolve() — extracts basename when command contains '/'
@@ -385,4 +387,33 @@ PRD: ralph/wasmvm-dynamic-modules (19 stories)
   - `wc.c` output format matches `wc` convention: lines words bytes (space-separated)
   - sha256.c output format: hex digest followed by "  -" (matching sha256sum stdin convention)
   - All 10 C programs (5 from US-022 + 5 from US-023) compile in <2s total
+---
+
+## 2026-03-19 2:53 PM PDT - US-024
+- Created `packages/runtime/wasmvm/test/c-parity.test.ts` with 10 parity tests
+- Test harness:
+  - `runNative()` helper runs native binary via child_process.spawn, captures stdout/stderr/exit code
+  - WASM execution via kernel.exec() with commandDirs: [C_BUILD_DIR, COMMANDS_DIR] (C first for precedence)
+  - Skip guard: skipReason() checks for WASM binaries, C WASM binaries, and C native binaries
+- Parity tests for all 10 Tier 1 fixtures:
+  - hello: stdout and exit code match
+  - args: argc/argv[1..] match (argv[0] normalized since native path vs WASM name)
+  - env: user-specified env vars match (TEST_PARITY_ prefix filter for shell-injected vars)
+  - exitcode: exit code matches (tested with code 42)
+  - cat: stdin passthrough matches
+  - wc: word/line/byte counts match
+  - fread: file contents match (native uses temp file, WASM uses VFS)
+  - fwrite: written content matches (native reads from disk, WASM reads from VFS)
+  - sort: sorted output matches
+  - sha256: hex digest matches
+- Files changed:
+  - packages/runtime/wasmvm/test/c-parity.test.ts (new)
+- **Learnings for future iterations:**
+  - kernel.exec() routes through `sh -c "command"` — need COMMANDS_DIR with `sh` plus C_BUILD_DIR for C programs
+  - C build dir first in commandDirs makes C programs take precedence over same-named Rust coreutils (cat, wc, sort, env)
+  - ExecOptions supports `stdin?: string | Uint8Array` for piping input to commands
+  - For env parity, shell may inject extra vars (PWD, SHLVL, _) — filter by prefix to compare user-specified vars only
+  - argv[0] differs between native (full binary path) and WASM (command name) — normalize with regex replace
+  - Tests skip gracefully when any of the 3 binary sets is missing (Rust WASM, C WASM, C native)
+  - spawn() from child_process gives consistent exitCode handling for both zero and non-zero exits
 ---
