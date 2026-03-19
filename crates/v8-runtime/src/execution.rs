@@ -111,8 +111,11 @@ fn build_os_config<'s>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bridge;
+    use crate::host_call::BridgeCallContext;
     use crate::isolate;
     use std::collections::HashMap;
+    use std::io::Cursor;
 
     /// Enter a context, run JS, return the string result.
     fn eval(isolate: &mut v8::OwnedIsolate, context: &v8::Global<v8::Context>, code: &str) -> String {
@@ -150,7 +153,7 @@ mod tests {
     }
 
     #[test]
-    fn v8_inject_globals_and_hardening() {
+    fn v8_consolidated_tests() {
         isolate::init_v8_platform();
 
         // --- Isolate lifecycle (moved from isolate::tests to consolidate V8 tests) ---
@@ -437,6 +440,190 @@ mod tests {
                 &mut isolate,
                 &context,
                 "new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0]))"
+            ));
+        }
+
+        // --- Part 8: Sync bridge call returns value ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            // Prepare BridgeResponse: call_id=1, result="hello world"
+            let mut result_msgpack = Vec::new();
+            rmpv::encode::write_value(
+                &mut result_msgpack,
+                &rmpv::Value::String("hello world".into()),
+            )
+            .unwrap();
+
+            let mut response_buf = Vec::new();
+            crate::ipc::write_message(
+                &mut response_buf,
+                &crate::ipc::HostMessage::BridgeResponse {
+                    call_id: 1,
+                    result: Some(result_msgpack),
+                    error: None,
+                },
+            )
+            .unwrap();
+
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(Vec::new()),
+                Box::new(Cursor::new(response_buf)),
+                "test-session".into(),
+            );
+
+            let _fn_store;
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                _fn_store = bridge::register_sync_bridge_fns(
+                    scope,
+                    &bridge_ctx as *const BridgeCallContext,
+                    &["_testBridge"],
+                );
+            }
+
+            assert_eq!(eval(&mut iso, &ctx, "_testBridge('arg1')"), "hello world");
+        }
+
+        // --- Part 9: Bridge call error throws V8 exception ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let mut response_buf = Vec::new();
+            crate::ipc::write_message(
+                &mut response_buf,
+                &crate::ipc::HostMessage::BridgeResponse {
+                    call_id: 1,
+                    result: None,
+                    error: Some("ENOENT: file not found".into()),
+                },
+            )
+            .unwrap();
+
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(Vec::new()),
+                Box::new(Cursor::new(response_buf)),
+                "test-session".into(),
+            );
+
+            let _fn_store;
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                _fn_store = bridge::register_sync_bridge_fns(
+                    scope,
+                    &bridge_ctx as *const BridgeCallContext,
+                    &["_testBridge"],
+                );
+            }
+
+            assert!(eval_throws(&mut iso, &ctx, "_testBridge('arg')"));
+        }
+
+        // --- Part 10: Multiple bridge functions with argument passing ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            // Prepare two BridgeResponses (call_id=1 for _fn1, call_id=2 for _fn2)
+            let mut r1_bytes = Vec::new();
+            rmpv::encode::write_value(
+                &mut r1_bytes,
+                &rmpv::Value::String("result-one".into()),
+            )
+            .unwrap();
+            let mut r2_bytes = Vec::new();
+            rmpv::encode::write_value(
+                &mut r2_bytes,
+                &rmpv::Value::Integer(rmpv::Integer::from(42i64)),
+            )
+            .unwrap();
+
+            let mut response_buf = Vec::new();
+            crate::ipc::write_message(
+                &mut response_buf,
+                &crate::ipc::HostMessage::BridgeResponse {
+                    call_id: 1,
+                    result: Some(r1_bytes),
+                    error: None,
+                },
+            )
+            .unwrap();
+            crate::ipc::write_message(
+                &mut response_buf,
+                &crate::ipc::HostMessage::BridgeResponse {
+                    call_id: 2,
+                    result: Some(r2_bytes),
+                    error: None,
+                },
+            )
+            .unwrap();
+
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(Vec::new()),
+                Box::new(Cursor::new(response_buf)),
+                "test-session".into(),
+            );
+
+            let _fn_store;
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                _fn_store = bridge::register_sync_bridge_fns(
+                    scope,
+                    &bridge_ctx as *const BridgeCallContext,
+                    &["_fn1", "_fn2"],
+                );
+            }
+
+            assert_eq!(eval(&mut iso, &ctx, "_fn1('x')"), "result-one");
+            assert_eq!(eval(&mut iso, &ctx, "_fn2(1, 2, 3)"), "42");
+        }
+
+        // --- Part 11: Bridge call with null result returns undefined ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let mut response_buf = Vec::new();
+            crate::ipc::write_message(
+                &mut response_buf,
+                &crate::ipc::HostMessage::BridgeResponse {
+                    call_id: 1,
+                    result: None,
+                    error: None,
+                },
+            )
+            .unwrap();
+
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(Vec::new()),
+                Box::new(Cursor::new(response_buf)),
+                "test-session".into(),
+            );
+
+            let _fn_store;
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                _fn_store = bridge::register_sync_bridge_fns(
+                    scope,
+                    &bridge_ctx as *const BridgeCallContext,
+                    &["_testBridge"],
+                );
+            }
+
+            assert!(eval_bool(
+                &mut iso,
+                &ctx,
+                "_testBridge() === undefined"
             ));
         }
     }
