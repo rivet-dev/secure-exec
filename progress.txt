@@ -2625,3 +2625,21 @@ PRD: ralph/kernel-hardening (46 stories)
   - Some stubs have non-error behavior (hostname→"wasm-host" exit 0, hostid→"00000000" exit 0, sync→no-op exit 0)
   - `more` is a symlink to `cat` (handled in US-011 build system), not a stub
 ---
+
+## 2026-03-19 - US-011
+- What was implemented: Updated wasmvm/Makefile to build all standalone WASM binaries instead of the monolithic multicall
+- Files changed:
+  - wasmvm/Makefile — replaced `wasm` target with standalone binary build, post-processing (wasm-opt + strip .wasm extension), alias symlinks, and stub symlinks; added `wasm-multicall` legacy target, `install` target, and updated `size-report` for per-binary layout
+- Key changes:
+  - COMMANDS_DIR variable (configurable, defaults to target/wasm32-wasip1/release/commands/)
+  - COMMAND_NAMES auto-discovered from crates/commands/ directory
+  - Alias symlinks: egrep→grep, fgrep→grep, gunzip→gzip, zcat→gzip, bash→sh, dir→ls, vdir→ls, more→cat, [→test
+  - 20 stub symlinks to _stubs binary (chcon, runcon, chgrp, chown, chroot, df, groups, id, hostname, hostid, install, kill, mkfifo, mknod, pinky, who, users, uptime, stty, sync, tty)
+  - Symlink fallback to cp for platforms without symlink support (Windows)
+- **Learnings for future iterations:**
+  - `cargo build --target wasm32-wasip1 --release` in workspace root builds all members including multicall — no --workspace flag needed
+  - Each [[bin]] produces target/wasm32-wasip1/release/<name>.wasm — name matches the [[bin]] name field
+  - `make -n <target>` is useful for validating Makefile syntax without running anything
+  - Pre-existing failures: @secure-exec/example-ai-sdk typecheck (missing node_modules), PTY adversarial stress test (flaky)
+  - The `[` alias (→test) has a special character name but works fine with ln -sf in make
+---
