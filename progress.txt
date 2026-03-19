@@ -2435,3 +2435,19 @@ PRD: ralph/kernel-hardening (46 stories)
   - BridgeCallContext::new() still accepts Box<dyn Read> for test convenience — only production path uses with_receiver()
   - ChannelResponseReceiver is #[cfg(not(test))] since V8 lifecycle in tests causes SIGSEGV; session management tests don't exercise V8
 ---
+
+## 2026-03-19 - US-039
+- Removed all MessagePack dependencies and dead code from both Rust and TypeScript sides
+- Rust: removed rmp-serde, serde_bytes, rmpv, serde from Cargo.toml
+- Rust: deleted v8_to_rmpv, rmpv_to_v8, msgpack_to_v8_value, v8_value_to_msgpack from bridge.rs
+- Rust: deleted write_message/read_message, HostMessage/RustMessage enums, ExecuteMode/LogChannel, and all MessagePack roundtrip tests from ipc.rs (kept ProcessConfig/OsConfig/ExecutionError as plain structs)
+- TypeScript: replaced @msgpack/msgpack encode/decode with node:v8 serialize/deserialize in bridge-handlers.ts (child process stream events, HTTP server stream events/callbacks)
+- Removed @msgpack/msgpack from packages/secure-exec-v8/package.json and packages/secure-exec-node/package.json
+- Files changed: Cargo.toml, Cargo.lock, src/ipc.rs, src/bridge.rs, packages/secure-exec-v8/package.json, packages/secure-exec-node/package.json, packages/secure-exec-node/src/bridge-handlers.ts, pnpm-lock.yaml
+- **Learnings for future iterations:**
+  - ipc.rs types (ProcessConfig, OsConfig, ExecutionError) are still used structurally in execution.rs — only remove the serde derives, not the types
+  - HostMessage/RustMessage enums in ipc.rs were fully dead (replaced by BinaryFrame in ipc_binary.rs) — safe to delete entirely
+  - bridge-handlers.ts stream event encoding (child process, HTTP server) was the only remaining @msgpack/msgpack consumer in TypeScript
+  - node:v8 serialize is sync and returns a Buffer — wrap in new Uint8Array() to match the Uint8Array type expected by sendStreamEvent
+  - Pre-existing test failures: SharedArrayBuffer removal (Rust), HTTP server timeout (TS) — unrelated to this story
+---

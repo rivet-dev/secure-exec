@@ -654,8 +654,8 @@
         "Tests pass"
       ],
       "priority": 39,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Removed rmp-serde, serde_bytes, rmpv, and serde from Cargo.toml. Deleted v8_to_rmpv, rmpv_to_v8, msgpack_to_v8_value, v8_value_to_msgpack from bridge.rs. Deleted write_message/read_message, HostMessage/RustMessage enums, and all MessagePack roundtrip tests from ipc.rs. Replaced @msgpack/msgpack encode/decode with node:v8 serialize/deserialize in bridge-handlers.ts (child process streams, HTTP server events). Removed @msgpack/msgpack from both package.json files."
     },
     {
       "id": "US-040",
