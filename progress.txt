@@ -2105,3 +2105,16 @@ PRD: ralph/kernel-hardening (46 stories)
   - Always use static lists for stdlib module detection, never runtime-import node-stdlib-browser
   - polyfills.ts still imports node-stdlib-browser but that's in the bundler path (lazy/async), not during module init
 ---
+
+## 2026-03-18 - US-006
+- What was implemented: Connection authentication handshake for V8 runtime process
+- Files changed:
+  - crates/v8-runtime/src/ipc.rs — added Authenticate variant to HostMessage enum, added roundtrip test
+  - crates/v8-runtime/src/main.rs — added authenticate_connection() function, read SECURE_EXEC_V8_TOKEN env var on startup, authenticate each accepted connection before proceeding, added 4 tests (valid token, wrong token, non-Authenticate message, EOF)
+  - scripts/ralph/prd.json — marked US-006 as passes: true
+- **Learnings for future iterations:**
+  - UDS listener is non-blocking for shutdown polling, but accepted streams must be set to blocking for the auth handshake read
+  - authenticate_connection takes a &mut UnixStream and uses ipc::read_message directly — no need for separate framing; the existing length-prefixed MessagePack framing handles everything
+  - Tests create real UDS connections via temp_listener() helper — no mocking needed for connection-level tests
+  - cargo test runs all tests (ipc, isolate, main) from a single binary since it's a bin crate
+---
