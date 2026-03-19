@@ -640,10 +640,73 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
+name = "cmd-arch"
+version = "0.1.0"
+dependencies = [
+ "uu_arch",
+]
+
+[[package]]
 name = "cmd-awk"
 version = "0.1.0"
 dependencies = [
  "secureexec-awk",
+]
+
+[[package]]
+name = "cmd-b2sum"
+version = "0.1.0"
+dependencies = [
+ "uu_b2sum",
+]
+
+[[package]]
+name = "cmd-base32"
+version = "0.1.0"
+dependencies = [
+ "uu_base32",
+]
+
+[[package]]
+name = "cmd-base64"
+version = "0.1.0"
+dependencies = [
+ "uu_base64",
+]
+
+[[package]]
+name = "cmd-basename"
+version = "0.1.0"
+dependencies = [
+ "uu_basename",
+]
+
+[[package]]
+name = "cmd-basenc"
+version = "0.1.0"
+dependencies = [
+ "uu_basenc",
+]
+
+[[package]]
+name = "cmd-cat"
+version = "0.1.0"
+dependencies = [
+ "uu_cat",
+]
+
+[[package]]
+name = "cmd-chmod"
+version = "0.1.0"
+dependencies = [
+ "uu_chmod",
+]
+
+[[package]]
+name = "cmd-cksum"
+version = "0.1.0"
+dependencies = [
+ "uu_cksum",
 ]
 
 [[package]]
@@ -654,10 +717,59 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmd-comm"
+version = "0.1.0"
+dependencies = [
+ "uu_comm",
+]
+
+[[package]]
+name = "cmd-cp"
+version = "0.1.0"
+dependencies = [
+ "uu_cp",
+]
+
+[[package]]
+name = "cmd-cut"
+version = "0.1.0"
+dependencies = [
+ "uu_cut",
+]
+
+[[package]]
+name = "cmd-date"
+version = "0.1.0"
+dependencies = [
+ "uu_date",
+]
+
+[[package]]
+name = "cmd-dd"
+version = "0.1.0"
+dependencies = [
+ "uu_dd",
+]
+
+[[package]]
 name = "cmd-diff"
 version = "0.1.0"
 dependencies = [
  "secureexec-diff",
+]
+
+[[package]]
+name = "cmd-dircolors"
+version = "0.1.0"
+dependencies = [
+ "uu_dircolors",
+]
+
+[[package]]
+name = "cmd-dirname"
+version = "0.1.0"
+dependencies = [
+ "uu_dirname",
 ]
 
 [[package]]
@@ -668,10 +780,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmd-echo"
+version = "0.1.0"
+dependencies = [
+ "uu_echo",
+]
+
+[[package]]
+name = "cmd-expand"
+version = "0.1.0"
+dependencies = [
+ "uu_expand",
+]
+
+[[package]]
 name = "cmd-expr"
 version = "0.1.0"
 dependencies = [
  "secureexec-expr",
+]
+
+[[package]]
+name = "cmd-factor"
+version = "0.1.0"
+dependencies = [
+ "uu_factor",
+]
+
+[[package]]
+name = "cmd-false"
+version = "0.1.0"
+dependencies = [
+ "uu_false",
 ]
 
 [[package]]
@@ -689,6 +829,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmd-fmt"
+version = "0.1.0"
+dependencies = [
+ "uu_fmt",
+]
+
+[[package]]
+name = "cmd-fold"
+version = "0.1.0"
+dependencies = [
+ "uu_fold",
+]
+
+[[package]]
 name = "cmd-grep"
 version = "0.1.0"
 dependencies = [
@@ -703,10 +857,164 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmd-head"
+version = "0.1.0"
+dependencies = [
+ "uu_head",
+]
+
+[[package]]
+name = "cmd-join"
+version = "0.1.0"
+dependencies = [
+ "uu_join",
+]
+
+[[package]]
 name = "cmd-jq"
 version = "0.1.0"
 dependencies = [
  "secureexec-jq",
+]
+
+[[package]]
+name = "cmd-link"
+version = "0.1.0"
+dependencies = [
+ "uu_link",
+]
+
+[[package]]
+name = "cmd-ln"
+version = "0.1.0"
+dependencies = [
+ "uu_ln",
+]
+
+[[package]]
+name = "cmd-logname"
+version = "0.1.0"
+dependencies = [
+ "uu_logname",
+]
+
+[[package]]
+name = "cmd-ls"
+version = "0.1.0"
+dependencies = [
+ "uu_ls",
+]
+
+[[package]]
+name = "cmd-md5sum"
+version = "0.1.0"
+dependencies = [
+ "uu_md5sum",
+]
+
+[[package]]
+name = "cmd-mkdir"
+version = "0.1.0"
+dependencies = [
+ "uu_mkdir",
+]
+
+[[package]]
+name = "cmd-mktemp"
+version = "0.1.0"
+dependencies = [
+ "uu_mktemp",
+]
+
+[[package]]
+name = "cmd-mv"
+version = "0.1.0"
+dependencies = [
+ "uu_mv",
+]
+
+[[package]]
+name = "cmd-nl"
+version = "0.1.0"
+dependencies = [
+ "uu_nl",
+]
+
+[[package]]
+name = "cmd-nproc"
+version = "0.1.0"
+dependencies = [
+ "uu_nproc",
+]
+
+[[package]]
+name = "cmd-numfmt"
+version = "0.1.0"
+dependencies = [
+ "uu_numfmt",
+]
+
+[[package]]
+name = "cmd-od"
+version = "0.1.0"
+dependencies = [
+ "uu_od",
+]
+
+[[package]]
+name = "cmd-paste"
+version = "0.1.0"
+dependencies = [
+ "uu_paste",
+]
+
+[[package]]
+name = "cmd-pathchk"
+version = "0.1.0"
+dependencies = [
+ "uu_pathchk",
+]
+
+[[package]]
+name = "cmd-printenv"
+version = "0.1.0"
+dependencies = [
+ "uu_printenv",
+]
+
+[[package]]
+name = "cmd-printf"
+version = "0.1.0"
+dependencies = [
+ "uu_printf",
+]
+
+[[package]]
+name = "cmd-ptx"
+version = "0.1.0"
+dependencies = [
+ "uu_ptx",
+]
+
+[[package]]
+name = "cmd-pwd"
+version = "0.1.0"
+dependencies = [
+ "uu_pwd",
+]
+
+[[package]]
+name = "cmd-readlink"
+version = "0.1.0"
+dependencies = [
+ "uu_readlink",
+]
+
+[[package]]
+name = "cmd-realpath"
+version = "0.1.0"
+dependencies = [
+ "uu_realpath",
 ]
 
 [[package]]
@@ -724,10 +1032,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmd-rm"
+version = "0.1.0"
+dependencies = [
+ "uu_rm",
+]
+
+[[package]]
+name = "cmd-rmdir"
+version = "0.1.0"
+dependencies = [
+ "uu_rmdir",
+]
+
+[[package]]
 name = "cmd-sed"
 version = "0.1.0"
 dependencies = [
  "sed",
+]
+
+[[package]]
+name = "cmd-seq"
+version = "0.1.0"
+dependencies = [
+ "uu_seq",
 ]
 
 [[package]]
@@ -738,10 +1067,101 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmd-sha1sum"
+version = "0.1.0"
+dependencies = [
+ "uu_sha1sum",
+]
+
+[[package]]
+name = "cmd-sha224sum"
+version = "0.1.0"
+dependencies = [
+ "uu_sha224sum",
+]
+
+[[package]]
+name = "cmd-sha256sum"
+version = "0.1.0"
+dependencies = [
+ "uu_sha256sum",
+]
+
+[[package]]
+name = "cmd-sha384sum"
+version = "0.1.0"
+dependencies = [
+ "uu_sha384sum",
+]
+
+[[package]]
+name = "cmd-sha512sum"
+version = "0.1.0"
+dependencies = [
+ "uu_sha512sum",
+]
+
+[[package]]
+name = "cmd-shred"
+version = "0.1.0"
+dependencies = [
+ "uu_shred",
+]
+
+[[package]]
+name = "cmd-shuf"
+version = "0.1.0"
+dependencies = [
+ "uu_shuf",
+]
+
+[[package]]
+name = "cmd-sort"
+version = "0.1.0"
+dependencies = [
+ "uu_sort",
+]
+
+[[package]]
+name = "cmd-split"
+version = "0.1.0"
+dependencies = [
+ "uu_split",
+]
+
+[[package]]
+name = "cmd-stat"
+version = "0.1.0"
+dependencies = [
+ "uu_stat",
+]
+
+[[package]]
 name = "cmd-strings"
 version = "0.1.0"
 dependencies = [
  "secureexec-strings-cmd",
+]
+
+[[package]]
+name = "cmd-sum"
+version = "0.1.0"
+dependencies = [
+ "uu_sum",
+]
+
+[[package]]
+name = "cmd-tac"
+version = "0.1.0"
+dependencies = [
+ "uu_tac",
+]
+
+[[package]]
+name = "cmd-tail"
+version = "0.1.0"
+dependencies = [
+ "uu_tail",
 ]
 
 [[package]]
@@ -752,10 +1172,94 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmd-tee"
+version = "0.1.0"
+dependencies = [
+ "uu_tee",
+]
+
+[[package]]
+name = "cmd-touch"
+version = "0.1.0"
+dependencies = [
+ "uu_touch",
+]
+
+[[package]]
+name = "cmd-tr"
+version = "0.1.0"
+dependencies = [
+ "uu_tr",
+]
+
+[[package]]
 name = "cmd-tree"
 version = "0.1.0"
 dependencies = [
  "secureexec-tree",
+]
+
+[[package]]
+name = "cmd-true"
+version = "0.1.0"
+dependencies = [
+ "uu_true",
+]
+
+[[package]]
+name = "cmd-truncate"
+version = "0.1.0"
+dependencies = [
+ "uu_truncate",
+]
+
+[[package]]
+name = "cmd-tsort"
+version = "0.1.0"
+dependencies = [
+ "uu_tsort",
+]
+
+[[package]]
+name = "cmd-uname"
+version = "0.1.0"
+dependencies = [
+ "uu_uname",
+]
+
+[[package]]
+name = "cmd-unexpand"
+version = "0.1.0"
+dependencies = [
+ "uu_unexpand",
+]
+
+[[package]]
+name = "cmd-uniq"
+version = "0.1.0"
+dependencies = [
+ "uu_uniq",
+]
+
+[[package]]
+name = "cmd-unlink"
+version = "0.1.0"
+dependencies = [
+ "uu_unlink",
+]
+
+[[package]]
+name = "cmd-wc"
+version = "0.1.0"
+dependencies = [
+ "uu_wc",
+]
+
+[[package]]
+name = "cmd-yes"
+version = "0.1.0"
+dependencies = [
+ "uu_yes",
 ]
 
 [[package]]
