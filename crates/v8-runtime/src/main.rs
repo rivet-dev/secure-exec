@@ -14,10 +14,10 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::os::unix::fs::PermissionsExt;
-use std::os::unix::io::AsRawFd;
+use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use host_call::CallIdRouter;
@@ -50,6 +50,34 @@ fn set_cloexec(fd: i32) -> io::Result<()> {
         return Err(io::Error::last_os_error());
     }
     Ok(())
+}
+
+/// Create a self-pipe for signal-driven wakeup of poll(2).
+/// Returns (read_fd, write_fd), both set to non-blocking and CLOEXEC.
+fn create_self_pipe() -> io::Result<(RawFd, RawFd)> {
+    let mut fds = [0i32; 2];
+    if unsafe { libc::pipe(fds.as_mut_ptr()) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // Set non-blocking and CLOEXEC on both ends
+    for &fd in &fds {
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+            unsafe { libc::close(fds[0]); libc::close(fds[1]); }
+            return Err(io::Error::last_os_error());
+        }
+        set_cloexec(fd)?;
+    }
+    Ok((fds[0], fds[1]))
+}
+
+/// Drain all bytes from a non-blocking FD (self-pipe read end after wakeup).
+fn drain_pipe(fd: RawFd) {
+    let mut buf = [0u8; 64];
+    loop {
+        let n = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
+        if n <= 0 { break; }
+    }
 }
 
 /// Generate a 128-bit random hex string from /dev/urandom
@@ -246,70 +274,111 @@ fn main() {
     println!("{}", socket_path.display());
     io::stdout().flush().expect("failed to flush stdout");
 
-    // Set up graceful shutdown on SIGTERM and SIGINT
-    let running = Arc::new(AtomicBool::new(true));
-    signal_hook::flag::register(signal_hook::consts::SIGTERM, Arc::clone(&running))
+    // Create self-pipe for signal-driven poll(2) wakeup
+    let (sig_read_fd, sig_write_fd) = create_self_pipe().expect("failed to create signal self-pipe");
+
+    // Register SIGTERM/SIGINT to write to the self-pipe, waking poll(2)
+    signal_hook::flag::register_conditional_default(
+        signal_hook::consts::SIGTERM,
+        Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    )
+    .ok();
+    unsafe {
+        signal_hook::low_level::register(signal_hook::consts::SIGTERM, move || {
+            // Async-signal-safe: write(2) a single byte to the self-pipe
+            let b: u8 = 1;
+            libc::write(sig_write_fd, &b as *const u8 as *const libc::c_void, 1);
+        })
         .expect("failed to register SIGTERM handler");
-    signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&running))
+        signal_hook::low_level::register(signal_hook::consts::SIGINT, move || {
+            let b: u8 = 1;
+            libc::write(sig_write_fd, &b as *const u8 as *const libc::c_void, 1);
+        })
         .expect("failed to register SIGINT handler");
+    }
 
-    // Set non-blocking so we can poll the shutdown flag
-    listener
-        .set_nonblocking(true)
-        .expect("failed to set non-blocking");
+    // Listener stays blocking — poll(2) handles readiness
+    let listener_fd = listener.as_raw_fd();
+    let mut pollfds = [
+        libc::pollfd { fd: listener_fd, events: libc::POLLIN, revents: 0 },
+        libc::pollfd { fd: sig_read_fd, events: libc::POLLIN, revents: 0 },
+    ];
 
-    // Accept connections
-    while running.load(Ordering::Relaxed) {
-        match listener.accept() {
-            Ok((mut stream, _addr)) => {
-                // Set CLOEXEC on accepted connection
-                set_cloexec(stream.as_raw_fd()).expect("failed to set CLOEXEC on connection");
+    // Accept connections via poll(2)
+    loop {
+        pollfds[0].revents = 0;
+        pollfds[1].revents = 0;
 
-                // Set blocking for the auth handshake
-                stream
-                    .set_nonblocking(false)
-                    .expect("failed to set stream blocking");
-
-                // Require authentication as the first message
-                if !authenticate_connection(&mut stream, &auth_token) {
-                    drop(stream);
-                    continue;
+        let ret = unsafe { libc::poll(pollfds.as_mut_ptr(), 2, -1) };
+        if ret < 0 {
+            let err = io::Error::last_os_error();
+            if err.kind() == io::ErrorKind::Interrupted {
+                // EINTR — re-check signal pipe
+                if pollfds[1].revents & libc::POLLIN != 0 {
+                    break;
                 }
-
-                // Create per-connection shared writer and routing table
-                let writer_stream = stream.try_clone().expect("failed to clone UDS stream");
-                set_cloexec(writer_stream.as_raw_fd())
-                    .expect("failed to set CLOEXEC on cloned stream");
-                let conn_writer: SharedWriter =
-                    Arc::new(Mutex::new(Box::new(writer_stream)));
-                let call_id_router: CallIdRouter = Arc::new(Mutex::new(HashMap::new()));
-
-                // Create shared session manager for this connection
-                let session_mgr = Arc::new(Mutex::new(SessionManager::new(
-                    max_concurrency,
-                    conn_writer,
-                    call_id_router,
-                )));
-
-                // Authenticated — spawn connection handler thread
-                let conn_id = NEXT_CONNECTION_ID.fetch_add(1, Ordering::Relaxed);
-                let mgr = Arc::clone(&session_mgr);
-                std::thread::Builder::new()
-                    .name(format!("conn-{}", conn_id))
-                    .spawn(move || {
-                        handle_connection(stream, conn_id, mgr);
-                    })
-                    .expect("failed to spawn connection handler");
+                continue;
             }
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                std::thread::sleep(std::time::Duration::from_millis(10));
-            }
-            Err(e) => {
-                eprintln!("accept error: {}", e);
-                break;
+            eprintln!("poll error: {}", err);
+            break;
+        }
+
+        // Signal pipe readable — shutdown requested
+        if pollfds[1].revents & libc::POLLIN != 0 {
+            drain_pipe(sig_read_fd);
+            break;
+        }
+
+        // Listener readable — accept new connection
+        if pollfds[0].revents & libc::POLLIN != 0 {
+            match listener.accept() {
+                Ok((mut stream, _addr)) => {
+                    // Set CLOEXEC on accepted connection
+                    set_cloexec(stream.as_raw_fd()).expect("failed to set CLOEXEC on connection");
+
+                    // Accepted stream is already blocking (listener is blocking)
+
+                    // Require authentication as the first message
+                    if !authenticate_connection(&mut stream, &auth_token) {
+                        drop(stream);
+                        continue;
+                    }
+
+                    // Create per-connection shared writer and routing table
+                    let writer_stream = stream.try_clone().expect("failed to clone UDS stream");
+                    set_cloexec(writer_stream.as_raw_fd())
+                        .expect("failed to set CLOEXEC on cloned stream");
+                    let conn_writer: SharedWriter =
+                        Arc::new(Mutex::new(Box::new(writer_stream)));
+                    let call_id_router: CallIdRouter = Arc::new(Mutex::new(HashMap::new()));
+
+                    // Create shared session manager for this connection
+                    let session_mgr = Arc::new(Mutex::new(SessionManager::new(
+                        max_concurrency,
+                        conn_writer,
+                        call_id_router,
+                    )));
+
+                    // Authenticated — spawn connection handler thread
+                    let conn_id = NEXT_CONNECTION_ID.fetch_add(1, Ordering::Relaxed);
+                    let mgr = Arc::clone(&session_mgr);
+                    std::thread::Builder::new()
+                        .name(format!("conn-{}", conn_id))
+                        .spawn(move || {
+                            handle_connection(stream, conn_id, mgr);
+                        })
+                        .expect("failed to spawn connection handler");
+                }
+                Err(e) => {
+                    eprintln!("accept error: {}", e);
+                    break;
+                }
             }
         }
     }
+
+    // Close self-pipe FDs
+    unsafe { libc::close(sig_read_fd); libc::close(sig_write_fd); }
 
     // Graceful shutdown: close listener, remove socket
     drop(listener);
@@ -495,6 +564,86 @@ mod tests {
 
         assert!(!authenticate_connection(&mut server_stream, "any-token"));
 
+        cleanup(&socket_path, &tmpdir);
+    }
+
+    #[test]
+    fn self_pipe_creation_and_wakeup() {
+        let (read_fd, write_fd) = create_self_pipe().expect("create self-pipe");
+
+        // Both FDs should have CLOEXEC
+        let read_flags = unsafe { libc::fcntl(read_fd, libc::F_GETFD) };
+        assert_ne!(read_flags & libc::FD_CLOEXEC, 0, "read end needs CLOEXEC");
+        let write_flags = unsafe { libc::fcntl(write_fd, libc::F_GETFD) };
+        assert_ne!(write_flags & libc::FD_CLOEXEC, 0, "write end needs CLOEXEC");
+
+        // Both FDs should be non-blocking
+        let read_fl = unsafe { libc::fcntl(read_fd, libc::F_GETFL) };
+        assert_ne!(read_fl & libc::O_NONBLOCK, 0, "read end needs O_NONBLOCK");
+        let write_fl = unsafe { libc::fcntl(write_fd, libc::F_GETFL) };
+        assert_ne!(write_fl & libc::O_NONBLOCK, 0, "write end needs O_NONBLOCK");
+
+        // Write to pipe should wake poll
+        let b: u8 = 1;
+        let n = unsafe { libc::write(write_fd, &b as *const u8 as *const libc::c_void, 1) };
+        assert_eq!(n, 1);
+
+        let mut pfd = libc::pollfd { fd: read_fd, events: libc::POLLIN, revents: 0 };
+        let ret = unsafe { libc::poll(&mut pfd, 1, 100) };
+        assert_eq!(ret, 1, "poll should return ready");
+        assert_ne!(pfd.revents & libc::POLLIN, 0);
+
+        drain_pipe(read_fd);
+
+        unsafe { libc::close(read_fd); libc::close(write_fd); }
+    }
+
+    #[test]
+    fn poll_accept_wakes_on_connection() {
+        let (listener, socket_path, tmpdir) = temp_listener();
+        let listener_fd = listener.as_raw_fd();
+
+        // Start a client connection in another thread
+        let sp = socket_path.clone();
+        let handle = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            UnixStream::connect(&sp).expect("connect")
+        });
+
+        // Poll the listener — should wake when client connects
+        let mut pfd = libc::pollfd { fd: listener_fd, events: libc::POLLIN, revents: 0 };
+        let ret = unsafe { libc::poll(&mut pfd, 1, 2000) };
+        assert!(ret > 0, "poll should return ready when client connects");
+        assert_ne!(pfd.revents & libc::POLLIN, 0);
+
+        let (_, _) = listener.accept().expect("accept after poll");
+        let _client = handle.join().expect("client thread");
+
+        cleanup(&socket_path, &tmpdir);
+    }
+
+    #[test]
+    fn poll_wakes_on_self_pipe_not_listener() {
+        let (listener, socket_path, tmpdir) = temp_listener();
+        let listener_fd = listener.as_raw_fd();
+        let (sig_read, sig_write) = create_self_pipe().expect("self-pipe");
+
+        // Write to signal pipe
+        let b: u8 = 1;
+        unsafe { libc::write(sig_write, &b as *const u8 as *const libc::c_void, 1); }
+
+        let mut pollfds = [
+            libc::pollfd { fd: listener_fd, events: libc::POLLIN, revents: 0 },
+            libc::pollfd { fd: sig_read, events: libc::POLLIN, revents: 0 },
+        ];
+        let ret = unsafe { libc::poll(pollfds.as_mut_ptr(), 2, 100) };
+        assert!(ret > 0, "poll should wake");
+        // Signal pipe should be readable, not listener
+        assert_ne!(pollfds[1].revents & libc::POLLIN, 0, "signal pipe should be ready");
+        assert_eq!(pollfds[0].revents & libc::POLLIN, 0, "listener should not be ready");
+
+        drain_pipe(sig_read);
+        unsafe { libc::close(sig_read); libc::close(sig_write); }
         cleanup(&socket_path, &tmpdir);
     }
 }
