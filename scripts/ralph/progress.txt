@@ -145,3 +145,24 @@ PRD: ralph/wasmvm-dynamic-modules (19 stories)
   - In legacy mode (wasmBinaryPath), all commands share one cache entry since they use the same multicall binary
   - SimpleVFS class is duplicated across test files — consider extracting to shared test helper
 ---
+
+## 2026-03-19 1:50 PM PDT - US-016
+- Created `BrowserWasmVmRuntimeDriver` implementing `RuntimeDriver` for browser environments
+- Defined `CommandManifest`, `CommandManifestEntry` types for the JSON manifest format
+- `init()` fetches manifest from `registryUrl` to discover available commands
+- `spawn()` fetches binary from `baseUrl + command` and compiles via `WebAssembly.compileStreaming()`
+- In-memory module cache with concurrent-compile deduplication (same pattern as Node.js `ModuleCache`)
+- `createBrowserWasmVmRuntime()` factory function exported from index
+- 16 tests with fully mocked `fetch` and `WebAssembly.compileStreaming`
+- Tests cover: init/manifest fetch, spawn/compile, cache hits, concurrent dedup, error handling, dispose, kill, interface compliance
+- Files changed:
+  - packages/runtime/wasmvm/src/browser-driver.ts (new)
+  - packages/runtime/wasmvm/src/index.ts (exports)
+  - packages/runtime/wasmvm/test/browser-driver.test.ts (new)
+- **Learnings for future iterations:**
+  - `WebAssembly.compileStreaming` is not available in Node.js — must be mocked in tests; mock implementation: `await resp.arrayBuffer()` → `WebAssembly.compile(bytes)`
+  - Browser driver doesn't need `tryResolve` — all commands known from manifest at init
+  - Browser driver doesn't use `SharedArrayBuffer` RPC or `Worker` threads (those are Node.js specific); actual worker launch is deferred to future browser integration
+  - `vi.fn(async (url: string) => ...)` doesn't match `typeof fetch` — use `as unknown as typeof globalThis.fetch` cast
+  - Options accept custom `fetch` function for testability (dependency injection pattern)
+---
