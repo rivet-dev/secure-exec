@@ -1,20 +1,20 @@
 /**
  * Tests for BrowserWasmVmRuntimeDriver.
  *
- * All browser APIs (fetch, WebAssembly.compileStreaming) are mocked
- * since they're not available in Node.js/vitest.
+ * All browser APIs (fetch, WebAssembly.compileStreaming, Cache API, IndexedDB)
+ * are mocked since they're not available in Node.js/vitest.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   createBrowserWasmVmRuntime,
+  sha256Hex,
 } from '../src/browser-driver.ts';
 import type {
   CommandManifest,
-  BrowserWasmVmRuntimeOptions,
+  BinaryStorage,
 } from '../src/browser-driver.ts';
 import type {
-  RuntimeDriver,
   KernelInterface,
   ProcessContext,
 } from '@secure-exec/kernel';
@@ -25,19 +25,10 @@ const MINIMAL_WASM = new Uint8Array([
   0x01, 0x00, 0x00, 0x00, // version: 1
 ]);
 
-// Sample manifest
-const SAMPLE_MANIFEST: CommandManifest = {
-  version: 1,
-  baseUrl: 'https://cdn.example.com/commands/v1/',
-  commands: {
-    ls: { size: 1500000, sha256: 'abc123' },
-    grep: { size: 1200000, sha256: 'def456' },
-    sh: { size: 4000000, sha256: '789abc' },
-    cat: { size: 800000, sha256: 'aaa111' },
-  },
-};
+// Pre-compute SHA-256 of MINIMAL_WASM for use in manifests
+let MINIMAL_WASM_SHA256: string;
 
-// Stub KernelInterface — only init() uses it
+// Stub KernelInterface -- only init() uses it
 function createMockKernel(): KernelInterface {
   return {
     vfs: {} as KernelInterface['vfs'],
@@ -70,14 +61,59 @@ function createMockProcessContext(overrides?: Partial<ProcessContext>): ProcessC
   };
 }
 
+/** In-memory BinaryStorage mock for testing persistent cache. */
+function createMockStorage(): BinaryStorage & {
+  _store: Map<string, Uint8Array>;
+  getCalls: string[];
+  putCalls: [string, Uint8Array][];
+  deleteCalls: string[];
+} {
+  const store = new Map<string, Uint8Array>();
+  const getCalls: string[] = [];
+  const putCalls: [string, Uint8Array][] = [];
+  const deleteCalls: string[] = [];
+
+  return {
+    _store: store,
+    getCalls,
+    putCalls,
+    deleteCalls,
+    async get(key: string) {
+      getCalls.push(key);
+      return store.get(key) ?? null;
+    },
+    async put(key: string, bytes: Uint8Array) {
+      putCalls.push([key, bytes]);
+      store.set(key, bytes);
+    },
+    async delete(key: string) {
+      deleteCalls.push(key);
+      store.delete(key);
+    },
+  };
+}
+
+/**
+ * Create a manifest with SHA-256 hashes matching MINIMAL_WASM.
+ * Must be called after MINIMAL_WASM_SHA256 is computed.
+ */
+function createSampleManifest(): CommandManifest {
+  return {
+    version: 1,
+    baseUrl: 'https://cdn.example.com/commands/v1/',
+    commands: {
+      ls: { size: 1500000, sha256: MINIMAL_WASM_SHA256 },
+      grep: { size: 1200000, sha256: MINIMAL_WASM_SHA256 },
+      sh: { size: 4000000, sha256: MINIMAL_WASM_SHA256 },
+      cat: { size: 800000, sha256: MINIMAL_WASM_SHA256 },
+    },
+  };
+}
+
 /**
  * Create a mock fetch that serves manifest + WASM binaries.
- * Manifest is served for the registryUrl, WASM bytes for command URLs.
  */
 function createMockFetch(manifest: CommandManifest) {
-  // Compile a real module so compileStreaming/compile succeeds
-  const wasmModule = new WebAssembly.Module(MINIMAL_WASM);
-
   const mockFetch = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
     const url = typeof input === 'string' ? input : input.toString();
 
@@ -89,7 +125,7 @@ function createMockFetch(manifest: CommandManifest) {
       });
     }
 
-    // Command binary request — check if it matches a known command
+    // Command binary request
     for (const cmd of Object.keys(manifest.commands)) {
       if (url.endsWith(`/${cmd}`)) {
         return new Response(MINIMAL_WASM, {
@@ -103,14 +139,19 @@ function createMockFetch(manifest: CommandManifest) {
     return new Response('Not Found', { status: 404 });
   });
 
-  return { mockFetch, wasmModule };
+  return { mockFetch };
 }
 
 describe('BrowserWasmVmRuntimeDriver', () => {
   let originalCompileStreaming: typeof WebAssembly.compileStreaming;
 
-  beforeEach(() => {
-    // Save original and mock compileStreaming (not available in Node.js)
+  beforeEach(async () => {
+    // Compute hash once
+    if (!MINIMAL_WASM_SHA256) {
+      MINIMAL_WASM_SHA256 = await sha256Hex(MINIMAL_WASM);
+    }
+
+    // Mock compileStreaming (not available in Node.js)
     originalCompileStreaming = WebAssembly.compileStreaming;
     WebAssembly.compileStreaming = vi.fn(async (source: Response | PromiseLike<Response>) => {
       const resp = await source;
@@ -129,10 +170,12 @@ describe('BrowserWasmVmRuntimeDriver', () => {
 
   describe('init()', () => {
     it('fetches manifest and populates commands list', async () => {
-      const { mockFetch } = createMockFetch(SAMPLE_MANIFEST);
+      const manifest = createSampleManifest();
+      const { mockFetch } = createMockFetch(manifest);
       const driver = createBrowserWasmVmRuntime({
         registryUrl: 'https://cdn.example.com/registry/manifest.json',
         fetch: mockFetch,
+        binaryStorage: null,
       });
 
       await driver.init(createMockKernel());
@@ -148,6 +191,7 @@ describe('BrowserWasmVmRuntimeDriver', () => {
       const driver = createBrowserWasmVmRuntime({
         registryUrl: 'https://cdn.example.com/manifest.json',
         fetch: mockFetch,
+        binaryStorage: null,
       });
 
       await expect(driver.init(createMockKernel())).rejects.toThrow(
@@ -162,13 +206,13 @@ describe('BrowserWasmVmRuntimeDriver', () => {
         commands: {},
       };
       const { mockFetch } = createMockFetch(emptyManifest);
-      // Override to serve the empty manifest
       mockFetch.mockImplementation(async () =>
         new Response(JSON.stringify(emptyManifest), { status: 200 }),
       );
       const driver = createBrowserWasmVmRuntime({
         registryUrl: 'https://cdn.example.com/manifest.json',
         fetch: mockFetch,
+        binaryStorage: null,
       });
 
       await driver.init(createMockKernel());
@@ -182,10 +226,12 @@ describe('BrowserWasmVmRuntimeDriver', () => {
 
   describe('spawn()', () => {
     it('fetches and compiles WASM binary on first spawn', async () => {
-      const { mockFetch } = createMockFetch(SAMPLE_MANIFEST);
+      const manifest = createSampleManifest();
+      const { mockFetch } = createMockFetch(manifest);
       const driver = createBrowserWasmVmRuntime({
         registryUrl: 'https://cdn.example.com/manifest.json',
         fetch: mockFetch,
+        binaryStorage: null,
       });
       await driver.init(createMockKernel());
 
@@ -193,19 +239,18 @@ describe('BrowserWasmVmRuntimeDriver', () => {
       const exitCode = await proc.wait();
 
       expect(exitCode).toBe(0);
-      // Verify fetch was called for the command binary
       expect(mockFetch).toHaveBeenCalledWith(
         'https://cdn.example.com/commands/v1/ls',
       );
-      // Verify compileStreaming was used
-      expect(WebAssembly.compileStreaming).toHaveBeenCalled();
     });
 
     it('throws for unknown command', async () => {
-      const { mockFetch } = createMockFetch(SAMPLE_MANIFEST);
+      const manifest = createSampleManifest();
+      const { mockFetch } = createMockFetch(manifest);
       const driver = createBrowserWasmVmRuntime({
         registryUrl: 'https://cdn.example.com/manifest.json',
         fetch: mockFetch,
+        binaryStorage: null,
       });
       await driver.init(createMockKernel());
 
@@ -215,10 +260,12 @@ describe('BrowserWasmVmRuntimeDriver', () => {
     });
 
     it('throws when driver is not initialized', () => {
-      const { mockFetch } = createMockFetch(SAMPLE_MANIFEST);
+      const manifest = createSampleManifest();
+      const { mockFetch } = createMockFetch(manifest);
       const driver = createBrowserWasmVmRuntime({
         registryUrl: 'https://cdn.example.com/manifest.json',
         fetch: mockFetch,
+        binaryStorage: null,
       });
 
       expect(() =>
@@ -227,26 +274,22 @@ describe('BrowserWasmVmRuntimeDriver', () => {
     });
 
     it('reports fetch errors via onStderr and exit code 127', async () => {
+      const manifest = createSampleManifest();
       const mockFetch = vi.fn(async (input: RequestInfo | URL) => {
         const url = typeof input === 'string' ? input : input.toString();
         if (url.includes('manifest')) {
-          return new Response(JSON.stringify(SAMPLE_MANIFEST), { status: 200 });
+          return new Response(JSON.stringify(manifest), { status: 200 });
         }
-        return new Response('Not Found', { status: 404 });
+        // Return valid bytes with WRONG hash to trigger integrity failure
+        return new Response(new Uint8Array([0xff, 0xff, 0xff, 0xff]), {
+          status: 200,
+        });
       }) as unknown as typeof globalThis.fetch;
-      // Make compileStreaming throw on 404 response
-      (WebAssembly.compileStreaming as ReturnType<typeof vi.fn>).mockImplementation(
-        async (source: Response | PromiseLike<Response>) => {
-          const resp = await source;
-          if (!resp.ok) throw new Error(`HTTP error: ${resp.status}`);
-          const bytes = new Uint8Array(await resp.arrayBuffer());
-          return WebAssembly.compile(bytes);
-        },
-      );
 
       const driver = createBrowserWasmVmRuntime({
         registryUrl: 'https://cdn.example.com/manifest.json',
         fetch: mockFetch,
+        binaryStorage: null,
       });
       await driver.init(createMockKernel());
 
@@ -265,33 +308,42 @@ describe('BrowserWasmVmRuntimeDriver', () => {
 
   describe('module cache', () => {
     it('caches compiled module for reuse across spawns', async () => {
-      const { mockFetch } = createMockFetch(SAMPLE_MANIFEST);
+      const manifest = createSampleManifest();
+      const { mockFetch } = createMockFetch(manifest);
       const driver = createBrowserWasmVmRuntime({
         registryUrl: 'https://cdn.example.com/manifest.json',
         fetch: mockFetch,
+        binaryStorage: null,
       });
       await driver.init(createMockKernel());
 
-      // First spawn — compiles
+      // First spawn -- fetches + compiles
       const proc1 = driver.spawn('grep', [], createMockProcessContext());
       await proc1.wait();
 
-      // Reset compileStreaming call count
-      (WebAssembly.compileStreaming as ReturnType<typeof vi.fn>).mockClear();
+      // Count binary fetches so far (exclude manifest)
+      const binaryFetchesBefore = mockFetch.mock.calls.filter(
+        (call: unknown[]) => (call[0] as string).endsWith('/grep'),
+      ).length;
+      expect(binaryFetchesBefore).toBe(1);
 
-      // Second spawn — should use cache, no new compile
+      // Second spawn -- should use cache, no new fetch
       const proc2 = driver.spawn('grep', [], createMockProcessContext());
       await proc2.wait();
 
-      // compileStreaming should NOT be called again
-      expect(WebAssembly.compileStreaming).not.toHaveBeenCalled();
+      const binaryFetchesAfter = mockFetch.mock.calls.filter(
+        (call: unknown[]) => (call[0] as string).endsWith('/grep'),
+      ).length;
+      expect(binaryFetchesAfter).toBe(1); // still 1
     });
 
     it('resolveModule returns same module for repeated calls', async () => {
-      const { mockFetch } = createMockFetch(SAMPLE_MANIFEST);
+      const manifest = createSampleManifest();
+      const { mockFetch } = createMockFetch(manifest);
       const driver = createBrowserWasmVmRuntime({
         registryUrl: 'https://cdn.example.com/manifest.json',
         fetch: mockFetch,
+        binaryStorage: null,
       }) as ReturnType<typeof createBrowserWasmVmRuntime> & { resolveModule: (cmd: string) => Promise<WebAssembly.Module> };
       await driver.init(createMockKernel());
 
@@ -301,14 +353,15 @@ describe('BrowserWasmVmRuntimeDriver', () => {
     });
 
     it('deduplicates concurrent compilations', async () => {
-      const { mockFetch } = createMockFetch(SAMPLE_MANIFEST);
+      const manifest = createSampleManifest();
+      const { mockFetch } = createMockFetch(manifest);
       const driver = createBrowserWasmVmRuntime({
         registryUrl: 'https://cdn.example.com/manifest.json',
         fetch: mockFetch,
+        binaryStorage: null,
       }) as ReturnType<typeof createBrowserWasmVmRuntime> & { resolveModule: (cmd: string) => Promise<WebAssembly.Module> };
       await driver.init(createMockKernel());
 
-      // Launch multiple concurrent resolves
       const [mod1, mod2, mod3] = await Promise.all([
         driver.resolveModule('cat'),
         driver.resolveModule('cat'),
@@ -317,9 +370,253 @@ describe('BrowserWasmVmRuntimeDriver', () => {
 
       expect(mod1).toBe(mod2);
       expect(mod2).toBe(mod3);
-      // Only one fetch should have been made for the binary
       const binaryFetches = mockFetch.mock.calls.filter(
         (call: unknown[]) => (call[0] as string).endsWith('/cat'),
+      );
+      expect(binaryFetches.length).toBe(1);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // SHA-256 integrity checking
+  // -----------------------------------------------------------------------
+
+  describe('SHA-256 integrity', () => {
+    it('sha256Hex computes correct hash', async () => {
+      const hash = await sha256Hex(MINIMAL_WASM);
+      // Verify it's a 64-char hex string
+      expect(hash).toMatch(/^[0-9a-f]{64}$/);
+      // Verify consistency
+      const hash2 = await sha256Hex(MINIMAL_WASM);
+      expect(hash).toBe(hash2);
+    });
+
+    it('rejects binary with SHA-256 mismatch', async () => {
+      const manifest: CommandManifest = {
+        version: 1,
+        baseUrl: 'https://cdn.example.com/commands/v1/',
+        commands: {
+          ls: { size: 8, sha256: 'deadbeef'.repeat(8) }, // wrong hash
+        },
+      };
+      const { mockFetch } = createMockFetch(manifest);
+      const driver = createBrowserWasmVmRuntime({
+        registryUrl: 'https://cdn.example.com/manifest.json',
+        fetch: mockFetch,
+        binaryStorage: null,
+      });
+      await driver.init(createMockKernel());
+
+      const stderrChunks: Uint8Array[] = [];
+      const proc = driver.spawn('ls', [], createMockProcessContext());
+      proc.onStderr = (data) => stderrChunks.push(data);
+
+      const exitCode = await proc.wait();
+      expect(exitCode).toBe(127);
+
+      const stderr = new TextDecoder().decode(stderrChunks[0] ?? new Uint8Array());
+      expect(stderr).toContain('SHA-256 mismatch');
+    });
+
+    it('accepts binary with correct SHA-256', async () => {
+      const manifest = createSampleManifest();
+      const { mockFetch } = createMockFetch(manifest);
+      const driver = createBrowserWasmVmRuntime({
+        registryUrl: 'https://cdn.example.com/manifest.json',
+        fetch: mockFetch,
+        binaryStorage: null,
+      });
+      await driver.init(createMockKernel());
+
+      const proc = driver.spawn('ls', [], createMockProcessContext());
+      const exitCode = await proc.wait();
+      expect(exitCode).toBe(0);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Persistent binary storage (Cache API / IndexedDB abstraction)
+  // -----------------------------------------------------------------------
+
+  describe('persistent binary storage', () => {
+    it('stores fetched binary in persistent cache after network fetch', async () => {
+      const manifest = createSampleManifest();
+      const { mockFetch } = createMockFetch(manifest);
+      const storage = createMockStorage();
+      const driver = createBrowserWasmVmRuntime({
+        registryUrl: 'https://cdn.example.com/manifest.json',
+        fetch: mockFetch,
+        binaryStorage: storage,
+      });
+      await driver.init(createMockKernel());
+
+      const proc = driver.spawn('ls', [], createMockProcessContext());
+      await proc.wait();
+
+      // Binary was stored in persistent cache
+      expect(storage.putCalls.length).toBe(1);
+      expect(storage.putCalls[0][0]).toBe('ls');
+      expect(storage.putCalls[0][1]).toEqual(MINIMAL_WASM);
+    });
+
+    it('uses cached binary on second page load (cache hit avoids network fetch)', async () => {
+      const manifest = createSampleManifest();
+      const { mockFetch } = createMockFetch(manifest);
+      const storage = createMockStorage();
+
+      // Pre-populate storage (simulating first page load already cached it)
+      storage._store.set('grep', MINIMAL_WASM);
+
+      const driver = createBrowserWasmVmRuntime({
+        registryUrl: 'https://cdn.example.com/manifest.json',
+        fetch: mockFetch,
+        binaryStorage: storage,
+      });
+      await driver.init(createMockKernel());
+
+      const proc = driver.spawn('grep', [], createMockProcessContext());
+      await proc.wait();
+
+      // Should have hit the persistent cache
+      expect(storage.getCalls).toContain('grep');
+      // Should NOT have fetched the binary from network
+      const binaryFetches = mockFetch.mock.calls.filter(
+        (call: unknown[]) => (call[0] as string).endsWith('/grep'),
+      );
+      expect(binaryFetches.length).toBe(0);
+    });
+
+    it('evicts and re-fetches when cached binary has wrong SHA-256', async () => {
+      const manifest = createSampleManifest();
+      const { mockFetch } = createMockFetch(manifest);
+      const storage = createMockStorage();
+
+      // Pre-populate with corrupted bytes
+      const corruptedBytes = new Uint8Array([0xDE, 0xAD, 0xBE, 0xEF]);
+      storage._store.set('ls', corruptedBytes);
+
+      const driver = createBrowserWasmVmRuntime({
+        registryUrl: 'https://cdn.example.com/manifest.json',
+        fetch: mockFetch,
+        binaryStorage: storage,
+      });
+      await driver.init(createMockKernel());
+
+      const proc = driver.spawn('ls', [], createMockProcessContext());
+      await proc.wait();
+
+      // Should have deleted the stale entry
+      expect(storage.deleteCalls).toContain('ls');
+      // Should have re-fetched from network
+      const binaryFetches = mockFetch.mock.calls.filter(
+        (call: unknown[]) => (call[0] as string).endsWith('/ls'),
+      );
+      expect(binaryFetches.length).toBe(1);
+      // Should have stored the correct bytes
+      expect(storage._store.get('ls')).toEqual(MINIMAL_WASM);
+    });
+
+    it('works without persistent storage (null)', async () => {
+      const manifest = createSampleManifest();
+      const { mockFetch } = createMockFetch(manifest);
+      const driver = createBrowserWasmVmRuntime({
+        registryUrl: 'https://cdn.example.com/manifest.json',
+        fetch: mockFetch,
+        binaryStorage: null,
+      });
+      await driver.init(createMockKernel());
+
+      const proc = driver.spawn('ls', [], createMockProcessContext());
+      const exitCode = await proc.wait();
+      expect(exitCode).toBe(0);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // preload()
+  // -----------------------------------------------------------------------
+
+  describe('preload()', () => {
+    it('fetches and caches multiple commands concurrently', async () => {
+      const manifest = createSampleManifest();
+      const { mockFetch } = createMockFetch(manifest);
+      const storage = createMockStorage();
+      const driver = createBrowserWasmVmRuntime({
+        registryUrl: 'https://cdn.example.com/manifest.json',
+        fetch: mockFetch,
+        binaryStorage: storage,
+      }) as ReturnType<typeof createBrowserWasmVmRuntime> & { preload: (cmds: string[]) => Promise<void> };
+      await driver.init(createMockKernel());
+
+      await driver.preload(['ls', 'cat', 'grep']);
+
+      // All 3 commands were stored in persistent cache
+      const storedKeys = storage.putCalls.map(([key]) => key);
+      expect(storedKeys).toContain('ls');
+      expect(storedKeys).toContain('cat');
+      expect(storedKeys).toContain('grep');
+
+      // Subsequent spawns use in-memory cache (no new fetches)
+      mockFetch.mockClear();
+      const proc = driver.spawn('ls', [], createMockProcessContext());
+      await proc.wait();
+
+      const binaryFetches = mockFetch.mock.calls.filter(
+        (call: unknown[]) => !(call[0] as string).includes('manifest'),
+      );
+      expect(binaryFetches.length).toBe(0);
+    });
+
+    it('skips unknown commands silently', async () => {
+      const manifest = createSampleManifest();
+      const { mockFetch } = createMockFetch(manifest);
+      const driver = createBrowserWasmVmRuntime({
+        registryUrl: 'https://cdn.example.com/manifest.json',
+        fetch: mockFetch,
+        binaryStorage: null,
+      }) as ReturnType<typeof createBrowserWasmVmRuntime> & { preload: (cmds: string[]) => Promise<void> };
+      await driver.init(createMockKernel());
+
+      // Should not throw for unknown commands
+      await driver.preload(['ls', 'nonexistent', 'cat']);
+
+      // Only known commands were fetched
+      const binaryFetches = mockFetch.mock.calls.filter(
+        (call: unknown[]) => !(call[0] as string).includes('manifest'),
+      );
+      expect(binaryFetches.length).toBe(2); // ls + cat
+    });
+
+    it('throws when called before init', async () => {
+      const manifest = createSampleManifest();
+      const { mockFetch } = createMockFetch(manifest);
+      const driver = createBrowserWasmVmRuntime({
+        registryUrl: 'https://cdn.example.com/manifest.json',
+        fetch: mockFetch,
+        binaryStorage: null,
+      }) as ReturnType<typeof createBrowserWasmVmRuntime> & { preload: (cmds: string[]) => Promise<void> };
+
+      await expect(driver.preload(['ls'])).rejects.toThrow('Manifest not loaded');
+    });
+
+    it('deduplicates with concurrent spawn calls', async () => {
+      const manifest = createSampleManifest();
+      const { mockFetch } = createMockFetch(manifest);
+      const driver = createBrowserWasmVmRuntime({
+        registryUrl: 'https://cdn.example.com/manifest.json',
+        fetch: mockFetch,
+        binaryStorage: null,
+      }) as ReturnType<typeof createBrowserWasmVmRuntime> & { preload: (cmds: string[]) => Promise<void> };
+      await driver.init(createMockKernel());
+
+      // Preload and spawn concurrently
+      const preloadPromise = driver.preload(['ls']);
+      const proc = driver.spawn('ls', [], createMockProcessContext());
+      await Promise.all([preloadPromise, proc.wait()]);
+
+      // Only one fetch for the binary
+      const binaryFetches = mockFetch.mock.calls.filter(
+        (call: unknown[]) => (call[0] as string).endsWith('/ls'),
       );
       expect(binaryFetches.length).toBe(1);
     });
@@ -331,14 +628,15 @@ describe('BrowserWasmVmRuntimeDriver', () => {
 
   describe('dispose()', () => {
     it('clears module cache and manifest on dispose', async () => {
-      const { mockFetch } = createMockFetch(SAMPLE_MANIFEST);
+      const manifest = createSampleManifest();
+      const { mockFetch } = createMockFetch(manifest);
       const driver = createBrowserWasmVmRuntime({
         registryUrl: 'https://cdn.example.com/manifest.json',
         fetch: mockFetch,
+        binaryStorage: null,
       });
       await driver.init(createMockKernel());
 
-      // Populate cache
       const proc = driver.spawn('ls', [], createMockProcessContext());
       await proc.wait();
 
@@ -356,26 +654,19 @@ describe('BrowserWasmVmRuntimeDriver', () => {
 
   describe('kill()', () => {
     it('kill resolves exit promise with code 137', async () => {
-      const { mockFetch } = createMockFetch(SAMPLE_MANIFEST);
-      // Make fetch hang to simulate an in-progress spawn
-      let fetchResolve: (v: Response) => void;
+      const manifest = createSampleManifest();
       const hangingFetch = vi.fn(async (input: RequestInfo | URL) => {
         const url = typeof input === 'string' ? input : input.toString();
         if (url.includes('manifest')) {
-          return new Response(JSON.stringify(SAMPLE_MANIFEST), { status: 200 });
+          return new Response(JSON.stringify(manifest), { status: 200 });
         }
-        return new Promise<Response>((resolve) => {
-          fetchResolve = resolve;
-        });
+        return new Promise<Response>(() => {}); // never resolves
       }) as unknown as typeof globalThis.fetch;
-      // Also make compileStreaming hang
-      (WebAssembly.compileStreaming as ReturnType<typeof vi.fn>).mockImplementation(
-        () => new Promise(() => {}), // never resolves
-      );
 
       const driver = createBrowserWasmVmRuntime({
         registryUrl: 'https://cdn.example.com/manifest.json',
         fetch: hangingFetch,
+        binaryStorage: null,
       });
       await driver.init(createMockKernel());
 
@@ -393,45 +684,36 @@ describe('BrowserWasmVmRuntimeDriver', () => {
 
   describe('interface compliance', () => {
     it('has name "wasmvm"', () => {
-      const { mockFetch } = createMockFetch(SAMPLE_MANIFEST);
+      const manifest = createSampleManifest();
+      const { mockFetch } = createMockFetch(manifest);
       const driver = createBrowserWasmVmRuntime({
         registryUrl: 'https://cdn.example.com/manifest.json',
         fetch: mockFetch,
+        binaryStorage: null,
       });
       expect(driver.name).toBe('wasmvm');
     });
 
     it('commands is empty before init', () => {
-      const { mockFetch } = createMockFetch(SAMPLE_MANIFEST);
+      const manifest = createSampleManifest();
+      const { mockFetch } = createMockFetch(manifest);
       const driver = createBrowserWasmVmRuntime({
         registryUrl: 'https://cdn.example.com/manifest.json',
         fetch: mockFetch,
+        binaryStorage: null,
       });
       expect(driver.commands).toEqual([]);
     });
 
     it('does not have tryResolve (no on-demand discovery)', () => {
-      const { mockFetch } = createMockFetch(SAMPLE_MANIFEST);
+      const manifest = createSampleManifest();
+      const { mockFetch } = createMockFetch(manifest);
       const driver = createBrowserWasmVmRuntime({
         registryUrl: 'https://cdn.example.com/manifest.json',
         fetch: mockFetch,
+        binaryStorage: null,
       });
-      // Browser driver doesn't need tryResolve — all commands known from manifest
       expect((driver as unknown as Record<string, unknown>).tryResolve).toBeUndefined();
-    });
-
-    it('compileStreaming is used for streaming compilation', async () => {
-      const { mockFetch } = createMockFetch(SAMPLE_MANIFEST);
-      const driver = createBrowserWasmVmRuntime({
-        registryUrl: 'https://cdn.example.com/manifest.json',
-        fetch: mockFetch,
-      });
-      await driver.init(createMockKernel());
-
-      const proc = driver.spawn('sh', [], createMockProcessContext());
-      await proc.wait();
-
-      expect(WebAssembly.compileStreaming).toHaveBeenCalled();
     });
   });
 });
