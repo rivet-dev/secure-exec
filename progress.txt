@@ -2335,3 +2335,12 @@ PRD: ralph/kernel-hardening (46 stories)
   - Duplicate BridgeResponse call_ids are silently dropped by the CallIdRouter (uses HashMap.remove, so second lookup returns None) — Rust process stays alive, session continues working
   - Oversized message rejection by Rust causes a read error (InvalidData) which closes the connection, but the Rust process itself stays alive to serve other connections
 ---
+
+## 2026-03-19 - US-032
+- What was implemented: Updated docs/security-model.mdx to document process isolation as a trust boundary and the IPC channel trust model
+- Files changed:
+  - docs/security-model.mdx — rewrote intro to mention separate V8 process instead of isolate-based sandboxes; updated Trust Boundaries to three boundaries (Process, Runtime, Host) with updated mermaid diagram showing IPC channel; added "Process Isolation" section covering what it protects against (V8 OOM, heap corruption, FD leakage, signal interference, uncontrolled resource consumption, clean termination) and what it does NOT protect against (IPC-level attacks, host-side vulnerabilities, authorized capability abuse, side channels); added "IPC Channel" section covering authenticated (one-time 128-bit token), session-bound (128-bit nonces), size-limited (64MB), not encrypted (same-host UDS), and FD hygiene properties
+- **Learnings for future iterations:**
+  - security-model.mdx is under docs/ in the Advanced section of docs.json navigation — no special placement needed
+  - The V8 runtime spec at docs-internal/specs/v8-runtime.md has a detailed "IPC Security" section and "Security model documentation" subsection that specifies exactly what the docs update should cover
+---
