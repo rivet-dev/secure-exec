@@ -101,13 +101,8 @@ $(WASI_SDK_DIR)/bin/clang:
 
 # --- Patched sysroot (delegates to patch-wasi-libc.sh) ---
 
-sysroot:
-	@if [ -x "../scripts/patch-wasi-libc.sh" ]; then \
-		../scripts/patch-wasi-libc.sh; \
-	else \
-		echo "scripts/patch-wasi-libc.sh not found — using vanilla wasi-sdk sysroot"; \
-		echo "Patched sysroot will be available after US-025"; \
-	fi
+sysroot: wasi-sdk
+	../scripts/patch-wasi-libc.sh
 
 # --- wasm-opt check ---
 
