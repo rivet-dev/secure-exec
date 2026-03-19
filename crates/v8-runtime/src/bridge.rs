@@ -4,7 +4,68 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_void;
 
+use v8::ValueDeserializerHelper;
+use v8::ValueSerializerHelper;
+
 use crate::host_call::BridgeCallContext;
+
+// Minimal delegate for V8 ValueSerializer — throws DataCloneError as a V8 exception
+struct DefaultSerializerDelegate;
+
+impl v8::ValueSerializerImpl for DefaultSerializerDelegate {
+    fn throw_data_clone_error<'s>(
+        &self,
+        scope: &mut v8::HandleScope<'s>,
+        message: v8::Local<'s, v8::String>,
+    ) {
+        let exc = v8::Exception::error(scope, message);
+        scope.throw_exception(exc);
+    }
+}
+
+// Minimal delegate for V8 ValueDeserializer — default callbacks are sufficient
+struct DefaultDeserializerDelegate;
+
+impl v8::ValueDeserializerImpl for DefaultDeserializerDelegate {}
+
+/// Serialize a V8 value to bytes using V8's built-in ValueSerializer.
+/// Handles all V8 types natively: primitives, strings, arrays, objects,
+/// Uint8Array, Date, Map, Set, RegExp, Error, and circular references.
+pub fn serialize_v8_value(
+    scope: &mut v8::HandleScope,
+    value: v8::Local<v8::Value>,
+) -> Result<Vec<u8>, String> {
+    let context = scope.get_current_context();
+    let serializer = v8::ValueSerializer::new(
+        scope,
+        Box::new(DefaultSerializerDelegate),
+    );
+    serializer.write_header();
+    serializer
+        .write_value(context, value)
+        .ok_or_else(|| "V8 ValueSerializer: failed to serialize value".to_string())?;
+    Ok(serializer.release())
+}
+
+/// Deserialize bytes back to a V8 value using V8's built-in ValueDeserializer.
+/// The bytes must have been produced by serialize_v8_value() or node:v8.serialize().
+pub fn deserialize_v8_value<'s>(
+    scope: &mut v8::HandleScope<'s>,
+    data: &[u8],
+) -> Result<v8::Local<'s, v8::Value>, String> {
+    let context = scope.get_current_context();
+    let deserializer = v8::ValueDeserializer::new(
+        scope,
+        Box::new(DefaultDeserializerDelegate),
+        data,
+    );
+    deserializer
+        .read_header(context)
+        .ok_or_else(|| "V8 ValueDeserializer: invalid header".to_string())?;
+    deserializer
+        .read_value(context)
+        .ok_or_else(|| "V8 ValueDeserializer: failed to deserialize value".to_string())
+}
 
 /// Data attached to each sync bridge function via v8::External.
 /// BridgeFnStore keeps these heap allocations alive for the session.

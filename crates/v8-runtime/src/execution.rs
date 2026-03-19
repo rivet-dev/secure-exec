@@ -3097,5 +3097,336 @@ use std::num::NonZeroI32;
             assert!(err.stack.contains("innerFn"), "stack should contain innerFn");
             assert!(err.stack.contains("outerFn"), "stack should contain outerFn");
         }
+
+        // --- V8 ValueSerializer/ValueDeserializer round-trip tests ---
+
+        // Part 55: Primitives round-trip (null, undefined, true, false, integers, floats)
+        {
+            use crate::bridge::{serialize_v8_value, deserialize_v8_value};
+
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+            let scope = &mut v8::HandleScope::new(&mut iso);
+            let local = v8::Local::new(scope, &ctx);
+            let scope = &mut v8::ContextScope::new(scope, local);
+
+            // null
+            let null_val = v8::null(scope).into();
+            let bytes = serialize_v8_value(scope, null_val).unwrap();
+            let out = deserialize_v8_value(scope, &bytes).unwrap();
+            assert!(out.is_null());
+
+            // undefined
+            let undef_val = v8::undefined(scope).into();
+            let bytes = serialize_v8_value(scope, undef_val).unwrap();
+            let out = deserialize_v8_value(scope, &bytes).unwrap();
+            assert!(out.is_undefined());
+
+            // true
+            let bool_val = v8::Boolean::new(scope, true).into();
+            let bytes = serialize_v8_value(scope, bool_val).unwrap();
+            let out = deserialize_v8_value(scope, &bytes).unwrap();
+            assert!(out.is_true());
+
+            // false
+            let bool_val = v8::Boolean::new(scope, false).into();
+            let bytes = serialize_v8_value(scope, bool_val).unwrap();
+            let out = deserialize_v8_value(scope, &bytes).unwrap();
+            assert!(out.is_false());
+
+            // integer
+            let num_val: v8::Local<v8::Value> = v8::Integer::new(scope, 42).into();
+            let bytes = serialize_v8_value(scope, num_val).unwrap();
+            let out = deserialize_v8_value(scope, &bytes).unwrap();
+            assert_eq!(out.int32_value(scope).unwrap(), 42);
+
+            // negative integer
+            let num_val: v8::Local<v8::Value> = v8::Integer::new(scope, -7).into();
+            let bytes = serialize_v8_value(scope, num_val).unwrap();
+            let out = deserialize_v8_value(scope, &bytes).unwrap();
+            assert_eq!(out.int32_value(scope).unwrap(), -7);
+
+            // float
+            let num_val: v8::Local<v8::Value> = v8::Number::new(scope, 3.14).into();
+            let bytes = serialize_v8_value(scope, num_val).unwrap();
+            let out = deserialize_v8_value(scope, &bytes).unwrap();
+            assert!((out.number_value(scope).unwrap() - 3.14).abs() < 1e-10);
+        }
+
+        // Part 56: Strings round-trip
+        {
+            use crate::bridge::{serialize_v8_value, deserialize_v8_value};
+
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+            let scope = &mut v8::HandleScope::new(&mut iso);
+            let local = v8::Local::new(scope, &ctx);
+            let scope = &mut v8::ContextScope::new(scope, local);
+
+            // ASCII string
+            let s = v8::String::new(scope, "hello world").unwrap();
+            let bytes = serialize_v8_value(scope, s.into()).unwrap();
+            let out = deserialize_v8_value(scope, &bytes).unwrap();
+            assert!(out.is_string());
+            assert_eq!(out.to_rust_string_lossy(scope), "hello world");
+
+            // Empty string
+            let s = v8::String::new(scope, "").unwrap();
+            let bytes = serialize_v8_value(scope, s.into()).unwrap();
+            let out = deserialize_v8_value(scope, &bytes).unwrap();
+            assert!(out.is_string());
+            assert_eq!(out.to_rust_string_lossy(scope), "");
+
+            // Unicode string
+            let s = v8::String::new(scope, "hello 🌍 world").unwrap();
+            let bytes = serialize_v8_value(scope, s.into()).unwrap();
+            let out = deserialize_v8_value(scope, &bytes).unwrap();
+            assert_eq!(out.to_rust_string_lossy(scope), "hello 🌍 world");
+        }
+
+        // Part 57: Arrays round-trip
+        {
+            use crate::bridge::{serialize_v8_value, deserialize_v8_value};
+
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+            let scope = &mut v8::HandleScope::new(&mut iso);
+            let local = v8::Local::new(scope, &ctx);
+            let scope = &mut v8::ContextScope::new(scope, local);
+
+            // [1, "two", true, null]
+            let arr = v8::Array::new(scope, 4);
+            let v1: v8::Local<v8::Value> = v8::Integer::new(scope, 1).into();
+            let v2: v8::Local<v8::Value> = v8::String::new(scope, "two").unwrap().into();
+            let v3: v8::Local<v8::Value> = v8::Boolean::new(scope, true).into();
+            let v4: v8::Local<v8::Value> = v8::null(scope).into();
+            arr.set_index(scope, 0, v1);
+            arr.set_index(scope, 1, v2);
+            arr.set_index(scope, 2, v3);
+            arr.set_index(scope, 3, v4);
+
+            let bytes = serialize_v8_value(scope, arr.into()).unwrap();
+            let out = deserialize_v8_value(scope, &bytes).unwrap();
+            assert!(out.is_array());
+            let out_arr = v8::Local::<v8::Array>::try_from(out).unwrap();
+            assert_eq!(out_arr.length(), 4);
+            assert_eq!(out_arr.get_index(scope, 0).unwrap().int32_value(scope).unwrap(), 1);
+            assert_eq!(out_arr.get_index(scope, 1).unwrap().to_rust_string_lossy(scope), "two");
+            assert!(out_arr.get_index(scope, 2).unwrap().is_true());
+            assert!(out_arr.get_index(scope, 3).unwrap().is_null());
+
+            // Empty array
+            let empty_arr = v8::Array::new(scope, 0);
+            let bytes = serialize_v8_value(scope, empty_arr.into()).unwrap();
+            let out = deserialize_v8_value(scope, &bytes).unwrap();
+            assert!(out.is_array());
+            assert_eq!(v8::Local::<v8::Array>::try_from(out).unwrap().length(), 0);
+        }
+
+        // Part 58: Objects round-trip
+        {
+            use crate::bridge::{serialize_v8_value, deserialize_v8_value};
+
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+            let scope = &mut v8::HandleScope::new(&mut iso);
+            let local = v8::Local::new(scope, &ctx);
+            let scope = &mut v8::ContextScope::new(scope, local);
+
+            // { name: "test", count: 42, active: true }
+            let obj = v8::Object::new(scope);
+            let k1 = v8::String::new(scope, "name").unwrap();
+            let v1: v8::Local<v8::Value> = v8::String::new(scope, "test").unwrap().into();
+            let k2 = v8::String::new(scope, "count").unwrap();
+            let v2: v8::Local<v8::Value> = v8::Integer::new(scope, 42).into();
+            let k3 = v8::String::new(scope, "active").unwrap();
+            let v3: v8::Local<v8::Value> = v8::Boolean::new(scope, true).into();
+            obj.set(scope, k1.into(), v1);
+            obj.set(scope, k2.into(), v2);
+            obj.set(scope, k3.into(), v3);
+
+            let bytes = serialize_v8_value(scope, obj.into()).unwrap();
+            let out = deserialize_v8_value(scope, &bytes).unwrap();
+            assert!(out.is_object());
+            let out_obj = v8::Local::<v8::Object>::try_from(out).unwrap();
+            let k = v8::String::new(scope, "name").unwrap();
+            assert_eq!(out_obj.get(scope, k.into()).unwrap().to_rust_string_lossy(scope), "test");
+            let k = v8::String::new(scope, "count").unwrap();
+            assert_eq!(out_obj.get(scope, k.into()).unwrap().int32_value(scope).unwrap(), 42);
+            let k = v8::String::new(scope, "active").unwrap();
+            assert!(out_obj.get(scope, k.into()).unwrap().is_true());
+        }
+
+        // Part 59: Uint8Array round-trip
+        {
+            use crate::bridge::{serialize_v8_value, deserialize_v8_value};
+
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+            let scope = &mut v8::HandleScope::new(&mut iso);
+            let local = v8::Local::new(scope, &ctx);
+            let scope = &mut v8::ContextScope::new(scope, local);
+
+            let data = vec![0u8, 1, 2, 255, 128, 64];
+            let ab = v8::ArrayBuffer::new(scope, data.len());
+            {
+                let bs = ab.get_backing_store();
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        data.as_ptr(),
+                        bs.data().unwrap().as_ptr() as *mut u8,
+                        data.len(),
+                    );
+                }
+            }
+            let u8arr = v8::Uint8Array::new(scope, ab, 0, data.len()).unwrap();
+
+            let bytes = serialize_v8_value(scope, u8arr.into()).unwrap();
+            let out = deserialize_v8_value(scope, &bytes).unwrap();
+            assert!(out.is_uint8_array());
+            let out_arr = v8::Local::<v8::Uint8Array>::try_from(out).unwrap();
+            assert_eq!(out_arr.byte_length(), 6);
+            let mut buf = vec![0u8; 6];
+            out_arr.copy_contents(&mut buf);
+            assert_eq!(buf, vec![0, 1, 2, 255, 128, 64]);
+        }
+
+        // Part 60: Nested structures round-trip
+        {
+            use crate::bridge::{serialize_v8_value, deserialize_v8_value};
+
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+            let scope = &mut v8::HandleScope::new(&mut iso);
+            let local = v8::Local::new(scope, &ctx);
+            let scope = &mut v8::ContextScope::new(scope, local);
+
+            // Build via JS: { items: [1, { nested: "value" }], flag: false }
+            let code = r#"
+                ({
+                    items: [1, { nested: "value" }],
+                    flag: false
+                })
+            "#;
+            let source = v8::String::new(scope, code).unwrap();
+            let script = v8::Script::compile(scope, source, None).unwrap();
+            let val = script.run(scope).unwrap();
+
+            let bytes = serialize_v8_value(scope, val).unwrap();
+            let out = deserialize_v8_value(scope, &bytes).unwrap();
+            assert!(out.is_object());
+            let out_obj = v8::Local::<v8::Object>::try_from(out).unwrap();
+
+            // Check items array
+            let k = v8::String::new(scope, "items").unwrap();
+            let items = out_obj.get(scope, k.into()).unwrap();
+            assert!(items.is_array());
+            let items_arr = v8::Local::<v8::Array>::try_from(items).unwrap();
+            assert_eq!(items_arr.length(), 2);
+            assert_eq!(items_arr.get_index(scope, 0).unwrap().int32_value(scope).unwrap(), 1);
+            let inner = items_arr.get_index(scope, 1).unwrap();
+            assert!(inner.is_object());
+            let inner_obj = v8::Local::<v8::Object>::try_from(inner).unwrap();
+            let k = v8::String::new(scope, "nested").unwrap();
+            assert_eq!(inner_obj.get(scope, k.into()).unwrap().to_rust_string_lossy(scope), "value");
+
+            // Check flag
+            let k = v8::String::new(scope, "flag").unwrap();
+            assert!(out_obj.get(scope, k.into()).unwrap().is_false());
+        }
+
+        // Part 61: Date, RegExp, Map, Set, Error round-trip via JS eval
+        {
+            use crate::bridge::{serialize_v8_value, deserialize_v8_value};
+
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+            let scope = &mut v8::HandleScope::new(&mut iso);
+            let local = v8::Local::new(scope, &ctx);
+            let scope = &mut v8::ContextScope::new(scope, local);
+
+            // Date
+            let source = v8::String::new(scope, "new Date(1700000000000)").unwrap();
+            let script = v8::Script::compile(scope, source, None).unwrap();
+            let date_val = script.run(scope).unwrap();
+            let bytes = serialize_v8_value(scope, date_val).unwrap();
+            let out = deserialize_v8_value(scope, &bytes).unwrap();
+            assert!(out.is_date());
+            let date = v8::Local::<v8::Date>::try_from(out).unwrap();
+            assert_eq!(date.value_of(), 1700000000000.0);
+
+            // RegExp
+            let source = v8::String::new(scope, "/abc/gi").unwrap();
+            let script = v8::Script::compile(scope, source, None).unwrap();
+            let re_val = script.run(scope).unwrap();
+            let bytes = serialize_v8_value(scope, re_val).unwrap();
+            let out = deserialize_v8_value(scope, &bytes).unwrap();
+            assert!(out.is_reg_exp());
+
+            // Map
+            let source = v8::String::new(scope, "new Map([['a', 1], ['b', 2]])").unwrap();
+            let script = v8::Script::compile(scope, source, None).unwrap();
+            let map_val = script.run(scope).unwrap();
+            let bytes = serialize_v8_value(scope, map_val).unwrap();
+            let out = deserialize_v8_value(scope, &bytes).unwrap();
+            assert!(out.is_map());
+            let map = v8::Local::<v8::Map>::try_from(out).unwrap();
+            assert_eq!(map.size(), 2);
+
+            // Set
+            let source = v8::String::new(scope, "new Set([10, 20, 30])").unwrap();
+            let script = v8::Script::compile(scope, source, None).unwrap();
+            let set_val = script.run(scope).unwrap();
+            let bytes = serialize_v8_value(scope, set_val).unwrap();
+            let out = deserialize_v8_value(scope, &bytes).unwrap();
+            assert!(out.is_set());
+            let set = v8::Local::<v8::Set>::try_from(out).unwrap();
+            assert_eq!(set.size(), 3);
+
+            // Error
+            let source = v8::String::new(scope, "new TypeError('oops')").unwrap();
+            let script = v8::Script::compile(scope, source, None).unwrap();
+            let err_val = script.run(scope).unwrap();
+            let bytes = serialize_v8_value(scope, err_val).unwrap();
+            let out = deserialize_v8_value(scope, &bytes).unwrap();
+            // Error is serialized as a plain object with message property
+            assert!(out.is_object());
+            let out_obj = v8::Local::<v8::Object>::try_from(out).unwrap();
+            let k = v8::String::new(scope, "message").unwrap();
+            let msg = out_obj.get(scope, k.into()).unwrap();
+            assert_eq!(msg.to_rust_string_lossy(scope), "oops");
+        }
+
+        // Part 62: Circular references round-trip
+        {
+            use crate::bridge::{serialize_v8_value, deserialize_v8_value};
+
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+            let scope = &mut v8::HandleScope::new(&mut iso);
+            let local = v8::Local::new(scope, &ctx);
+            let scope = &mut v8::ContextScope::new(scope, local);
+
+            // Build circular reference via JS
+            let source = v8::String::new(scope, "var o = { a: 1 }; o.self = o; o").unwrap();
+            let script = v8::Script::compile(scope, source, None).unwrap();
+            let circ_val = script.run(scope).unwrap();
+
+            let bytes = serialize_v8_value(scope, circ_val).unwrap();
+            let out = deserialize_v8_value(scope, &bytes).unwrap();
+            assert!(out.is_object());
+            let out_obj = v8::Local::<v8::Object>::try_from(out).unwrap();
+
+            // Verify the self-reference resolves
+            let k = v8::String::new(scope, "a").unwrap();
+            assert_eq!(out_obj.get(scope, k.into()).unwrap().int32_value(scope).unwrap(), 1);
+            let k = v8::String::new(scope, "self").unwrap();
+            let self_ref = out_obj.get(scope, k.into()).unwrap();
+            assert!(self_ref.is_object());
+            // The self reference should point back to the same structure
+            let self_obj = v8::Local::<v8::Object>::try_from(self_ref).unwrap();
+            let k = v8::String::new(scope, "a").unwrap();
+            assert_eq!(self_obj.get(scope, k.into()).unwrap().int32_value(scope).unwrap(), 1);
+        }
     }
 }
