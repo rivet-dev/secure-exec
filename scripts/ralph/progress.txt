@@ -39,6 +39,13 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
 - `execute_script(scope, bridge_code, user_code)` in `execution.rs` compiles+runs CJS code and returns `(i32, Option<ExecutionError>)`
 - `extract_error_info(scope, exception)` extracts structured error info from V8 exception values via property access (constructor.name, message, stack, code)
 - Use `tc.exception()` then pass result + tc to helper — Local phantom lifetime doesn't block mutable scope reuse
+- `v8::script_compiler::compile_module(scope, &mut source)` — takes `&mut Source`, not owned `Source`
+- `module.get_identity_hash()` returns `NonZero<i32>` (not plain `i32`) — use as HashMap key directly
+- Use `v8::ScriptOrigin::new(scope, name.into(), 0, 0, false, -1, None, false, false, true, None)` for ESM modules (is_module=true)
+- Module resolve callback uses thread-local `RefCell<Option<ModuleResolveState>>` — brief borrows only, never hold across V8/IPC calls (recursive callbacks would double-borrow)
+- Use `unsafe { v8::CallbackScope::new(context) }` to get a scope inside V8 callbacks (ResolveModuleCallback)
+- `execute_module(scope, bridge_ctx, bridge_code, user_code, file_path)` returns `(i32, Option<Vec<u8>>, Option<ExecutionError>)` — exports are msgpack bytes
+- `module.get_status() == v8::ModuleStatus::Errored` + `module.get_exception()` for post-evaluate error checking
 ---
 
 ## 2026-03-18 - US-001
@@ -206,4 +213,29 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - Non-Error throws (e.g., `throw "string"`) — `exception.is_object()` is false, fall back to `to_rust_string_lossy` for message
   - `v8::Script::compile(scope, source, None)` returns None on syntax error; the TryCatch catches the exception
   - Session `#[cfg(not(test))]` blocks need matching cfg for imports like `ExecuteMode` to avoid unused-import warnings in test builds
+---
+
+## 2026-03-18 - US-012
+- Implemented ESM module loading with `v8::Module` API and `ResolveModuleCallback` in `execution.rs`
+- `execute_module(scope, bridge_ctx, bridge_code, user_code, file_path)` returns `(i32, Option<Vec<u8>>, Option<ExecutionError>)`
+- Bridge code IIFE compiled and executed first (same as CJS mode), then user code compiled as ES module
+- Thread-local `ModuleResolveState` stores BridgeCallContext pointer, module name map, and module cache
+- `module_resolve_callback`: sends sync-blocking `_resolveModule` + `_loadFile` IPC calls, compiles resolved source as v8::Module, caches result
+- Careful RefCell borrow management: brief borrows only, released before V8/IPC calls to support recursive resolution (nested imports)
+- Module exports serialized via `v8_value_to_msgpack` (new pub helper in bridge.rs using `v8_to_rmpv`)
+- Post-evaluate error checking via `module.get_status() == Errored` + `module.get_exception()`
+- Updated `session.rs` to handle `ExecuteMode::Run` with placeholder BridgeCallContext (real IPC wired in US-013)
+- Made `v8_to_rmpv` pub in bridge.rs for cross-module use
+- 6 V8 integration tests (Parts 25-30): simple exports, default export, SyntaxError, TypeError, bridge-before-module, import resolution via mock IPC
+- Files changed: `crates/v8-runtime/src/execution.rs`, `crates/v8-runtime/src/bridge.rs`, `crates/v8-runtime/src/session.rs`
+- **Learnings for future iterations:**
+  - `v8::script_compiler::compile_module(scope, &mut source)` takes `&mut Source`, not owned Source
+  - `module.get_identity_hash()` returns `NonZero<i32>` in v130, not plain `i32` — use directly as HashMap key
+  - `v8::ScriptOrigin::new(scope, name.into(), 0,0,false,-1,None,false,false,true,None)` — last `true` is `is_module`
+  - Module resolve callback MUST use brief RefCell borrows — V8 calls the callback recursively for nested imports during `instantiate_module`
+  - `unsafe { v8::CallbackScope::new(context) }` creates a HandleScope inside V8 callbacks (e.g., ResolveModuleCallback)
+  - `v8::Global<v8::Module>` implements Clone (creates new persistent handle via stored IsolateHandle) — safe to clone for cache lookups
+  - `module.get_module_namespace()` returns the namespace object (exports) as `Local<Value>` — can serialize directly with `v8_to_rmpv`
+  - `module.get_status()` returns `ModuleStatus` enum — check for `Errored` after evaluate() to catch TLA rejection cases
+  - `module.get_exception()` returns the exception value for errored modules — use with `extract_error_info` for structured error
 ---
