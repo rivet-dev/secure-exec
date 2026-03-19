@@ -93,6 +93,9 @@ pub struct ExecutionError {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type")]
 pub enum HostMessage {
+    Authenticate {
+        token: String,
+    },
     CreateSession {
         session_id: u32,
         heap_limit_mb: Option<u32>,
@@ -175,6 +178,13 @@ mod tests {
     }
 
     // -- HostMessage variants --
+
+    #[test]
+    fn roundtrip_authenticate() {
+        roundtrip(&HostMessage::Authenticate {
+            token: "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4".into(),
+        });
+    }
 
     #[test]
     fn roundtrip_create_session() {

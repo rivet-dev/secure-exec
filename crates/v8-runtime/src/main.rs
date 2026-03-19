@@ -11,10 +11,12 @@ mod stream;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::os::unix::fs::PermissionsExt;
-use std::os::unix::net::UnixListener;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+
+use ipc::HostMessage;
 
 /// Generate a 128-bit random hex string from /dev/urandom
 fn random_hex_128() -> io::Result<String> {
@@ -40,7 +42,35 @@ fn cleanup(socket_path: &PathBuf, tmpdir: &PathBuf) {
     let _ = fs::remove_dir(tmpdir);
 }
 
+/// Authenticate a new connection by reading the first message as an Authenticate token.
+/// Returns true if authentication succeeds, false otherwise.
+fn authenticate_connection(stream: &mut UnixStream, expected_token: &str) -> bool {
+    // Connection is blocking — read the first message
+    match ipc::read_message::<_, HostMessage>(stream) {
+        Ok(HostMessage::Authenticate { token }) => {
+            if token == expected_token {
+                true
+            } else {
+                eprintln!("auth failed: invalid token");
+                false
+            }
+        }
+        Ok(_) => {
+            eprintln!("auth failed: first message must be Authenticate");
+            false
+        }
+        Err(e) => {
+            eprintln!("auth failed: read error: {}", e);
+            false
+        }
+    }
+}
+
 fn main() {
+    // Read auth token from environment
+    let auth_token = std::env::var("SECURE_EXEC_V8_TOKEN")
+        .expect("SECURE_EXEC_V8_TOKEN environment variable must be set");
+
     // Create socket directory with 128-bit random suffix and 0700 permissions
     let (tmpdir, socket_path) = create_socket_dir().expect("failed to create socket directory");
 
@@ -72,8 +102,19 @@ fn main() {
     // Accept connections
     while running.load(Ordering::Relaxed) {
         match listener.accept() {
-            Ok((_stream, _addr)) => {
-                // Connection handling — implemented in later stories
+            Ok((mut stream, _addr)) => {
+                // Set blocking for the auth handshake
+                stream
+                    .set_nonblocking(false)
+                    .expect("failed to set stream blocking");
+
+                // Require authentication as the first message
+                if !authenticate_connection(&mut stream, &auth_token) {
+                    drop(stream);
+                    continue;
+                }
+
+                // Authenticated — session handling in later stories
             }
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                 std::thread::sleep(std::time::Duration::from_millis(10));
@@ -88,4 +129,97 @@ fn main() {
     // Graceful shutdown: close listener and remove socket
     drop(listener);
     cleanup(&socket_path, &tmpdir);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::net::UnixStream;
+
+    /// Helper: bind a temp UDS listener and return (listener, socket_path, tmpdir)
+    fn temp_listener() -> (UnixListener, PathBuf, PathBuf) {
+        let (tmpdir, socket_path) = create_socket_dir().expect("create socket dir");
+        let listener = UnixListener::bind(&socket_path).expect("bind");
+        (listener, socket_path, tmpdir)
+    }
+
+    #[test]
+    fn auth_accepts_valid_token() {
+        let (listener, socket_path, tmpdir) = temp_listener();
+        let token = "test-secret-token-abc123";
+
+        // Client connects and sends valid Authenticate
+        let mut client = UnixStream::connect(&socket_path).expect("connect");
+        let (mut server_stream, _) = listener.accept().expect("accept");
+
+        ipc::write_message(
+            &mut client,
+            &HostMessage::Authenticate {
+                token: token.into(),
+            },
+        )
+        .expect("write auth");
+
+        assert!(authenticate_connection(&mut server_stream, token));
+
+        cleanup(&socket_path, &tmpdir);
+    }
+
+    #[test]
+    fn auth_rejects_wrong_token() {
+        let (listener, socket_path, tmpdir) = temp_listener();
+
+        let mut client = UnixStream::connect(&socket_path).expect("connect");
+        let (mut server_stream, _) = listener.accept().expect("accept");
+
+        ipc::write_message(
+            &mut client,
+            &HostMessage::Authenticate {
+                token: "wrong-token".into(),
+            },
+        )
+        .expect("write auth");
+
+        assert!(!authenticate_connection(&mut server_stream, "correct-token"));
+
+        cleanup(&socket_path, &tmpdir);
+    }
+
+    #[test]
+    fn auth_rejects_non_authenticate_message() {
+        let (listener, socket_path, tmpdir) = temp_listener();
+
+        let mut client = UnixStream::connect(&socket_path).expect("connect");
+        let (mut server_stream, _) = listener.accept().expect("accept");
+
+        // Send a CreateSession instead of Authenticate
+        ipc::write_message(
+            &mut client,
+            &HostMessage::CreateSession {
+                session_id: 1,
+                heap_limit_mb: None,
+                cpu_time_limit_ms: None,
+            },
+        )
+        .expect("write");
+
+        assert!(!authenticate_connection(&mut server_stream, "any-token"));
+
+        cleanup(&socket_path, &tmpdir);
+    }
+
+    #[test]
+    fn auth_rejects_empty_connection() {
+        let (listener, socket_path, tmpdir) = temp_listener();
+
+        let client = UnixStream::connect(&socket_path).expect("connect");
+        let (mut server_stream, _) = listener.accept().expect("accept");
+
+        // Drop client immediately — server will get EOF
+        drop(client);
+
+        assert!(!authenticate_connection(&mut server_stream, "any-token"));
+
+        cleanup(&socket_path, &tmpdir);
+    }
 }
