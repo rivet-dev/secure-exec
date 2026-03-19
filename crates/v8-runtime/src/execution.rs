@@ -115,7 +115,20 @@ mod tests {
     use crate::host_call::BridgeCallContext;
     use crate::isolate;
     use std::collections::HashMap;
-    use std::io::Cursor;
+    use std::io::{Cursor, Write};
+    use std::sync::{Arc, Mutex};
+
+    /// Shared writer that captures output for test inspection
+    struct SharedWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for SharedWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().write(buf)
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.0.lock().unwrap().flush()
+        }
+    }
 
     /// Enter a context, run JS, return the string result.
     fn eval(isolate: &mut v8::OwnedIsolate, context: &v8::Global<v8::Context>, code: &str) -> String {
@@ -625,6 +638,351 @@ mod tests {
                 &ctx,
                 "_testBridge() === undefined"
             ));
+        }
+
+        // --- Part 12: Async bridge call returns pending promise, resolved successfully ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let writer_buf = Arc::new(Mutex::new(Vec::new()));
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(SharedWriter(Arc::clone(&writer_buf))),
+                Box::new(Cursor::new(Vec::new())),
+                "test-session".into(),
+            );
+            let pending = bridge::PendingPromises::new();
+
+            let _fn_store;
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                _fn_store = bridge::register_async_bridge_fns(
+                    scope,
+                    &bridge_ctx as *const BridgeCallContext,
+                    &pending as *const bridge::PendingPromises,
+                    &["_asyncFn"],
+                );
+            }
+
+            // Call the async function
+            eval(&mut iso, &ctx, "var _promise = _asyncFn('arg1')");
+
+            // Verify a BridgeCall was sent
+            {
+                let written = writer_buf.lock().unwrap();
+                let call: crate::ipc::RustMessage =
+                    crate::ipc::read_message(&mut Cursor::new(&*written)).unwrap();
+                match call {
+                    crate::ipc::RustMessage::BridgeCall {
+                        call_id, method, ..
+                    } => {
+                        assert_eq!(call_id, 1);
+                        assert_eq!(method, "_asyncFn");
+                    }
+                    _ => panic!("expected BridgeCall"),
+                }
+            }
+
+            // Promise should be pending with 1 pending promise
+            assert_eq!(pending.len(), 1);
+            assert!(eval_bool(&mut iso, &ctx, "_promise instanceof Promise"));
+
+            // Resolve the promise
+            let mut result_msgpack = Vec::new();
+            rmpv::encode::write_value(
+                &mut result_msgpack,
+                &rmpv::Value::String("async result".into()),
+            )
+            .unwrap();
+
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                bridge::resolve_pending_promise(
+                    scope,
+                    &pending,
+                    1,
+                    Some(result_msgpack),
+                    None,
+                )
+                .unwrap();
+            }
+
+            assert_eq!(pending.len(), 0);
+
+            // Verify promise is fulfilled with correct value
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                let source = v8::String::new(scope, "_promise").unwrap();
+                let script = v8::Script::compile(scope, source, None).unwrap();
+                let result = script.run(scope).unwrap();
+                let promise = v8::Local::<v8::Promise>::try_from(result).unwrap();
+                assert_eq!(promise.state(), v8::PromiseState::Fulfilled);
+                assert_eq!(
+                    promise.result(scope).to_rust_string_lossy(scope),
+                    "async result"
+                );
+            }
+        }
+
+        // --- Part 13: Async bridge call promise rejected on error ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(Vec::new()),
+                Box::new(Cursor::new(Vec::new())),
+                "test-session".into(),
+            );
+            let pending = bridge::PendingPromises::new();
+
+            let _fn_store;
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                _fn_store = bridge::register_async_bridge_fns(
+                    scope,
+                    &bridge_ctx as *const BridgeCallContext,
+                    &pending as *const bridge::PendingPromises,
+                    &["_asyncFn"],
+                );
+            }
+
+            eval(&mut iso, &ctx, "var _promise = _asyncFn('arg')");
+            assert_eq!(pending.len(), 1);
+
+            // Reject the promise
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                bridge::resolve_pending_promise(
+                    scope,
+                    &pending,
+                    1,
+                    None,
+                    Some("ENOENT: file not found".into()),
+                )
+                .unwrap();
+            }
+
+            assert_eq!(pending.len(), 0);
+
+            // Verify promise is rejected with error
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                let source = v8::String::new(scope, "_promise").unwrap();
+                let script = v8::Script::compile(scope, source, None).unwrap();
+                let result = script.run(scope).unwrap();
+                let promise = v8::Local::<v8::Promise>::try_from(result).unwrap();
+                assert_eq!(promise.state(), v8::PromiseState::Rejected);
+                let rejection = promise.result(scope);
+                let obj = v8::Local::<v8::Object>::try_from(rejection).unwrap();
+                let msg_key = v8::String::new(scope, "message").unwrap();
+                let msg_val = obj.get(scope, msg_key.into()).unwrap();
+                assert_eq!(
+                    msg_val.to_rust_string_lossy(scope),
+                    "ENOENT: file not found"
+                );
+            }
+        }
+
+        // --- Part 14: Multiple async functions with out-of-order resolution ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(Vec::new()),
+                Box::new(Cursor::new(Vec::new())),
+                "test-session".into(),
+            );
+            let pending = bridge::PendingPromises::new();
+
+            let _fn_store;
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                _fn_store = bridge::register_async_bridge_fns(
+                    scope,
+                    &bridge_ctx as *const BridgeCallContext,
+                    &pending as *const bridge::PendingPromises,
+                    &["_fetch", "_dns"],
+                );
+            }
+
+            eval(
+                &mut iso,
+                &ctx,
+                "var _p1 = _fetch('url'); var _p2 = _dns('host')",
+            );
+            assert_eq!(pending.len(), 2);
+
+            // Resolve in reverse order (p2 first, then p1)
+            let mut r2 = Vec::new();
+            rmpv::encode::write_value(
+                &mut r2,
+                &rmpv::Value::String("dns-result".into()),
+            )
+            .unwrap();
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                bridge::resolve_pending_promise(scope, &pending, 2, Some(r2), None)
+                    .unwrap();
+            }
+            assert_eq!(pending.len(), 1);
+
+            let mut r1 = Vec::new();
+            rmpv::encode::write_value(
+                &mut r1,
+                &rmpv::Value::String("fetch-result".into()),
+            )
+            .unwrap();
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                bridge::resolve_pending_promise(scope, &pending, 1, Some(r1), None)
+                    .unwrap();
+            }
+            assert_eq!(pending.len(), 0);
+
+            // Verify both promises fulfilled correctly
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+
+                let source = v8::String::new(scope, "_p1").unwrap();
+                let script = v8::Script::compile(scope, source, None).unwrap();
+                let result = script.run(scope).unwrap();
+                let promise = v8::Local::<v8::Promise>::try_from(result).unwrap();
+                assert_eq!(promise.state(), v8::PromiseState::Fulfilled);
+                assert_eq!(
+                    promise.result(scope).to_rust_string_lossy(scope),
+                    "fetch-result"
+                );
+
+                let source = v8::String::new(scope, "_p2").unwrap();
+                let script = v8::Script::compile(scope, source, None).unwrap();
+                let result = script.run(scope).unwrap();
+                let promise = v8::Local::<v8::Promise>::try_from(result).unwrap();
+                assert_eq!(promise.state(), v8::PromiseState::Fulfilled);
+                assert_eq!(
+                    promise.result(scope).to_rust_string_lossy(scope),
+                    "dns-result"
+                );
+            }
+        }
+
+        // --- Part 15: Async bridge call with null result resolves to undefined ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(Vec::new()),
+                Box::new(Cursor::new(Vec::new())),
+                "test-session".into(),
+            );
+            let pending = bridge::PendingPromises::new();
+
+            let _fn_store;
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                _fn_store = bridge::register_async_bridge_fns(
+                    scope,
+                    &bridge_ctx as *const BridgeCallContext,
+                    &pending as *const bridge::PendingPromises,
+                    &["_asyncFn"],
+                );
+            }
+
+            eval(&mut iso, &ctx, "var _promise = _asyncFn()");
+
+            // Resolve with None (null result)
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                bridge::resolve_pending_promise(scope, &pending, 1, None, None)
+                    .unwrap();
+            }
+
+            // Promise should be fulfilled with undefined
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                let source = v8::String::new(scope, "_promise").unwrap();
+                let script = v8::Script::compile(scope, source, None).unwrap();
+                let result = script.run(scope).unwrap();
+                let promise = v8::Local::<v8::Promise>::try_from(result).unwrap();
+                assert_eq!(promise.state(), v8::PromiseState::Fulfilled);
+                assert!(promise.result(scope).is_undefined());
+            }
+        }
+
+        // --- Part 16: Microtasks flushed after promise resolution ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(Vec::new()),
+                Box::new(Cursor::new(Vec::new())),
+                "test-session".into(),
+            );
+            let pending = bridge::PendingPromises::new();
+
+            let _fn_store;
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                _fn_store = bridge::register_async_bridge_fns(
+                    scope,
+                    &bridge_ctx as *const BridgeCallContext,
+                    &pending as *const bridge::PendingPromises,
+                    &["_asyncFn"],
+                );
+            }
+
+            // Set up .then handler that sets a global variable
+            eval(
+                &mut iso,
+                &ctx,
+                "var _thenRan = false; _asyncFn().then(function() { _thenRan = true; })",
+            );
+
+            // Before resolution, _thenRan should be false
+            assert!(eval_bool(&mut iso, &ctx, "_thenRan === false"));
+
+            // Resolve the promise (microtasks flushed inside resolve_pending_promise)
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                bridge::resolve_pending_promise(scope, &pending, 1, None, None)
+                    .unwrap();
+            }
+
+            // After resolution + microtask flush, _thenRan should be true
+            assert!(eval_bool(&mut iso, &ctx, "_thenRan === true"));
         }
     }
 }

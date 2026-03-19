@@ -1,5 +1,7 @@
 // Host function injection via v8::FunctionTemplate
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ffi::c_void;
 
 use crate::host_call::BridgeCallContext;
@@ -15,6 +17,48 @@ struct SyncBridgeFnData {
 /// Must be held for the lifetime of the V8 context.
 pub struct BridgeFnStore {
     _data: Vec<Box<SyncBridgeFnData>>,
+}
+
+/// Data attached to each async bridge function via v8::External.
+struct AsyncBridgeFnData {
+    ctx: *const BridgeCallContext,
+    pending: *const PendingPromises,
+    method: String,
+}
+
+/// Opaque store that keeps async bridge function data alive.
+/// Must be held for the lifetime of the V8 context.
+pub struct AsyncBridgeFnStore {
+    _data: Vec<Box<AsyncBridgeFnData>>,
+}
+
+/// Stores pending promise resolvers keyed by call_id.
+/// Single-threaded: only accessed from the session thread.
+pub struct PendingPromises {
+    map: RefCell<HashMap<u32, v8::Global<v8::PromiseResolver>>>,
+}
+
+impl PendingPromises {
+    pub fn new() -> Self {
+        PendingPromises {
+            map: RefCell::new(HashMap::new()),
+        }
+    }
+
+    /// Store a resolver for a given call_id.
+    pub fn insert(&self, call_id: u32, resolver: v8::Global<v8::PromiseResolver>) {
+        self.map.borrow_mut().insert(call_id, resolver);
+    }
+
+    /// Remove and return the resolver for a given call_id.
+    pub fn remove(&self, call_id: u32) -> Option<v8::Global<v8::PromiseResolver>> {
+        self.map.borrow_mut().remove(&call_id)
+    }
+
+    /// Number of pending promises.
+    pub fn len(&self) -> usize {
+        self.map.borrow().len()
+    }
 }
 
 /// Register sync-blocking bridge functions on the V8 global object.
@@ -103,6 +147,108 @@ fn sync_bridge_callback(
             scope.throw_exception(exc);
         }
     }
+}
+
+/// Register async promise-returning bridge functions on the V8 global object.
+///
+/// Each registered function, when called from V8:
+/// 1. Creates a v8::PromiseResolver
+/// 2. Stores the resolver + call_id in PendingPromises
+/// 3. Sends a BridgeCall over IPC (non-blocking write)
+/// 4. Returns the promise to V8
+///
+/// The BridgeCallContext and PendingPromises pointers must remain valid
+/// for the lifetime of the V8 context.
+pub fn register_async_bridge_fns(
+    scope: &mut v8::HandleScope,
+    ctx: *const BridgeCallContext,
+    pending: *const PendingPromises,
+    methods: &[&str],
+) -> AsyncBridgeFnStore {
+    let context = scope.get_current_context();
+    let global = context.global(scope);
+    let mut data = Vec::with_capacity(methods.len());
+
+    for &method_name in methods {
+        let boxed = Box::new(AsyncBridgeFnData {
+            ctx,
+            pending,
+            method: method_name.to_string(),
+        });
+        // Pointer to heap allocation — stable while Box exists in data vec
+        let ptr = &*boxed as *const AsyncBridgeFnData as *mut c_void;
+        data.push(boxed);
+
+        let external = v8::External::new(scope, ptr);
+        let template = v8::FunctionTemplate::builder(async_bridge_callback)
+            .data(external.into())
+            .build(scope);
+        let func = template.get_function(scope).unwrap();
+
+        let key = v8::String::new(scope, method_name).unwrap();
+        global.set(scope, key.into(), func.into());
+    }
+
+    AsyncBridgeFnStore { _data: data }
+}
+
+/// V8 FunctionTemplate callback for async promise-returning bridge calls.
+fn async_bridge_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    // Extract AsyncBridgeFnData from External
+    let external = match v8::Local::<v8::External>::try_from(args.data()) {
+        Ok(ext) => ext,
+        Err(_) => {
+            let msg =
+                v8::String::new(scope, "internal error: missing async bridge function data")
+                    .unwrap();
+            let exc = v8::Exception::error(scope, msg);
+            scope.throw_exception(exc);
+            return;
+        }
+    };
+    // SAFETY: pointer is valid while AsyncBridgeFnStore is alive (same session lifetime)
+    let data = unsafe { &*(external.value() as *const AsyncBridgeFnData) };
+    let ctx = unsafe { &*data.ctx };
+    let pending = unsafe { &*data.pending };
+
+    // Create PromiseResolver
+    let resolver = match v8::PromiseResolver::new(scope) {
+        Some(r) => r,
+        None => {
+            let msg = v8::String::new(scope, "failed to create PromiseResolver").unwrap();
+            let exc = v8::Exception::error(scope, msg);
+            scope.throw_exception(exc);
+            return;
+        }
+    };
+
+    // Get the promise to return to V8
+    let promise = resolver.get_promise(scope);
+
+    // Serialize V8 arguments as MessagePack array
+    let encoded_args = encode_v8_args(scope, &args);
+
+    // Send BridgeCall (non-blocking write)
+    match ctx.async_send(&data.method, encoded_args) {
+        Ok(call_id) => {
+            // Store resolver in pending promises map
+            let global_resolver = v8::Global::new(scope, resolver);
+            pending.insert(call_id, global_resolver);
+        }
+        Err(err_msg) => {
+            // Reject the promise immediately if send fails
+            let msg = v8::String::new(scope, &err_msg).unwrap();
+            let exc = v8::Exception::error(scope, msg);
+            resolver.reject(scope, exc);
+        }
+    }
+
+    // Return the promise
+    rv.set(promise.into());
 }
 
 /// Encode V8 function arguments as a MessagePack array.
@@ -243,4 +389,48 @@ fn rmpv_to_v8<'s>(scope: &mut v8::HandleScope<'s>, val: &rmpv::Value) -> v8::Loc
         }
         rmpv::Value::Ext(_, _) => v8::null(scope).into(),
     }
+}
+
+/// Resolve or reject a pending async bridge promise by call_id.
+///
+/// Called when a BridgeResponse arrives during the session event loop.
+/// Flushes microtasks after resolution to process .then() handlers.
+pub fn resolve_pending_promise(
+    scope: &mut v8::HandleScope,
+    pending: &PendingPromises,
+    call_id: u32,
+    result: Option<Vec<u8>>,
+    error: Option<String>,
+) -> Result<(), String> {
+    let resolver_global = pending
+        .remove(call_id)
+        .ok_or_else(|| format!("no pending promise for call_id {}", call_id))?;
+    let resolver = v8::Local::new(scope, &resolver_global);
+
+    if let Some(err_msg) = error {
+        let msg = v8::String::new(scope, &err_msg).unwrap();
+        let exc = v8::Exception::error(scope, msg);
+        resolver.reject(scope, exc);
+    } else if let Some(result_bytes) = result {
+        match msgpack_to_v8_value(scope, &result_bytes) {
+            Ok(val) => {
+                resolver.resolve(scope, val);
+            }
+            Err(e) => {
+                let msg =
+                    v8::String::new(scope, &format!("bridge deserialization error: {}", e))
+                        .unwrap();
+                let exc = v8::Exception::error(scope, msg);
+                resolver.reject(scope, exc);
+            }
+        }
+    } else {
+        let undef = v8::undefined(scope);
+        resolver.resolve(scope, undef.into());
+    }
+
+    // Flush microtasks after resolution
+    scope.perform_microtask_checkpoint();
+
+    Ok(())
 }

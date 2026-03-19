@@ -110,6 +110,29 @@ impl BridgeCallContext {
         }
     }
 
+    /// Send a BridgeCall without blocking for a response.
+    /// Returns the call_id for later matching with BridgeResponse.
+    /// Used by async promise-returning bridge functions.
+    pub fn async_send(&self, method: &str, args: Vec<u8>) -> Result<u32, String> {
+        let call_id = self.next_call_id.fetch_add(1, Ordering::Relaxed);
+
+        let bridge_call = RustMessage::BridgeCall {
+            call_id,
+            session_id: self.session_id.clone(),
+            method: method.to_string(),
+            args,
+        };
+
+        {
+            let mut writer = self.writer.lock().unwrap();
+            if let Err(e) = ipc::write_message(&mut *writer, &bridge_call) {
+                return Err(format!("failed to write BridgeCall: {}", e));
+            }
+        }
+
+        Ok(call_id)
+    }
+
     /// Check if a call_id is currently pending.
     pub fn is_call_pending(&self, call_id: u32) -> bool {
         self.pending_calls.lock().unwrap().contains(&call_id)
@@ -292,5 +315,67 @@ mod tests {
         let result = ctx.sync_call("_fn", vec![]);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("expected BridgeResponse"));
+    }
+
+    #[test]
+    fn async_send_writes_bridge_call() {
+        let writer_buf = Arc::new(Mutex::new(Vec::new()));
+        let ctx = BridgeCallContext::new(
+            Box::new(SharedWriter(Arc::clone(&writer_buf))),
+            Box::new(Cursor::new(Vec::new())),
+            "test-session-abc".into(),
+        );
+
+        let call_id = ctx
+            .async_send("_asyncFn", vec![0x91, 0xa3, 0x66, 0x6f, 0x6f])
+            .unwrap();
+        assert_eq!(call_id, 1);
+
+        // Verify the BridgeCall was written correctly
+        let written = writer_buf.lock().unwrap();
+        let call: RustMessage = ipc::read_message(&mut Cursor::new(&*written)).unwrap();
+        match call {
+            RustMessage::BridgeCall {
+                call_id,
+                session_id,
+                method,
+                args,
+            } => {
+                assert_eq!(call_id, 1);
+                assert_eq!(session_id, "test-session-abc");
+                assert_eq!(method, "_asyncFn");
+                assert_eq!(args, vec![0x91, 0xa3, 0x66, 0x6f, 0x6f]);
+            }
+            _ => panic!("expected BridgeCall"),
+        }
+    }
+
+    #[test]
+    fn async_send_increments_call_id() {
+        let ctx = BridgeCallContext::new(
+            Box::new(Vec::new()),
+            Box::new(Cursor::new(Vec::new())),
+            "session-1".into(),
+        );
+
+        let id1 = ctx.async_send("_fn1", vec![]).unwrap();
+        let id2 = ctx.async_send("_fn2", vec![]).unwrap();
+        assert_eq!(id1, 1);
+        assert_eq!(id2, 2);
+    }
+
+    #[test]
+    fn async_send_shares_counter_with_sync() {
+        // Sync call uses call_id=1, async_send should get call_id=2
+        let response_bytes = make_response_bytes(1, Some(vec![0xc0]), None);
+        let ctx = BridgeCallContext::new(
+            Box::new(Vec::new()),
+            Box::new(Cursor::new(response_bytes)),
+            "session-1".into(),
+        );
+
+        let _ = ctx.sync_call("_sync", vec![]);
+        let id = ctx.async_send("_async", vec![]).unwrap();
+        assert_eq!(id, 2);
     }
 }
