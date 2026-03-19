@@ -2379,3 +2379,20 @@ PRD: ralph/kernel-hardening (46 stories)
   - Wire format: Authenticate (0x01) has sid_len=0 (no session_id); extract_session_id returns None for it
   - ExecutionResult uses flag byte (bit 0 = has_exports, bit 1 = has_error) to conditionally include variable-length sections
 ---
+
+## 2026-03-19 - US-036
+- What was implemented: TypeScript binary header encoder/decoder module (ipc-binary.ts) matching the Rust ipc_binary.rs wire format
+- Files changed:
+  - `packages/secure-exec-v8/src/ipc-binary.ts` (new) — encodeFrame(), decodeFrame(), extractSessionId(), serializePayload/deserializePayload re-exports
+  - `packages/secure-exec-v8/test/ipc-binary.test.ts` (new) — 40 unit tests
+- Key implementation details:
+  - Uses `node:v8` serialize/deserialize for payload fields (not @msgpack/msgpack)
+  - BinaryFrame is a discriminated union type (by `type` field) with camelCase field names
+  - Wire format matches Rust byte-for-byte: [4B len][1B msg_type][1B sid_len][N sid][type-specific][payload]
+  - All 12 message types supported (0x01-0x08 Host→Rust, 0x81-0x84 Rust→Host)
+- **Learnings for future iterations:**
+  - node:v8 serialize/deserialize handles Date, Map, Set, RegExp, circular references natively — no manual type walking needed
+  - Buffer.readInt32BE exists for signed 32-bit reads (needed for ExecutionResult.exitCode which can be negative)
+  - readLenPrefixedU16 helper needed for ExecutionResult error fields (u16-length-prefixed strings)
+  - Existing ipc-client.ts and ipc-types.ts remain unchanged — new module is additive only
+---
