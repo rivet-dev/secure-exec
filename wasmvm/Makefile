@@ -1,5 +1,10 @@
 WASM_TARGET := wasm32-wasip1
 RELEASE_DIR := target/$(WASM_TARGET)/release
+
+# Standalone binary output directory (configurable)
+COMMANDS_DIR ?= $(RELEASE_DIR)/commands
+
+# Legacy multicall paths (kept for wasm-multicall target)
 WASM_OUTPUT := $(RELEASE_DIR)/multicall.wasm
 WASM_OPT_OUTPUT := $(RELEASE_DIR)/multicall.opt.wasm
 
@@ -11,7 +16,32 @@ PATCH_SCRIPT := scripts/patch-std.sh
 # Uses rustc without +toolchain override so rust-toolchain.toml is respected
 WASI_SYSROOT_SELF_CONTAINED := $(shell rustc --print sysroot)/lib/rustlib/$(WASM_TARGET)/lib/self-contained
 
-.PHONY: all wasm wasm-opt wasm-opt-check host test clean patch-std patch-check vendor patch-vendor vendor-patch-check size-report
+# Discover command binary names from crates/commands/
+COMMAND_NAMES := $(notdir $(wildcard crates/commands/*))
+
+# Alias symlinks: link_name:target_binary
+ALIAS_SYMLINKS := \
+	egrep:grep fgrep:grep \
+	gunzip:gzip zcat:gzip \
+	bash:sh \
+	dir:ls vdir:ls \
+	more:cat \
+	[:test
+
+# Stub commands: each gets a symlink to _stubs
+STUB_COMMANDS := \
+	chcon runcon \
+	chgrp chown chroot \
+	df \
+	groups id \
+	hostname hostid \
+	install \
+	kill \
+	mkfifo mknod \
+	pinky who users uptime \
+	stty sync tty
+
+.PHONY: all wasm wasm-multicall wasm-opt wasm-opt-check host test clean patch-std patch-check vendor patch-vendor vendor-patch-check size-report install
 
 all: wasm host
 
@@ -67,15 +97,70 @@ wasm-opt-check:
 		echo "wasm-opt found: $$(wasm-opt --version)"; \
 	fi
 
+# Build all standalone command binaries, optimize, strip .wasm extension, create symlinks
 wasm: vendor patch-vendor patch-std wasm-opt-check
 	RUSTFLAGS="-C link-arg=-L$(WASI_SYSROOT_SELF_CONTAINED)" \
 	cargo build --target $(WASM_TARGET) \
 		-Z build-std=std,panic_abort \
 		--release
+	@mkdir -p $(COMMANDS_DIR)
+	@TOTAL=0; SKIPPED=0; \
+	HAS_OPT=$$(command -v wasm-opt >/dev/null 2>&1 && echo 1 || echo 0); \
+	for cmd in $(COMMAND_NAMES); do \
+		wasm="$(RELEASE_DIR)/$$cmd.wasm"; \
+		if [ -f "$$wasm" ]; then \
+			TOTAL=$$((TOTAL + 1)); \
+			if [ "$$HAS_OPT" = "1" ]; then \
+				wasm-opt -O3 --strip-debug "$$wasm" -o "$(COMMANDS_DIR)/$$cmd"; \
+			else \
+				cp "$$wasm" "$(COMMANDS_DIR)/$$cmd"; \
+			fi; \
+		else \
+			SKIPPED=$$((SKIPPED + 1)); \
+			echo "Warning: $$wasm not found — skipping $$cmd"; \
+		fi; \
+	done; \
+	echo ""; \
+	echo "=== Standalone Binary Build Report ==="; \
+	echo "Binaries: $$TOTAL built"; \
+	if [ $$SKIPPED -gt 0 ]; then \
+		echo "Skipped:  $$SKIPPED (binary not found)"; \
+	fi; \
+	if [ "$$HAS_OPT" = "1" ]; then \
+		echo "Optimized: wasm-opt -O3 --strip-debug"; \
+	else \
+		echo "Optimized: none (wasm-opt not found)"; \
+	fi
+	@# Create alias symlinks (fall back to copy on platforms without symlink support)
+	@cd $(COMMANDS_DIR) && \
+	for pair in $(ALIAS_SYMLINKS); do \
+		link=$${pair%%:*}; target=$${pair##*:}; \
+		if [ -f "$$target" ]; then \
+			ln -sf "$$target" "$$link" 2>/dev/null || cp "$$target" "$$link"; \
+		fi; \
+	done
+	@# Create stub command symlinks
+	@cd $(COMMANDS_DIR) && \
+	for stub in $(STUB_COMMANDS); do \
+		if [ -f _stubs ]; then \
+			ln -sf _stubs "$$stub" 2>/dev/null || cp _stubs "$$stub"; \
+		fi; \
+	done
+	@TOTAL_FILES=$$(ls -1 $(COMMANDS_DIR) 2>/dev/null | wc -l); \
+	echo "Total:    $$TOTAL_FILES entries in $(COMMANDS_DIR)"; \
+	echo "=== Build complete ==="
+
+# Legacy: build only the multicall binary
+wasm-multicall: vendor patch-vendor patch-std wasm-opt-check
+	RUSTFLAGS="-C link-arg=-L$(WASI_SYSROOT_SELF_CONTAINED)" \
+	cargo build --target $(WASM_TARGET) \
+		-p multicall \
+		-Z build-std=std,panic_abort \
+		--release
 	@BEFORE_SIZE=$$(stat -c%s "$(WASM_OUTPUT)"); \
 	BEFORE_HUMAN=$$(ls -lh "$(WASM_OUTPUT)" | awk '{print $$5}'); \
 	echo ""; \
-	echo "=== WASM Binary Size Report ==="; \
+	echo "=== Multicall Binary Size Report ==="; \
 	echo "Before wasm-opt: $$BEFORE_HUMAN ($$BEFORE_SIZE bytes)"; \
 	if command -v wasm-opt >/dev/null 2>&1; then \
 		wasm-opt -O3 --strip-debug "$(WASM_OUTPUT)" -o "$(WASM_OPT_OUTPUT)"; \
@@ -89,17 +174,15 @@ wasm: vendor patch-vendor patch-std wasm-opt-check
 		fi; \
 		echo "After wasm-opt:  $$AFTER_HUMAN ($$AFTER_SIZE bytes)"; \
 		echo "Savings:         $$SAVINGS bytes ($$PCT%)"; \
-		FINAL_SIZE=$$AFTER_SIZE; \
 		FINAL_FILE="$(WASM_OPT_OUTPUT)"; \
 	else \
-		echo "wasm-opt not found — skipping optimization (install: cargo install wasm-opt)"; \
-		FINAL_SIZE=$$BEFORE_SIZE; \
+		echo "wasm-opt not found — skipping optimization"; \
 		FINAL_FILE="$(WASM_OUTPUT)"; \
 	fi; \
 	echo ""; \
 	LIMIT=$$((25 * 1024 * 1024)); \
-	if [ $$FINAL_SIZE -gt $$LIMIT ]; then \
-		echo "WARNING: Binary exceeds 25MB target! Run 'make size-report' to identify top contributors."; \
+	if [ $$BEFORE_SIZE -gt $$LIMIT ]; then \
+		echo "WARNING: Binary exceeds 25MB target!"; \
 	else \
 		echo "OK: Binary is under 25MB target."; \
 	fi; \
@@ -108,7 +191,7 @@ wasm: vendor patch-vendor patch-std wasm-opt-check
 # Standalone wasm-opt pass (for re-optimizing without rebuild)
 wasm-opt:
 	@if [ ! -f "$(WASM_OUTPUT)" ]; then \
-		echo "Error: $(WASM_OUTPUT) not found. Run 'make wasm' first."; \
+		echo "Error: $(WASM_OUTPUT) not found. Run 'make wasm-multicall' first."; \
 		exit 1; \
 	fi
 	@if command -v wasm-opt >/dev/null 2>&1; then \
@@ -121,28 +204,35 @@ wasm-opt:
 		echo "wasm-opt not found (install: cargo install wasm-opt)"; \
 	fi
 
-# Show per-crate size contribution (approximation from rlib sizes)
+# Show per-command binary sizes in COMMANDS_DIR
 size-report:
-	@if [ ! -f "$(WASM_OUTPUT)" ]; then \
-		echo "Error: $(WASM_OUTPUT) not found. Run 'make wasm' first."; \
+	@if [ ! -d "$(COMMANDS_DIR)" ]; then \
+		echo "Error: $(COMMANDS_DIR) not found. Run 'make wasm' first."; \
 		exit 1; \
 	fi
-	@echo "=== WASM Binary Size Report ==="
+	@echo "=== Standalone Binary Size Report ==="
 	@echo ""
-	@WASM_SIZE=$$(ls -lh "$(WASM_OUTPUT)" | awk '{print $$5}'); \
-	WASM_BYTES=$$(stat -c%s "$(WASM_OUTPUT)"); \
-	echo "Final binary: $$WASM_SIZE ($$WASM_BYTES bytes)  $(WASM_OUTPUT)"; \
-	if [ -f "$(WASM_OPT_OUTPUT)" ]; then \
-		OPT_SIZE=$$(ls -lh "$(WASM_OPT_OUTPUT)" | awk '{print $$5}'); \
-		OPT_BYTES=$$(stat -c%s "$(WASM_OPT_OUTPUT)"); \
-		echo "Optimized:    $$OPT_SIZE ($$OPT_BYTES bytes)  $(WASM_OPT_OUTPUT)"; \
-	fi; \
-	LIMIT=$$((25 * 1024 * 1024)); \
-	if [ $$WASM_BYTES -gt $$LIMIT ]; then \
-		echo "STATUS: OVER 25MB target!"; \
-	else \
-		echo "STATUS: Under 25MB target"; \
-	fi
+	@printf "%-10s  %s\n" "SIZE" "COMMAND"
+	@printf "%-10s  %s\n" "----" "-------"
+	@ls -lhS $(COMMANDS_DIR)/* 2>/dev/null | \
+		grep -v "^total" | \
+		while read line; do \
+			size=$$(echo "$$line" | awk '{print $$5}'); \
+			name=$$(echo "$$line" | awk '{print $$NF}'); \
+			base=$$(basename "$$name"); \
+			link=""; \
+			if [ -L "$$name" ]; then \
+				target=$$(readlink "$$name"); \
+				link=" -> $$target"; \
+			fi; \
+			printf "%-10s  %s%s\n" "$$size" "$$base" "$$link"; \
+		done
+	@echo ""
+	@TOTAL_SIZE=$$(du -sh $(COMMANDS_DIR) 2>/dev/null | awk '{print $$1}'); \
+	TOTAL_FILES=$$(ls -1 $(COMMANDS_DIR) 2>/dev/null | wc -l); \
+	REAL_FILES=$$(find $(COMMANDS_DIR) -maxdepth 1 -type f 2>/dev/null | wc -l); \
+	SYMLINKS=$$(find $(COMMANDS_DIR) -maxdepth 1 -type l 2>/dev/null | wc -l); \
+	echo "Total:     $$TOTAL_SIZE ($$TOTAL_FILES entries: $$REAL_FILES binaries, $$SYMLINKS symlinks)"
 	@echo ""
 	@echo "=== Per-Crate Size Contribution (rlib, top 30) ==="
 	@echo "Note: rlib sizes are pre-LTO; actual contribution after LTO/DCE may differ."
@@ -158,6 +248,20 @@ size-report:
 	@TOTAL=$$(ls $(RELEASE_DIR)/deps/*.rlib 2>/dev/null | \
 		sed 's/.*\/lib//' | sed 's/-[0-9a-f]*\.rlib//' | sort -u | wc -l); \
 	echo "Unique crates: $$TOTAL"
+
+# Install standalone binaries to a custom directory
+install:
+	@if [ -z "$(DESTDIR)" ]; then \
+		echo "Usage: make install DESTDIR=/path/to/commands"; \
+		exit 1; \
+	fi
+	@if [ ! -d "$(COMMANDS_DIR)" ]; then \
+		echo "Error: $(COMMANDS_DIR) not found. Run 'make wasm' first."; \
+		exit 1; \
+	fi
+	@mkdir -p $(DESTDIR)
+	@cp -a $(COMMANDS_DIR)/* $(DESTDIR)/
+	@echo "Installed to $(DESTDIR)"
 
 host:
 	@if [ -f host/package.json ]; then \
