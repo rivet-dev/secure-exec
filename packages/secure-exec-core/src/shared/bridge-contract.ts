@@ -26,6 +26,8 @@ export const HOST_BRIDGE_GLOBAL_KEYS = {
 	cryptoRandomUuid: "_cryptoRandomUUID",
 	cryptoHashDigest: "_cryptoHashDigest",
 	cryptoHmacDigest: "_cryptoHmacDigest",
+	cryptoPbkdf2: "_cryptoPbkdf2",
+	cryptoScrypt: "_cryptoScrypt",
 	fsReadFile: "_fsReadFile",
 	fsWriteFile: "_fsWriteFile",
 	fsReadFileBinary: "_fsReadFileBinary",
@@ -139,6 +141,14 @@ export type CryptoRandomFillBridgeRef = BridgeApplySyncRef<[number], string>;
 export type CryptoRandomUuidBridgeRef = BridgeApplySyncRef<[], string>;
 export type CryptoHashDigestBridgeRef = BridgeApplySyncRef<[string, string], string>;
 export type CryptoHmacDigestBridgeRef = BridgeApplySyncRef<[string, string, string], string>;
+export type CryptoPbkdf2BridgeRef = BridgeApplySyncRef<
+	[string, string, number, number, string],
+	string
+>;
+export type CryptoScryptBridgeRef = BridgeApplySyncRef<
+	[string, string, number, string],
+	string
+>;
 
 // Filesystem boundary contracts.
 export type FsReadFileBridgeRef = BridgeApplySyncPromiseRef<[string], string>;

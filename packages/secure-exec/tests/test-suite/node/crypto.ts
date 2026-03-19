@@ -365,6 +365,140 @@ export function runNodeCryptoSuite(context: NodeSuiteContext): void {
 		expect(exports.notAllZero).toBe(true);
 	});
 
+	it("pbkdf2Sync output matches Node.js for known inputs", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			const derived = crypto.pbkdf2Sync('password', 'salt', 1, 32, 'sha256');
+			module.exports = {
+				hex: derived.toString('hex'),
+				isBuffer: Buffer.isBuffer(derived),
+				length: derived.length,
+			};
+		`);
+		expect(result.code).toBe(0);
+		const exports = result.exports as any;
+		expect(exports.hex).toBe("120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b");
+		expect(exports.isBuffer).toBe(true);
+		expect(exports.length).toBe(32);
+	});
+
+	it("pbkdf2 async variant calls callback with derived key", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			let cbResult;
+			crypto.pbkdf2('password', 'salt', 1, 32, 'sha256', (err, derived) => {
+				cbResult = {
+					err: err,
+					hex: derived.toString('hex'),
+					isBuffer: Buffer.isBuffer(derived),
+				};
+			});
+			module.exports = cbResult;
+		`);
+		expect(result.code).toBe(0);
+		const exports = result.exports as any;
+		expect(exports.err).toBeNull();
+		expect(exports.hex).toBe("120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b");
+		expect(exports.isBuffer).toBe(true);
+	});
+
+	it("pbkdf2Sync accepts Buffer password and salt", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			const derived = crypto.pbkdf2Sync(
+				Buffer.from('password'),
+				Buffer.from('salt'),
+				1, 32, 'sha256'
+			);
+			module.exports = { hex: derived.toString('hex') };
+		`);
+		expect(result.code).toBe(0);
+		expect((result.exports as any).hex).toBe(
+			"120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b",
+		);
+	});
+
+	it("scryptSync output matches Node.js for known inputs", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			const derived = crypto.scryptSync('password', 'salt', 32, { N: 1024, r: 8, p: 1 });
+			module.exports = {
+				hex: derived.toString('hex'),
+				isBuffer: Buffer.isBuffer(derived),
+				length: derived.length,
+			};
+		`);
+		expect(result.code).toBe(0);
+		const exports = result.exports as any;
+		expect(exports.hex).toBe("16dbc8906763c7f048977a68f9d305f7710e068ca2cd95dab372125bb3f19608");
+		expect(exports.isBuffer).toBe(true);
+		expect(exports.length).toBe(32);
+	});
+
+	it("scryptSync works with default options", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			const derived = crypto.scryptSync('password', 'salt', 64);
+			module.exports = {
+				hex: derived.toString('hex'),
+				length: derived.length,
+			};
+		`);
+		expect(result.code).toBe(0);
+		const exports = result.exports as any;
+		expect(exports.hex).toBe(
+			"745731af4484f323968969eda289aeee005b5903ac561e64a5aca121797bf7734ef9fd58422e2e22183bcacba9ec87ba0c83b7a2e788f03ce0da06463433cda6",
+		);
+		expect(exports.length).toBe(64);
+	});
+
+	it("scrypt async variant calls callback with derived key", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			let cbResult;
+			crypto.scrypt('password', 'salt', 32, { N: 1024, r: 8, p: 1 }, (err, derived) => {
+				cbResult = {
+					err: err,
+					hex: derived.toString('hex'),
+					isBuffer: Buffer.isBuffer(derived),
+				};
+			});
+			module.exports = cbResult;
+		`);
+		expect(result.code).toBe(0);
+		const exports = result.exports as any;
+		expect(exports.err).toBeNull();
+		expect(exports.hex).toBe("16dbc8906763c7f048977a68f9d305f7710e068ca2cd95dab372125bb3f19608");
+		expect(exports.isBuffer).toBe(true);
+	});
+
+	it("scrypt async variant works without options", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			let cbResult;
+			crypto.scrypt('password', 'salt', 64, (err, derived) => {
+				cbResult = {
+					err: err,
+					hex: derived.toString('hex'),
+				};
+			});
+			module.exports = cbResult;
+		`);
+		expect(result.code).toBe(0);
+		const exports = result.exports as any;
+		expect(exports.err).toBeNull();
+		expect(exports.hex).toBe(
+			"745731af4484f323968969eda289aeee005b5903ac561e64a5aca121797bf7734ef9fd58422e2e22183bcacba9ec87ba0c83b7a2e788f03ce0da06463433cda6",
+		);
+	});
+
 	it("randomBytes rejects negative size", async () => {
 		const runtime = await context.createRuntime();
 		const result = await runtime.run(`

@@ -1,5 +1,12 @@
 import ivm from "isolated-vm";
-import { randomFillSync, randomUUID, createHash, createHmac } from "node:crypto";
+import {
+	randomFillSync,
+	randomUUID,
+	createHash,
+	createHmac,
+	pbkdf2Sync,
+	scryptSync,
+} from "node:crypto";
 import {
 	getInitialBridgeGlobalsSetupCode,
 	getIsolateRuntimeSource,
@@ -286,6 +293,38 @@ export async function setupRequire(
 	);
 	await jail.set(HOST_BRIDGE_GLOBAL_KEYS.cryptoHashDigest, cryptoHashDigestRef);
 	await jail.set(HOST_BRIDGE_GLOBAL_KEYS.cryptoHmacDigest, cryptoHmacDigestRef);
+
+	// Set up host crypto references for pbkdf2/scrypt key derivation.
+	const cryptoPbkdf2Ref = new ivm.Reference(
+		(
+			passwordBase64: string,
+			saltBase64: string,
+			iterations: number,
+			keylen: number,
+			digest: string,
+		) => {
+			const password = Buffer.from(passwordBase64, "base64");
+			const salt = Buffer.from(saltBase64, "base64");
+			return pbkdf2Sync(password, salt, iterations, keylen, digest).toString(
+				"base64",
+			);
+		},
+	);
+	const cryptoScryptRef = new ivm.Reference(
+		(
+			passwordBase64: string,
+			saltBase64: string,
+			keylen: number,
+			optionsJson: string,
+		) => {
+			const password = Buffer.from(passwordBase64, "base64");
+			const salt = Buffer.from(saltBase64, "base64");
+			const options = JSON.parse(optionsJson);
+			return scryptSync(password, salt, keylen, options).toString("base64");
+		},
+	);
+	await jail.set(HOST_BRIDGE_GLOBAL_KEYS.cryptoPbkdf2, cryptoPbkdf2Ref);
+	await jail.set(HOST_BRIDGE_GLOBAL_KEYS.cryptoScrypt, cryptoScryptRef);
 
 	// Set up fs References (stubbed if filesystem is disabled)
 	{

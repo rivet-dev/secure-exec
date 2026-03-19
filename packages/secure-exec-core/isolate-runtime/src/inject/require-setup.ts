@@ -453,6 +453,69 @@
             };
           }
 
+          // Overlay host-backed pbkdf2/pbkdf2Sync
+          if (typeof _cryptoPbkdf2 !== 'undefined') {
+            result.pbkdf2Sync = function pbkdf2Sync(password, salt, iterations, keylen, digest) {
+              var pwBuf = typeof password === 'string' ? Buffer.from(password, 'utf8') : Buffer.from(password);
+              var saltBuf = typeof salt === 'string' ? Buffer.from(salt, 'utf8') : Buffer.from(salt);
+              var resultBase64 = _cryptoPbkdf2.applySync(undefined, [
+                pwBuf.toString('base64'),
+                saltBuf.toString('base64'),
+                iterations,
+                keylen,
+                digest,
+              ]);
+              return Buffer.from(resultBase64, 'base64');
+            };
+            result.pbkdf2 = function pbkdf2(password, salt, iterations, keylen, digest, callback) {
+              try {
+                var derived = result.pbkdf2Sync(password, salt, iterations, keylen, digest);
+                callback(null, derived);
+              } catch (e) {
+                callback(e);
+              }
+            };
+          }
+
+          // Overlay host-backed scrypt/scryptSync
+          if (typeof _cryptoScrypt !== 'undefined') {
+            result.scryptSync = function scryptSync(password, salt, keylen, options) {
+              var pwBuf = typeof password === 'string' ? Buffer.from(password, 'utf8') : Buffer.from(password);
+              var saltBuf = typeof salt === 'string' ? Buffer.from(salt, 'utf8') : Buffer.from(salt);
+              var opts = {};
+              if (options) {
+                if (options.N !== undefined) opts.N = options.N;
+                if (options.r !== undefined) opts.r = options.r;
+                if (options.p !== undefined) opts.p = options.p;
+                if (options.maxmem !== undefined) opts.maxmem = options.maxmem;
+                if (options.cost !== undefined) opts.N = options.cost;
+                if (options.blockSize !== undefined) opts.r = options.blockSize;
+                if (options.parallelization !== undefined) opts.p = options.parallelization;
+              }
+              var resultBase64 = _cryptoScrypt.applySync(undefined, [
+                pwBuf.toString('base64'),
+                saltBuf.toString('base64'),
+                keylen,
+                JSON.stringify(opts),
+              ]);
+              return Buffer.from(resultBase64, 'base64');
+            };
+            result.scrypt = function scrypt(password, salt, keylen, optionsOrCb, callback) {
+              var opts = optionsOrCb;
+              var cb = callback;
+              if (typeof optionsOrCb === 'function') {
+                opts = undefined;
+                cb = optionsOrCb;
+              }
+              try {
+                var derived = result.scryptSync(password, salt, keylen, opts);
+                cb(null, derived);
+              } catch (e) {
+                cb(e);
+              }
+            };
+          }
+
           return result;
         }
 
