@@ -2437,3 +2437,17 @@ PRD: ralph/kernel-hardening (46 stories)
   - Docker port output format is "0.0.0.0:12345" — match /:(\d+)$/m to extract the host port
   - afterAll cleanup in container tests ensures containers are removed even on test failure
 ---
+
+## 2026-03-19 - US-193
+- Added ioredis project-matrix fixture at packages/secure-exec/tests/projects/ioredis-pass/
+- Implemented as import-only fixture (consistent with pg-pass, mysql2-pass) because net module is deferred-stubbed in sandbox — real TCP connections via net.Socket are impossible
+- Validates: Redis constructor, Cluster class, Command class, 13 prototype methods (connect, disconnect, quit, get, set, del, lpush, lrange, subscribe, unsubscribe, publish, pipeline, multi), pipeline/multi transaction APIs, Command building, event emitter interface, options parsing
+- Updated docs/nodejs-compatibility.mdx Tested Packages table with ioredis entry
+- Files changed: packages/secure-exec/tests/projects/ioredis-pass/{package.json,fixture.json,src/index.js}, docs/nodejs-compatibility.mdx
+- **Learnings for future iterations:**
+  - net module is a deferred stub in sandbox — require("net") returns a Proxy; any API call (createServer, Socket, connect) throws "<module>.<api> is not supported in sandbox"
+  - Deferred modules: net, tls, readline, perf_hooks, worker_threads, diagnostics_channel, async_hooks — defined in isolate-runtime/src/inject/require-setup.ts
+  - Database client fixtures (pg, mysql2, ioredis) can only be import-only in project-matrix because they all depend on net.Socket for TCP connections
+  - http.createServer IS supported (used by express, fastify, ws fixtures) but net.createServer is NOT — ws WebSocketServer works because it wraps http.createServer internally
+  - ioredis with { lazyConnect: true, enableReadyCheck: false } safely constructs without touching net module — pipeline/multi/Command APIs work without a connection
+---
