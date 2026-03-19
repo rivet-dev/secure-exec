@@ -2323,3 +2323,15 @@ PRD: ralph/kernel-hardening (46 stories)
   - Bridge handler async callbacks can outlive the IPC connection (e.g., slow handler returns after timeout kills connection) — guard client.send() with isConnected check to avoid unhandled rejections
   - TimeoutGuard drops abort_tx to unblock ChannelMessageReader's select!, which returns TimedOut error to sync_call — this unblocks both sync bridge calls and the event loop
 ---
+
+## 2026-03-19 - US-031
+- What was implemented: IPC security tests covering auth token validation, cross-session access prevention, oversized message rejection, and duplicate BridgeResponse call_id integrity
+- Files changed:
+  - packages/secure-exec-v8/test/ipc-security.test.ts — new test file with 6 tests: wrong auth token rejection, non-Authenticate first message rejection, cross-session access prevention (connection B cannot access A's sessions), JS-side 64MB message size enforcement, Rust-side oversized length prefix rejection, duplicate BridgeResponse call_id resilience
+- **Learnings for future iterations:**
+  - Raw IPC testing requires spawning the Rust binary manually via child_process.spawn() and reading the socket path from stdout — use the same pattern as createV8Runtime but with direct IpcClient control
+  - readline 'close' event fires even after calling rl.close() in the 'line' handler — must track resolved state to avoid double-settlement of the Promise
+  - Cross-session access is enforced by connection_id binding in SessionManager — rejected messages are logged to stderr but no error response is sent back to the offending connection
+  - Duplicate BridgeResponse call_ids are silently dropped by the CallIdRouter (uses HashMap.remove, so second lookup returns None) — Rust process stays alive, session continues working
+  - Oversized message rejection by Rust causes a read error (InvalidData) which closes the connection, but the Rust process itself stays alive to serve other connections
+---
