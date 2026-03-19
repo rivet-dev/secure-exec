@@ -708,8 +708,8 @@
         "Tests pass"
       ],
       "priority": 42,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Rust session.rs caches last bridge_code string per session; empty bridge_code in Execute = use cached. JS runtime.ts tracks FNV-1a hash per session, skips sending when unchanged. First execution always sends full bridge code; subsequent executions with same code send 0-length."
     },
     {
       "id": "US-043",

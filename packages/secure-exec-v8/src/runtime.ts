@@ -234,6 +234,8 @@ export async function createV8Runtime(
 
 			// Create session proxy
 			const client = ipcClient;
+			// Track bridge code hash to skip resending unchanged bridge code
+			let lastBridgeCodeHash: number | null = null;
 			const session: V8Session = {
 				sendStreamEvent(eventType: string, payload: Uint8Array): void {
 					ensureAlive();
@@ -367,15 +369,20 @@ export async function createV8Runtime(
 							}
 						});
 
-						// Send Execute
-						client.send({
-							type: "Execute",
-							sessionId,
-							bridgeCode: execOptions.bridgeCode,
-							userCode: execOptions.userCode,
-							mode: execOptions.mode === "exec" ? 0 : 1,
-							filePath: execOptions.filePath ?? "",
-						});
+						// Send Execute — skip bridge code if unchanged since last send
+					const bridgeHash = fnv1aHash(execOptions.bridgeCode);
+					const sendBridgeCode = bridgeHash !== lastBridgeCodeHash;
+					if (sendBridgeCode) {
+						lastBridgeCodeHash = bridgeHash;
+					}
+					client.send({
+						type: "Execute",
+						sessionId,
+						bridgeCode: sendBridgeCode ? execOptions.bridgeCode : "",
+						userCode: execOptions.userCode,
+						mode: execOptions.mode === "exec" ? 0 : 1,
+						filePath: execOptions.filePath ?? "",
+					});
 					});
 				},
 
@@ -479,4 +486,15 @@ function readSocketPath(child: ChildProcess): Promise<string> {
 			}
 		});
 	});
+}
+
+/** FNV-1a hash of a string, returning a 32-bit integer.
+ * Matches the hash algorithm used on the Rust side for bridge code comparison. */
+function fnv1aHash(str: string): number {
+	let hash = 0x811c9dc5;
+	for (let i = 0; i < str.length; i++) {
+		hash ^= str.charCodeAt(i);
+		hash = Math.imul(hash, 0x01000193);
+	}
+	return hash >>> 0;
 }

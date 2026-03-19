@@ -257,6 +257,10 @@ fn session_thread(
     #[cfg(not(test))]
     let mut bridge_cache: Option<execution::BridgeCodeCache> = None;
 
+    // Cached bridge code string to skip resending over IPC
+    #[cfg(not(test))]
+    let mut last_bridge_code: Option<String> = None;
+
     // Process commands until shutdown or channel close
     loop {
         match rx.recv() {
@@ -278,6 +282,14 @@ fn session_thread(
                         mode,
                         file_path,
                     } => {
+                        // Use cached bridge code when host sends empty (0-length = use cached)
+                        let effective_bridge_code = if bridge_code.is_empty() {
+                            last_bridge_code.as_deref().unwrap_or("").to_string()
+                        } else {
+                            last_bridge_code = Some(bridge_code.clone());
+                            bridge_code
+                        };
+
                         // Create a fresh V8 context per execution (clean global scope)
                         let exec_context = isolate::create_context(&mut v8_isolate);
 
@@ -347,7 +359,7 @@ fn session_thread(
                             let ctx = v8::Local::new(scope, &exec_context);
                             let scope = &mut v8::ContextScope::new(scope, ctx);
                             let (c, e) =
-                                execution::execute_script(scope, &bridge_code, &user_code, &mut bridge_cache);
+                                execution::execute_script(scope, &effective_bridge_code, &user_code, &mut bridge_cache);
                             (c, None, e)
                         } else {
                             let scope = &mut v8::HandleScope::new(&mut v8_isolate);
@@ -356,7 +368,7 @@ fn session_thread(
                             execution::execute_module(
                                 scope,
                                 &bridge_ctx,
-                                &bridge_code,
+                                &effective_bridge_code,
                                 &user_code,
                                 file_path_opt,
                                 &mut bridge_cache,

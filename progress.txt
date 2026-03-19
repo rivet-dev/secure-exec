@@ -2490,3 +2490,18 @@ PRD: ralph/kernel-hardening (46 stories)
   - Helper functions that take `&mut TryCatch` and return `Local<Script>` cause lifetime conflicts when the caller needs to create another TryCatch afterwards — must contain the TryCatch within the helper (compile+run together)
   - `CachedData::new(bytes)` creates a BufferNotOwned reference — the bytes must outlive the Source
 ---
+
+## 2026-03-19 - US-042
+- What was implemented: Bridge code caching on the Rust side to skip resending over IPC
+  - Rust session.rs: Added `last_bridge_code: Option<String>` per session. When Execute arrives with empty (0-length) bridge_code, uses the cached value. When non-empty, updates the cache.
+  - JS runtime.ts: Added per-session `lastBridgeCodeHash` tracking using 32-bit FNV-1a hash. First execution always sends full bridge code; subsequent executions with same code send empty string (0-length), skipping the entire UTF-8 payload on the wire.
+  - Wire format unchanged — existing u32 BE length prefix naturally supports 0-length for "use cached" semantics
+- Files changed:
+  - crates/v8-runtime/src/session.rs — added `last_bridge_code` state, empty bridge_code → use cached logic, updated execute calls to use `effective_bridge_code`
+  - packages/secure-exec-v8/src/runtime.ts — added `lastBridgeCodeHash` per session, `fnv1aHash()` function, conditional bridge code sending
+  - scripts/ralph/prd.json — marked US-042 passes: true
+- **Learnings for future iterations:**
+  - The wire format already supports the optimization naturally — 0-length bridge_code in u32 BE prefix means empty string, no wire format changes needed
+  - JS and Rust hash algorithms don't need to match since they serve different purposes: JS hash is for deciding whether to resend, Rust hash (64-bit) is for V8 bytecode cache invalidation
+  - The per-session bridge code cache in session.rs (`last_bridge_code`) is distinct from the V8 bytecode cache (`bridge_cache`) — one avoids IPC transfer, the other avoids V8 recompilation
+---
