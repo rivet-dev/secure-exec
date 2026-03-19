@@ -17,6 +17,12 @@ export { createWasmVmRuntime, WASMVM_COMMANDS } from './driver.ts';
 export type { WasmVmRuntimeOptions } from './driver.ts';
 export { ModuleCache } from './module-cache.ts';
 export { isWasmBinary, isWasmBinarySync } from './wasm-magic.ts';
+export { createBrowserWasmVmRuntime } from './browser-driver.ts';
+export type {
+  BrowserWasmVmRuntimeOptions,
+  CommandManifest,
+  CommandManifestEntry,
+} from './browser-driver.ts';
 
 // Re-export WASI constants and types for downstream consumers
 export * from './wasi-constants.ts';
