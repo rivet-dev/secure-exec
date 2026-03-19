@@ -32,9 +32,15 @@ export interface IpcClientOptions {
  *
  * Wire format: [4-byte u32 big-endian length][N-byte binary frame body]
  */
+/** Initial receive buffer size (64 KB). */
+const INITIAL_BUF_SIZE = 64 * 1024;
+
 export class IpcClient {
 	private socket: net.Socket | null = null;
-	private recvBuf: Buffer = Buffer.alloc(0);
+	// Pre-allocated receive buffer with read/write cursors.
+	private recvBuf: Buffer = Buffer.allocUnsafe(INITIAL_BUF_SIZE);
+	private readPos = 0;
+	private writePos = 0;
 	private onMessage: MessageHandler;
 	private onClose?: () => void;
 	private onError?: (err: Error) => void;
@@ -102,6 +108,9 @@ export class IpcClient {
 			this.socket.destroy();
 			this.socket = null;
 			this.connected = false;
+			// Reset buffer state.
+			this.readPos = 0;
+			this.writePos = 0;
 		}
 	}
 
@@ -110,13 +119,39 @@ export class IpcClient {
 		return this.connected;
 	}
 
+	/** Ensure the receive buffer has room for `needed` bytes. */
+	private ensureCapacity(needed: number): void {
+		const available = this.recvBuf.length - this.writePos;
+		if (available >= needed) return;
+
+		const unconsumed = this.writePos - this.readPos;
+		const required = unconsumed + needed;
+
+		if (required <= this.recvBuf.length) {
+			// Compact: shift unconsumed data to the front.
+			this.recvBuf.copyWithin(0, this.readPos, this.writePos);
+		} else {
+			// Grow: allocate a new buffer that fits.
+			let newSize = this.recvBuf.length;
+			while (newSize < required) newSize *= 2;
+			const newBuf = Buffer.allocUnsafe(newSize);
+			this.recvBuf.copy(newBuf, 0, this.readPos, this.writePos);
+			this.recvBuf = newBuf;
+		}
+		this.readPos = 0;
+		this.writePos = unconsumed;
+	}
+
 	/** Parse incoming data with length-prefix framing. */
 	private handleData(chunk: Buffer): void {
-		this.recvBuf = Buffer.concat([this.recvBuf, chunk]);
+		// Append chunk into the pre-allocated buffer.
+		this.ensureCapacity(chunk.length);
+		chunk.copy(this.recvBuf, this.writePos);
+		this.writePos += chunk.length;
 
 		// Drain as many complete frames as possible.
-		while (this.recvBuf.length >= 4) {
-			const payloadLen = this.recvBuf.readUInt32BE(0);
+		while (this.writePos - this.readPos >= 4) {
+			const payloadLen = this.recvBuf.readUInt32BE(this.readPos);
 
 			// Reject oversized messages.
 			if (payloadLen > MAX_MESSAGE_SIZE) {
@@ -130,13 +165,14 @@ export class IpcClient {
 
 			// Wait for complete message.
 			const totalLen = 4 + payloadLen;
-			if (this.recvBuf.length < totalLen) {
+			if (this.writePos - this.readPos < totalLen) {
 				break;
 			}
 
 			// Extract body (without length prefix) and decode.
-			const body = this.recvBuf.subarray(4, totalLen);
-			this.recvBuf = this.recvBuf.subarray(totalLen);
+			const bodyStart = this.readPos + 4;
+			const body = this.recvBuf.subarray(bodyStart, this.readPos + totalLen);
+			this.readPos += totalLen;
 
 			try {
 				const frame = decodeFrame(Buffer.from(body));
@@ -150,6 +186,14 @@ export class IpcClient {
 				this.close();
 				return;
 			}
+		}
+
+		// Compact when consumed portion exceeds half the buffer.
+		if (this.readPos > this.recvBuf.length / 2) {
+			const unconsumed = this.writePos - this.readPos;
+			this.recvBuf.copyWithin(0, this.readPos, this.writePos);
+			this.readPos = 0;
+			this.writePos = unconsumed;
 		}
 	}
 }
