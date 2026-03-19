@@ -290,3 +290,22 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - `v8::Local<v8::Value>` is Copy-like (phantom lifetime) — safe to pass to both `extract_process_exit_code()` and `extract_error_info()` sequentially
   - `exception.is_true()` checks strict boolean true — an object with `_isProcessExit: 1` or `_isProcessExit: "yes"` would NOT match, only `true`
 ---
+
+## 2026-03-18 - US-018
+- Scaffolded `packages/secure-exec-v8/` as a new workspace package
+- Created `package.json` (`@secure-exec/v8`), `tsconfig.json`, `README.md`
+- Created `src/index.ts` re-exporting `createV8Runtime`, `V8Runtime`, `V8RuntimeOptions` from `runtime.ts` and `V8Session`, `V8SessionOptions`, `V8ExecutionOptions`, `V8ExecutionResult`, `V8ExecutionError`, `BridgeHandler`, `BridgeHandlers` from `session.ts`
+- `createV8Runtime()` is a stub (throws "Not yet implemented") — real implementation in US-020
+- `V8Session.execute()` takes `V8ExecutionOptions` (bridgeCode, userCode, mode, filePath, processConfig, osConfig, bridgeHandlers)
+- `V8ExecutionResult` has `code`, `exports?`, `error?` matching the Rust-side `ExecutionResult` schema
+- `@msgpack/msgpack` added as a dependency (needed by US-019 for IPC client)
+- All 27 workspace tasks pass typecheck
+- Files created: `packages/secure-exec-v8/{package.json,tsconfig.json,README.md,src/index.ts,src/runtime.ts,src/session.ts}`
+- **Learnings for future iterations:**
+  - All packages use identical tsconfig.json (no extends pattern, no base config)
+  - Package naming: directory `secure-exec-v8`, npm name `@secure-exec/v8`
+  - `pnpm-workspace.yaml` has `packages/*` glob so new packages under `packages/` are auto-discovered
+  - Every publishable package needs `"files": ["dist", "README.md"]` in package.json
+  - Use `.js` extensions in ESM import paths (e.g., `"./runtime.js"`)
+  - turbo auto-discovers the new package's `check-types` script
+---
