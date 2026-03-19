@@ -105,14 +105,14 @@ export type ModuleCacheBridgeRecord = Record<string, unknown>;
 export type ProcessLogBridgeRef = (msg: string) => void;
 export type ProcessErrorBridgeRef = (msg: string) => void;
 export type ScheduleTimerBridgeRef = (delayMs: number) => Promise<void>;
-export type CryptoRandomFillBridgeRef = (byteLength: number) => string;
+export type CryptoRandomFillBridgeRef = (byteLength: number) => Uint8Array;
 export type CryptoRandomUuidBridgeRef = () => string;
 
 // Filesystem boundary contracts.
 export type FsReadFileBridgeRef = (path: string) => string;
 export type FsWriteFileBridgeRef = (path: string, content: string) => void;
-export type FsReadFileBinaryBridgeRef = (path: string) => string;
-export type FsWriteFileBinaryBridgeRef = (path: string, content: string) => void;
+export type FsReadFileBinaryBridgeRef = (path: string) => Uint8Array;
+export type FsWriteFileBinaryBridgeRef = (path: string, content: Uint8Array) => void;
 export type FsReadDirBridgeRef = (path: string) => string;
 export type FsMkdirBridgeRef = (path: string, recursive: boolean) => void;
 export type FsRmdirBridgeRef = (path: string) => void;

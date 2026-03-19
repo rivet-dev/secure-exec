@@ -1142,8 +1142,7 @@ export const cryptoPolyfill = {
       array.byteLength
     );
     try {
-      const base64 = _cryptoRandomFill(bytes.byteLength);
-      const hostBytes = BufferPolyfill.from(base64, "base64");
+      const hostBytes = _cryptoRandomFill(bytes.byteLength);
       if (hostBytes.byteLength !== bytes.byteLength) {
         throw new Error("invalid host entropy size");
       }

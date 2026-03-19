@@ -37,7 +37,6 @@ import {
 	checkBridgeBudget,
 	assertPayloadByteLength,
 	assertTextPayloadSize,
-	getBase64EncodedByteLength,
 	parseJsonWithLimit,
 	polyfillCodeCache,
 	PAYLOAD_LIMIT_ERROR_CODE,
@@ -257,7 +256,7 @@ export async function setupRequire(
 		}
 		const buffer = Buffer.allocUnsafe(byteLength);
 		randomFillSync(buffer);
-		return buffer.toString("base64");
+		return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
 	});
 	const cryptoRandomUuidRef = new ivm.Reference(() => {
 		return randomUUID();
@@ -288,29 +287,26 @@ export async function setupRequire(
 				await fs.writeFile(path, content);
 			},
 		);
-		// Binary file operations using base64 encoding
+		// Binary file operations using native binary transfer
 		const readFileBinaryRef = new ivm.Reference(async (path: string) => {
 			checkBridgeBudget(deps);
 			const data = await fs.readFile(path);
 				assertPayloadByteLength(
 					`fs.readFileBinary ${path}`,
-					getBase64EncodedByteLength(data.byteLength),
+					data.byteLength,
 					base64Limit,
 				);
-			// Convert to base64 for transfer across isolate boundary
-			return Buffer.from(data).toString("base64");
+			return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
 		});
 		const writeFileBinaryRef = new ivm.Reference(
-			async (path: string, base64Content: string) => {
+			async (path: string, binaryContent: Uint8Array) => {
 				checkBridgeBudget(deps);
-					assertTextPayloadSize(
-						`fs.writeFileBinary ${path}`,
-						base64Content,
-						base64Limit,
-					);
-				// Decode base64 and write as binary
-				const data = Buffer.from(base64Content, "base64");
-				await fs.writeFile(path, data);
+				assertPayloadByteLength(
+					`fs.writeFileBinary ${path}`,
+					binaryContent.byteLength,
+					base64Limit,
+				);
+				await fs.writeFile(path, binaryContent);
 			},
 		);
 		const readDirRef = new ivm.Reference(async (path: string) => {

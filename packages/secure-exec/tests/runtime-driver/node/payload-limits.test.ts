@@ -38,8 +38,8 @@ function createConsoleCapture() {
 	};
 }
 
-function bytesOverBase64Limit(limitBytes: number): number {
-	return Math.floor(limitBytes / 4) * 3 + 1;
+function bytesOverBinaryLimit(limitBytes: number): number {
+	return limitBytes + 1;
 }
 
 function createEchoNetworkAdapter(): NetworkAdapter {
@@ -105,9 +105,9 @@ describe("NodeRuntime payload limits", () => {
 		expect(Array.from(copied)).toEqual(Array.from(payload));
 	});
 
-	it("rejects oversized binary reads before returning base64 payloads", async () => {
+	it("rejects oversized binary reads", async () => {
 		const fs = createInMemoryFileSystem();
-		const oversizedRawBytes = bytesOverBase64Limit(
+		const oversizedRawBytes = bytesOverBinaryLimit(
 			DEFAULT_BRIDGE_BASE64_TRANSFER_BYTES,
 		);
 		await fs.mkdir("/data");
@@ -124,9 +124,9 @@ describe("NodeRuntime payload limits", () => {
 		expect(result.errorMessage).toContain("fs.readFileBinary");
 	});
 
-	it("rejects oversized binary writes before base64 decode", async () => {
+	it("rejects oversized binary writes", async () => {
 		const fs = createInMemoryFileSystem();
-		const oversizedRawBytes = bytesOverBase64Limit(
+		const oversizedRawBytes = bytesOverBinaryLimit(
 			DEFAULT_BRIDGE_BASE64_TRANSFER_BYTES,
 		);
 		await fs.mkdir("/data");
@@ -185,9 +185,9 @@ describe("NodeRuntime payload limits", () => {
 		expect(result.errorMessage).toContain("network.fetch options");
 	});
 
-	it("allows larger base64 payloads with in-range configured limits", async () => {
+	it("allows larger binary payloads with in-range configured limits", async () => {
 		const fs = createInMemoryFileSystem();
-		const oversizedRawBytes = bytesOverBase64Limit(
+		const oversizedRawBytes = bytesOverBinaryLimit(
 			DEFAULT_BRIDGE_BASE64_TRANSFER_BYTES,
 		);
 		await fs.mkdir("/data");

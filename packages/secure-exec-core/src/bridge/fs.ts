@@ -1034,9 +1034,9 @@ const fs = {
         const content = _fs.readFile(pathStr);
         return content;
       } else {
-        // Binary mode - use binary read with base64 encoding
-        const base64Content = _fs.readFileBinary(pathStr);
-        return Buffer.from(base64Content, "base64");
+        // Binary mode - host returns raw Uint8Array via MessagePack bin
+        const binaryData = _fs.readFileBinary(pathStr);
+        return Buffer.from(binaryData);
       }
     } catch (err) {
       const errMsg = (err as Error).message || String(err);
@@ -1081,10 +1081,9 @@ const fs = {
       // Return the result so async callers (fs.promises) can await it.
       return _fs.writeFile(pathStr, data);
     } else if (ArrayBuffer.isView(data)) {
-      // Binary mode - convert to base64 and use binary write
+      // Binary mode - send raw Uint8Array via MessagePack bin
       const uint8 = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-      const base64 = Buffer.from(uint8).toString("base64");
-      return _fs.writeFileBinary(pathStr, base64);
+      return _fs.writeFileBinary(pathStr, uint8);
     } else {
       // Fallback to text mode
       return _fs.writeFile(pathStr, String(data));

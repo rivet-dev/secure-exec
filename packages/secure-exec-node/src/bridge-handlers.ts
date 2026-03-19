@@ -26,7 +26,6 @@ import {
 	checkBridgeBudget,
 	assertPayloadByteLength,
 	assertTextPayloadSize,
-	getBase64EncodedByteLength,
 	parseJsonWithLimit,
 	polyfillCodeCache,
 	PAYLOAD_LIMIT_ERROR_CODE,
@@ -177,7 +176,7 @@ export function buildBridgeHandlers(options: BuildBridgeHandlersOptions): Bridge
 		}
 		const buffer = Buffer.allocUnsafe(len);
 		randomFillSync(buffer);
-		return buffer.toString("base64");
+		return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
 	};
 	handlers[K.cryptoRandomUuid] = () => randomUUID();
 
@@ -200,14 +199,15 @@ export function buildBridgeHandlers(options: BuildBridgeHandlersOptions): Bridge
 		handlers[K.fsReadFileBinary] = async (path: unknown) => {
 			checkBridgeBudget(deps);
 			const data = await fs.readFile(String(path));
-			assertPayloadByteLength(`fs.readFileBinary ${path}`, getBase64EncodedByteLength(data.byteLength), base64Limit);
-			return Buffer.from(data).toString("base64");
+			assertPayloadByteLength(`fs.readFileBinary ${path}`, data.byteLength, base64Limit);
+			return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
 		};
-		handlers[K.fsWriteFileBinary] = async (path: unknown, base64Content: unknown) => {
+		handlers[K.fsWriteFileBinary] = async (path: unknown, binaryContent: unknown) => {
 			checkBridgeBudget(deps);
-			const b64 = String(base64Content);
-			assertTextPayloadSize(`fs.writeFileBinary ${path}`, b64, base64Limit);
-			const data = Buffer.from(b64, "base64");
+			const data = binaryContent instanceof Uint8Array
+				? binaryContent
+				: Buffer.from(String(binaryContent));
+			assertPayloadByteLength(`fs.writeFileBinary ${path}`, data.byteLength, base64Limit);
 			await fs.writeFile(String(path), data);
 		};
 		handlers[K.fsReadDir] = async (path: unknown) => {
