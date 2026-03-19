@@ -360,3 +360,29 @@ PRD: ralph/wasmvm-dynamic-modules (19 stories)
   - wasi-sdk download takes ~10s; compilation of 5 simple programs takes <2s
   - `wasm-opt -O3 --strip-debug` runs as post-processing; the intermediate `.wasm` file is deleted
 ---
+
+## 2026-03-19 2:43 PM PDT - US-023
+- Created 5 Tier 1 C test fixtures (data processing batch) in `wasmvm/c/programs/`:
+  - `wc.c` — word/line/byte count from stdin (exercises malloc-free patterns via getchar loop)
+  - `fread.c` — reads file by path from argv[1], prints contents (exercises path_open + fd_read)
+  - `fwrite.c` — writes argv[2] content to file at argv[1] (exercises path_open + fd_write)
+  - `sort.c` — sorts lines from stdin alphabetically (exercises malloc/realloc + qsort)
+  - `sha256.c` — computes SHA-256 of stdin, prints hex digest (self-contained, no OpenSSL)
+- All 5 compile with vanilla wasi-sdk sysroot (no patches needed)
+- All 5 compile natively with cc and produce correct output
+- All 5 produce valid WASM binaries (magic bytes verified: 0x00 0x61 0x73 0x6D)
+- SHA-256 verified against known test vectors: empty string → e3b0c44298fc..., "hello" → 2cf24dba5fb0...
+- Each program is under 50 lines (except sha256.c which is ~90 lines due to self-contained implementation)
+- Files changed:
+  - wasmvm/c/programs/wc.c (new)
+  - wasmvm/c/programs/fread.c (new)
+  - wasmvm/c/programs/fwrite.c (new)
+  - wasmvm/c/programs/sort.c (new)
+  - wasmvm/c/programs/sha256.c (new)
+- **Learnings for future iterations:**
+  - SHA-256 self-contained implementation is ~90 lines of C — no external dependency needed
+  - `fwrite.c` appends a newline after content for consistent output formatting
+  - `wc.c` output format matches `wc` convention: lines words bytes (space-separated)
+  - sha256.c output format: hex digest followed by "  -" (matching sha256sum stdin convention)
+  - All 10 C programs (5 from US-022 + 5 from US-023) compile in <2s total
+---
