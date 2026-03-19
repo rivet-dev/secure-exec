@@ -3,6 +3,9 @@ Started: 2026-03-17
 PRD: ralph/kernel-hardening (46 stories)
 
 ## Codebase Patterns
+- Shims crate moved to crates/libs/shims/ (package secureexec-shims, lib name "shims"); consuming crates use `shims = { package = "secureexec-shims", path = "..." }` to keep `shims::` import syntax
+- Builtins lib crate at crates/libs/builtins/ (package secureexec-builtins) — sleep, test/[, whoami, spawn-test
+- Stubs lib crate at crates/libs/stubs/ (package secureexec-stubs) — dispatches on argv[0] for unsupported commands
 - NodeRuntimeDriver must emit result.errorMessage as stderr — V8 isolate errors (ReferenceError, SyntaxError) are returned in ExecResult, not thrown
 - isolated-vm preserves err.name but err.message excludes the class name — format as `${err.name}: ${err.message}` for Node.js-compatible error output
 - Stream polyfill prototype chain is patched in _patchPolyfill (require-setup.ts) — esbuild's circular-dep bundling breaks Readable→Stream inheritance; without patch, `instanceof Stream` fails (breaks node-fetch, undici, etc.)
@@ -2598,4 +2601,27 @@ PRD: ralph/kernel-hardening (46 stories)
   - Additional commands beyond AC list found in dispatch.rs: base32, basenc, dircolors, fmt, numfmt, printenv, ptx, shuf, unexpand, b2sum, cksum, sha1sum, sha224sum, sha384sum, sha512sum, sum, link, rmdir, shred, truncate, unlink, arch, logname, pathchk, split, tac
   - All 57 crates compile for wasm32-wasip1 without any additional patches — the existing uucore stub handles everything
   - Pre-existing test failure in kernel resource-exhaustion.test.ts:270 (PTY read timing) — not related to Rust crate changes
+---
+
+## 2026-03-19 - US-010
+- What was implemented: builtins, shims, and _stubs standalone binary crates
+  - Created `crates/libs/builtins/` library crate (secureexec-builtins) with sleep, test/[, whoami, spawn-test
+  - Moved `crates/shims/` → `crates/libs/shims/` (renamed package to secureexec-shims, kept lib name as "shims")
+  - Created `crates/libs/stubs/` library crate (secureexec-stubs) with stub command dispatch
+  - Created binary crates: sleep, test, whoami (builtins), env, timeout, xargs, nice, nohup, stdbuf (shims)
+  - Created `crates/commands/_stubs/` mini-multicall binary dispatching on argv[0] for ~15 stub commands
+  - All binary crates compile for wasm32-wasip1 target
+- Files changed:
+  - wasmvm/crates/libs/builtins/ (new)
+  - wasmvm/crates/libs/shims/ (moved from crates/shims/, package renamed)
+  - wasmvm/crates/libs/stubs/ (new)
+  - wasmvm/crates/commands/{sleep,test,whoami,env,timeout,xargs,nice,nohup,stdbuf,_stubs}/ (new)
+  - wasmvm/Cargo.toml — added all new workspace members, updated shims path
+  - wasmvm/crates/multicall/Cargo.toml — updated shims dependency path and package rename
+- **Learnings for future iterations:**
+  - When moving a crate to a new path, use `package = "new-name"` alias in consuming Cargo.toml to avoid changing import code
+  - The `[lib] name` field in Cargo.toml does NOT control the extern crate import name in Rust 2021 — the dependency key does; use rename syntax `old_name = { package = "new-name", path = "..." }` to preserve imports
+  - Stub commands from dispatch.rs: chcon, runcon, chgrp, chown, chroot, df, groups, id, hostname, hostid, install, kill, mkfifo, mknod, pinky, who, users, uptime, stty, sync, tty
+  - Some stubs have non-error behavior (hostname→"wasm-host" exit 0, hostid→"00000000" exit 0, sync→no-op exit 0)
+  - `more` is a symlink to `cat` (handled in US-011 build system), not a stub
 ---

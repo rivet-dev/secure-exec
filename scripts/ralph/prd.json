@@ -185,7 +185,7 @@
         "Tests pass"
       ],
       "priority": 10,
-      "passes": false,
+      "passes": true,
       "notes": "Builtins use wasi-ext for host imports. Shims use wasi-ext proc_spawn. _stubs is the one exception to 'no multicall' — justified because stubs are not real commands, just error messages. Stub commands: hostname, kill, stty, chown, chgrp, df, and others from dispatch.rs. _stubs checks argv[0] basename and prints 'command not supported in sandbox'. See spec Section 5.4."
     },
     {
