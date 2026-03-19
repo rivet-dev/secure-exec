@@ -412,7 +412,7 @@
         "Tests pass"
       ],
       "priority": 21,
-      "passes": false,
+      "passes": true,
       "notes": "See spec Section 3. Initially uses vanilla wasi-sdk sysroot (no patches). Patched sysroot comes in US-025-028. Verify wasi-sdk-25 download URL at github.com/WebAssembly/wasi-sdk/releases — include platform suffix (e.g., wasi-sdk-25.0-x86_64-linux.tar.gz). COMMANDS variable lists opt-in real commands (initially empty). The libs/ directory anticipates US-032/033 which compile vendored C libraries (cJSON, SQLite) — the Makefile's per-program override mechanism lets these link extra .c files. wasm-opt is from the binaryen package — fail with a clear error message if not installed."
     },
     {
