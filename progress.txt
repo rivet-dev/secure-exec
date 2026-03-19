@@ -2084,3 +2084,11 @@ PRD: ralph/kernel-hardening (46 stories)
 - **Learnings for future iterations:**
   - Same pattern as Next.js and Astro: ensureBuild + execSync for build tools, read output for verification
 ---
+
+## 2026-03-18 - US-163
+- Astro project-matrix fixture already existed and passes non-kernel project-matrix test
+- Fixture: astro.config.mjs, src/pages/index.astro, ensureBuild pattern with astro build
+- Astro already in docs/nodejs-compatibility.mdx tested packages table
+- Kernel e2e fails (same pre-existing issue as all other fixtures)
+- No code changes needed
+---
