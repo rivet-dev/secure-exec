@@ -3,6 +3,7 @@ Started: 2026-03-17
 PRD: ralph/kernel-hardening (46 stories)
 
 ## Codebase Patterns
+- Platform-specific binary packages live in crates/v8-runtime/npm/{platform}/; PLATFORM_PACKAGES map in runtime.ts and postinstall.js must stay in sync
 - V8Runtime (Rust process) is heavyweight — use shared singleton (getSharedV8Runtime) across all NodeExecutionDrivers; each driver creates its own V8Session
 - Bridge code composition order: ivm-compat shim → config injections → globalExposureHelpers → initialBridgeGlobals → consoleSetup → setupFsFacade → bridgeBundle → bridgeAttach → timingMitigation → requireSetup
 - Rust SYNC_BRIDGE_FNS/ASYNC_BRIDGE_FNS in session.rs must match HOST_BRIDGE_GLOBAL_KEYS from bridge-contract.ts — update both when adding new bridge functions
@@ -2248,4 +2249,22 @@ PRD: ralph/kernel-hardening (46 stories)
   - bytesOverBase64Limit helper replaced with bytesOverBinaryLimit — test data must exceed raw byte limit now, not base64-encoded limit
   - Network HTTP body base64 encoding (bridge/network.ts, driver.ts) is a separate concern from IPC binary transfers — not changed in this story
   - Pre-existing test failures unchanged: injection-policy CJS globals, node test suite run()/ESM, all Python tests, network payload tests
+---
+
+## 2026-03-19 - US-026
+- What was implemented: Platform-specific npm packages for prebuilt Rust binaries
+- Files changed:
+  - crates/v8-runtime/npm/{linux-x64-gnu,linux-arm64-gnu,darwin-x64,darwin-arm64,win32-x64}/package.json — platform packages with os/cpu fields
+  - crates/v8-runtime/npm/*/README.md — standard README for each platform package
+  - crates/v8-runtime/npm/.gitignore — exclude binary files from git
+  - packages/secure-exec-v8/package.json — added optionalDependencies for all 5 platform packages, postinstall script
+  - packages/secure-exec-v8/src/runtime.ts — updated resolveBinaryPath() to check platform packages first, then postinstall bin/, then crate target, then PATH
+  - packages/secure-exec-v8/postinstall.js — CJS fallback script that downloads binary from GitHub releases if platform package not installed
+  - packages/secure-exec-v8/.gitignore — exclude dist/ and bin/
+- **Learnings for future iterations:**
+  - Platform packages use `os` and `cpu` fields in package.json for npm's auto-selection
+  - resolveBinaryPath resolution order: platform npm package → postinstall bin/ → crate target (dev) → PATH
+  - postinstall.js must be CJS (not ESM) since it runs without build step; main package is ESM
+  - Windows binary name is `secure-exec-v8.exe` (not `secure-exec-v8`)
+  - PLATFORM_PACKAGES map is duplicated between runtime.ts and postinstall.js — keep in sync
 ---
