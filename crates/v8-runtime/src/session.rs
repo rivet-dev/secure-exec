@@ -8,7 +8,7 @@ use crossbeam_channel::{Receiver, Sender};
 
 use crate::ipc::HostMessage;
 #[cfg(not(test))]
-use crate::isolate;
+use crate::{execution, isolate};
 
 /// Commands sent to a session thread
 pub enum SessionCommand {
@@ -201,9 +201,11 @@ fn session_thread(
     // Create V8 isolate and context
     // In test mode, skip V8 to avoid inter-test SIGSEGV (V8 lifecycle tested in isolate::tests)
     #[cfg(not(test))]
-    let (_v8_isolate, _v8_context) = {
+    let (mut v8_isolate, v8_context) = {
         isolate::init_v8_platform();
         let mut iso = isolate::create_isolate(heap_limit_mb);
+        // Disable WASM compilation before any code execution
+        execution::disable_wasm(&mut iso);
         let ctx = isolate::create_context(&mut iso);
         (iso, ctx)
     };
@@ -213,7 +215,22 @@ fn session_thread(
         match rx.recv() {
             Ok(SessionCommand::Shutdown) | Err(_) => break,
             Ok(SessionCommand::Message(_msg)) => {
-                // Message handling implemented in later stories (US-008+)
+                #[cfg(not(test))]
+                match _msg {
+                    HostMessage::InjectGlobals {
+                        process_config,
+                        os_config,
+                        ..
+                    } => {
+                        let scope = &mut v8::HandleScope::new(&mut v8_isolate);
+                        let ctx = v8::Local::new(scope, &v8_context);
+                        let scope = &mut v8::ContextScope::new(scope, ctx);
+                        execution::inject_globals(scope, &process_config, &os_config);
+                    }
+                    _ => {
+                        // Other messages handled in later stories
+                    }
+                }
             }
         }
     }
@@ -221,8 +238,8 @@ fn session_thread(
     // Drop V8 resources (only present in non-test mode)
     #[cfg(not(test))]
     {
-        drop(_v8_context);
-        drop(_v8_isolate);
+        drop(v8_context);
+        drop(v8_isolate);
     }
 
     // Release concurrency slot
