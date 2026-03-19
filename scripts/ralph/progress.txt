@@ -102,3 +102,22 @@ PRD: ralph/wasmvm-dynamic-modules (19 stories)
   - The WASM magic check is \0asm (0x00, 0x61, 0x73, 0x6D) — same approach Linux uses with ELF headers
   - Legacy tests (shell-terminal.test.ts etc.) will emit deprecation warnings to stderr — expected behavior
 ---
+
+## 2026-03-19 1:39 PM PDT - US-014
+- Added `wasmModule?: WebAssembly.Module` optional field to `WorkerInitData` in syscall-rpc.ts
+- Driver `_launchWorker()` now pre-compiles module via `ModuleCache.resolve()` and passes it in workerData
+- `kernel-worker.ts` uses `init.wasmModule` when present, falls back to `readFile` + `WebAssembly.compile` if absent
+- Driver `dispose()` now clears the module cache
+- Added test verifying module cache is populated after first spawn and reused for subsequent spawns
+- Files changed:
+  - packages/runtime/wasmvm/src/syscall-rpc.ts (WorkerInitData type)
+  - packages/runtime/wasmvm/src/driver.ts (ModuleCache integration, _launchWorker async)
+  - packages/runtime/wasmvm/src/kernel-worker.ts (use pre-compiled module)
+  - packages/runtime/wasmvm/test/driver.test.ts (module cache reuse test)
+- **Learnings for future iterations:**
+  - `WebAssembly.Module` is transferable via Node.js worker_threads structured clone (since v16)
+  - `_launchWorker` was changed from `void` to `async Promise<void>` — still fire-and-forget from `spawn()` since caller doesn't await
+  - Module cache pre-compiles on main thread; worker skips readFile+compile when wasmModule is present
+  - Timing-based tests for module cache are unreliable — worker thread startup overhead dominates; test cache population (`.size`) instead
+  - For the ~15MB multicall binary, compile time is modest compared to worker creation overhead
+---

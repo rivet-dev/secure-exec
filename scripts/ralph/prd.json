@@ -265,7 +265,7 @@
         "Tests pass"
       ],
       "priority": 14,
-      "passes": false,
+      "passes": true,
       "notes": "Files: packages/runtime/wasmvm/src/syscall-rpc.ts (WorkerInitData), packages/runtime/wasmvm/src/driver.ts (_launchWorker), packages/runtime/wasmvm/src/kernel-worker.ts. WebAssembly.Module is Transferable in Node.js since v16. The worker currently reads the binary independently (kernel-worker.ts lines 632-633). See spec Section 3.4 and 4.4."
     },
     {
@@ -276,18 +276,19 @@
         "Test: driver discovers commands from commandDirs at init",
         "Test: first dir in commandDirs wins on naming conflict",
         "Test: on-demand discovery finds binary added after init",
-        "Test: symlink aliases resolve correctly (e.g., egrep -> grep binary)",
+        "Test: symlink aliases are followed during scan (e.g., egrep -> grep binary resolves correctly)",
         "Test: module cache returns same WebAssembly.Module for repeated resolves",
         "Test: path-based resolution through kernel (/bin/ls -> ls)",
         "Test: non-WASM files in commandDirs are ignored",
         "Test: backwards-compat wasmBinaryPath mode still works with deprecation warning",
+        "Test: WASMVM_COMMANDS export reflects commands discovered from filesystem scan",
         "All tests use skipUnlessWasmBuilt() guard",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 15,
       "passes": false,
-      "notes": "These tests exercise the full pipeline: kernel -> CommandRegistry -> WasmVmRuntimeDriver -> ModuleCache -> Worker. Use createIntegrationKernel from test helpers. Tests must be guarded with skipUnlessWasmBuilt() since they require compiled WASM binaries. See spec Section 11 for test examples."
+      "notes": "These tests exercise the full pipeline: kernel -> CommandRegistry -> WasmVmRuntimeDriver -> ModuleCache -> Worker. Use createIntegrationKernel from test helpers. Tests must be guarded with skipUnlessWasmBuilt() since they require compiled WASM binaries. Symlink test validates that aliases like egrep->grep are followed during directory scan (P2-5). WASMVM_COMMANDS test validates the public export reflects discovered commands (P0-4/P1-9). See spec Section 11 for test examples."
     },
     {
       "id": "US-016",
@@ -300,13 +301,13 @@
         "spawn() fetches binary from baseUrl + command name on first use",
         "Use WebAssembly.compileStreaming(fetch(url)) for streaming compilation",
         "Module cache stores compiled modules for reuse across spawns",
-        "Add preload(commands: string[]) method for prefetching common commands",
+        "Tests use mocked fetch/Cache API/IndexedDB (browser APIs not available in Node.js/vitest)",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 16,
       "passes": false,
-      "notes": "See spec Section 8. This is the browser equivalent of the Node.js filesystem-based driver. The manifest is a static JSON file generated at build time. compileStreaming compiles while downloading for best performance. No tryResolve needed for browser (all commands are in the manifest)."
+      "notes": "See spec Section 8. This is the browser equivalent of the Node.js filesystem-based driver. The manifest is a static JSON file generated at build time. compileStreaming compiles while downloading for best performance. No tryResolve needed for browser — all commands are known from the manifest at init() time. This is a behavioral difference from the Node.js driver which supports on-demand discovery via tryResolve. Preload functionality is added in US-017, not here."
     },
     {
       "id": "US-017",
@@ -316,7 +317,7 @@
         "Use browser Cache API to store fetched WASM binaries across page loads",
         "IndexedDB fallback for environments without Cache API",
         "SHA-256 integrity checking from manifest before instantiation",
-        "preload() fetches and compiles multiple commands concurrently during idle time",
+        "Add preload(commands: string[]) method that fetches and compiles multiple commands concurrently during idle time",
         "Cached binaries are validated against manifest SHA-256 on each use",
         "Test: cache hit avoids network fetch on second page load",
         "Typecheck passes",
@@ -324,34 +325,60 @@
       ],
       "priority": 17,
       "passes": false,
-      "notes": "See spec Section 8.3 and 8.4. Cache API is available in service workers and modern browsers. IndexedDB is the universal fallback. SHA-256 verification ensures cached binaries haven't been tampered with. preload(['sh', 'ls', 'cat', 'grep']) for common workloads."
+      "notes": "See spec Section 8.3 and 8.4. Cache API is available in service workers and modern browsers. IndexedDB is the universal fallback. SHA-256 verification ensures cached binaries haven't been tampered with. preload(['sh', 'ls', 'cat', 'grep']) for common workloads. Tests use mocked browser APIs."
     },
     {
       "id": "US-018",
-      "title": "Per-command permission tiers",
-      "description": "As a developer, I need per-command permission tiers (full, read-write, read-only, isolated) enforced at the kernel syscall boundary.",
+      "title": "Per-command permission tiers - type definitions and filesystem enforcement",
+      "description": "As a developer, I need PermissionTier type definitions integrated into WorkerInitData and filesystem-level enforcement (fd_open, fd_write) at the kernel WASI syscall boundary.",
       "acceptanceCriteria": [
-        "Define permission tiers: full (all access), read-write (no network/subprocess), read-only (read VFS only), isolated (read cwd only)",
+        "Define PermissionTier type: 'full' | 'read-write' | 'read-only' | 'isolated'",
+        "Add permissionTier field to WorkerInitData",
         "WasmVmRuntimeOptions gains permissions: Record<string, PermissionTier> config",
-        "Permissions enforced at kernel WASI syscall boundary (fd_open, fd_write, proc_spawn)",
-        "Wildcard patterns supported ('*' for default, '_untrusted/*' for directory)",
-        "Default first-party commands to appropriate tiers",
+        "Driver passes permission tier to worker based on command name lookup",
+        "fd_open in kernel-worker.ts checks permission tier before opening files for writing",
+        "fd_write in kernel-worker.ts checks permission tier for write-protected operations",
+        "read-only tier blocks all write operations (fd_open with write flags, fd_write to non-stdout/stderr)",
+        "isolated tier restricts fd_open reads to cwd subtree only",
         "Default unknown/third-party commands to 'read-write'",
-        "Test: isolated command cannot write outside cwd",
         "Test: read-only command cannot write files",
-        "Test: full command can spawn subprocesses",
+        "Test: isolated command cannot read files outside cwd",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 18,
       "passes": false,
-      "notes": "See spec Section 9. Enforcement is at the kernel level — WASI host imports check the calling process's tier. The WASM binary cannot bypass this since all I/O goes through kernel RPC. Permission config example: { 'sh': 'full', 'grep': 'read-only', '*': 'read-write' }."
+      "notes": "See spec Section 9. First half of permission system (split from original monolithic story for sizing). PermissionTier flows: options.permissions[commandName] -> WorkerInitData.permissionTier -> kernel-worker.ts enforcement. The WASM binary cannot bypass enforcement since all I/O goes through kernel RPC. US-019 adds process enforcement and wildcard patterns."
     },
     {
       "id": "US-019",
+      "title": "Per-command permission tiers - process enforcement and wildcard config",
+      "description": "As a developer, I need process-level permission enforcement (proc_spawn blocking) and wildcard pattern matching for flexible permission configuration.",
+      "acceptanceCriteria": [
+        "proc_spawn in kernel-worker.ts checks permission tier before spawning subprocesses",
+        "Only 'full' tier allows proc_spawn; read-write, read-only, and isolated tiers block it",
+        "Wildcard patterns supported in permissions config ('*' for default, '_untrusted/*' for directory prefix)",
+        "Pattern matching priority: exact name match first, then longest glob pattern, then '*' fallback",
+        "Default first-party commands to appropriate tiers (sh: full, grep: read-only, etc.)",
+        "Test: full-tier command can spawn subprocesses",
+        "Test: read-write command cannot spawn subprocesses",
+        "Test: wildcard pattern '_untrusted/*' matches commands in that directory prefix",
+        "Test: exact match takes precedence over wildcard",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 19,
+      "passes": false,
+      "notes": "See spec Section 9. Second half of permission system, builds on US-018's PermissionTier infrastructure and WorkerInitData field. Config example: { 'sh': 'full', 'grep': 'read-only', '_untrusted/*': 'isolated', '*': 'read-write' }."
+    },
+    {
+      "id": "US-020",
       "title": "Delete multicall crate and final cleanup",
       "description": "As a developer, I need the old multicall crate removed and all docs/CI updated to reflect the new standalone binary architecture.",
       "acceptanceCriteria": [
+        "PREREQUISITE: Verify stories US-014 through US-019 all have passes: true before starting this story",
+        "Cross-reference dispatch.rs command list against standalone crates + _stubs to ensure no command is silently dropped",
+        "Verify spawn-test command is either migrated to a standalone binary crate or tests that depend on it are updated",
         "Delete wasmvm/crates/multicall/ directory (dispatch.rs, main.rs, Cargo.toml)",
         "Remove multicall from workspace Cargo.toml members",
         "Update CI workflows to build individual binaries instead of multicall",
@@ -363,32 +390,33 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 19,
+      "priority": 20,
       "passes": false,
-      "notes": "This is the final cleanup step. Only do this after all other stories pass and the standalone binary architecture is fully working. The dispatch() export in main.rs is dead code (never called from JS). The spawn-test internal command should either be preserved as its own binary or removed explicitly. See spec Section 10 Phase 6."
+      "notes": "CRITICAL: Do NOT start this story unless US-014 through US-019 all pass. The standalone binary architecture must be fully validated before removing the multicall fallback. Cross-reference dispatch.rs against all standalone crates. Commands to explicitly verify are accounted for: hostid, sync, tty, more (symlink to cat), chcon, runcon, chroot, install, mkfifo, mknod, pinky, who, users, uptime, spawn-test. Each must be in a standalone crate, a _stubs symlink, or explicitly documented as removed."
     },
     {
-      "id": "US-020",
+      "id": "US-021",
       "title": "C build system - wasi-sdk download and Makefile",
       "description": "As a developer, I need the C build infrastructure: wasi-sdk download/cache, directory structure, and Makefile targets for compiling C programs to WASM.",
       "acceptanceCriteria": [
-        "Create wasmvm/c/ directory structure: programs/, vendor/ (gitignored), sysroot/ (gitignored)",
+        "Create wasmvm/c/ directory structure: programs/, libs/ (for vendored C libraries), vendor/ (gitignored), sysroot/ (gitignored)",
         "Create wasmvm/c/Makefile with targets: wasi-sdk (download+cache), programs (compile all .c files), install (copy opted-in commands to COMMANDS_DIR)",
         "wasi-sdk target downloads wasi-sdk-25 tarball, caches in c/vendor/wasi-sdk/",
         "programs target compiles each .c file in programs/ with: clang --target=wasm32-wasip1 --sysroot=$(SYSROOT) -O2 -flto",
-        "Post-compile: wasm-opt -O3 --strip-debug on each binary",
+        "Makefile supports per-program override rules for multi-file compilation (programs that link vendored libraries from libs/)",
+        "Post-compile: wasm-opt -O3 --strip-debug on each binary (fail with clear error if wasm-opt/binaryen not installed)",
         "Output binaries have no .wasm extension (identified by magic bytes)",
         "Add c-wasm target to top-level wasmvm/Makefile",
         "Add .gitignore entries for c/vendor/, c/sysroot/, and compiled binaries",
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 20,
+      "priority": 21,
       "passes": false,
-      "notes": "See spec Section 3. Initially uses vanilla wasi-sdk sysroot (no patches). Patched sysroot comes in US-024-027. wasi-sdk download URL pattern: github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-25/. COMMANDS variable in Makefile lists opt-in real commands (initially empty — all programs are test fixtures). The install target only copies COMMANDS entries to COMMANDS_DIR."
+      "notes": "See spec Section 3. Initially uses vanilla wasi-sdk sysroot (no patches). Patched sysroot comes in US-025-028. Verify wasi-sdk-25 download URL at github.com/WebAssembly/wasi-sdk/releases — include platform suffix (e.g., wasi-sdk-25.0-x86_64-linux.tar.gz). COMMANDS variable lists opt-in real commands (initially empty). The libs/ directory anticipates US-032/033 which compile vendored C libraries (cJSON, SQLite) — the Makefile's per-program override mechanism lets these link extra .c files. wasm-opt is from the binaryen package — fail with a clear error message if not installed."
     },
     {
-      "id": "US-021",
+      "id": "US-022",
       "title": "Tier 1 C test fixtures - basic I/O (hello, args, env, exitcode, cat)",
       "description": "As a developer, I need the first batch of pure-WASI C test programs that validate basic I/O through the WASI polyfill.",
       "acceptanceCriteria": [
@@ -402,12 +430,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 21,
+      "priority": 22,
       "passes": false,
       "notes": "See spec Section 4.1 Tier 1. These exercise wasi_snapshot_preview1 imports only: fd_write, proc_exit, args_get, environ_get, fd_read. No custom host_process/host_user imports needed. Keep programs minimal — each should be a single .c file under 50 lines. These are test fixtures, NOT installed to commandDirs."
     },
     {
-      "id": "US-022",
+      "id": "US-023",
       "title": "Tier 1 C test fixtures - data processing (wc, fread, fwrite, sort, sha256)",
       "description": "As a developer, I need the second batch of pure-WASI C test programs that validate memory allocation, file I/O, and computation.",
       "acceptanceCriteria": [
@@ -421,12 +449,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 22,
+      "priority": 23,
       "passes": false,
       "notes": "See spec Section 4.1 Tier 1. These exercise: malloc/realloc (wc, sort), path_open/fd_read (fread), path_open/fd_write (fwrite), qsort (sort), CPU-intensive math (sha256). sha256 should be a self-contained implementation (no OpenSSL dependency). These are test fixtures, NOT installed to commandDirs."
     },
     {
-      "id": "US-023",
+      "id": "US-024",
       "title": "C test harness - native vs WASM parity testing",
       "description": "As a developer, I need a test harness that compiles C programs to both native and WASM, runs both, and compares stdout/stderr/exit code for parity.",
       "acceptanceCriteria": [
@@ -434,17 +462,18 @@
         "Test harness runs native binary and captures stdout, stderr, exit code",
         "Test harness runs WASM binary via kernel.exec() and captures stdout, stderr, exit code",
         "Each Tier 1 fixture has a parity test: native output === WASM output",
-        "Tests guarded with skipUnlessWasmBuilt() or equivalent skip condition",
+        "Tests guarded with skipUnlessWasmBuilt() for missing WASM binaries",
+        "Tests skip gracefully if native compiler (gcc/clang) is not available",
         "hello, args, env, exitcode, cat, wc, fread, fwrite, sort, sha256 all pass parity",
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 23,
+      "priority": 24,
       "passes": false,
-      "notes": "See spec Section 4.6. Same parity approach as project-matrix tests in packages/secure-exec/tests/projects/. The harness should handle test setup (creating temp files for fread/fwrite, providing stdin input for cat/wc/sort/sha256). Native binaries are pre-compiled by the C Makefile. WASM binaries must already be built (use skip guard)."
+      "notes": "See spec Section 4.6. Same parity approach as project-matrix tests in packages/secure-exec/tests/projects/. The harness should handle test setup (creating temp files for fread/fwrite, providing stdin input for cat/wc/sort/sha256). Native binaries are pre-compiled by the C Makefile. Both WASM and native binaries must exist (use skip guards for both). Add a helper like skipUnlessNativeBuilt() for native compiler availability."
     },
     {
-      "id": "US-024",
+      "id": "US-025",
       "title": "patch-wasi-libc.sh script and wasi-libc vendoring",
       "description": "As a developer, I need a script that vendors wasi-libc at a pinned commit, applies our patches, and builds the patched sysroot.",
       "acceptanceCriteria": [
@@ -452,19 +481,20 @@
         "Script clones wasi-libc to c/vendor/wasi-libc at a pinned commit hash",
         "Script applies patches from patches/wasi-libc/ in sorted order",
         "Script builds patched sysroot using wasi-sdk's clang, outputs to c/sysroot/",
+        "Vanilla sysroot (with no patches applied) builds successfully as a baseline verification",
         "Support --check flag (dry-run: verify patches apply cleanly without building)",
         "Support --reverse flag (unapply patches)",
         "Add sysroot target to wasmvm/c/Makefile that invokes patch-wasi-libc.sh",
-        "Create patches/wasi-libc/ directory (initially empty, patches added in US-025-027)",
+        "Create patches/wasi-libc/ directory (initially empty, patches added in US-026-028)",
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 24,
+      "priority": 25,
       "passes": false,
-      "notes": "See spec Section 3.3. Follow the exact pattern of wasmvm/scripts/patch-std.sh (129 lines) and wasmvm/scripts/patch-vendor.sh (169 lines). Pin wasi-libc to a specific commit from the wasi-libc main branch that's compatible with wasi-sdk-25. The sysroot build command is: make -C c/vendor/wasi-libc WASM_CC=$(WASI_SDK)/bin/clang SYSROOT=$(PWD)/c/sysroot. Canonical source: wasmvm/crates/wasi-ext/src/lib.rs for import signatures."
+      "notes": "See spec Section 3.3. Follow the exact pattern of wasmvm/scripts/patch-std.sh and wasmvm/scripts/patch-vendor.sh. Pin wasi-libc to the commit referenced by wasi-sdk-25's submodule for guaranteed compatibility — check the wasi-sdk repo's git submodule entries for the exact commit hash. Verify the vanilla (unpatched) sysroot builds before adding any patches to establish a known-good baseline. Canonical import source: wasmvm/crates/wasi-ext/src/lib.rs."
     },
     {
-      "id": "US-025",
+      "id": "US-026",
       "title": "wasi-libc patches - pipe, dup, dup2",
       "description": "As a developer, I need a wasi-libc patch that replaces the ENOSYS stubs for pipe(), dup(), and dup2() with calls to our host_process WASM imports.",
       "acceptanceCriteria": [
@@ -479,12 +509,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 25,
+      "priority": 26,
       "passes": false,
       "notes": "See spec Section 2.1 and 2.3 for the exact pattern. Each function: declare WASM import with __attribute__((import_module, import_name)), implement POSIX wrapper that calls import, sets errno on failure, returns -1/0. The canonical import signatures are in wasmvm/crates/wasi-ext/src/lib.rs — C signatures must match the Rust extern FFI exactly. pipe() example is in spec Section 2.3."
     },
     {
-      "id": "US-026",
+      "id": "US-027",
       "title": "wasi-libc patches - spawn, wait, kill, getpid",
       "description": "As a developer, I need wasi-libc patches that replace ENOSYS stubs for posix_spawn(), waitpid(), kill(), getpid(), and getppid() with calls to our host_process imports.",
       "acceptanceCriteria": [
@@ -492,6 +522,8 @@
         "Create wasmvm/patches/wasi-libc/0003-kill.patch for kill()",
         "Create wasmvm/patches/wasi-libc/0004-getpid.patch for getpid() and getppid()",
         "posix_spawn() calls __host_proc_spawn() from host_process.proc_spawn",
+        "posix_spawn() serializes argv as null-terminated strings concatenated in a contiguous buffer, matching wasi-ext proc_spawn ABI",
+        "posix_spawn() maps file_actions to stdin_fd/stdout_fd/stderr_fd params; attrp is ignored",
         "waitpid() calls __host_proc_waitpid() from host_process.proc_waitpid",
         "kill() calls __host_proc_kill() from host_process.proc_kill",
         "getpid() calls __host_proc_getpid() (replaces hardcoded 42 in vanilla wasi-libc)",
@@ -501,12 +533,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 26,
+      "priority": 27,
       "passes": false,
-      "notes": "See spec Section 2.1. posix_spawn signature is complex — it takes file_actions and attrp params. Our host_process.proc_spawn takes (cmd_ptr, cmd_len, argv_buf_ptr, argv_buf_len, ...) per wasi-ext/src/lib.rs. The C wrapper must serialize the command and argv into linear memory buffers matching the Rust ABI. waitpid returns status via out-pointer. kill takes (pid, signal) -> errno."
+      "notes": "See spec Section 2.1. CRITICAL: posix_spawn() is the hardest patch. Read wasmvm/crates/wasi-ext/src/lib.rs proc_spawn wrapper to understand the exact serialization format: argv is serialized as null-terminated strings concatenated back-to-back in a buffer, with total byte length passed as a separate i32 param. The host_process.proc_spawn signature is (cmd_ptr, cmd_len, argv_buf_ptr, argv_buf_len, envp_buf_ptr, envp_buf_len, stdin_fd, stdout_fd, stderr_fd, cwd_ptr, cwd_len, ret_pid_ptr) -> errno. file_actions from posix_spawn are mapped to stdin/stdout/stderr fd params; posix_spawnattr_t (scheduling, signal masks) is not supported and is silently ignored. waitpid returns status via out-pointer. kill takes (pid, signal) -> errno."
     },
     {
-      "id": "US-027",
+      "id": "US-028",
       "title": "wasi-libc patches - user identity and isatty",
       "description": "As a developer, I need wasi-libc patches for getuid/getgid/geteuid/getegid and isatty that call our host_user imports.",
       "acceptanceCriteria": [
@@ -523,12 +555,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 27,
+      "priority": 28,
       "passes": false,
       "notes": "See spec Section 2.1. These are the simplest patches — each function is ~5 lines (declare import, call it, return result). isatty replaces wasi-libc's basic filetype check with our host_user.isatty which checks the actual PTY state. After this story, all 6 patches exist and the patched sysroot should build end-to-end. Verify with: make -C wasmvm/c sysroot && ls wasmvm/c/sysroot/lib/wasm32-wasi/libc.a"
     },
     {
-      "id": "US-028",
+      "id": "US-029",
       "title": "Tier 2 C test fixtures - custom imports (isatty, getpid, userinfo, pipe, dup, sleep)",
       "description": "As a developer, I need C test programs that validate the patched sysroot correctly routes POSIX functions through our custom host_process/host_user imports.",
       "acceptanceCriteria": [
@@ -537,18 +569,18 @@
         "Create wasmvm/c/programs/userinfo.c — print uid, gid, euid, egid",
         "Create wasmvm/c/programs/pipe_test.c — create pipe, write then read through it",
         "Create wasmvm/c/programs/dup_test.c — duplicate stdout FD, write through duplicate",
-        "Create wasmvm/c/programs/sleep_test.c — sleep N ms, verify elapsed time",
+        "Create wasmvm/c/programs/sleep_test.c — sleep N ms using standard sleep()/nanosleep() via WASI poll_oneoff, verify elapsed time",
         "All compile with patched sysroot (not vanilla)",
         "Add parity tests to test harness for all 6 fixtures",
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 28,
+      "priority": 29,
       "passes": false,
-      "notes": "See spec Section 4.2 Tier 2. These validate that the patches from US-025-027 actually work. getpid_test is the key validation — vanilla wasi-libc returns 42, patched version returns real PID from host. pipe_test: pipe(fds), write(fds[1], ...), read(fds[0], ...), compare. sleep_test: clock_gettime before/after sleep, verify delta. These require the patched sysroot from US-024-027."
+      "notes": "See spec Section 4.2 Tier 2. These validate that the patches from US-026-028 actually work. getpid_test is the key validation — vanilla wasi-libc returns 42, patched version returns real PID from host. pipe_test: pipe(fds), write(fds[1], ...), read(fds[0], ...), compare. NOTE: sleep_test uses standard WASI poll_oneoff-based sleep (via wasi-libc's nanosleep/sleep), NOT host_process.sleep_ms. It validates that C's sleep functions work correctly on our WASI runtime. It's grouped with Tier 2 despite being standard WASI because it tests timing behavior alongside the custom import fixtures."
     },
     {
-      "id": "US-029",
+      "id": "US-030",
       "title": "Tier 3 C test fixtures - process management (spawn, pipeline, kill)",
       "description": "As a developer, I need C test programs that validate cross-runtime process spawning from C-compiled WASM binaries.",
       "acceptanceCriteria": [
@@ -561,12 +593,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 29,
+      "priority": 30,
       "passes": false,
       "notes": "See spec Section 4.3 Tier 3. These are the most complex test fixtures — they exercise proc_spawn + proc_waitpid + proc_kill + fd_pipe + fd_dup2 together. pipeline.c is the key integration test: creates pipe, spawns 'echo hello' with stdout redirected to pipe write end, spawns 'cat' with stdin from pipe read end, waits for both. This validates that C binaries can orchestrate multi-process pipelines just like Rust ones."
     },
     {
-      "id": "US-030",
+      "id": "US-031",
       "title": "Tier 4 C test fixtures - filesystem stress (c-ls, c-tree, c-find, c-cp)",
       "description": "As a developer, I need C test programs that exercise deeper VFS/filesystem capabilities through WASI.",
       "acceptanceCriteria": [
@@ -580,12 +612,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 30,
+      "priority": 31,
       "passes": false,
       "notes": "See spec Section 4.4 Tier 4. These exercise WASI filesystem APIs: path_open, fd_readdir, fd_filestat_get, path_filestat_get. c-ls should print name + size like 'ls -l' but simpler. c-tree uses recursive opendir/readdir. c-find uses simple glob matching (fnmatch or manual). c-cp opens source for reading, dest for writing, copies in chunks. Test setup must create a temp directory tree."
     },
     {
-      "id": "US-031",
+      "id": "US-032",
       "title": "Tier 5 C test fixture - cJSON (json_parse)",
       "description": "As a developer, I need a C test program that compiles the cJSON library to WASM and parses JSON from stdin, validating complex malloc/free patterns.",
       "acceptanceCriteria": [
@@ -597,12 +629,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 31,
+      "priority": 32,
       "passes": false,
       "notes": "See spec Section 4.5 Tier 5. cJSON is MIT-licensed, single-file C library. This validates complex malloc/free patterns since cJSON allocates heavily. The test should parse a non-trivial JSON (nested objects, arrays, mixed types) and print a formatted representation. If cJSON fails to compile, it likely means our sysroot is missing something — document the gap."
     },
     {
-      "id": "US-032",
+      "id": "US-033",
       "title": "Tier 5 C test fixture - SQLite (sqlite3_mem)",
       "description": "As a developer, I need a C test program that compiles the SQLite amalgamation to WASM and runs in-memory SQL, validating the full libc surface.",
       "acceptanceCriteria": [
@@ -610,32 +642,33 @@
         "Create wasmvm/c/programs/sqlite3_mem.c — create in-memory DB, create table, insert rows, query, print results",
         "Compiles SQLite + sqlite3_mem together with patched sysroot and -lwasi-emulated-signal -lwasi-emulated-mman",
         "Update Makefile for SQLite compilation flags (-DSQLITE_OS_OTHER -DSQLITE_OMIT_WAL etc.)",
-        "Binary size under 2MB after wasm-opt",
+        "Binary size under 3MB after wasm-opt",
         "Add parity test: native output === WASM output",
-        "Typecheck passes",
-        "Tests pass"
-      ],
-      "priority": 32,
-      "passes": false,
-      "notes": "See spec Section 4.5 Tier 5. SQLite amalgamation is public domain. This is the boss fight — SQLite exercises massive libc surface (malloc, mmap emulation, file I/O, string formatting, math). Compile flags: -DSQLITE_OS_OTHER or -DSQLITE_OS_UNIX, -DSQLITE_OMIT_WAL, -DSQLITE_OMIT_LOAD_EXTENSION, -DSQLITE_THREADSAFE=0. May need -lwasi-emulated-signal and -lwasi-emulated-mman. Expected binary size ~1-2MB."
-    },
-    {
-      "id": "US-033",
-      "title": "CI integration for C toolchain",
-      "description": "As a developer, I need CI to download wasi-sdk, build the patched sysroot, compile all C test fixtures, and run parity tests on every commit.",
-      "acceptanceCriteria": [
-        "Add wasi-sdk download step to CI workflow (cached between runs)",
-        "Add patched sysroot build step to CI",
-        "Add C test fixture compilation step",
-        "Add C parity test execution to CI test matrix",
-        "All 26 C test fixtures compile and pass parity in CI",
-        "Update docs/compatibility-matrix.md with any opted-in C commands",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 33,
       "passes": false,
-      "notes": "See spec Section 6 Phase 4. wasi-sdk download should be cached by CI (e.g., actions/cache keyed on wasi-sdk version). The sysroot build is slow (~2-3 min) so should also be cached (keyed on wasi-libc commit + patch checksums). C test fixtures are fast to compile (<30s total). Parity tests run as part of the normal test suite. Reference: spec Section 7 Success Criteria."
+      "notes": "See spec Section 4.5 Tier 5. SQLite amalgamation is public domain. This is the boss fight — SQLite exercises massive libc surface (malloc, mmap emulation, file I/O, string formatting, math). Compile flags: -DSQLITE_OS_OTHER or -DSQLITE_OS_UNIX, -DSQLITE_OMIT_WAL, -DSQLITE_OMIT_LOAD_EXTENSION, -DSQLITE_THREADSAFE=0. May need -lwasi-emulated-signal and -lwasi-emulated-mman. Expected binary size ~1-2MB native, potentially up to ~3MB as WASM with wasi-libc overhead."
+    },
+    {
+      "id": "US-034",
+      "title": "CI integration for C toolchain",
+      "description": "As a developer, I need CI to download wasi-sdk, build the patched sysroot, compile all C test fixtures, and run parity tests on every commit.",
+      "acceptanceCriteria": [
+        "Add wasi-sdk download step to CI workflow (cached between runs)",
+        "Add patched sysroot build step to CI (cached, keyed on wasi-libc commit + patch checksums)",
+        "Add C test fixture compilation step",
+        "Add C parity test execution to CI test matrix",
+        "All 26 C test fixtures compile and pass parity in CI",
+        "Both native compiler (gcc/clang) and wasi-sdk must be available in CI",
+        "Update docs/compatibility-matrix.md with any opted-in C commands",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 34,
+      "passes": false,
+      "notes": "See spec Section 6 Phase 4. wasi-sdk download should be cached by CI (e.g., actions/cache keyed on wasi-sdk version). The sysroot build is slow (~2-3 min) so cache it (keyed on wasi-libc commit + patch checksums). C test fixtures are fast to compile (<30s total). Parity tests run as part of the normal test suite. Both native compiler (gcc/clang) and wasi-sdk must be available in CI. Reference: spec Section 7 Success Criteria."
     }
   ]
 }
