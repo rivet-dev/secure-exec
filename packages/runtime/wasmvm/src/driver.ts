@@ -35,6 +35,7 @@ import {
 } from './syscall-rpc.ts';
 import { ERRNO_MAP, ERRNO_EIO } from './wasi-constants.ts';
 import { isWasmBinary, isWasmBinarySync } from './wasm-magic.ts';
+import { resolvePermissionTier } from './permission-check.ts';
 import { ModuleCache } from './module-cache.ts';
 import { readdir, stat } from 'node:fs/promises';
 import { existsSync, statSync } from 'node:fs';
@@ -91,6 +92,81 @@ export const WASMVM_COMMANDS: readonly string[] = [
   'stty',
 ] as const;
 Object.freeze(WASMVM_COMMANDS);
+
+/**
+ * Default permission tiers for known first-party commands.
+ * User-provided permissions override these defaults.
+ */
+export const DEFAULT_FIRST_PARTY_TIERS: Readonly<Record<string, PermissionTier>> = {
+  // Shell — needs proc_spawn for pipelines and subcommands
+  'sh': 'full',
+  'bash': 'full',
+  // Shims — spawn child processes as their core function
+  'env': 'full',
+  'timeout': 'full',
+  'xargs': 'full',
+  'nice': 'full',
+  'nohup': 'full',
+  'stdbuf': 'full',
+  // Read-only tools — never need to write files
+  'grep': 'read-only',
+  'egrep': 'read-only',
+  'fgrep': 'read-only',
+  'rg': 'read-only',
+  'cat': 'read-only',
+  'head': 'read-only',
+  'tail': 'read-only',
+  'wc': 'read-only',
+  'sort': 'read-only',
+  'uniq': 'read-only',
+  'diff': 'read-only',
+  'find': 'read-only',
+  'tree': 'read-only',
+  'file': 'read-only',
+  'du': 'read-only',
+  'ls': 'read-only',
+  'dir': 'read-only',
+  'vdir': 'read-only',
+  'strings': 'read-only',
+  'stat': 'read-only',
+  'rev': 'read-only',
+  'column': 'read-only',
+  'cut': 'read-only',
+  'tr': 'read-only',
+  'paste': 'read-only',
+  'join': 'read-only',
+  'fold': 'read-only',
+  'expand': 'read-only',
+  'nl': 'read-only',
+  'od': 'read-only',
+  'comm': 'read-only',
+  'basename': 'read-only',
+  'dirname': 'read-only',
+  'realpath': 'read-only',
+  'readlink': 'read-only',
+  'pwd': 'read-only',
+  'echo': 'read-only',
+  'printf': 'read-only',
+  'true': 'read-only',
+  'false': 'read-only',
+  'yes': 'read-only',
+  'seq': 'read-only',
+  'test': 'read-only',
+  '[': 'read-only',
+  'expr': 'read-only',
+  'factor': 'read-only',
+  'date': 'read-only',
+  'uname': 'read-only',
+  'nproc': 'read-only',
+  'whoami': 'read-only',
+  'id': 'read-only',
+  'groups': 'read-only',
+  'base64': 'read-only',
+  'md5sum': 'read-only',
+  'sha256sum': 'read-only',
+  'tac': 'read-only',
+  'tsort': 'read-only',
+};
 
 export interface WasmVmRuntimeOptions {
   /**
@@ -309,11 +385,12 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
     }
   }
 
-  /** Resolve permission tier for a command. Exact name match, then '*' fallback, then 'read-write' default. */
-  private _resolvePermissionTier(command: string): PermissionTier {
-    if (command in this._permissions) return this._permissions[command];
-    if ('*' in this._permissions) return this._permissions['*'];
-    return 'read-write';
+  /** Resolve permission tier for a command with wildcard and default tier support. */
+  _resolvePermissionTier(command: string): PermissionTier {
+    // No permissions config → fully unrestricted (backward compatible)
+    if (Object.keys(this._permissions).length === 0) return 'full';
+    // User config checked first (exact, glob, *), defaults as fallback layer
+    return resolvePermissionTier(command, this._permissions, DEFAULT_FIRST_PARTY_TIERS);
   }
 
   /** Resolve binary path for a command. */

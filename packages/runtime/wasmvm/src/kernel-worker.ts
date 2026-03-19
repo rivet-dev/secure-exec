@@ -42,6 +42,7 @@ import {
 } from './syscall-rpc.ts';
 import {
   isWriteBlocked as _isWriteBlocked,
+  isSpawnBlocked as _isSpawnBlocked,
   isPathInCwd as _isPathInCwd,
 } from './permission-check.ts';
 
@@ -54,6 +55,11 @@ const permissionTier = init.permissionTier ?? 'read-write';
 /** Check if the tier blocks write operations. */
 function isWriteBlocked(): boolean {
   return _isWriteBlocked(permissionTier);
+}
+
+/** Check if the tier blocks subprocess spawning. */
+function isSpawnBlocked(): boolean {
+  return _isSpawnBlocked(permissionTier);
 }
 
 /** Check if a path is within the cwd subtree (for isolated tier). */
@@ -452,6 +458,9 @@ function createHostProcessImports(getMemory: () => WebAssembly.Memory | null) {
       cwd_ptr: number, cwd_len: number,
       ret_pid_ptr: number,
     ): number {
+      // Permission check: only 'full' tier allows subprocess spawning
+      if (isSpawnBlocked()) return ERRNO_EACCES;
+
       const mem = getMemory();
       if (!mem) return ERRNO_EINVAL;
 

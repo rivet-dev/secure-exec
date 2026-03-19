@@ -822,27 +822,54 @@ describe('WasmVM RuntimeDriver', () => {
   });
 
   describe('permission tier resolution', () => {
-    it('defaults to read-write when no permissions configured', () => {
+    it('all commands default to full when no permissions configured', () => {
       const driver = createWasmVmRuntime({ wasmBinaryPath: '/fake' }) as any;
-      expect(driver._resolvePermissionTier('grep')).toBe('read-write');
-      expect(driver._resolvePermissionTier('ls')).toBe('read-write');
+      // No permissions config → fully unrestricted (backward compatible)
+      expect(driver._resolvePermissionTier('custom-tool')).toBe('full');
+      expect(driver._resolvePermissionTier('grep')).toBe('full');
+      expect(driver._resolvePermissionTier('sh')).toBe('full');
     });
 
-    it('exact command name match', () => {
+    it('user * catch-all takes priority over first-party defaults', () => {
       const driver = createWasmVmRuntime({
         wasmBinaryPath: '/fake',
-        permissions: { 'sh': 'full', 'grep': 'read-only' },
+        permissions: { '*': 'full' },
       }) as any;
+      // User's '*' covers everything — defaults don't override
+      expect(driver._resolvePermissionTier('sh')).toBe('full');
+      expect(driver._resolvePermissionTier('grep')).toBe('full');
+      expect(driver._resolvePermissionTier('ls')).toBe('full');
+      expect(driver._resolvePermissionTier('custom-tool')).toBe('full');
+    });
+
+    it('first-party defaults apply when user config has no catch-all', () => {
+      const driver = createWasmVmRuntime({
+        wasmBinaryPath: '/fake',
+        permissions: { 'my-tool': 'isolated' },
+      }) as any;
+      // No '*' in user config → defaults kick in for known commands
       expect(driver._resolvePermissionTier('sh')).toBe('full');
       expect(driver._resolvePermissionTier('grep')).toBe('read-only');
+      expect(driver._resolvePermissionTier('ls')).toBe('read-only');
+      expect(driver._resolvePermissionTier('my-tool')).toBe('isolated');
+      // Unknown commands not in defaults → read-write
+      expect(driver._resolvePermissionTier('unknown-cmd')).toBe('read-write');
+    });
+
+    it('exact command name match overrides defaults', () => {
+      const driver = createWasmVmRuntime({
+        wasmBinaryPath: '/fake',
+        permissions: { 'grep': 'full', 'sh': 'read-only' },
+      }) as any;
+      expect(driver._resolvePermissionTier('grep')).toBe('full');
+      expect(driver._resolvePermissionTier('sh')).toBe('read-only');
     });
 
     it('falls back to * wildcard', () => {
       const driver = createWasmVmRuntime({
         wasmBinaryPath: '/fake',
-        permissions: { 'sh': 'full', '*': 'isolated' },
+        permissions: { '*': 'isolated' },
       }) as any;
-      expect(driver._resolvePermissionTier('sh')).toBe('full');
       expect(driver._resolvePermissionTier('unknown-cmd')).toBe('isolated');
     });
 
@@ -868,6 +895,47 @@ describe('WasmVM RuntimeDriver', () => {
       expect(driver._resolvePermissionTier('cp')).toBe('read-write');
       expect(driver._resolvePermissionTier('grep')).toBe('read-only');
       expect(driver._resolvePermissionTier('untrusted')).toBe('isolated');
+    });
+
+    it('wildcard pattern _untrusted/* matches directory prefix commands', () => {
+      const driver = createWasmVmRuntime({
+        wasmBinaryPath: '/fake',
+        permissions: {
+          'sh': 'full',
+          '_untrusted/*': 'isolated',
+          '*': 'read-write',
+        },
+      }) as any;
+      expect(driver._resolvePermissionTier('_untrusted/evil-cmd')).toBe('isolated');
+      expect(driver._resolvePermissionTier('_untrusted/another')).toBe('isolated');
+      expect(driver._resolvePermissionTier('sh')).toBe('full');
+      expect(driver._resolvePermissionTier('custom-tool')).toBe('read-write');
+    });
+
+    it('exact match takes precedence over wildcard pattern', () => {
+      const driver = createWasmVmRuntime({
+        wasmBinaryPath: '/fake',
+        permissions: {
+          '_untrusted/special': 'full',
+          '_untrusted/*': 'isolated',
+          '*': 'read-write',
+        },
+      }) as any;
+      expect(driver._resolvePermissionTier('_untrusted/special')).toBe('full');
+      expect(driver._resolvePermissionTier('_untrusted/other')).toBe('isolated');
+    });
+
+    it('longer glob pattern wins over shorter one', () => {
+      const driver = createWasmVmRuntime({
+        wasmBinaryPath: '/fake',
+        permissions: {
+          'vendor/*': 'read-write',
+          'vendor/untrusted/*': 'isolated',
+          '*': 'full',
+        },
+      }) as any;
+      expect(driver._resolvePermissionTier('vendor/untrusted/cmd')).toBe('isolated');
+      expect(driver._resolvePermissionTier('vendor/trusted-cmd')).toBe('read-write');
     });
 
     it('permissionTier is included in WorkerInitData', async () => {
@@ -931,6 +999,32 @@ describe('WasmVM RuntimeDriver', () => {
       const result = await kernel.exec('echo hello');
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toBe('hello\n');
+    });
+
+    it('full tier command can spawn subprocesses', async () => {
+      const vfs = new SimpleVFS();
+      kernel = createKernel({ filesystem: vfs as any });
+      await kernel.mount(createWasmVmRuntime({
+        wasmBinaryPath: WASM_BINARY_PATH,
+        permissions: { '*': 'full' },
+      }));
+
+      // sh with full tier can spawn ls as subprocess
+      const result = await kernel.exec('sh -c "ls /"');
+      expect(result.exitCode).toBe(0);
+    });
+
+    it('read-write command cannot spawn subprocesses', async () => {
+      const vfs = new SimpleVFS();
+      kernel = createKernel({ filesystem: vfs as any });
+      await kernel.mount(createWasmVmRuntime({
+        wasmBinaryPath: WASM_BINARY_PATH,
+        permissions: { '*': 'read-write' },
+      }));
+
+      // sh with read-write tier cannot spawn subprocesses — ls will fail
+      const result = await kernel.exec('sh -c "ls /"');
+      expect(result.exitCode).not.toBe(0);
     });
   });
 });

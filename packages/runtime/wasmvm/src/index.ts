@@ -13,9 +13,10 @@ export type { WasiFileIO } from './wasi-file-io.ts';
 export type { WasiProcessIO } from './wasi-process-io.ts';
 export { UserManager } from './user.ts';
 export type { UserManagerOptions, HostUserImports } from './user.ts';
-export { createWasmVmRuntime, WASMVM_COMMANDS } from './driver.ts';
+export { createWasmVmRuntime, WASMVM_COMMANDS, DEFAULT_FIRST_PARTY_TIERS } from './driver.ts';
 export type { WasmVmRuntimeOptions } from './driver.ts';
 export type { PermissionTier } from './syscall-rpc.ts';
+export { isSpawnBlocked, resolvePermissionTier } from './permission-check.ts';
 export { ModuleCache } from './module-cache.ts';
 export { isWasmBinary, isWasmBinarySync } from './wasm-magic.ts';
 export {
