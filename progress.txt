@@ -2273,3 +2273,25 @@ PRD: ralph/kernel-hardening (46 stories)
   - Workflow paths filter on crates/v8-runtime/** so it only triggers on Rust changes
   - cargo test is skipped for cross-compiled targets (linux-arm64) since tests can't run on the host architecture
 ---
+
+## 2026-03-19 - US-028
+- What was implemented: Removed isolated-vm dependency from the codebase
+- Files changed:
+  - packages/secure-exec-node/package.json — removed isolated-vm from dependencies
+  - packages/secure-exec-node/src/isolate.ts — removed ivm import, replaced ivm types with plain TS types
+  - packages/secure-exec-node/src/bridge-setup.ts — removed ivm import, replaced ivm types with legacy any aliases
+  - packages/secure-exec-node/src/execution.ts — removed ivm import, replaced ivm types with legacy any aliases
+  - packages/secure-exec-node/src/esm-compiler.ts — removed ivm import, replaced ivm types with legacy any aliases
+  - packages/secure-exec-node/src/execution-lifecycle.ts — removed ivm import, replaced ivm types with legacy any aliases
+  - packages/secure-exec-node/src/isolate-bootstrap.ts — cleaned up legacy ivm field comments
+  - packages/secure-exec-node/src/execution-driver.ts — cleaned up legacy ivm comment
+  - packages/secure-exec/tests/runtime-driver/node/bridge-hardening.test.ts — removed ivm import, rewrote module cache isolation test to use high-level run() API
+  - packages/secure-exec/tests/runtime-driver/node/hono-fetch-external.test.ts — removed ivm import, skipped test (depends on __unsafeIsolate internals not in V8 runtime)
+  - pnpm-lock.yaml — updated lockfile
+- **Learnings for future iterations:**
+  - bridge-setup.ts, execution.ts, esm-compiler.ts, execution-lifecycle.ts are all legacy code paths unused by the V8-based execution-driver.ts — they can be fully deleted in a future cleanup
+  - The only functions from bridge-setup.ts still actively used are createProcessConfigForExecution and emitConsoleEvent
+  - The only exports from isolate.ts still actively used are DEFAULT_TIMING_MITIGATION, ExecutionTimeoutError, and the timeout utility functions
+  - Tests using __unsafeIsolate/__unsafeCreateContext cannot be converted to V8 runtime — they need full rewrites for US-033
+  - All bridge-hardening tests were already timing out before this change (pre-existing V8 runtime connection issue)
+---
