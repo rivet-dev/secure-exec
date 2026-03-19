@@ -17,6 +17,11 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
 - `v8::Context::new(scope, Default::default())` — v130 requires a `ContextOptions` second arg
 - Use `v8::Global<v8::Context>` to persist context handles across HandleScope lifetimes
 - Consolidate V8 tests into a single `#[test]` fn to avoid inter-test isolate state issues
+- V8 platform MUST be initialized on the main thread before spawning session threads (SIGSEGV otherwise)
+- Session tests use `#[cfg(not(test))]` to skip V8 isolate creation; V8 lifecycle tested in `isolate::tests`
+- `session_id` is `String` in IPC types (not u32/u128) for JS interop; use hex nonces for 128-bit security
+- Session concurrency is configurable via `SECURE_EXEC_V8_MAX_SESSIONS` env var (default: available CPUs)
+- Use `std::thread::available_parallelism()` instead of `num_cpus` crate for CPU count
 ---
 
 ## 2026-03-18 - US-001
@@ -87,4 +92,20 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - Setting 0700 on the directory before binding is equivalent to after-bind/before-listen when the directory name has 128-bit randomness
   - Must flush stdout explicitly after printing socket path — Rust stdout is fully-buffered when piped
   - `signal-hook` v0.3 was pulled (v0.4 available but 0.3 is fine for AtomicBool flag pattern)
+---
+
+## 2026-03-18 - US-007
+- Implemented session management with V8 isolate threads, connection binding, and concurrency limiting
+- Changed `session_id` from `u32` to `String` across all IPC message types for 128-bit nonce support
+- Created `session.rs` with `SessionManager`: create/destroy sessions, connection ownership enforcement, max concurrency with Condvar-based queuing
+- Updated `main.rs`: added connection handler threads (per authenticated connection), session message dispatch, graceful shutdown of all sessions, V8 platform init on main thread
+- Max concurrency configurable via `SECURE_EXEC_V8_MAX_SESSIONS` env var (default: `available_parallelism()`)
+- Files changed: `crates/v8-runtime/src/ipc.rs`, `crates/v8-runtime/src/main.rs`, `crates/v8-runtime/src/session.rs` (new)
+- **Learnings for future iterations:**
+  - V8 platform MUST be initialized on the main thread BEFORE spawning any threads that create isolates — otherwise SIGSEGV
+  - Session tests cannot create V8 isolates due to inter-test V8 state issues; use `#[cfg(not(test))]` to skip V8 in tests, test V8 lifecycle separately in `isolate::tests`
+  - `String` is the best type for session_id in IPC: JS interop is clean (hex nonce), works as HashMap key, avoids u128/MessagePack incompatibility
+  - `std::thread::available_parallelism()` (stable since Rust 1.59) replaces the `num_cpus` crate
+  - `BridgeResponse` messages don't carry session_id; routing will need a separate mechanism (call_id → session mapping) in later stories
+  - Connection handler threads handle the message loop; the main thread only does accept + auth
 ---
