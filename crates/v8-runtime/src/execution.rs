@@ -1071,17 +1071,14 @@ mod tests {
             ));
         }
 
-        // --- Part 4: SharedArrayBuffer removed in freeze mode ---
+        // --- Part 4: SharedArrayBuffer NOT removed by inject_globals ---
+        // SharedArrayBuffer removal is handled by JS bridge code (applyTimingMitigationFreeze),
+        // not by inject_globals. The bridge bundle depends on SharedArrayBuffer being available
+        // during initialization. inject_globals stores timing_mitigation in _processConfig
+        // for the bridge to read.
         {
             let mut isolate = isolate::create_isolate(None);
             let context = isolate::create_context(&mut isolate);
-
-            // Verify SharedArrayBuffer exists before injection
-            assert!(eval_bool(
-                &mut isolate,
-                &context,
-                "typeof SharedArrayBuffer !== 'undefined'"
-            ));
 
             let process_config = ProcessConfig {
                 cwd: "/".into(),
@@ -1103,15 +1100,20 @@ mod tests {
                 inject_globals(scope, &process_config, &os_config);
             }
 
-            // SharedArrayBuffer should now be removed
+            // SharedArrayBuffer should still exist — removal is done by JS bridge
             assert!(eval_bool(
                 &mut isolate,
                 &context,
-                "typeof SharedArrayBuffer === 'undefined'"
+                "typeof SharedArrayBuffer !== 'undefined'"
             ));
+            // timing_mitigation is stored for the bridge to act on
+            assert_eq!(
+                eval(&mut isolate, &context, "_processConfig.timing_mitigation"),
+                "freeze"
+            );
         }
 
-        // --- Part 5: SharedArrayBuffer preserved when timing_mitigation is not 'freeze' ---
+        // --- Part 5: SharedArrayBuffer preserved when timing_mitigation is 'none' ---
         {
             let mut isolate = isolate::create_isolate(None);
             let context = isolate::create_context(&mut isolate);
