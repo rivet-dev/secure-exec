@@ -97,6 +97,8 @@ PRD: ralph/kernel-hardening (46 stories)
 - tcgetattr returns a deep copy — callers cannot mutate internal state
 - /dev/fd/N in fdOpen → dup(N); VFS-level readDir/stat for /dev/fd are PID-unaware; use devFdReadDir(pid) and devFdStat(pid, fd) on KernelInterface for PID-aware operations
 - Device layer has DEVICE_DIRS set (/dev/fd, /dev/pts) for pseudo-directories — stat returns directory mode 0o755, readDir returns empty (PID context required for dynamic content)
+- diagnostics_channel.tracingChannel() stub must include traceSync/tracePromise/traceCallback — libraries (pino, etc.) call these directly
+- Project-matrix fixtures using pino: use process.stdout as destination (sonic-boom fd writes fail with EBADF in sandbox)
 - ResourceBudgets (maxOutputBytes, maxBridgeCalls, maxTimers, maxChildProcesses) flow: NodeRuntimeOptions → RuntimeDriverOptions → NodeExecutionDriver constructor
 - Bridge-side timer budget: inject `_maxTimers` number as global, bridge checks `_timers.size + _intervals.size >= _maxTimers` synchronously — host-side enforcement doesn't work because `_scheduleTimer.apply()` is async (Promise)
 - Bridge `_scheduleTimer.apply(undefined, [delay], { result: { promise: true } })` is async — host throws become unhandled Promise rejections, not catchable try/catch
@@ -2322,4 +2324,19 @@ PRD: ralph/kernel-hardening (46 stories)
 - **Learnings for future iterations:**
   - chalk v5 exports `Chalk` as a named export (not `chalk.Chalk`) — use `import { Chalk } from "chalk"` and `new Chalk({ level: 1 })` for deterministic ANSI output
   - Forcing `level: 1` ensures basic ANSI codes regardless of TTY detection, producing identical output in host and sandbox
+---
+
+## 2026-03-18 - US-185
+- Added pino project-matrix fixture (pino-pass)
+- Fixed diagnostics_channel.tracingChannel() stub to include traceSync/tracePromise/traceCallback methods
+- Files changed:
+  - packages/secure-exec/tests/projects/pino-pass/ (new fixture: fixture.json, package.json, src/index.js)
+  - packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts (diagnostics_channel stub fix)
+  - packages/secure-exec-core/src/generated/isolate-runtime.ts (rebuilt)
+  - docs/nodejs-compatibility.mdx (added pino to Tested Packages table)
+- **Learnings for future iterations:**
+  - pino uses sonic-boom (async fd writes via fs.writeSync) by default — sandbox doesn't support direct fd writes, so use process.stdout as destination
+  - pino.destination({ dest: 1, sync: true }) fails in sandbox with EBADF; pino({}, process.stdout) works
+  - diagnostics_channel.tracingChannel() must return traceSync/tracePromise/traceCallback no-op wrappers that execute the passed function — libraries like pino call these directly
+  - Use `timestamp: false, base: undefined` with pino for deterministic output (removes time, pid, hostname)
 ---
