@@ -647,6 +647,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmd-column"
+version = "0.1.0"
+dependencies = [
+ "secureexec-column",
+]
+
+[[package]]
+name = "cmd-diff"
+version = "0.1.0"
+dependencies = [
+ "secureexec-diff",
+]
+
+[[package]]
+name = "cmd-du"
+version = "0.1.0"
+dependencies = [
+ "secureexec-du",
+]
+
+[[package]]
+name = "cmd-expr"
+version = "0.1.0"
+dependencies = [
+ "secureexec-expr",
+]
+
+[[package]]
+name = "cmd-file"
+version = "0.1.0"
+dependencies = [
+ "secureexec-file-cmd",
+]
+
+[[package]]
+name = "cmd-find"
+version = "0.1.0"
+dependencies = [
+ "secureexec-find",
+]
+
+[[package]]
 name = "cmd-grep"
 version = "0.1.0"
 dependencies = [
@@ -658,6 +700,13 @@ name = "cmd-jq"
 version = "0.1.0"
 dependencies = [
  "secureexec-jq",
+]
+
+[[package]]
+name = "cmd-rev"
+version = "0.1.0"
+dependencies = [
+ "secureexec-rev",
 ]
 
 [[package]]
@@ -679,6 +728,20 @@ name = "cmd-sh"
 version = "0.1.0"
 dependencies = [
  "brush-shell",
+]
+
+[[package]]
+name = "cmd-strings"
+version = "0.1.0"
+dependencies = [
+ "secureexec-strings-cmd",
+]
+
+[[package]]
+name = "cmd-tree"
+version = "0.1.0"
+dependencies = [
+ "secureexec-tree",
 ]
 
 [[package]]
@@ -3042,6 +3105,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "secureexec-column"
+version = "0.1.0"
+
+[[package]]
+name = "secureexec-diff"
+version = "0.1.0"
+dependencies = [
+ "similar",
+]
+
+[[package]]
+name = "secureexec-du"
+version = "0.1.0"
+
+[[package]]
+name = "secureexec-expr"
+version = "0.1.0"
+dependencies = [
+ "regex",
+]
+
+[[package]]
+name = "secureexec-file-cmd"
+version = "0.1.0"
+dependencies = [
+ "infer",
+]
+
+[[package]]
+name = "secureexec-find"
+version = "0.1.0"
+dependencies = [
+ "regex",
+]
+
+[[package]]
 name = "secureexec-grep"
 version = "0.1.0"
 dependencies = [
@@ -3057,6 +3156,18 @@ dependencies = [
  "jaq-std",
  "serde_json",
 ]
+
+[[package]]
+name = "secureexec-rev"
+version = "0.1.0"
+
+[[package]]
+name = "secureexec-strings-cmd"
+version = "0.1.0"
+
+[[package]]
+name = "secureexec-tree"
+version = "0.1.0"
 
 [[package]]
 name = "secureexec-yq"
