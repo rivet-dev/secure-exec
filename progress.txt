@@ -3,6 +3,7 @@ Started: 2026-03-17
 PRD: ralph/kernel-hardening (46 stories)
 
 ## Codebase Patterns
+- Stream polyfill prototype chain is patched in _patchPolyfill (require-setup.ts) — esbuild's circular-dep bundling breaks Readable→Stream inheritance; without patch, `instanceof Stream` fails (breaks node-fetch, undici, etc.)
 - Timing mitigation Date.now/performance.now use getter/setter (not writable:false) — setter is no-op for Node.js compat; configurable:false blocks re-definition
 - Claude binary at ~/.claude/local/claude — not on PATH by default; skip helpers must check this fallback location
 - Claude Code --output-format stream-json requires --verbose flag; uses ANTHROPIC_BASE_URL natively (no fetch interceptor)
@@ -2339,4 +2340,18 @@ PRD: ralph/kernel-hardening (46 stories)
   - pino.destination({ dest: 1, sync: true }) fails in sandbox with EBADF; pino({}, process.stdout) works
   - diagnostics_channel.tracingChannel() must return traceSync/tracePromise/traceCallback no-op wrappers that execute the passed function — libraries like pino call these directly
   - Use `timestamp: false, base: undefined` with pino for deterministic output (removes time, pid, hostname)
+---
+
+## 2026-03-18 - US-186
+- Implemented node-fetch project-matrix fixture (v2.7.0, CJS)
+- Fixed stream polyfill prototype chain: esbuild's circular-dep resolution between stream-browserify and readable-stream broke `instanceof Stream` — Readable extended EventEmitter directly instead of Stream; patched in `_patchPolyfill` to insert Stream.prototype back into the chain
+- Files changed:
+  - packages/secure-exec/tests/projects/node-fetch-pass/ (new fixture)
+  - packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts (stream patch)
+  - packages/secure-exec-core/src/generated/isolate-runtime.ts (generated)
+  - docs/nodejs-compatibility.mdx (Tested Packages table)
+- **Learnings for future iterations:**
+  - node-fetch v3 is ESM-only and uses socket.prependListener (not in bridge); use v2 for CJS compat
+  - `body instanceof Stream` check in node-fetch v2 was failing because esbuild's bundling of stream-browserify↔readable-stream circular dependency breaks the prototype chain (Readable → EventEmitter instead of Readable → Stream → EventEmitter)
+  - Stream polyfill patches go in `_patchPolyfill` in require-setup.ts; the generated file auto-updates on build
 ---
