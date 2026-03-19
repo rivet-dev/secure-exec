@@ -32,6 +32,10 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
 - `session_id` is `String` in IPC types (not u32/u128) for JS interop; use hex nonces for 128-bit security
 - Session concurrency is configurable via `SECURE_EXEC_V8_MAX_SESSIONS` env var (default: available CPUs)
 - Use `std::thread::available_parallelism()` instead of `num_cpus` crate for CPU count
+- `v8::PromiseResolver::new(scope)` + `resolver.get_promise(scope)` to create promise-returning functions
+- Use `RefCell<HashMap<u32, v8::Global<v8::PromiseResolver>>>` for single-threaded pending promise storage
+- `scope.perform_microtask_checkpoint()` flushes .then() handlers after promise resolution
+- `async_send` and `sync_call` share the `next_call_id` counter — no cross-convention call_id collisions
 ---
 
 ## 2026-03-18 - US-001
@@ -160,4 +164,26 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - `rmpv::Integer::from(n as i64)` and `from(n as u64)` for compact integer encoding
   - V8 `ArrayBuffer::get_backing_store().data()` returns `None` for zero-length buffers — always guard with `if len > 0`
   - `BridgeCallContext` reader/writer use `Mutex<Box<dyn Write + Send>>` pattern for testability with in-memory Cursor/Vec
+---
+
+## 2026-03-18 - US-010
+- Implemented async promise-returning bridge calls in `bridge.rs` and `host_call.rs`
+- `async_send(method, args)`: generates call_id, writes BridgeCall to IPC (non-blocking), returns call_id for tracking
+- `PendingPromises`: RefCell<HashMap<u32, v8::Global<v8::PromiseResolver>>> for single-threaded resolver storage
+- `register_async_bridge_fns(scope, ctx, pending, methods)`: creates v8::FunctionTemplate per method with v8::External data pointing to AsyncBridgeFnData (ctx + pending + method)
+- `async_bridge_callback`: creates PromiseResolver, stores in PendingPromises, sends BridgeCall, returns promise to V8
+- `resolve_pending_promise(scope, pending, call_id, result, error)`: finds resolver by call_id, resolves/rejects, flushes microtasks
+- `AsyncBridgeFnStore` opaque type keeps heap allocations alive for the V8 context lifetime
+- 3 unit tests for async_send (write verification, call_id increment, shared counter with sync)
+- 5 V8 integration tests (Parts 12-16: success resolve, error reject, multi-function out-of-order resolution, null/undefined result, microtask flush verification)
+- Files changed: `crates/v8-runtime/src/bridge.rs`, `crates/v8-runtime/src/host_call.rs`, `crates/v8-runtime/src/execution.rs`
+- **Learnings for future iterations:**
+  - `v8::PromiseResolver::new(scope)` returns `Option<Local<PromiseResolver>>` — needs a context on the V8 context stack (works within ContextScope)
+  - `resolver.get_promise(scope)` returns the associated Promise before it's resolved
+  - `resolver.resolve(scope, val)` / `resolver.reject(scope, exc)` set promise state immediately; microtasks (`.then` handlers) are enqueued but not flushed until `perform_microtask_checkpoint()`
+  - `scope.perform_microtask_checkpoint()` works through DerefMut chain: `HandleScope<Context>` → `HandleScope<()>` → `Isolate`
+  - `RefCell<HashMap>` is appropriate for PendingPromises since all access is single-threaded (session thread)
+  - `async_send` shares the `next_call_id` AtomicU32 with `sync_call` — no duplicate call_ids between sync and async
+  - Promise state can be checked directly via `promise.state()` (Pending/Fulfilled/Rejected) and `promise.result(scope)` without needing `.then()` wrappers
+  - Out-of-order promise resolution works correctly — resolving call_id=2 before call_id=1 is fine
 ---
