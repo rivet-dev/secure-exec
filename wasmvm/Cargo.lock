@@ -640,6 +640,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
+name = "cmd-awk"
+version = "0.1.0"
+dependencies = [
+ "secureexec-awk",
+]
+
+[[package]]
 name = "cmd-grep"
 version = "0.1.0"
 dependencies = [
@@ -647,10 +654,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmd-jq"
+version = "0.1.0"
+dependencies = [
+ "secureexec-jq",
+]
+
+[[package]]
+name = "cmd-rg"
+version = "0.1.0"
+dependencies = [
+ "secureexec-grep",
+]
+
+[[package]]
+name = "cmd-sed"
+version = "0.1.0"
+dependencies = [
+ "sed",
+]
+
+[[package]]
 name = "cmd-sh"
 version = "0.1.0"
 dependencies = [
  "brush-shell",
+]
+
+[[package]]
+name = "cmd-yq"
+version = "0.1.0"
+dependencies = [
+ "secureexec-yq",
 ]
 
 [[package]]
@@ -3000,10 +3035,40 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
+name = "secureexec-awk"
+version = "0.1.0"
+dependencies = [
+ "awk-rs",
+]
+
+[[package]]
 name = "secureexec-grep"
 version = "0.1.0"
 dependencies = [
  "regex",
+]
+
+[[package]]
+name = "secureexec-jq"
+version = "0.1.0"
+dependencies = [
+ "jaq-core",
+ "jaq-json",
+ "jaq-std",
+ "serde_json",
+]
+
+[[package]]
+name = "secureexec-yq"
+version = "0.1.0"
+dependencies = [
+ "jaq-core",
+ "jaq-json",
+ "jaq-std",
+ "quick-xml",
+ "serde_json",
+ "serde_yaml",
+ "toml 0.8.23",
 ]
 
 [[package]]

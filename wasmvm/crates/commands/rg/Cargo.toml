@@ -1,0 +1,13 @@
+[package]
+name = "cmd-rg"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "rg (ripgrep) standalone binary for secure-exec WasmVM"
+
+[[bin]]
+name = "rg"
+path = "src/main.rs"
+
+[dependencies]
+secureexec-grep = { path = "../../libs/grep" }
