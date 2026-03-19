@@ -2295,3 +2295,18 @@ PRD: ralph/kernel-hardening (46 stories)
   - Tests using __unsafeIsolate/__unsafeCreateContext cannot be converted to V8 runtime — they need full rewrites for US-033
   - All bridge-hardening tests were already timing out before this change (pre-existing V8 runtime connection issue)
 ---
+
+## 2026-03-19 - US-029
+- Implemented 22 integration tests for full V8 IPC round-trip lifecycle
+- Tests cover: spawn/auth, session create/destroy, resource budgets, simple execution, _processConfig/_osConfig injection, syntax/runtime error handling, sync-blocking bridge calls (_log, _fsReadFile, _fsReadFileBinary with binary data), bridge error propagation, async bridge calls (_networkFetchRaw), async error rejection, multiple sequential bridge calls, mixed sync+async calls, session cleanup, sequential multi-session, concurrent sessions, unhandled bridge method, frozen globals, WASM compilation disabled
+- Files changed:
+  - packages/secure-exec-v8/package.json — added vitest devDep, updated test script
+  - packages/secure-exec-v8/vitest.config.ts — new vitest config
+  - packages/secure-exec-v8/test/ipc-roundtrip.test.ts — 22 integration tests
+  - pnpm-lock.yaml — updated lockfile
+- **Learnings for future iterations:**
+  - Each V8 integration test takes ~5s due to Rust process spawn/dispose overhead; consider sharing a runtime across tests via beforeAll/afterAll for faster iteration
+  - Concurrent sessions with sync bridge calls can deadlock over a single IPC connection (the Rust session threads all block on reads); concurrent tests should avoid sync bridge calls or use a different approach
+  - The debug binary at crates/v8-runtime/target/debug/secure-exec-v8 is used for tests; release binary used if available
+  - Tests skip automatically if no Rust binary is built (skipIf pattern)
+---
