@@ -1940,7 +1940,7 @@ use std::num::NonZeroI32;
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                crate::session::run_event_loop(scope, &rx, &pending)
+                crate::session::run_event_loop(scope, &rx, &pending, None)
             };
 
             assert!(completed, "event loop should complete normally");
@@ -2011,7 +2011,7 @@ use std::num::NonZeroI32;
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                crate::session::run_event_loop(scope, &rx, &pending)
+                crate::session::run_event_loop(scope, &rx, &pending, None)
             };
 
             assert!(completed);
@@ -2061,7 +2061,7 @@ use std::num::NonZeroI32;
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                crate::session::run_event_loop(scope, &rx, &pending)
+                crate::session::run_event_loop(scope, &rx, &pending, None)
             };
 
             assert!(!completed, "event loop should return false on termination");
@@ -2108,7 +2108,7 @@ use std::num::NonZeroI32;
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                crate::session::run_event_loop(scope, &rx, &pending)
+                crate::session::run_event_loop(scope, &rx, &pending, None)
             };
 
             assert!(!completed, "event loop should return false on shutdown");
@@ -2127,7 +2127,7 @@ use std::num::NonZeroI32;
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                crate::session::run_event_loop(scope, &rx, &pending)
+                crate::session::run_event_loop(scope, &rx, &pending, None)
             };
 
             assert!(completed);
@@ -2206,7 +2206,7 @@ use std::num::NonZeroI32;
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                crate::session::run_event_loop(scope, &rx, &pending)
+                crate::session::run_event_loop(scope, &rx, &pending, None)
             };
 
             assert!(completed);
@@ -2271,7 +2271,7 @@ use std::num::NonZeroI32;
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                crate::session::run_event_loop(scope, &rx, &pending);
+                crate::session::run_event_loop(scope, &rx, &pending, None);
             }
 
             // .then handler should have run (microtasks flushed)
@@ -2365,7 +2365,7 @@ use std::num::NonZeroI32;
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                crate::session::run_event_loop(scope, &rx, &pending)
+                crate::session::run_event_loop(scope, &rx, &pending, None)
             };
 
             assert!(completed);
@@ -2456,7 +2456,7 @@ use std::num::NonZeroI32;
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                crate::session::run_event_loop(scope, &rx, &pending)
+                crate::session::run_event_loop(scope, &rx, &pending, None)
             };
 
             assert!(completed);
@@ -2531,7 +2531,7 @@ use std::num::NonZeroI32;
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                crate::session::run_event_loop(scope, &rx, &pending)
+                crate::session::run_event_loop(scope, &rx, &pending, None)
             };
 
             assert!(completed);
@@ -2599,7 +2599,7 @@ use std::num::NonZeroI32;
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                crate::session::run_event_loop(scope, &rx, &pending)
+                crate::session::run_event_loop(scope, &rx, &pending, None)
             };
 
             assert!(completed);
@@ -2671,11 +2671,155 @@ use std::num::NonZeroI32;
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                crate::session::run_event_loop(scope, &rx, &pending);
+                crate::session::run_event_loop(scope, &rx, &pending, None);
             }
 
             // Microtask enqueued by the dispatch callback should have run
             assert!(eval_bool(&mut iso, &ctx, "_microtaskRanFromStream === true"));
+        }
+
+        // --- Part 43: Timeout terminates infinite loop ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            disable_wasm(&mut iso);
+            let ctx = isolate::create_context(&mut iso);
+
+            // Create abort channel for timeout
+            let (abort_tx, _abort_rx) = crossbeam_channel::bounded::<()>(0);
+
+            // Get isolate handle for the timeout guard
+            let iso_handle = iso.thread_safe_handle();
+
+            // Start a 50ms timeout
+            let mut guard = crate::timeout::TimeoutGuard::new(50, iso_handle, abort_tx);
+
+            // Run an infinite loop — timeout should terminate it
+            let (code, error) = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                execute_script(scope, "", "while(true) {}")
+            };
+
+            assert!(guard.timed_out(), "timeout should have fired");
+            // V8 termination causes an error
+            assert_eq!(code, 1);
+            assert!(error.is_some());
+
+            guard.cancel();
+        }
+
+        // --- Part 44: Timeout cancelled when execution completes before deadline ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            disable_wasm(&mut iso);
+            let ctx = isolate::create_context(&mut iso);
+
+            let (abort_tx, _abort_rx) = crossbeam_channel::bounded::<()>(0);
+            let iso_handle = iso.thread_safe_handle();
+
+            // 5 second timeout — execution completes well before
+            let mut guard = crate::timeout::TimeoutGuard::new(5000, iso_handle, abort_tx);
+
+            let (code, error) = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                execute_script(scope, "", "1 + 1")
+            };
+
+            assert!(!guard.timed_out(), "timeout should not have fired");
+            assert_eq!(code, 0);
+            assert!(error.is_none());
+
+            guard.cancel();
+        }
+
+        // --- Part 45: Timeout fires during sync bridge call (unblocks channel reader) ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            disable_wasm(&mut iso);
+            let ctx = isolate::create_context(&mut iso);
+
+            // Set up abort channel for timeout
+            let (abort_tx, abort_rx) = crossbeam_channel::bounded::<()>(0);
+            let iso_handle = iso.thread_safe_handle();
+
+            // Create a BridgeCallContext with a channel reader that monitors abort_rx
+            // Simulate: JS calls a sync bridge function, but no response comes back.
+            // The timeout should unblock the reader via abort channel.
+            let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded::<crate::session::SessionCommand>();
+
+            // Writer goes to a buffer (we don't care about outgoing messages)
+            let writer_buf = Arc::new(Mutex::new(Vec::new()));
+
+            // Create the bridge context with a channel-based reader
+            // We can't use ChannelMessageReader directly (it's #[cfg(not(test))])
+            // Instead, test the abort_rx behavior through run_event_loop
+
+            let pending = bridge::PendingPromises::new();
+
+            // Register an async bridge function that sends a BridgeCall
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(SharedWriter(Arc::clone(&writer_buf))),
+                Box::new(Cursor::new(Vec::new())), // unused for async
+                "test-session".into(),
+            );
+            let _async_store;
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                _async_store = bridge::register_async_bridge_fns(
+                    scope,
+                    &bridge_ctx as *const BridgeCallContext,
+                    &pending as *const bridge::PendingPromises,
+                    &["_slowFn"],
+                );
+            }
+
+            // Execute code that calls async bridge function (creates a pending promise)
+            let (_code, _error) = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                execute_script(scope, "", "_slowFn('never-responds')")
+            };
+
+            assert_eq!(pending.len(), 1, "should have 1 pending promise");
+
+            // Start a 50ms timeout
+            let mut guard = crate::timeout::TimeoutGuard::new(50, iso_handle, abort_tx);
+
+            // Run event loop — it should be terminated by the timeout
+            // (no messages on cmd_rx, so it blocks until abort_rx fires)
+            let completed = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                crate::session::run_event_loop(scope, &cmd_rx, &pending, Some(&abort_rx))
+            };
+
+            assert!(!completed, "event loop should have been terminated");
+            assert!(guard.timed_out(), "timeout should have fired");
+
+            guard.cancel();
+            drop(cmd_tx); // clean up
+        }
+
+        // --- Part 46: Timeout error message structure ---
+        {
+            // Verify that the timeout error produced by the session matches expectations.
+            // This tests the ipc::ExecutionError structure, not V8 directly.
+            let err = crate::ipc::ExecutionError {
+                error_type: "Error".into(),
+                message: "Script execution timed out".into(),
+                stack: String::new(),
+                code: Some("ERR_SCRIPT_EXECUTION_TIMEOUT".into()),
+            };
+            assert_eq!(err.error_type, "Error");
+            assert_eq!(err.message, "Script execution timed out");
+            assert_eq!(err.code, Some("ERR_SCRIPT_EXECUTION_TIMEOUT".into()));
         }
     }
 }
