@@ -628,9 +628,9 @@ async function main(): Promise<void> {
   const hostProcess = createHostProcessImports(getMemory);
 
   try {
-    // Load WASM binary
-    const wasmBytes = await readFile(init.wasmBinaryPath);
-    const wasmModule = await WebAssembly.compile(wasmBytes);
+    // Use pre-compiled module from main thread if available, otherwise compile from disk
+    const wasmModule = init.wasmModule
+      ?? await WebAssembly.compile(await readFile(init.wasmBinaryPath));
 
     const imports: WebAssembly.Imports = {
       wasi_snapshot_preview1: polyfill.getImports() as WebAssembly.ModuleImports,

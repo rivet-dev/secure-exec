@@ -92,4 +92,6 @@ export interface WorkerInitData {
   stderrFd?: number;
   /** Which stdio FDs are TTYs (for brush-shell interactive mode detection). */
   ttyFds?: number[];
+  /** Pre-compiled WebAssembly.Module from main thread's ModuleCache (transferable via structured clone). */
+  wasmModule?: WebAssembly.Module;
 }

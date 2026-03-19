@@ -34,6 +34,7 @@ import {
 } from './syscall-rpc.ts';
 import { ERRNO_MAP, ERRNO_EIO } from './wasi-constants.ts';
 import { isWasmBinary, isWasmBinarySync } from './wasm-magic.ts';
+import { ModuleCache } from './module-cache.ts';
 import { readdir, stat } from 'node:fs/promises';
 import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -122,6 +123,7 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
   private _kernel: KernelInterface | null = null;
   private _activeWorkers = new Map<number, WorkerHandle>();
   private _workerAdapter = new WorkerAdapter();
+  private _moduleCache = new ModuleCache();
 
   get commands(): string[] { return this._commands; }
 
@@ -253,6 +255,7 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
       try { await worker.terminate(); } catch { /* best effort */ }
     }
     this._activeWorkers.clear();
+    this._moduleCache.clear();
     this._kernel = null;
   }
 
@@ -344,15 +347,23 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
   // Worker lifecycle
   // -------------------------------------------------------------------------
 
-  private _launchWorker(
+  private async _launchWorker(
     command: string,
     args: string[],
     ctx: ProcessContext,
     proc: DriverProcess,
     resolveExit: (code: number) => void,
     binaryPath: string,
-  ): void {
+  ): Promise<void> {
     const kernel = this._kernel!;
+
+    // Pre-compile module via cache for fast re-instantiation on subsequent spawns
+    let wasmModule: WebAssembly.Module | undefined;
+    try {
+      wasmModule = await this._moduleCache.resolve(binaryPath);
+    } catch {
+      // Binary not found or invalid — worker will report the error
+    }
 
     // Create shared buffers for RPC
     const signalBuf = new SharedArrayBuffer(SIGNAL_BUFFER_BYTES);
@@ -387,6 +398,7 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
       stdoutFd: (stdoutPiped || stdoutIsFile) ? 99 : undefined,
       stderrFd: (stderrPiped || stderrIsFile) ? 99 : undefined,
       ttyFds: ttyFds.length > 0 ? ttyFds : undefined,
+      wasmModule,
     };
 
     const workerUrl = new URL('./kernel-worker.ts', import.meta.url);

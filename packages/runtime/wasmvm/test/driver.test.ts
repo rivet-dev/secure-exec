@@ -606,6 +606,26 @@ describe('WasmVM RuntimeDriver', () => {
       expect(result.stdout).toBe('hello\n');
     });
 
+    it('module cache is populated after first spawn and reused for subsequent spawns', async () => {
+      const vfs = new SimpleVFS();
+      kernel = createKernel({ filesystem: vfs as any });
+      const driver = createWasmVmRuntime({ wasmBinaryPath: WASM_BINARY_PATH }) as any;
+      await kernel.mount(driver);
+
+      // Before any spawn, cache is empty
+      expect(driver._moduleCache.size).toBe(0);
+
+      // First spawn compiles and caches the module
+      const result1 = await kernel.exec('echo first');
+      expect(result1.exitCode).toBe(0);
+      expect(driver._moduleCache.size).toBe(1);
+
+      // Second spawn reuses the cached module (cache size stays 1)
+      const result2 = await kernel.exec('echo second');
+      expect(result2.exitCode).toBe(0);
+      expect(driver._moduleCache.size).toBe(1);
+    });
+
     it('exec cat /dev/null exits 0', async () => {
       const vfs = new SimpleVFS();
       await vfs.writeFile('/dev/null', new Uint8Array(0));
