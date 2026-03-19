@@ -391,7 +391,7 @@
         "Tests pass"
       ],
       "priority": 20,
-      "passes": false,
+      "passes": true,
       "notes": "CRITICAL: Do NOT start this story unless US-014 through US-019 all pass. The standalone binary architecture must be fully validated before removing the multicall fallback. Cross-reference dispatch.rs against all standalone crates. Commands to explicitly verify are accounted for: hostid, sync, tty, more (symlink to cat), chcon, runcon, chroot, install, mkfifo, mknod, pinky, who, users, uptime, spawn-test. Each must be in a standalone crate, a _stubs symlink, or explicitly documented as removed."
     },
     {

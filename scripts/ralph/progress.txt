@@ -27,6 +27,10 @@ PRD: ralph/wasmvm-dynamic-modules (19 stories)
 - Permission system is opt-in: no `permissions` config → all commands `full` (unrestricted); with config, resolution is: user exact > user glob > user `*` > DEFAULT_FIRST_PARTY_TIERS > 'read-write'
 - `resolvePermissionTier()` in permission-check.ts supports a `defaults` fallback layer; `DEFAULT_FIRST_PARTY_TIERS` in driver.ts maps known first-party commands to sensible tiers
 - proc_spawn enforcement: only `full` tier allows subprocess spawning (isSpawnBlocked helper)
+- Multicall crate is deleted; all commands are standalone binaries in `crates/commands/`
+- Tests use `commandDirs: [COMMANDS_DIR]` where `COMMANDS_DIR = wasmvm/target/wasm32-wasip1/release/commands`
+- CI guard test variable is `hasWasmBinaries` (checks for commands dir, not multicall binary)
+- Legacy `wasmBinaryPath` option still works (deprecated) but tests now use commandDirs for real WASM execution
 
 ## 2026-03-19 12:04 PM PDT - US-001
 - Implemented path-based resolution in CommandRegistry.resolve() — extracts basename when command contains '/'
@@ -250,4 +254,48 @@ PRD: ralph/wasmvm-dynamic-modules (19 stories)
   - `resolvePermissionTier()` supports a `defaults` parameter as a fallback layer, only consulted when primary permissions have no match
   - WASI `rightsBase` in fdOpen includes FD_WRITE even for read-only file opens (programs request broad capabilities) — `read-only` tier blocks these due to `rightsBase & 2n` in hasWriteIntent check; this is a known limitation from US-018
   - Integration tests for proc_spawn: `sh -c "ls /"` tests spawn since ls is not a shell builtin; echo IS a builtin so it doesn't test proc_spawn
+---
+
+## 2026-03-19 2:30 PM PDT - US-020
+- Deleted `wasmvm/crates/multicall/` directory (dispatch.rs, main.rs, 20 source files)
+- Removed `crates/multicall` from workspace Cargo.toml members
+- Removed legacy `wasm-multicall` and `wasm-opt` Makefile targets
+- Cross-referenced dispatch.rs against standalone crates + _stubs — all commands accounted for
+- `spawn-test` was only used as an echo argument in tests, removed from test-vfs.ts command list
+- Updated all test files (14 files) to use `commandDirs: [COMMANDS_DIR]` instead of `wasmBinaryPath`
+- Updated `scripts/shell.ts` CLI to use `--commands-dir` flag
+- Updated docs (quickstart.mdx, interactive-shell.mdx) to use commandDirs API
+- Updated wasmvm/CLAUDE.md to reflect standalone binary architecture
+- Marked `wasmvm-dynamic-modules.md` spec as Implemented
+- Marked `wasmvm-mvp.md` spec as Superseded
+- Updated internal docs (review-notes.md, spec-hardening.md, CLAUDE.md)
+- Files changed:
+  - wasmvm/crates/multicall/ (deleted entirely)
+  - wasmvm/Cargo.toml
+  - wasmvm/Makefile
+  - wasmvm/CLAUDE.md
+  - CLAUDE.md
+  - scripts/shell.ts
+  - docs/kernel/quickstart.mdx
+  - docs/kernel/interactive-shell.mdx
+  - docs-internal/review-notes.md
+  - docs-internal/spec-hardening.md
+  - wasmvm/notes/specs/wasmvm-dynamic-modules.md
+  - wasmvm/notes/specs/wasmvm-mvp.md
+  - wasmvm/notes/specs/wasmvm-tool-completeness.md
+  - wasmvm/scripts/test-gnu.sh
+  - packages/runtime/wasmvm/src/driver.ts
+  - packages/runtime/wasmvm/test/driver.test.ts
+  - packages/runtime/wasmvm/test/dynamic-module-integration.test.ts
+  - packages/runtime/wasmvm/test/helpers/test-vfs.ts
+  - packages/runtime/wasmvm/test/shell-terminal.test.ts
+  - packages/secure-exec/tests/kernel/helpers.ts
+  - packages/secure-exec/tests/kernel/e2e-*.test.ts (4 files)
+- **Learnings for future iterations:**
+  - All `wasmBinaryPath` references were spread across 14+ test files and docs — comprehensive grep is essential
+  - The `_stubs` mini-multicall is intentionally kept (it IS a multicall for stub commands)
+  - `spawn-test` was never invoked as a command in any test — only used as an argument string to `echo`
+  - Legacy mode (wasmBinaryPath) is deprecated but still functional; unit tests use fake paths, real execution tests now use commandDirs
+  - In commandDirs mode, the module cache creates separate entries per command binary (vs legacy mode where all share one)
+  - CI already uses `make wasm` (standalone binaries), so CI workflow didn't need changes
 ---
