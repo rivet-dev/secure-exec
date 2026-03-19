@@ -216,7 +216,7 @@ function _addListener(
       const warning = `MaxListenersExceededWarning: Possible EventEmitter memory leak detected. ${total} ${event} listeners added to [process]. MaxListeners is ${_processMaxListeners}. Use emitter.setMaxListeners() to increase limit`;
       // Use console.error to emit warning without recursion risk
       if (typeof _error !== "undefined") {
-        _error.applySync(undefined, [warning]);
+        _error(warning);
       }
     }
   }
@@ -285,7 +285,7 @@ const _stderrIsTTY = (typeof _processConfig !== "undefined" && _processConfig.st
 const _stdout: StdioWriteStream = {
   write(data: unknown): boolean {
     if (typeof _log !== "undefined") {
-      _log.applySync(undefined, [String(data).replace(/\n$/, "")]);
+      _log(String(data).replace(/\n$/, ""));
     }
     return true;
   },
@@ -311,7 +311,7 @@ const _stdout: StdioWriteStream = {
 const _stderr: StdioWriteStream = {
   write(data: unknown): boolean {
     if (typeof _error !== "undefined") {
-      _error.applySync(undefined, [String(data).replace(/\n$/, "")]);
+      _error(String(data).replace(/\n$/, ""));
     }
     return true;
   },
@@ -485,7 +485,7 @@ const _stdin: StdinStream = {
       throw new Error("setRawMode is not supported when stdin is not a TTY");
     }
     if (typeof _ptySetRawMode !== "undefined") {
-      _ptySetRawMode.applySync(undefined, [mode]);
+      _ptySetRawMode(mode);
     }
     return this;
   },
@@ -614,7 +614,7 @@ const process: Record<string, unknown> & {
     // Validate directory exists in VFS before setting cwd
     let statJson: string;
     try {
-      statJson = _fs.stat.applySyncPromise(undefined, [dir]);
+      statJson = _fs.stat(dir);
     } catch {
       const err = new Error(`ENOENT: no such file or directory, chdir '${dir}'`) as Error & { code: string; errno: number; syscall: string; path: string };
       err.code = "ENOENT";
@@ -998,11 +998,7 @@ export function setTimeout(
 
   // Use host timer for actual delays if available and delay > 0
   if (typeof _scheduleTimer !== "undefined" && actualDelay > 0) {
-    // _scheduleTimer.apply() returns a Promise that resolves after the delay
-    // Using { result: { promise: true } } tells isolated-vm to wait for the
-    // host Promise to resolve before resolving the apply() Promise
-    _scheduleTimer
-      .apply(undefined, [actualDelay], { result: { promise: true } })
+    _scheduleTimer(actualDelay)
       .then(() => {
         if (_timers.has(id)) {
           _timers.delete(id);
@@ -1057,8 +1053,7 @@ export function setInterval(
 
     if (typeof _scheduleTimer !== "undefined" && actualDelay > 0) {
       // Use host timer for actual delays
-      _scheduleTimer
-        .apply(undefined, [actualDelay], { result: { promise: true } })
+      _scheduleTimer(actualDelay)
         .then(() => {
           if (_intervals.has(id)) {
             try {
@@ -1147,7 +1142,7 @@ export const cryptoPolyfill = {
       array.byteLength
     );
     try {
-      const base64 = _cryptoRandomFill.applySync(undefined, [bytes.byteLength]);
+      const base64 = _cryptoRandomFill(bytes.byteLength);
       const hostBytes = BufferPolyfill.from(base64, "base64");
       if (hostBytes.byteLength !== bytes.byteLength) {
         throw new Error("invalid host entropy size");
@@ -1164,7 +1159,7 @@ export const cryptoPolyfill = {
       throwUnsupportedCryptoApi("randomUUID");
     }
     try {
-      const uuid = _cryptoRandomUUID.applySync(undefined, []);
+      const uuid = _cryptoRandomUUID();
       if (typeof uuid !== "string") {
         throw new Error("invalid host uuid");
       }

@@ -23,11 +23,7 @@ const __dynamicImportHandler = async function (
 	const allowRequireFallback =
 		request.endsWith(".cjs") || request.endsWith(".json");
 
-	const namespace = await globalThis._dynamicImport.apply(
-		undefined,
-		[request, referrer],
-		{ result: { promise: true } },
-	);
+	const namespace = await globalThis._dynamicImport(request, referrer);
 
 	if (namespace !== null) {
 		return namespace;

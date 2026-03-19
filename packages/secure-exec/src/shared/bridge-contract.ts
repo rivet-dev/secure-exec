@@ -1,8 +1,5 @@
 // Re-exported from @secure-exec/core
 export type {
-	BridgeApplyRef,
-	BridgeApplySyncPromiseRef,
-	BridgeApplySyncRef,
 	BridgeGlobalKey,
 	ChildProcessKillBridgeRef,
 	ChildProcessSpawnStartBridgeRef,

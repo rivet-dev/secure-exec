@@ -353,7 +353,7 @@
       __requireExposeCustomGlobal("require", __require);
 
       function _resolveFrom(moduleName, fromDir) {
-        const resolved = _resolveModule.applySyncPromise(undefined, [moduleName, fromDir]);
+        const resolved = _resolveModule(moduleName, fromDir);
         if (resolved === null) {
           const err = new Error("Cannot find module '" + moduleName + "'");
           err.code = 'MODULE_NOT_FOUND';
@@ -682,7 +682,7 @@
         }
 
         // Try to load polyfill first (for built-in modules like path, events, etc.)
-        const polyfillCode = _loadPolyfill.applySyncPromise(undefined, [name]);
+        const polyfillCode = _loadPolyfill(name);
         if (polyfillCode !== null) {
           if (__internalModuleCache[name]) return __internalModuleCache[name];
 
@@ -722,7 +722,7 @@
         }
 
         // Load file content
-        const source = _loadFile.applySyncPromise(undefined, [resolved]);
+        const source = _loadFile(resolved);
         if (source === null) {
           const err = new Error("Cannot find module '" + resolved + "'");
           err.code = 'MODULE_NOT_FOUND';
