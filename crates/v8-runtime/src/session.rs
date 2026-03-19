@@ -293,14 +293,14 @@ fn session_thread(
                             (None, None)
                         };
 
-                        // Create BridgeCallContext with real IPC writer and channel-based reader
-                        let channel_reader = match maybe_abort_rx {
-                            Some(ref arx) => ChannelMessageReader::with_abort(rx.clone(), arx.clone()),
-                            None => ChannelMessageReader::new(rx.clone()),
+                        // Create BridgeCallContext with direct channel receiver (no re-serialization)
+                        let channel_rx = match maybe_abort_rx {
+                            Some(ref arx) => ChannelResponseReceiver::with_abort(rx.clone(), arx.clone()),
+                            None => ChannelResponseReceiver::new(rx.clone()),
                         };
-                        let bridge_ctx = BridgeCallContext::with_router(
+                        let bridge_ctx = BridgeCallContext::with_receiver(
                             Box::new(MutexWriter(Arc::clone(&writer))),
-                            Box::new(channel_reader),
+                            Box::new(channel_rx),
                             session_id.clone(),
                             Arc::clone(&call_id_router),
                         );
@@ -596,100 +596,62 @@ impl std::io::Write for MutexWriter {
     }
 }
 
-/// Reader adapter that wraps a crossbeam Receiver<SessionCommand> as a Read.
+/// ResponseReceiver that receives BinaryFrame directly from the session channel.
 ///
-/// When sync_call reads from this, it blocks on the channel waiting for the next
-/// message. The message is serialized into the internal buffer and bytes are
-/// served from there. This allows BridgeCallContext.sync_call() to work unchanged
-/// while reading from the session's channel instead of a raw socket.
+/// Eliminates the re-serialization cycle: frames arrive already deserialized
+/// from the connection handler and are passed straight to sync_call without
+/// encoding/decoding through the old ChannelMessageReader → read_frame path.
 ///
 /// When `abort_rx` is set (timeout configured), uses `select!` to also monitor
 /// the abort channel. If the timeout fires, the abort sender is dropped, which
-/// unblocks the select and returns a TimedOut error.
+/// unblocks the select and returns a timeout error.
 #[cfg(not(test))]
-struct ChannelMessageReader {
+struct ChannelResponseReceiver {
     rx: Receiver<SessionCommand>,
     abort_rx: Option<crossbeam_channel::Receiver<()>>,
-    buf: Vec<u8>,
-    pos: usize,
 }
 
 #[cfg(not(test))]
-impl ChannelMessageReader {
+impl ChannelResponseReceiver {
     fn new(rx: Receiver<SessionCommand>) -> Self {
-        ChannelMessageReader {
+        ChannelResponseReceiver {
             rx,
             abort_rx: None,
-            buf: Vec::new(),
-            pos: 0,
         }
     }
 
     fn with_abort(rx: Receiver<SessionCommand>, abort_rx: crossbeam_channel::Receiver<()>) -> Self {
-        ChannelMessageReader {
+        ChannelResponseReceiver {
             rx,
             abort_rx: Some(abort_rx),
-            buf: Vec::new(),
-            pos: 0,
         }
     }
 }
 
 #[cfg(not(test))]
-impl std::io::Read for ChannelMessageReader {
-    fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
-        // Serve bytes from buffered message
-        if self.pos < self.buf.len() {
-            let available = self.buf.len() - self.pos;
-            let n = std::cmp::min(output.len(), available);
-            output[..n].copy_from_slice(&self.buf[self.pos..self.pos + n]);
-            self.pos += n;
-            return Ok(n);
-        }
-
-        // Wait for next message, with optional abort monitoring
+impl crate::host_call::ResponseReceiver for ChannelResponseReceiver {
+    fn recv_response(&self) -> Result<BinaryFrame, String> {
+        // Wait for next command, with optional abort monitoring
         let cmd = if let Some(ref abort) = self.abort_rx {
             crossbeam_channel::select! {
                 recv(self.rx) -> result => match result {
                     Ok(cmd) => cmd,
-                    Err(_) => return Err(std::io::Error::new(
-                        std::io::ErrorKind::UnexpectedEof,
-                        "channel closed",
-                    )),
+                    Err(_) => return Err("channel closed".into()),
                 },
                 recv(abort) -> _ => {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::TimedOut,
-                        "execution timed out",
-                    ));
+                    return Err("execution timed out".into());
                 },
             }
         } else {
             match self.rx.recv() {
                 Ok(cmd) => cmd,
-                Err(_) => return Err(std::io::Error::new(
-                    std::io::ErrorKind::UnexpectedEof,
-                    "channel closed",
-                )),
+                Err(_) => return Err("channel closed".into()),
             }
         };
 
         match cmd {
-            SessionCommand::Message(frame) => {
-                self.buf.clear();
-                self.pos = 0;
-                // Serialize the BinaryFrame with length-prefixed framing
-                ipc_binary::write_frame(&mut self.buf, &frame)?;
-                // Serve from buffer
-                let n = std::cmp::min(output.len(), self.buf.len());
-                output[..n].copy_from_slice(&self.buf[..n]);
-                self.pos = n;
-                Ok(n)
-            }
-            SessionCommand::Shutdown => Err(std::io::Error::new(
-                std::io::ErrorKind::ConnectionAborted,
-                "session shutdown",
-            )),
+            SessionCommand::Message(frame) => Ok(frame),
+            SessionCommand::Shutdown => Err("session shutdown".into()),
         }
     }
 }

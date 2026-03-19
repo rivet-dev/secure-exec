@@ -7,6 +7,33 @@ use std::sync::{Arc, Mutex};
 
 use crate::ipc_binary::{self, BinaryFrame};
 
+/// Trait for receiving a BinaryFrame response directly without re-serialization.
+/// Production code uses a channel-based implementation; tests use a buffer-based one.
+pub trait ResponseReceiver: Send {
+    fn recv_response(&self) -> Result<BinaryFrame, String>;
+}
+
+/// ResponseReceiver that reads frames from a byte buffer via ipc_binary::read_frame.
+/// Used by tests and any code that has a pre-serialized byte stream.
+pub struct ReaderResponseReceiver {
+    reader: Mutex<Box<dyn Read + Send>>,
+}
+
+impl ReaderResponseReceiver {
+    pub fn new(reader: Box<dyn Read + Send>) -> Self {
+        ReaderResponseReceiver {
+            reader: Mutex::new(reader),
+        }
+    }
+}
+
+impl ResponseReceiver for ReaderResponseReceiver {
+    fn recv_response(&self) -> Result<BinaryFrame, String> {
+        let mut reader = self.reader.lock().unwrap();
+        ipc_binary::read_frame(&mut *reader).map_err(|e| format!("failed to read BridgeResponse: {}", e))
+    }
+}
+
 /// Shared routing table: maps call_id → session_id for BridgeResponse routing.
 /// The connection handler uses this to determine which session a BridgeResponse
 /// belongs to (since BridgeResponse has call_id but no session_id).
@@ -14,14 +41,14 @@ pub type CallIdRouter = Arc<Mutex<HashMap<u32, String>>>;
 
 /// Context for sync-blocking bridge calls from a V8 session.
 ///
-/// Holds the IPC writer and reader, session ID, call_id counter, and
-/// pending-call tracking. Used by V8 FunctionTemplate callbacks to
+/// Holds the IPC writer and response receiver, session ID, call_id counter,
+/// and pending-call tracking. Used by V8 FunctionTemplate callbacks to
 /// implement the sync-blocking bridge pattern.
 pub struct BridgeCallContext {
     /// Writer for sending BridgeCall messages to the host
     writer: Mutex<Box<dyn Write + Send>>,
-    /// Reader for receiving BridgeResponse messages from the host
-    reader: Mutex<Box<dyn Read + Send>>,
+    /// Receiver for BridgeResponse frames (no re-serialization needed)
+    response_rx: Mutex<Box<dyn ResponseReceiver>>,
     /// Session ID included in every BridgeCall
     pub session_id: String,
     /// Monotonically increasing call_id counter
@@ -35,6 +62,8 @@ pub struct BridgeCallContext {
 }
 
 impl BridgeCallContext {
+    /// Create a BridgeCallContext with a byte reader (wraps in ReaderResponseReceiver).
+    /// Convenient for tests that pre-serialize BridgeResponse bytes.
     pub fn new(
         writer: Box<dyn Write + Send>,
         reader: Box<dyn Read + Send>,
@@ -42,7 +71,7 @@ impl BridgeCallContext {
     ) -> Self {
         BridgeCallContext {
             writer: Mutex::new(writer),
-            reader: Mutex::new(reader),
+            response_rx: Mutex::new(Box::new(ReaderResponseReceiver::new(reader))),
             session_id,
             next_call_id: AtomicU32::new(1),
             pending_calls: Mutex::new(HashSet::new()),
@@ -50,18 +79,18 @@ impl BridgeCallContext {
         }
     }
 
-    /// Create a BridgeCallContext with a call_id routing table.
-    /// Call_ids are registered in the router so the connection handler
-    /// can route BridgeResponse messages to the correct session.
-    pub fn with_router(
+    /// Create a BridgeCallContext with a direct ResponseReceiver and call_id routing table.
+    /// Used in production to pass BinaryFrame directly from the session channel
+    /// without re-serialization.
+    pub fn with_receiver(
         writer: Box<dyn Write + Send>,
-        reader: Box<dyn Read + Send>,
+        response_rx: Box<dyn ResponseReceiver>,
         session_id: String,
         router: CallIdRouter,
     ) -> Self {
         BridgeCallContext {
             writer: Mutex::new(writer),
-            reader: Mutex::new(reader),
+            response_rx: Mutex::new(response_rx),
             session_id,
             next_call_id: AtomicU32::new(1),
             pending_calls: Mutex::new(HashSet::new()),
@@ -109,14 +138,14 @@ impl BridgeCallContext {
             }
         }
 
-        // Block on read for BridgeResponse
+        // Receive BridgeResponse directly (no re-serialization)
         let response = {
-            let mut reader = self.reader.lock().unwrap();
-            match ipc_binary::read_frame(&mut *reader) {
+            let rx = self.response_rx.lock().unwrap();
+            match rx.recv_response() {
                 Ok(frame) => frame,
                 Err(e) => {
                     self.pending_calls.lock().unwrap().remove(&call_id);
-                    return Err(format!("failed to read BridgeResponse: {}", e));
+                    return Err(e);
                 }
             }
         };
