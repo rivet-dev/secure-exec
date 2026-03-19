@@ -27,6 +27,7 @@ import {
 	checkBridgeBudget,
 	assertPayloadByteLength,
 	assertTextPayloadSize,
+	getUtf8ByteLength,
 	parseJsonWithLimit,
 	polyfillCodeCache,
 	PAYLOAD_LIMIT_ERROR_CODE,
@@ -35,6 +36,20 @@ import {
 import type { DriverDeps } from "./isolate-bootstrap.js";
 import type { BridgeHandlers } from "@secure-exec/v8";
 import type { StdioHook, StdioEvent } from "@secure-exec/core/internal/shared/api-types";
+
+// Estimate serialized size of a network response object for payload limit checks
+function estimateResponseSize(result: { body?: string; headers?: Record<string, string>; url?: string; statusText?: string; [k: string]: unknown }): number {
+	let size = 64; // Fixed overhead for object structure
+	if (result.body) size += getUtf8ByteLength(result.body);
+	if (result.url) size += result.url.length;
+	if (result.statusText) size += result.statusText.length;
+	if (result.headers) {
+		for (const [k, v] of Object.entries(result.headers)) {
+			size += k.length + v.length;
+		}
+	}
+	return size;
+}
 
 // Env vars that could hijack child processes (library injection, node flags)
 const DANGEROUS_ENV_KEYS = new Set([
@@ -214,9 +229,10 @@ export function buildBridgeHandlers(options: BuildBridgeHandlersOptions): Bridge
 		handlers[K.fsReadDir] = async (path: unknown) => {
 			checkBridgeBudget(deps);
 			const entries = await fs.readDirWithTypes(String(path));
-			const json = JSON.stringify(entries);
-			assertTextPayloadSize(`fs.readDir ${path}`, json, fsJsonPayloadLimit);
-			return json;
+			// Estimate payload size: each entry ~= name byte length + fixed overhead
+			const estimated = entries.reduce((sum, e) => sum + e.name.length + 20, 0);
+			assertPayloadByteLength(`fs.readDir ${path}`, estimated, fsJsonPayloadLimit);
+			return entries;
 		};
 		handlers[K.fsMkdir] = async (path: unknown) => {
 			checkBridgeBudget(deps);
@@ -233,10 +249,10 @@ export function buildBridgeHandlers(options: BuildBridgeHandlersOptions): Bridge
 		handlers[K.fsStat] = async (path: unknown) => {
 			checkBridgeBudget(deps);
 			const s = await fs.stat(String(path));
-			return JSON.stringify({
+			return {
 				mode: s.mode, size: s.size, isDirectory: s.isDirectory,
 				atimeMs: s.atimeMs, mtimeMs: s.mtimeMs, ctimeMs: s.ctimeMs, birthtimeMs: s.birthtimeMs,
-			});
+			};
 		};
 		handlers[K.fsUnlink] = async (path: unknown) => { checkBridgeBudget(deps); await fs.removeFile(String(path)); };
 		handlers[K.fsRename] = async (oldPath: unknown, newPath: unknown) => { checkBridgeBudget(deps); await fs.rename(String(oldPath), String(newPath)); };
@@ -248,10 +264,10 @@ export function buildBridgeHandlers(options: BuildBridgeHandlersOptions): Bridge
 		handlers[K.fsLstat] = async (path: unknown) => {
 			checkBridgeBudget(deps);
 			const s = await fs.lstat(String(path));
-			return JSON.stringify({
+			return {
 				mode: s.mode, size: s.size, isDirectory: s.isDirectory, isSymbolicLink: s.isSymbolicLink,
 				atimeMs: s.atimeMs, mtimeMs: s.mtimeMs, ctimeMs: s.ctimeMs, birthtimeMs: s.birthtimeMs,
-			});
+			};
 		};
 		handlers[K.fsTruncate] = async (path: unknown, length: unknown) => { checkBridgeBudget(deps); await fs.truncate(String(path), Number(length)); };
 		handlers[K.fsUtimes] = async (path: unknown, atime: unknown, mtime: unknown) => { checkBridgeBudget(deps); await fs.utimes(String(path), Number(atime), Number(mtime)); };
@@ -305,7 +321,7 @@ export function buildBridgeHandlers(options: BuildBridgeHandlersOptions): Bridge
 			sessions.get(Number(sessionId))?.kill(Number(signal));
 		};
 
-		handlers[K.childProcessSpawnSync] = async (command: unknown, argsJson: unknown, optionsJson: unknown): Promise<string> => {
+		handlers[K.childProcessSpawnSync] = async (command: unknown, argsJson: unknown, optionsJson: unknown) => {
 			checkBridgeBudget(deps);
 			if (deps.maxChildProcesses !== undefined && deps.budgetState.childProcesses >= deps.maxChildProcesses) {
 				throw new Error(`${RESOURCE_BUDGET_ERROR_CODE}: maximum child processes exceeded`);
@@ -341,7 +357,7 @@ export function buildBridgeHandlers(options: BuildBridgeHandlersOptions): Bridge
 			const decoder = new TextDecoder();
 			const stdout = stdoutChunks.map((c) => decoder.decode(c)).join("");
 			const stderr = stderrChunks.map((c) => decoder.decode(c)).join("");
-			return JSON.stringify({ stdout, stderr, code: exitCode, maxBufferExceeded });
+			return { stdout, stderr, code: exitCode, maxBufferExceeded };
 		};
 	}
 
@@ -350,27 +366,26 @@ export function buildBridgeHandlers(options: BuildBridgeHandlersOptions): Bridge
 		const adapter = deps.networkAdapter ?? createNetworkStub();
 		const jsonPayloadLimit = deps.isolateJsonPayloadLimitBytes;
 
-		handlers[K.networkFetchRaw] = (url: unknown, optionsJson: unknown): Promise<string> => {
+		handlers[K.networkFetchRaw] = (url: unknown, optionsJson: unknown) => {
 			checkBridgeBudget(deps);
 			const fetchOpts = parseJsonWithLimit<{ method?: string; headers?: Record<string, string>; body?: string | null }>("network.fetch options", String(optionsJson), jsonPayloadLimit);
 			return adapter.fetch(String(url), fetchOpts).then((result) => {
-				const json = JSON.stringify(result);
-				assertTextPayloadSize("network.fetch response", json, jsonPayloadLimit);
-				return json;
+				const estimated = estimateResponseSize(result);
+				assertPayloadByteLength("network.fetch response", estimated, jsonPayloadLimit);
+				return result;
 			});
 		};
-		handlers[K.networkDnsLookupRaw] = async (hostname: unknown): Promise<string> => {
+		handlers[K.networkDnsLookupRaw] = async (hostname: unknown) => {
 			checkBridgeBudget(deps);
-			const result = await adapter.dnsLookup(String(hostname));
-			return JSON.stringify(result);
+			return adapter.dnsLookup(String(hostname));
 		};
-		handlers[K.networkHttpRequestRaw] = (url: unknown, optionsJson: unknown): Promise<string> => {
+		handlers[K.networkHttpRequestRaw] = (url: unknown, optionsJson: unknown) => {
 			checkBridgeBudget(deps);
 			const reqOpts = parseJsonWithLimit<{ method?: string; headers?: Record<string, string>; body?: string | null; rejectUnauthorized?: boolean }>("network.httpRequest options", String(optionsJson), jsonPayloadLimit);
 			return adapter.httpRequest(String(url), reqOpts).then((result) => {
-				const json = JSON.stringify(result);
-				assertTextPayloadSize("network.httpRequest response", json, jsonPayloadLimit);
-				return json;
+				const estimated = estimateResponseSize(result);
+				assertPayloadByteLength("network.httpRequest response", estimated, jsonPayloadLimit);
+				return result;
 			});
 		};
 
@@ -398,7 +413,7 @@ export function buildBridgeHandlers(options: BuildBridgeHandlersOptions): Bridge
 			};
 		}
 
-		handlers[K.networkHttpServerListenRaw] = (optionsJson: unknown): Promise<string> => {
+		handlers[K.networkHttpServerListenRaw] = (optionsJson: unknown) => {
 			if (!adapter.httpServerListen) {
 				throw new Error("http.createServer requires NetworkAdapter.httpServerListen support");
 			}
@@ -411,10 +426,9 @@ export function buildBridgeHandlers(options: BuildBridgeHandlersOptions): Bridge
 					hostname: listenOpts.hostname,
 					onRequest: async (request) => {
 						const requestId = nextRequestId++;
-						const requestJson = JSON.stringify(request);
 
 						// Send request into V8 via stream event
-						sendStreamEvent("http_request", new Uint8Array(v8Serialize([listenOpts.serverId, requestId, requestJson])));
+						sendStreamEvent("http_request", new Uint8Array(v8Serialize([listenOpts.serverId, requestId, request])));
 
 						// Wait for response via stream callback
 						return new Promise((resolve, reject) => {
@@ -434,7 +448,7 @@ export function buildBridgeHandlers(options: BuildBridgeHandlersOptions): Bridge
 				});
 				ownedHttpServers.add(listenOpts.serverId);
 				deps.activeHttpServerIds.add(listenOpts.serverId);
-				return JSON.stringify(result);
+				return result;
 			})();
 		};
 

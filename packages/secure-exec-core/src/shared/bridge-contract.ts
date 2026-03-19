@@ -113,11 +113,13 @@ export type FsReadFileBridgeRef = (path: string) => string;
 export type FsWriteFileBridgeRef = (path: string, content: string) => void;
 export type FsReadFileBinaryBridgeRef = (path: string) => Uint8Array;
 export type FsWriteFileBinaryBridgeRef = (path: string, content: Uint8Array) => void;
-export type FsReadDirBridgeRef = (path: string) => string;
+export type FsReadDirEntry = { name: string; isDirectory: boolean };
+export type FsReadDirBridgeRef = (path: string) => FsReadDirEntry[];
 export type FsMkdirBridgeRef = (path: string, recursive: boolean) => void;
 export type FsRmdirBridgeRef = (path: string) => void;
 export type FsExistsBridgeRef = (path: string) => boolean;
-export type FsStatBridgeRef = (path: string) => string;
+export type FsStatResult = { mode: number; size: number; isDirectory: boolean; atimeMs: number; mtimeMs: number; ctimeMs: number; birthtimeMs: number };
+export type FsStatBridgeRef = (path: string) => FsStatResult;
 export type FsUnlinkBridgeRef = (path: string) => void;
 export type FsRenameBridgeRef = (oldPath: string, newPath: string) => void;
 export type FsChmodBridgeRef = (path: string, mode: number) => void;
@@ -125,7 +127,8 @@ export type FsChownBridgeRef = (path: string, uid: number, gid: number) => void;
 export type FsLinkBridgeRef = (existingPath: string, newPath: string) => void;
 export type FsSymlinkBridgeRef = (target: string, path: string) => void;
 export type FsReadlinkBridgeRef = (path: string) => string;
-export type FsLstatBridgeRef = (path: string) => string;
+export type FsLstatResult = FsStatResult & { isSymbolicLink: boolean };
+export type FsLstatBridgeRef = (path: string) => FsLstatResult;
 export type FsTruncateBridgeRef = (path: string, length: number) => void;
 export type FsUtimesBridgeRef = (path: string, atime: number, mtime: number) => void;
 
@@ -157,13 +160,18 @@ export type ChildProcessSpawnStartBridgeRef = (command: string, argsJson: string
 export type ChildProcessStdinWriteBridgeRef = (sessionId: number, data: Uint8Array) => void;
 export type ChildProcessStdinCloseBridgeRef = (sessionId: number) => void;
 export type ChildProcessKillBridgeRef = (sessionId: number, signal: number) => void;
-export type ChildProcessSpawnSyncBridgeRef = (command: string, argsJson: string, optionsJson: string) => string;
+export type SpawnSyncBridgeResult = { stdout: string; stderr: string; code: number; maxBufferExceeded?: boolean };
+export type ChildProcessSpawnSyncBridgeRef = (command: string, argsJson: string, optionsJson: string) => SpawnSyncBridgeResult;
 
 // Network boundary contracts.
-export type NetworkFetchRawBridgeRef = (url: string, optionsJson: string) => Promise<string>;
-export type NetworkDnsLookupRawBridgeRef = (hostname: string) => Promise<string>;
-export type NetworkHttpRequestRawBridgeRef = (url: string, optionsJson: string) => Promise<string>;
-export type NetworkHttpServerListenRawBridgeRef = (optionsJson: string) => Promise<string>;
+export type NetworkFetchResult = { ok: boolean; status: number; statusText: string; headers?: Record<string, string>; url?: string; redirected?: boolean; body?: string };
+export type NetworkFetchRawBridgeRef = (url: string, optionsJson: string) => Promise<NetworkFetchResult>;
+export type NetworkDnsLookupResult = { error?: string; code?: string; address?: string; family?: number };
+export type NetworkDnsLookupRawBridgeRef = (hostname: string) => Promise<NetworkDnsLookupResult>;
+export type NetworkHttpRequestResult = { headers?: Record<string, string>; url?: string; status?: number; statusText?: string; body?: string; trailers?: Record<string, string> };
+export type NetworkHttpRequestRawBridgeRef = (url: string, optionsJson: string) => Promise<NetworkHttpRequestResult>;
+export type NetworkHttpServerListenResult = { address: { address: string; family: string; port: number } | null };
+export type NetworkHttpServerListenRawBridgeRef = (optionsJson: string) => Promise<NetworkHttpServerListenResult>;
 export type NetworkHttpServerCloseRawBridgeRef = (serverId: number) => Promise<void>;
 
 // PTY boundary contracts.

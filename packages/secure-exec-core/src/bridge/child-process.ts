@@ -496,13 +496,12 @@ function execSync(
   // Default maxBuffer 1MB (Node.js convention)
   const maxBuffer = opts.maxBuffer ?? 1024 * 1024;
 
-  // Use synchronous bridge call - result is JSON string
-  const jsonResult = _childProcessSpawnSync(
+  // Use synchronous bridge call
+  const result = _childProcessSpawnSync(
     "bash",
     JSON.stringify(["-c", command]),
     JSON.stringify({ cwd: opts.cwd, env: opts.env as Record<string, string>, maxBuffer }),
   );
-  const result = JSON.parse(jsonResult) as { stdout: string; stderr: string; code: number; maxBufferExceeded?: boolean };
 
   if (result.maxBufferExceeded) {
     const err: ExecError = new Error("stdout maxBuffer length exceeded");
@@ -664,13 +663,12 @@ function spawnSync(
     // Pass maxBuffer through to host for enforcement
     const maxBuffer = opts.maxBuffer as number | undefined;
 
-    // Args passed as JSON string for transferability
-    const jsonResult = _childProcessSpawnSync(
+    // Args and options passed as JSON strings for transferability
+    const result = _childProcessSpawnSync(
       command,
       JSON.stringify(argsArray),
       JSON.stringify({ cwd: effectiveCwd, env: opts.env as Record<string, string>, maxBuffer }),
     );
-    const result = JSON.parse(jsonResult) as { stdout: string; stderr: string; code: number; maxBufferExceeded?: boolean };
 
     const stdoutBuf = typeof Buffer !== "undefined" ? Buffer.from(result.stdout) : result.stdout;
     const stderrBuf = typeof Buffer !== "undefined" ? Buffer.from(result.stderr) : result.stderr;

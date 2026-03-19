@@ -1105,9 +1105,9 @@ const fs = {
   readdirSync(path: PathLike, options?: nodeFs.ObjectEncodingOptions & { withFileTypes?: boolean; recursive?: boolean }): string[] | Dirent[] {
     const rawPath = toPathString(path);
     const pathStr = rawPath;
-    let entriesJson: string;
+    let entries: Array<{ name: string; isDirectory: boolean }>;
     try {
-      entriesJson = _fs.readDir(pathStr);
+      entries = _fs.readDir(pathStr);
     } catch (err) {
       // Convert "entry not found" and similar errors to proper ENOENT
       const errMsg = (err as Error).message || String(err);
@@ -1121,10 +1121,6 @@ const fs = {
       }
       throw err;
     }
-    const entries = JSON.parse(entriesJson) as Array<{
-      name: string;
-      isDirectory: boolean;
-    }>;
     if (options?.withFileTypes) {
       return entries.map((e) => new Dirent(e.name, e.isDirectory, rawPath));
     }
@@ -1185,9 +1181,9 @@ const fs = {
   statSync(path: PathLike, _options?: nodeFs.StatSyncOptions): Stats {
     const rawPath = toPathString(path);
     const pathStr = rawPath;
-    let statJson: string;
+    let stat: { mode: number; size: number; isDirectory: boolean; atimeMs: number; mtimeMs: number; ctimeMs: number; birthtimeMs: number };
     try {
-      statJson = _fs.stat(pathStr);
+      stat = _fs.stat(pathStr);
     } catch (err) {
       // Convert various "not found" errors to proper ENOENT
       const errMsg = (err as Error).message || String(err);
@@ -1206,30 +1202,12 @@ const fs = {
       }
       throw err;
     }
-    const stat = JSON.parse(statJson) as {
-      mode: number;
-      size: number;
-      atimeMs?: number;
-      mtimeMs?: number;
-      ctimeMs?: number;
-      birthtimeMs?: number;
-    };
     return new Stats(stat);
   },
 
   lstatSync(path: PathLike, _options?: nodeFs.StatSyncOptions): Stats {
     const pathStr = toPathString(path);
-    const statJson = bridgeCall(() => _fs.lstat(pathStr), "lstat", pathStr);
-    const stat = JSON.parse(statJson) as {
-      mode: number;
-      size: number;
-      isDirectory: boolean;
-      isSymbolicLink?: boolean;
-      atimeMs?: number;
-      mtimeMs?: number;
-      ctimeMs?: number;
-      birthtimeMs?: number;
-    };
+    const stat = bridgeCall(() => _fs.lstat(pathStr), "lstat", pathStr);
     return new Stats(stat);
   },
 

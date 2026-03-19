@@ -81,16 +81,7 @@ export async function fetch(url: string | URL, options: FetchOptions = {}): Prom
     body: options.body || null,
   });
 
-  const responseJson = await _networkFetchRaw(String(url), optionsJson);
-  const response = JSON.parse(responseJson) as {
-    ok: boolean;
-    status: number;
-    statusText: string;
-    headers?: Record<string, string>;
-    url?: string;
-    redirected?: boolean;
-    body?: string;
-  };
+  const response = await _networkFetchRaw(String(url), optionsJson);
 
   // Create Response-like object
   return {
@@ -269,8 +260,7 @@ export const dns = {
     }
 
     _networkDnsLookupRaw(hostname)
-      .then((resultJson) => {
-        const result = JSON.parse(resultJson) as { error?: string; code?: string; address?: string; family?: number };
+      .then((result) => {
         if (result.error) {
           const err: DnsError = new Error(result.error);
           err.code = result.code || "ENOTFOUND";
@@ -718,15 +708,7 @@ export class ClientRequest {
         ...tls,
       });
 
-      const responseJson = await _networkHttpRequestRaw(url, optionsJson);
-      const response = JSON.parse(responseJson) as {
-        headers?: Record<string, string>;
-        url?: string;
-        status?: number;
-        statusText?: string;
-        body?: string;
-        trailers?: Record<string, string>;
-      };
+      const response = await _networkHttpRequestRaw(url, optionsJson);
 
       this.finished = true;
 
@@ -1340,10 +1322,9 @@ class Server {
       );
     }
 
-    const resultJson = await _networkHttpServerListenRaw(
+    const result = await _networkHttpServerListenRaw(
       JSON.stringify({ serverId: this._serverId, port, hostname }),
     );
-    const result = JSON.parse(resultJson) as SerializedServerListenResult;
     this._address = result.address;
     this.listening = true;
     this._handleId = `http-server:${this._serverId}`;
@@ -1471,14 +1452,12 @@ class Server {
 /** Route an incoming HTTP request to the server's request listener and return the serialized response. */
 async function dispatchServerRequest(
   serverId: number,
-  requestJson: string
-): Promise<string> {
+  request: SerializedServerRequest
+): Promise<SerializedServerResponse> {
   const listener = serverRequestListeners.get(serverId);
   if (!listener) {
     throw new Error(`Unknown HTTP server: ${serverId}`);
   }
-
-  const request = JSON.parse(requestJson) as SerializedServerRequest;
   const incoming = new ServerIncomingMessage(request);
   const outgoing = new ServerResponseBridge();
 
@@ -1508,7 +1487,7 @@ async function dispatchServerRequest(
   }
 
   await outgoing.waitForClose();
-  return JSON.stringify(outgoing.serialize());
+  return outgoing.serialize();
 }
 
 // Function-based ServerResponse constructor — allows .call() inheritance

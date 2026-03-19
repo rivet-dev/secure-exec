@@ -612,9 +612,9 @@ const process: Record<string, unknown> & {
 
   chdir(dir: string): void {
     // Validate directory exists in VFS before setting cwd
-    let statJson: string;
+    let stat: { isDirectory: boolean };
     try {
-      statJson = _fs.stat(dir);
+      stat = _fs.stat(dir);
     } catch {
       const err = new Error(`ENOENT: no such file or directory, chdir '${dir}'`) as Error & { code: string; errno: number; syscall: string; path: string };
       err.code = "ENOENT";
@@ -623,8 +623,7 @@ const process: Record<string, unknown> & {
       err.path = dir;
       throw err;
     }
-    const parsed = JSON.parse(statJson);
-    if (!parsed.isDirectory) {
+    if (!stat.isDirectory) {
       const err = new Error(`ENOTDIR: not a directory, chdir '${dir}'`) as Error & { code: string; errno: number; syscall: string; path: string };
       err.code = "ENOTDIR";
       err.errno = -20;
