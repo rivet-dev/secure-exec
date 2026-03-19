@@ -3,7 +3,7 @@
 ## Technical Specification v2.0
 
 **Date:** March 16, 2026
-**Status:** Partially complete — tool additions done (US-001–US-019), PRD refocused to stability/testing
+**Status:** Partially complete — tool additions done (US-001–US-019), PRD refocused to stability/testing. Multicall architecture superseded by standalone binaries (see `wasmvm-dynamic-modules.md`).
 **Supersedes:** `wasmvm-post-mvp.md` (v1.1), `wasmvm-tool-parity.md` (v1.2)
 **Active PRD:** `prd.json` — remaining work is stability, bug fixes, and test coverage (US-020–US-029). New tool additions (xan, find enhancements, feature flags) deferred to `notes/todo.md`.
 

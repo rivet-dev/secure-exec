@@ -4,10 +4,6 @@ RELEASE_DIR := target/$(WASM_TARGET)/release
 # Standalone binary output directory (configurable)
 COMMANDS_DIR ?= $(RELEASE_DIR)/commands
 
-# Legacy multicall paths (kept for wasm-multicall target)
-WASM_OUTPUT := $(RELEASE_DIR)/multicall.wasm
-WASM_OPT_OUTPUT := $(RELEASE_DIR)/multicall.opt.wasm
-
 # Detect patched std: if patches/ has .patch files and patch-std.sh exists, use patched sysroot
 PATCHES := $(wildcard patches/*.patch)
 PATCH_SCRIPT := scripts/patch-std.sh
@@ -41,7 +37,7 @@ STUB_COMMANDS := \
 	pinky who users uptime \
 	stty sync tty
 
-.PHONY: all wasm wasm-multicall wasm-opt wasm-opt-check host test clean patch-std patch-check vendor patch-vendor vendor-patch-check size-report install
+.PHONY: all wasm wasm-opt-check host test clean patch-std patch-check vendor patch-vendor vendor-patch-check size-report install
 
 all: wasm host
 
@@ -149,60 +145,6 @@ wasm: vendor patch-vendor patch-std wasm-opt-check
 	@TOTAL_FILES=$$(ls -1 $(COMMANDS_DIR) 2>/dev/null | wc -l); \
 	echo "Total:    $$TOTAL_FILES entries in $(COMMANDS_DIR)"; \
 	echo "=== Build complete ==="
-
-# Legacy: build only the multicall binary
-wasm-multicall: vendor patch-vendor patch-std wasm-opt-check
-	RUSTFLAGS="-C link-arg=-L$(WASI_SYSROOT_SELF_CONTAINED)" \
-	cargo build --target $(WASM_TARGET) \
-		-p multicall \
-		-Z build-std=std,panic_abort \
-		--release
-	@BEFORE_SIZE=$$(stat -c%s "$(WASM_OUTPUT)"); \
-	BEFORE_HUMAN=$$(ls -lh "$(WASM_OUTPUT)" | awk '{print $$5}'); \
-	echo ""; \
-	echo "=== Multicall Binary Size Report ==="; \
-	echo "Before wasm-opt: $$BEFORE_HUMAN ($$BEFORE_SIZE bytes)"; \
-	if command -v wasm-opt >/dev/null 2>&1; then \
-		wasm-opt -O3 --strip-debug "$(WASM_OUTPUT)" -o "$(WASM_OPT_OUTPUT)"; \
-		AFTER_SIZE=$$(stat -c%s "$(WASM_OPT_OUTPUT)"); \
-		AFTER_HUMAN=$$(ls -lh "$(WASM_OPT_OUTPUT)" | awk '{print $$5}'); \
-		SAVINGS=$$((BEFORE_SIZE - AFTER_SIZE)); \
-		if [ $$BEFORE_SIZE -gt 0 ]; then \
-			PCT=$$((SAVINGS * 100 / BEFORE_SIZE)); \
-		else \
-			PCT=0; \
-		fi; \
-		echo "After wasm-opt:  $$AFTER_HUMAN ($$AFTER_SIZE bytes)"; \
-		echo "Savings:         $$SAVINGS bytes ($$PCT%)"; \
-		FINAL_FILE="$(WASM_OPT_OUTPUT)"; \
-	else \
-		echo "wasm-opt not found — skipping optimization"; \
-		FINAL_FILE="$(WASM_OUTPUT)"; \
-	fi; \
-	echo ""; \
-	LIMIT=$$((25 * 1024 * 1024)); \
-	if [ $$BEFORE_SIZE -gt $$LIMIT ]; then \
-		echo "WARNING: Binary exceeds 25MB target!"; \
-	else \
-		echo "OK: Binary is under 25MB target."; \
-	fi; \
-	echo "=== Build complete: $$FINAL_FILE ==="
-
-# Standalone wasm-opt pass (for re-optimizing without rebuild)
-wasm-opt:
-	@if [ ! -f "$(WASM_OUTPUT)" ]; then \
-		echo "Error: $(WASM_OUTPUT) not found. Run 'make wasm-multicall' first."; \
-		exit 1; \
-	fi
-	@if command -v wasm-opt >/dev/null 2>&1; then \
-		BEFORE=$$(ls -lh "$(WASM_OUTPUT)" | awk '{print $$5}'); \
-		echo "Running wasm-opt -O3 --strip-debug..."; \
-		wasm-opt -O3 --strip-debug "$(WASM_OUTPUT)" -o "$(WASM_OPT_OUTPUT)"; \
-		AFTER=$$(ls -lh "$(WASM_OPT_OUTPUT)" | awk '{print $$5}'); \
-		echo "Before: $$BEFORE  After: $$AFTER"; \
-	else \
-		echo "wasm-opt not found (install: cargo install wasm-opt)"; \
-	fi
 
 # Show per-command binary sizes in COMMANDS_DIR
 size-report:

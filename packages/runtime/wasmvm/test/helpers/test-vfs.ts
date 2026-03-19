@@ -122,8 +122,8 @@ export class VFS implements WasiVFS {
     this._createDev('/dev/stdout', 'stdout');
     this._createDev('/dev/stderr', 'stderr');
 
-    // Populate /bin with executable stubs for all commands in the multicall
-    // dispatch table. brush-shell searches PATH for external commands; without
+    // Populate /bin with executable stubs for all known commands.
+    // brush-shell searches PATH for external commands; without
     // these stubs it returns 127 (command not found). The actual execution is
     // handled by proc_spawn creating a new WASM instance that dispatches
     // based on argv[0].
@@ -179,8 +179,6 @@ export class VFS implements WasiVFS {
       'mkfifo', 'mknod',
       'pinky', 'who', 'users', 'uptime',
       'stty',
-      // Internal test command
-      'spawn-test',
     ];
 
     const binDirIno = this._resolve('/bin');

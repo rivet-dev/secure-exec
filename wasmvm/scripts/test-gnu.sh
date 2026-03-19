@@ -16,17 +16,17 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-WASM_BINARY="$PROJECT_DIR/target/wasm32-wasip1/release/multicall.wasm"
+COMMANDS_DIR="$PROJECT_DIR/target/wasm32-wasip1/release/commands"
 
-# Check WASM binary exists
-if [ ! -f "$WASM_BINARY" ]; then
-    echo "Error: WASM binary not found at $WASM_BINARY"
+# Check standalone binaries exist
+if [ ! -d "$COMMANDS_DIR" ]; then
+    echo "Error: Commands directory not found at $COMMANDS_DIR"
     echo "Run 'make wasm' first."
     exit 1
 fi
 
 echo "=== GNU Coreutils Compatibility Test Suite ==="
-echo "WASM binary: $WASM_BINARY ($(ls -lh "$WASM_BINARY" | awk '{print $5}'))"
+echo "Commands dir: $COMMANDS_DIR ($( ls -1 "$COMMANDS_DIR" | wc -l ) binaries)"
 echo ""
 
 # Determine verbosity

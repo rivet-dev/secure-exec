@@ -295,7 +295,7 @@ const vfs = createInMemoryFileSystem();
 const kernel = createKernel({ filesystem: vfs });
 
 await kernel.mount(createWasmVmRuntime({
-  wasmBinaryPath: "./wasmvm/target/wasm32-wasip1/release/multicall.wasm",
+  commandDirs: ["./wasmvm/target/wasm32-wasip1/release/commands"],
 }));
 await kernel.mount(createNodeRuntime());
 

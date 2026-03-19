@@ -23,9 +23,9 @@ import { skipUnlessWasmBuilt } from './helpers.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const WASM_BINARY_PATH = path.resolve(
+const COMMANDS_DIR = path.resolve(
   __dirname,
-  '../../../../wasmvm/target/wasm32-wasip1/release/multicall.wasm',
+  '../../../../wasmvm/target/wasm32-wasip1/release/commands',
 );
 
 const wasmSkip = skipUnlessWasmBuilt();
@@ -72,7 +72,7 @@ describe.skipIf(skipReason)('e2e npm install through kernel', () => {
         const kernel = createKernel({ filesystem: vfs, cwd: '/' });
 
         await kernel.mount(
-          createWasmVmRuntime({ wasmBinaryPath: WASM_BINARY_PATH }),
+          createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }),
         );
         await kernel.mount(createNodeRuntime());
 

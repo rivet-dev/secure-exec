@@ -181,14 +181,14 @@ expect(stdout).not.toContain('root:x:0:0');
 
 ### Tests Gated Behind skipIf (May Not Run in CI)
 
-4 WasmVM test suites require `multicall.wasm` binary (external Rust crate, not in repo):
-- `describe.skipIf(!hasWasmBinary)('real execution')` — echo, cat, false
-- `describe.skipIf(!hasWasmBinary)('stdin streaming')` — cat with writeStdin
-- `describe.skipIf(!hasWasmBinary)('proc_spawn routing')` — echo through kernel
+4 WasmVM test suites require standalone WASM binaries (built from Rust crates via `make wasm`):
+- `describe.skipIf(!hasWasmBinaries)('real execution')` — echo, cat, false
+- `describe.skipIf(!hasWasmBinaries)('stdin streaming')` — cat with writeStdin
+- `describe.skipIf(!hasWasmBinaries)('proc_spawn routing')` — echo through kernel
 
 All E2E tests with real npm skip if npm registry unreachable.
 
-**Risk:** If CI doesn't build the WASM binary or lacks network, these tests silently skip and the suite still passes green.
+**Risk:** If CI doesn't build WASM binaries or lacks network, these tests silently skip and the suite still passes green. (Mitigated: CI-only guard test asserts binaries exist.)
 
 ---
 
@@ -335,7 +335,7 @@ What IS abstracted:
 
 ### P1 — Fix Before Production
 3. **Security boundary tests**: Add symlink escape, path traversal, host binary access, and resource limit enforcement tests.
-4. **WASM binary in CI**: Ensure CI builds multicall.wasm so gated tests actually run. Silent skips create false confidence.
+4. **WASM binaries in CI**: (RESOLVED) CI builds standalone WASM binaries via `make wasm`. Guard test fails if binaries are missing.
 5. **Permission wrapper tests**: The permission system exists but has zero test coverage. Add deny-scenario tests.
 6. **Replace negative security assertions**: "output doesn't contain X" tests should be replaced with positive assertions about error behavior.
 

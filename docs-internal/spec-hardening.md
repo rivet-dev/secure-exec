@@ -204,12 +204,12 @@ Addresses bugs, test quality gaps, missing coverage, and documentation debt iden
 
 ### 14. WASM Binary CI Availability
 
-**Problem:** WasmVM real execution tests are gated behind `skipIf(!hasWasmBinary)`. If CI doesn't build the Rust crate, all real execution tests silently skip. The test suite reports green despite not running critical tests.
+**Problem:** WasmVM real execution tests are gated behind `skipIf(!hasWasmBinaries)`. If CI doesn't build the Rust crates, all real execution tests silently skip. The test suite reports green despite not running critical tests.
 
-**Acceptance criteria:**
-- CI pipeline builds `wasmvm/target/wasm32-wasip1/release/multicall.wasm` before test runs
-- OR: Add a CI-only test that asserts `hasWasmBinary === true` so CI fails if binary is missing
-- Document in CLAUDE.md how to build the WASM binary locally
+**Acceptance criteria:** (RESOLVED)
+- CI pipeline runs `make wasm` to build standalone binaries to `wasmvm/target/wasm32-wasip1/release/commands/`
+- CI-only test asserts `hasWasmBinaries === true` so CI fails if binaries are missing
+- CLAUDE.md documents how to build locally
 
 ### 15. Error String Matching → Structured Errors (WasmVM)
 

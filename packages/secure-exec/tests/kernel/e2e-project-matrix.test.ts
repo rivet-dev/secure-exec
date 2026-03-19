@@ -35,9 +35,9 @@ const WORKSPACE_ROOT = path.resolve(PACKAGE_ROOT, '..', '..');
 const FIXTURES_ROOT = path.join(TESTS_ROOT, 'projects');
 const CACHE_ROOT = path.join(PACKAGE_ROOT, '.cache', 'project-matrix');
 
-const WASM_BINARY_PATH = path.resolve(
+const COMMANDS_DIR = path.resolve(
   __dirname,
-  '../../../../wasmvm/target/wasm32-wasip1/release/multicall.wasm',
+  '../../../../wasmvm/target/wasm32-wasip1/release/commands',
 );
 
 // ---------------------------------------------------------------------------
@@ -299,7 +299,7 @@ async function runKernelExecution(projectDir: string, entryRel: string): Promise
   const vfs = new NodeFileSystem({ root: projectDir });
   const kernel = createKernel({ filesystem: vfs, cwd: '/' });
 
-  await kernel.mount(createWasmVmRuntime({ wasmBinaryPath: WASM_BINARY_PATH }));
+  await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
   await kernel.mount(createNodeRuntime());
 
   try {

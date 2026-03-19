@@ -6,7 +6,7 @@
  * resolution, on-demand discovery through the kernel, path-based resolution,
  * and backwards compatibility.
  *
- * Tests requiring real WASM execution are gated with skipIf(!hasWasmBinary).
+ * Tests requiring real WASM execution are gated with skipIf(!hasWasmBinaries).
  */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
@@ -27,8 +27,8 @@ import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const WASM_BINARY_PATH = resolve(__dirname, '../../../../wasmvm/target/wasm32-wasip1/release/multicall.wasm');
-const hasWasmBinary = existsSync(WASM_BINARY_PATH);
+const COMMANDS_DIR = resolve(__dirname, '../../../../wasmvm/target/wasm32-wasip1/release/commands');
+const hasWasmBinaries = existsSync(COMMANDS_DIR);
 
 // Valid WASM magic: \0asm + version 1
 const VALID_WASM = new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
@@ -413,7 +413,7 @@ describe('Dynamic module loading — integration', () => {
     });
   });
 
-  describe.skipIf(!hasWasmBinary)('module cache integration', () => {
+  describe.skipIf(!hasWasmBinaries)('module cache integration', () => {
     let kernel: Kernel;
 
     afterEach(async () => {
@@ -423,7 +423,7 @@ describe('Dynamic module loading — integration', () => {
     it('module cache returns same WebAssembly.Module for repeated resolves', async () => {
       const vfs = new SimpleVFS();
       kernel = createKernel({ filesystem: vfs as any });
-      const driver = createWasmVmRuntime({ wasmBinaryPath: WASM_BINARY_PATH }) as any;
+      const driver = createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }) as any;
       await kernel.mount(driver);
 
       // Cache starts empty
@@ -434,7 +434,7 @@ describe('Dynamic module loading — integration', () => {
       expect(r1.exitCode).toBe(0);
       expect(driver._moduleCache.size).toBe(1);
 
-      // Second exec reuses cached module
+      // Second exec reuses cached module (same command = same cache entry)
       const r2 = await kernel.exec('echo second');
       expect(r2.exitCode).toBe(0);
       expect(driver._moduleCache.size).toBe(1);
@@ -443,15 +443,13 @@ describe('Dynamic module loading — integration', () => {
     it('different commands get separate cache entries', async () => {
       const vfs = new SimpleVFS();
       kernel = createKernel({ filesystem: vfs as any });
-      const driver = createWasmVmRuntime({ wasmBinaryPath: WASM_BINARY_PATH }) as any;
+      const driver = createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }) as any;
       await kernel.mount(driver);
 
-      // In legacy mode, all commands share the same multicall binary
-      // so cache size stays 1 even for different commands
+      // Each standalone binary gets its own cache entry
       await kernel.exec('echo hello');
       await kernel.exec('true');
-      // Legacy mode: single binary path -> single cache entry
-      expect(driver._moduleCache.size).toBe(1);
+      expect(driver._moduleCache.size).toBe(2);
     });
   });
 });

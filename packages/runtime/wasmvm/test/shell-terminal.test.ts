@@ -3,7 +3,7 @@
  * headless xterm screen state.
  *
  * All output assertions use exact-match on screenshotTrimmed().
- * Gated with skipIf(!hasWasmBinary) — requires WASM binary built.
+ * Gated with skipIf(!hasWasmBinaries) — requires WASM binary built.
  */
 
 import { describe, it, expect, afterEach } from "vitest";
@@ -16,11 +16,11 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const WASM_BINARY_PATH = resolve(
+const COMMANDS_DIR = resolve(
 	__dirname,
-	"../../../../wasmvm/target/wasm32-wasip1/release/multicall.wasm",
+	"../../../../wasmvm/target/wasm32-wasip1/release/commands",
 );
-const hasWasmBinary = existsSync(WASM_BINARY_PATH);
+const hasWasmBinaries = existsSync(COMMANDS_DIR);
 
 /** brush-shell interactive prompt (captured empirically). */
 const PROMPT = "sh-0.4$ ";
@@ -152,7 +152,7 @@ async function createShellKernel(): Promise<{
 	const vfs = new SimpleVFS();
 	const kernel = createKernel({ filesystem: vfs as any });
 	await kernel.mount(
-		createWasmVmRuntime({ wasmBinaryPath: WASM_BINARY_PATH }),
+		createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }),
 	);
 	return { kernel, vfs };
 }
@@ -161,7 +161,7 @@ async function createShellKernel(): Promise<{
 // Tests
 // ---------------------------------------------------------------------------
 
-describe.skipIf(!hasWasmBinary)("wasmvm-shell-terminal", () => {
+describe.skipIf(!hasWasmBinaries)("wasmvm-shell-terminal", () => {
 	let harness: TerminalHarness;
 
 	afterEach(async () => {

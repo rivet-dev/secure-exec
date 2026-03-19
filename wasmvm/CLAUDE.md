@@ -1,17 +1,28 @@
 # WasmVM
 
 ## Overview
-BusyBox-style WebAssembly binary containing a comprehensive Unix userland, paired with a JavaScript host runtime. Runs identically in browsers and Node.js.
+Standalone WebAssembly binaries providing a comprehensive Unix userland, paired with a JavaScript host runtime. Each command (ls, grep, sh, etc.) is compiled as an individual WASM binary, discovered dynamically from filesystem directories — like `/usr/bin/` on Linux. Runs identically in browsers and Node.js.
 
 - **Spec (MVP):** `notes/specs/wasmvm-mvp.md`
-- **Spec (current work):** `notes/specs/wasmvm-tool-completeness.md`
+- **Spec (dynamic modules):** `notes/specs/wasmvm-dynamic-modules.md`
+- **Spec (tool completeness):** `notes/specs/wasmvm-tool-completeness.md`
 - **Compatibility matrix:** `docs/compatibility-matrix.md` (keep up to date when adding/replacing commands)
 - **Deferred TODOs:** `notes/todo.md`
+
+## Architecture
+- Each command is a standalone WASM binary in `crates/commands/<name>/`
+- Library crates (shared logic) are in `crates/libs/<name>/`
+- The JS driver discovers binaries from configurable `commandDirs` directories
+- Binaries are identified by WASM magic bytes (`\0asm`), not file extension
+- Alias commands (egrep→grep, bash→sh, etc.) are symlinks created at build time
+- Stub commands (_stubs mini-multicall) print "not supported in sandbox" errors
 
 ## Naming
 - The project is called **wasmVM**
 - The internal component is **WasmCore** — the WASM runtime subsystem
 - `wasmvm/crates/` contains Rust workspace crates
+- `wasmvm/crates/commands/` contains standalone binary crates
+- `wasmvm/crates/libs/` contains shared library crates
 - `packages/runtime/wasmvm/` contains the TypeScript host runtime
 
 ## Build
@@ -20,6 +31,9 @@ BusyBox-style WebAssembly binary containing a comprehensive Unix userland, paire
 - Build with `-Z build-std=std,panic_abort` for custom std patches
 - Pin the nightly version everywhere possible to avoid breakage
 - Build command: `cd wasmvm && make wasm`
+- Output: standalone binaries in `target/wasm32-wasip1/release/commands/`
+- Each binary is optimized with `wasm-opt -O3 --strip-debug` and has no `.wasm` extension
+- Symlinks for aliases are created automatically by the Makefile
 
 ## Key Decisions
 - **shell:** `brush-shell` (bash 5.x compatible, pure Rust, MIT)

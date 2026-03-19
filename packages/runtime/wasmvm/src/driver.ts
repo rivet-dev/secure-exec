@@ -42,9 +42,9 @@ import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
- * All commands in the WasmVM multicall dispatch table.
+ * All commands available in the WasmVM runtime.
  * Used as fallback when no commandDirs are configured (legacy mode).
- * @deprecated Use commandDirs option instead.
+ * @deprecated Use commandDirs option instead — commands are discovered from filesystem.
  */
 export const WASMVM_COMMANDS: readonly string[] = [
   // Shell
@@ -170,8 +170,8 @@ export const DEFAULT_FIRST_PARTY_TIERS: Readonly<Record<string, PermissionTier>>
 
 export interface WasmVmRuntimeOptions {
   /**
-   * Path to the compiled WASM multicall binary.
-   * @deprecated Use commandDirs instead. Triggers legacy multicall mode.
+   * Path to a compiled WASM binary (legacy single-binary mode).
+   * @deprecated Use commandDirs instead. Triggers legacy mode.
    */
   wasmBinaryPath?: string;
   /** Directories to scan for WASM command binaries, searched in order (PATH semantics). */
@@ -195,7 +195,7 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
   // Command name → binary path map (commandDirs mode only)
   private _commandPaths = new Map<string, string>();
   private _commandDirs: string[];
-  // Legacy mode: single multicall binary path
+  // Legacy mode: single binary path
   private _wasmBinaryPath: string;
   private _legacyMode: boolean;
   // Per-command permission tiers
@@ -399,7 +399,7 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
     const perCommand = this._commandPaths.get(command);
     if (perCommand) return perCommand;
 
-    // Legacy mode: all commands use the single multicall binary
+    // Legacy mode: all commands use a single binary
     if (this._legacyMode) return this._wasmBinaryPath;
 
     // Fallback to wasmBinaryPath if set (shouldn't reach here normally)

@@ -26,8 +26,8 @@ import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const WASM_BINARY_PATH = resolve(__dirname, '../../../../wasmvm/target/wasm32-wasip1/release/multicall.wasm');
-const hasWasmBinary = existsSync(WASM_BINARY_PATH);
+const COMMANDS_DIR = resolve(__dirname, '../../../../wasmvm/target/wasm32-wasip1/release/commands');
+const hasWasmBinaries = existsSync(COMMANDS_DIR);
 
 // Valid WASM magic: \0asm + version 1
 const VALID_WASM = new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
@@ -181,10 +181,10 @@ async function createCommandDir(commands: string[]): Promise<string> {
 // -------------------------------------------------------------------------
 
 describe('WasmVM RuntimeDriver', () => {
-  // Guard: WASM binary must be available in CI — prevents silent test skips
+  // Guard: WASM binaries must be available in CI — prevents silent test skips
   if (process.env.CI) {
-    it('WASM binary is available in CI', () => {
-      expect(hasWasmBinary, `WASM binary not found at ${WASM_BINARY_PATH} — CI must build it before tests`).toBe(true);
+    it('WASM binaries are available in CI', () => {
+      expect(hasWasmBinaries, `WASM commands dir not found at ${COMMANDS_DIR} — CI must build it before tests`).toBe(true);
     });
   }
 
@@ -537,7 +537,7 @@ describe('WasmVM RuntimeDriver', () => {
     beforeEach(async () => {
       const vfs = new SimpleVFS();
       kernel = createKernel({ filesystem: vfs as any });
-      driver = createWasmVmRuntime({ wasmBinaryPath: '/nonexistent/multicall.wasm' });
+      driver = createWasmVmRuntime({ wasmBinaryPath: '/nonexistent/binary.wasm' });
       await kernel.mount(driver);
     });
 
@@ -589,7 +589,7 @@ describe('WasmVM RuntimeDriver', () => {
     });
   });
 
-  describe.skipIf(!hasWasmBinary)('real execution', () => {
+  describe.skipIf(!hasWasmBinaries)('real execution', () => {
     let kernel: Kernel;
 
     afterEach(async () => {
@@ -599,7 +599,7 @@ describe('WasmVM RuntimeDriver', () => {
     it('exec echo hello returns stdout hello\\n', async () => {
       const vfs = new SimpleVFS();
       kernel = createKernel({ filesystem: vfs as any });
-      await kernel.mount(createWasmVmRuntime({ wasmBinaryPath: WASM_BINARY_PATH }));
+      await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
 
       const result = await kernel.exec('echo hello');
       expect(result.exitCode).toBe(0);
@@ -609,7 +609,7 @@ describe('WasmVM RuntimeDriver', () => {
     it('module cache is populated after first spawn and reused for subsequent spawns', async () => {
       const vfs = new SimpleVFS();
       kernel = createKernel({ filesystem: vfs as any });
-      const driver = createWasmVmRuntime({ wasmBinaryPath: WASM_BINARY_PATH }) as any;
+      const driver = createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }) as any;
       await kernel.mount(driver);
 
       // Before any spawn, cache is empty
@@ -630,7 +630,7 @@ describe('WasmVM RuntimeDriver', () => {
       const vfs = new SimpleVFS();
       await vfs.writeFile('/dev/null', new Uint8Array(0));
       kernel = createKernel({ filesystem: vfs as any });
-      await kernel.mount(createWasmVmRuntime({ wasmBinaryPath: WASM_BINARY_PATH }));
+      await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
 
       const result = await kernel.exec('cat /dev/null');
       expect(result.exitCode).toBe(0);
@@ -639,7 +639,7 @@ describe('WasmVM RuntimeDriver', () => {
     it('exec false exits non-zero', async () => {
       const vfs = new SimpleVFS();
       kernel = createKernel({ filesystem: vfs as any });
-      await kernel.mount(createWasmVmRuntime({ wasmBinaryPath: WASM_BINARY_PATH }));
+      await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
 
       const result = await kernel.exec('false');
       expect(result.exitCode).not.toBe(0);
@@ -649,11 +649,11 @@ describe('WasmVM RuntimeDriver', () => {
   // Pre-existing: cat stdin pipe blocks because WASI polyfill's non-blocking
   // fd_read returns 0 bytes (which cat treats as "try again" instead of EOF).
   // Root cause: WASM cat binary doesn't interpret nread=0 as EOF.
-  describe.skipIf(!hasWasmBinary)('stdin streaming', () => {
+  describe.skipIf(!hasWasmBinaries)('stdin streaming', () => {
     it.todo('writeStdin to cat delivers data through kernel pipe');
   });
 
-  describe.skipIf(!hasWasmBinary)('proc_spawn routing', () => {
+  describe.skipIf(!hasWasmBinaries)('proc_spawn routing', () => {
     let kernel: Kernel;
 
     afterEach(async () => {
@@ -677,7 +677,7 @@ describe('WasmVM RuntimeDriver', () => {
 
       // Mount spy driver first (handles 'spycmd'), then WasmVM (handles shell)
       await kernel.mount(spyDriver);
-      await kernel.mount(createWasmVmRuntime({ wasmBinaryPath: WASM_BINARY_PATH }));
+      await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
 
       // Shell runs 'spycmd arg1 arg2' — brush-shell proc_spawn routes through kernel
       const proc = kernel.spawn('sh', ['-c', 'spycmd arg1 arg2'], {});
@@ -699,7 +699,7 @@ describe('WasmVM RuntimeDriver', () => {
     });
   });
 
-  describe.skipIf(!hasWasmBinary)('SAB overflow handling', () => {
+  describe.skipIf(!hasWasmBinaries)('SAB overflow handling', () => {
     let kernel: Kernel;
 
     afterEach(async () => {
@@ -714,7 +714,7 @@ describe('WasmVM RuntimeDriver', () => {
       await vfs.writeFile('/large-file', twoMB);
 
       kernel = createKernel({ filesystem: vfs as any });
-      await kernel.mount(createWasmVmRuntime({ wasmBinaryPath: WASM_BINARY_PATH }));
+      await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
 
       // dd with bs=2097152 requests a single fdRead >1MB — triggers SAB overflow guard
       const result = await kernel.exec('dd if=/large-file of=/dev/null bs=2097152 count=1');
@@ -727,7 +727,7 @@ describe('WasmVM RuntimeDriver', () => {
       await vfs.writeFile('/small-file', 'hello');
 
       kernel = createKernel({ filesystem: vfs as any });
-      await kernel.mount(createWasmVmRuntime({ wasmBinaryPath: WASM_BINARY_PATH }));
+      await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
 
       // Capture FD table count before spawning
       const fdMgr = (kernel as any).fdTableManager;
@@ -954,7 +954,7 @@ describe('WasmVM RuntimeDriver', () => {
     });
   });
 
-  describe.skipIf(!hasWasmBinary)('permission tier enforcement', () => {
+  describe.skipIf(!hasWasmBinaries)('permission tier enforcement', () => {
     let kernel: Kernel;
 
     afterEach(async () => {
@@ -965,7 +965,7 @@ describe('WasmVM RuntimeDriver', () => {
       const vfs = new SimpleVFS();
       kernel = createKernel({ filesystem: vfs as any });
       await kernel.mount(createWasmVmRuntime({
-        wasmBinaryPath: WASM_BINARY_PATH,
+        commandDirs: [COMMANDS_DIR],
         permissions: { '*': 'read-only' },
       }));
 
@@ -978,7 +978,7 @@ describe('WasmVM RuntimeDriver', () => {
       const vfs = new SimpleVFS();
       kernel = createKernel({ filesystem: vfs as any });
       await kernel.mount(createWasmVmRuntime({
-        wasmBinaryPath: WASM_BINARY_PATH,
+        commandDirs: [COMMANDS_DIR],
         permissions: { '*': 'read-only' },
       }));
 
@@ -991,7 +991,7 @@ describe('WasmVM RuntimeDriver', () => {
       const vfs = new SimpleVFS();
       kernel = createKernel({ filesystem: vfs as any });
       await kernel.mount(createWasmVmRuntime({
-        wasmBinaryPath: WASM_BINARY_PATH,
+        commandDirs: [COMMANDS_DIR],
         permissions: { '*': 'full' },
       }));
 
@@ -1005,7 +1005,7 @@ describe('WasmVM RuntimeDriver', () => {
       const vfs = new SimpleVFS();
       kernel = createKernel({ filesystem: vfs as any });
       await kernel.mount(createWasmVmRuntime({
-        wasmBinaryPath: WASM_BINARY_PATH,
+        commandDirs: [COMMANDS_DIR],
         permissions: { '*': 'full' },
       }));
 
@@ -1018,7 +1018,7 @@ describe('WasmVM RuntimeDriver', () => {
       const vfs = new SimpleVFS();
       kernel = createKernel({ filesystem: vfs as any });
       await kernel.mount(createWasmVmRuntime({
-        wasmBinaryPath: WASM_BINARY_PATH,
+        commandDirs: [COMMANDS_DIR],
         permissions: { '*': 'read-write' },
       }));
 

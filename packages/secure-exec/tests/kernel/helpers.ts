@@ -21,10 +21,10 @@ import { createPythonRuntime } from '../../../runtime/python/src/index.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// WASM binary location (relative to this file → repo root)
-const WASM_BINARY_PATH = resolve(
+// WASM standalone binaries directory (relative to this file → repo root)
+const COMMANDS_DIR = resolve(
   __dirname,
-  '../../../../wasmvm/target/wasm32-wasip1/release/multicall.wasm',
+  '../../../../wasmvm/target/wasm32-wasip1/release/commands',
 );
 
 export interface IntegrationKernelResult {
@@ -56,7 +56,7 @@ export async function createIntegrationKernel(
   // This ensures WasmVM provides the shell, while Node/Python override stubs
   if (runtimes.includes('wasmvm')) {
     await kernel.mount(
-      createWasmVmRuntime({ wasmBinaryPath: WASM_BINARY_PATH }),
+      createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }),
     );
   }
   if (runtimes.includes('node')) {
@@ -74,13 +74,13 @@ export async function createIntegrationKernel(
 }
 
 /**
- * Skip helper: returns a reason string if the WASM binary is not built,
- * or false if the binary exists and tests can run.
+ * Skip helper: returns a reason string if the WASM binaries are not built,
+ * or false if the commands directory exists and tests can run.
  */
 export function skipUnlessWasmBuilt(): string | false {
-  return existsSync(WASM_BINARY_PATH)
+  return existsSync(COMMANDS_DIR)
     ? false
-    : 'WASM binary not built (run cargo build in wasmvm/)';
+    : 'WASM binaries not built (run make wasm in wasmvm/)';
 }
 
 /**

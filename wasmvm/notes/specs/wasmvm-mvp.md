@@ -3,7 +3,7 @@
 ## Technical Specification v1.0
 
 **Date:** March 15, 2026
-**Status:** Draft
+**Status:** Superseded — multicall architecture replaced by standalone binaries (see `wasmvm-dynamic-modules.md`)
 
 ---
 

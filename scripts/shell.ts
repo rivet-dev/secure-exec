@@ -3,7 +3,7 @@
  * Interactive shell inside the kernel.
  *
  * Usage:
- *   npx tsx scripts/shell.ts [--wasm-path <path>] [--no-node] [--no-python]
+ *   npx tsx scripts/shell.ts [--commands-dir <path>] [--no-node] [--no-python]
  */
 
 import { resolve, dirname } from "node:path";
@@ -18,13 +18,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Parse CLI flags
 const args = process.argv.slice(2);
-let wasmPath = resolve(__dirname, "../wasmvm/target/wasm32-wasip1/release/multicall.wasm");
+let commandsDir = resolve(__dirname, "../wasmvm/target/wasm32-wasip1/release/commands");
 let mountNode = true;
 let mountPython = true;
 
 for (let i = 0; i < args.length; i++) {
-	if (args[i] === "--wasm-path" && args[i + 1]) {
-		wasmPath = resolve(args[++i]);
+	if (args[i] === "--commands-dir" && args[i + 1]) {
+		commandsDir = resolve(args[++i]);
 	} else if (args[i] === "--no-node") {
 		mountNode = false;
 	} else if (args[i] === "--no-python") {
@@ -36,7 +36,7 @@ for (let i = 0; i < args.length; i++) {
 const vfs = new InMemoryFileSystem();
 const kernel = createKernel({ filesystem: vfs });
 
-await kernel.mount(createWasmVmRuntime({ wasmBinaryPath: wasmPath }));
+await kernel.mount(createWasmVmRuntime({ commandDirs: [commandsDir] }));
 if (mountNode) await kernel.mount(createNodeRuntime());
 if (mountPython) await kernel.mount(createPythonRuntime());
 
