@@ -37,7 +37,7 @@ STUB_COMMANDS := \
 	pinky who users uptime \
 	stty sync tty
 
-.PHONY: all wasm wasm-opt-check host test clean patch-std patch-check vendor patch-vendor vendor-patch-check size-report install
+.PHONY: all wasm wasm-opt-check host test clean patch-std patch-check vendor patch-vendor vendor-patch-check size-report install c-wasm
 
 all: wasm host
 
@@ -204,6 +204,10 @@ install:
 	@mkdir -p $(DESTDIR)
 	@cp -a $(COMMANDS_DIR)/* $(DESTDIR)/
 	@echo "Installed to $(DESTDIR)"
+
+# Build C programs to WASM (downloads wasi-sdk if needed)
+c-wasm:
+	$(MAKE) -C c programs
 
 host:
 	@if [ -f host/package.json ]; then \
