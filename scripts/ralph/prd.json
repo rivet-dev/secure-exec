@@ -149,7 +149,7 @@
         "Tests pass"
       ],
       "priority": 8,
-      "passes": false,
+      "passes": true,
       "notes": "These are mechanical: each crate is a Cargo.toml (~10 lines) and main.rs (~4 lines). Pattern: fn main() { let args: Vec<OsString> = std::env::args_os().collect(); std::process::exit(uu_X::uumain(args.into_iter()) as i32); }. See spec Section 5.2 ls example. uutils crates are already workspace dependencies via the multicall. The 'more' command should be a symlink to cat (see US-011), NOT a separate binary."
     },
     {

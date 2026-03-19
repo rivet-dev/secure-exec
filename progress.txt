@@ -2569,3 +2569,17 @@ PRD: ralph/kernel-hardening (46 stories)
   - Symlinks (gunzip->gzip, zcat->gzip) are NOT created here — they belong in the build system (US-011)
   - Both crates compile for wasm32-wasip1 with no patches needed
 ---
+
+## 2026-03-19 - US-008
+- What was implemented: Created 15 uutils coreutils standalone binary crates (batch 1): ls, cat, cp, mv, rm, mkdir, chmod, sort, head, tail, wc, cut, tr, echo, printf
+- Files changed:
+  - wasmvm/crates/commands/{ls,cat,cp,mv,rm,mkdir,chmod,sort,head,tail,wc,cut,tr,echo,printf}/Cargo.toml — new binary crate manifests
+  - wasmvm/crates/commands/{ls,cat,cp,mv,rm,mkdir,chmod,sort,head,tail,wc,cut,tr,echo,printf}/src/main.rs — entry points calling uu_*::uumain()
+  - wasmvm/Cargo.toml — added 15 new workspace members
+- **Learnings for future iterations:**
+  - uutils crate pattern: `uu_X::uumain(args.into_iter())` returns i32, pass directly to `std::process::exit()`
+  - Package naming: `cmd-<command>`, binary name: `<command>` — consistent with existing crates (cmd-sed, cmd-grep, etc.)
+  - All 15 crates compile for wasm32-wasip1 with `-Z build-std=std,panic_abort --release` using existing patched uucore stub
+  - The patched uucore stub at wasmvm/stubs/uucore/ handles all WASI compatibility — no per-crate patches needed
+  - `more` is a symlink to cat (US-011), `dir`/`vdir` are symlinks to ls (US-011) — NOT separate binary crates
+---
