@@ -28,7 +28,7 @@ Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
 
 --- /dev/null
 +++ b/libc-bottom-half/sources/host_user_identity.c
-@@ -0,0 +1,47 @@
+@@ -0,0 +1,61 @@
 +// User/group identity via wasmVM host_user imports.
 +//
 +// Replaces wasi-libc's #ifdef'd out stubs with implementations that

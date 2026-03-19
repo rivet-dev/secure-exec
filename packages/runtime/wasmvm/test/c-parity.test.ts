@@ -278,4 +278,70 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
     expect(wasm.exitCode).toBe(native.exitCode);
     expect(wasm.stdout).toBe(native.stdout);
   });
+
+  // --- Tier 2: custom imports (patched sysroot) ---
+
+  const hasCTier2Binaries = existsSync(join(C_BUILD_DIR, 'pipe_test'));
+  const tier2Skip = !hasCTier2Binaries
+    ? 'C Tier 2 WASM binaries not built (need patched sysroot: make -C wasmvm/c sysroot && make -C wasmvm/c programs)'
+    : false;
+
+  it.skipIf(tier2Skip)('isatty_test: piped stdin/stdout/stderr all report not-a-tty', async () => {
+    const native = await runNative('isatty_test');
+    const wasm = await kernel.exec('isatty_test');
+
+    expect(wasm.exitCode).toBe(native.exitCode);
+    expect(wasm.stdout).toBe(native.stdout);
+  });
+
+  it.skipIf(tier2Skip)('getpid_test: PID is valid and not hardcoded 42', async () => {
+    const native = await runNative('getpid_test');
+    const wasm = await kernel.exec('getpid_test');
+
+    expect(wasm.exitCode).toBe(native.exitCode);
+    // PIDs differ between native and WASM, but both should be valid
+    expect(wasm.stdout).toContain('pid_positive=yes');
+    expect(wasm.stdout).toContain('pid_not_42=yes');
+    expect(native.stdout).toContain('pid_positive=yes');
+    expect(native.stdout).toContain('pid_not_42=yes');
+  });
+
+  it.skipIf(tier2Skip)('userinfo: uid/gid/euid/egid format matches', async () => {
+    const native = await runNative('userinfo');
+    const wasm = await kernel.exec('userinfo');
+
+    expect(wasm.exitCode).toBe(native.exitCode);
+    // Values may differ (native user vs WASM kernel), verify format
+    const format = /^uid=\d+\ngid=\d+\neuid=\d+\negid=\d+\n$/;
+    expect(wasm.stdout).toMatch(format);
+    expect(native.stdout).toMatch(format);
+  });
+
+  it.skipIf(tier2Skip)('pipe_test: write through pipe and read back matches', async () => {
+    const native = await runNative('pipe_test');
+    const wasm = await kernel.exec('pipe_test');
+
+    expect(wasm.exitCode).toBe(native.exitCode);
+    expect(wasm.stdout).toBe(native.stdout);
+  });
+
+  it.skipIf(tier2Skip)('dup_test: write through duplicated fds matches', async () => {
+    const native = await runNative('dup_test');
+    const wasm = await kernel.exec('dup_test');
+
+    expect(wasm.exitCode).toBe(native.exitCode);
+    expect(wasm.stdout).toBe(native.stdout);
+  });
+
+  it.skipIf(tier2Skip)('sleep_test: nanosleep completes successfully', async () => {
+    const native = await runNative('sleep_test', ['50']);
+    const wasm = await kernel.exec('sleep_test 50');
+
+    expect(wasm.exitCode).toBe(native.exitCode);
+    // Both should report successful sleep with >= 80% of requested time
+    expect(wasm.stdout).toContain('requested=50ms');
+    expect(wasm.stdout).toContain('ok=yes');
+    expect(native.stdout).toContain('requested=50ms');
+    expect(native.stdout).toContain('ok=yes');
+  });
 });

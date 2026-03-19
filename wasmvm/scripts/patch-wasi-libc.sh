@@ -174,13 +174,30 @@ fi
 make -C "$WASI_LIBC_DIR" clean 2>/dev/null || true
 rm -rf "$SYSROOT_DIR"
 
-# Build wasi-libc with wasi-sdk's tools, output to our sysroot directory
+# Build wasi-libc with wasi-sdk's tools, output to our sysroot directory.
+# Build the `libc` target (headers + static libraries) but NOT `finish`, which
+# runs check-symbols and fails because our patches add custom undefined symbols
+# (__host_*) not in the upstream expected-symbols list.
 make -C "$WASI_LIBC_DIR" \
     CC="$WASI_CC" \
     AR="$WASI_AR" \
     NM="$WASI_NM" \
     SYSROOT="$SYSROOT_DIR" \
+    libc \
     -j"$(nproc 2>/dev/null || echo 4)"
+
+# Install CRT startup files (crt1.o etc.) from the vanilla wasi-sdk sysroot.
+# CRT objects are standard startup routines that don't need our patches.
+SYSROOT_LIB="$SYSROOT_DIR/lib/wasm32-wasi"
+VANILLA_LIB="$WASI_SDK_DIR/share/wasi-sysroot/lib/wasm32-wasi"
+for crt in "$VANILLA_LIB"/crt*.o; do
+    [ -f "$crt" ] && cp "$crt" "$SYSROOT_LIB/"
+done
+
+# Create empty dummy libraries (libm, librt, libpthread, etc.)
+for lib in m rt pthread crypt util xnet resolv; do
+    "$WASI_AR" crs "$SYSROOT_LIB/lib${lib}.a" 2>/dev/null || true
+done
 
 echo ""
 echo "=== Sysroot build complete ==="
@@ -192,5 +209,14 @@ else
     echo "ERROR: libc.a not found in sysroot — build may have failed"
     exit 1
 fi
+
+# wasi-libc builds under wasm32-wasi, but clang --target=wasm32-wasip1 expects
+# wasm32-wasip1 subdirectories. Create symlinks so both targets work.
+for subdir in include lib; do
+    if [ -d "$SYSROOT_DIR/$subdir/wasm32-wasi" ] && [ ! -e "$SYSROOT_DIR/$subdir/wasm32-wasip1" ]; then
+        ln -s wasm32-wasi "$SYSROOT_DIR/$subdir/wasm32-wasip1"
+        echo "Symlink: $subdir/wasm32-wasip1 -> wasm32-wasi"
+    fi
+done
 
 echo "Patched sysroot installed to: $SYSROOT_DIR"

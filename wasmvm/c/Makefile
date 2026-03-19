@@ -65,8 +65,20 @@ COMMANDS_DIR ?= ../target/wasm32-wasip1/release/commands
 # Real commands to install (initially empty — add command names as they are opted in)
 COMMANDS :=
 
+# Programs requiring patched sysroot (Tier 2+ custom host imports)
+PATCHED_PROGRAMS := getpid_test userinfo pipe_test dup_test
+
 # Discover all .c source files in programs/
-SOURCES := $(wildcard programs/*.c)
+ALL_SOURCES := $(wildcard programs/*.c)
+
+# Exclude patched-sysroot programs when only vanilla sysroot is available
+ifeq ($(wildcard $(PATCHED_SYSROOT)/lib/wasm32-wasi/libc.a),)
+  EXCLUDED := $(addsuffix .c,$(addprefix programs/,$(PATCHED_PROGRAMS)))
+  SOURCES := $(filter-out $(EXCLUDED),$(ALL_SOURCES))
+else
+  SOURCES := $(ALL_SOURCES)
+endif
+
 # Program names (without .c extension)
 PROG_NAMES := $(basename $(notdir $(SOURCES)))
 
