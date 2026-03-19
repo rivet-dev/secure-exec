@@ -224,7 +224,7 @@
         "Tests pass"
       ],
       "priority": 12,
-      "passes": false,
+      "passes": true,
       "notes": "See spec Section 3.4. The cache stores Map<string, WebAssembly.Module>. Concurrent dedup: store Promise in a 'pending' map, await it if another resolve() is already compiling the same binary. Clean up pending entry in finally block. First spawn ~50-200ms (compile), subsequent ~1-5ms (instantiate from cache)."
     },
     {

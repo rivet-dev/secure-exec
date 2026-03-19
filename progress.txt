@@ -2643,3 +2643,15 @@ PRD: ralph/kernel-hardening (46 stories)
   - Pre-existing failures: @secure-exec/example-ai-sdk typecheck (missing node_modules), PTY adversarial stress test (flaky)
   - The `[` alias (→test) has a special character name but works fine with ln -sf in make
 ---
+
+## 2026-03-19 - US-012
+- What was implemented: ModuleCache class for compiling and caching WebAssembly.Module instances with concurrent-compile deduplication
+- Files changed:
+  - packages/runtime/wasmvm/src/module-cache.ts — new ModuleCache class with resolve(), invalidate(), clear(), size
+  - packages/runtime/wasmvm/src/index.ts — added ModuleCache export
+  - packages/runtime/wasmvm/test/module-cache.test.ts — 11 unit tests covering cache hit, miss, concurrent dedup, invalidation, clear, error handling
+- **Learnings for future iterations:**
+  - Minimal valid WASM binary for tests: 8 bytes — magic (0x00 0x61 0x73 0x6d) + version 1 (0x01 0x00 0x00 0x00)
+  - WebAssembly.compile() rejects non-WASM bytes (invalid magic) — no need for separate validation before compile
+  - Promise-based pending map pattern: store the compile promise in a Map, all concurrent callers await the same promise, finally block cleans up regardless of success/failure
+---
