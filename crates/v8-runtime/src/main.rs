@@ -1,6 +1,7 @@
 // V8 runtime process entry point — UDS listener with socket path security
 
 mod ipc;
+mod ipc_binary;
 mod isolate;
 mod execution;
 mod bridge;
