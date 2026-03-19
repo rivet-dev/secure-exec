@@ -16,6 +16,7 @@ export type { UserManagerOptions, HostUserImports } from './user.ts';
 export { createWasmVmRuntime, WASMVM_COMMANDS } from './driver.ts';
 export type { WasmVmRuntimeOptions } from './driver.ts';
 export { ModuleCache } from './module-cache.ts';
+export { isWasmBinary, isWasmBinarySync } from './wasm-magic.ts';
 
 // Re-export WASI constants and types for downstream consumers
 export * from './wasi-constants.ts';

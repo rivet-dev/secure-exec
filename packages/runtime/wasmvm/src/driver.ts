@@ -1,9 +1,9 @@
 /**
  * WasmVM runtime driver for kernel integration.
  *
- * Mounts the WasmVM multicall binary as a RuntimeDriver, enabling
- * kernel dispatch for 90+ coreutils/shell commands. Each spawn()
- * creates a Worker thread that loads the WASM binary and communicates
+ * Discovers WASM command binaries from filesystem directories (commandDirs),
+ * validates them by WASM magic bytes, and loads them on demand. Each spawn()
+ * creates a Worker thread that loads the per-command binary and communicates
  * with the main thread via SharedArrayBuffer-based RPC for synchronous
  * WASI syscalls.
  *
@@ -33,10 +33,15 @@ import {
   type WorkerInitData,
 } from './syscall-rpc.ts';
 import { ERRNO_MAP, ERRNO_EIO } from './wasi-constants.ts';
+import { isWasmBinary, isWasmBinarySync } from './wasm-magic.ts';
+import { readdir, stat } from 'node:fs/promises';
+import { existsSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 
 /**
  * All commands in the WasmVM multicall dispatch table.
- * brush-shell PATH lookup needs /bin stubs for these.
+ * Used as fallback when no commandDirs are configured (legacy mode).
+ * @deprecated Use commandDirs option instead.
  */
 export const WASMVM_COMMANDS: readonly string[] = [
   // Shell
@@ -86,8 +91,13 @@ export const WASMVM_COMMANDS: readonly string[] = [
 Object.freeze(WASMVM_COMMANDS);
 
 export interface WasmVmRuntimeOptions {
-  /** Path to the compiled WASM multicall binary. */
+  /**
+   * Path to the compiled WASM multicall binary.
+   * @deprecated Use commandDirs instead. Triggers legacy multicall mode.
+   */
   wasmBinaryPath?: string;
+  /** Directories to scan for WASM command binaries, searched in order (PATH semantics). */
+  commandDirs?: string[];
 }
 
 /**
@@ -99,24 +109,93 @@ export function createWasmVmRuntime(options?: WasmVmRuntimeOptions): RuntimeDriv
 
 class WasmVmRuntimeDriver implements RuntimeDriver {
   readonly name = 'wasmvm';
-  readonly commands: string[] = [...WASMVM_COMMANDS];
+
+  // Dynamic commands list — populated from filesystem scan or legacy WASMVM_COMMANDS
+  private _commands: string[] = [];
+  // Command name → binary path map (commandDirs mode only)
+  private _commandPaths = new Map<string, string>();
+  private _commandDirs: string[];
+  // Legacy mode: single multicall binary path
+  private _wasmBinaryPath: string;
+  private _legacyMode: boolean;
 
   private _kernel: KernelInterface | null = null;
-  private _wasmBinaryPath: string;
   private _activeWorkers = new Map<number, WorkerHandle>();
   private _workerAdapter = new WorkerAdapter();
 
+  get commands(): string[] { return this._commands; }
+
   constructor(options?: WasmVmRuntimeOptions) {
+    this._commandDirs = options?.commandDirs ?? [];
     this._wasmBinaryPath = options?.wasmBinaryPath ?? '';
+
+    // Legacy mode when wasmBinaryPath is set and commandDirs is not
+    this._legacyMode = !options?.commandDirs && !!options?.wasmBinaryPath;
+
+    if (this._legacyMode) {
+      // Deprecated path — use static command list
+      this._commands = [...WASMVM_COMMANDS];
+    }
+
+    // Emit deprecation warning for wasmBinaryPath
+    if (options?.wasmBinaryPath && options?.commandDirs) {
+      console.warn(
+        'WasmVmRuntime: wasmBinaryPath is deprecated and ignored when commandDirs is set. ' +
+        'Use commandDirs only.',
+      );
+    } else if (options?.wasmBinaryPath) {
+      console.warn(
+        'WasmVmRuntime: wasmBinaryPath is deprecated. Use commandDirs instead.',
+      );
+    }
   }
 
   async init(kernel: KernelInterface): Promise<void> {
     this._kernel = kernel;
+
+    // Scan commandDirs for WASM binaries (skip in legacy mode)
+    if (!this._legacyMode && this._commandDirs.length > 0) {
+      await this._scanCommandDirs();
+    }
+  }
+
+  /**
+   * On-demand discovery: synchronously check commandDirs for a binary.
+   * Called by the kernel when CommandRegistry.resolve() returns null.
+   */
+  tryResolve(command: string): boolean {
+    // Not applicable in legacy mode
+    if (this._legacyMode) return false;
+    // Already known
+    if (this._commandPaths.has(command)) return true;
+
+    for (const dir of this._commandDirs) {
+      const fullPath = join(dir, command);
+      try {
+        if (!existsSync(fullPath)) continue;
+        // Skip directories
+        const st = statSync(fullPath);
+        if (st.isDirectory()) continue;
+      } catch {
+        continue;
+      }
+
+      // Sync 4-byte WASM magic check
+      if (!isWasmBinarySync(fullPath)) continue;
+
+      this._commandPaths.set(command, fullPath);
+      if (!this._commands.includes(command)) this._commands.push(command);
+      return true;
+    }
+    return false;
   }
 
   spawn(command: string, args: string[], ctx: ProcessContext): DriverProcess {
     const kernel = this._kernel;
     if (!kernel) throw new Error('WasmVM driver not initialized');
+
+    // Resolve binary path for this command
+    const binaryPath = this._resolveBinaryPath(command);
 
     // Exit plumbing — resolved once, either on success or error
     let resolveExit!: (code: number) => void;
@@ -164,7 +243,7 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
     };
 
     // Launch worker asynchronously — spawn() returns synchronously per contract
-    this._launchWorker(command, args, ctx, proc, resolveExit);
+    this._launchWorker(command, args, ctx, proc, resolveExit, binaryPath);
 
     return proc;
   }
@@ -176,6 +255,67 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
     this._activeWorkers.clear();
     this._kernel = null;
   }
+
+  // -------------------------------------------------------------------------
+  // Command discovery
+  // -------------------------------------------------------------------------
+
+  /** Scan all command directories, validating WASM magic bytes. */
+  private async _scanCommandDirs(): Promise<void> {
+    this._commandPaths.clear();
+    this._commands = [];
+
+    for (const dir of this._commandDirs) {
+      let entries: string[];
+      try {
+        entries = await readdir(dir);
+      } catch {
+        // Directory doesn't exist or isn't readable — skip
+        continue;
+      }
+
+      for (const entry of entries) {
+        // Skip dotfiles
+        if (entry.startsWith('.')) continue;
+
+        const fullPath = join(dir, entry);
+
+        // Skip directories
+        try {
+          const st = await stat(fullPath);
+          if (st.isDirectory()) continue;
+        } catch {
+          continue;
+        }
+
+        // Validate WASM magic bytes
+        if (!(await isWasmBinary(fullPath))) continue;
+
+        // First directory containing the command wins (PATH semantics)
+        if (!this._commandPaths.has(entry)) {
+          this._commandPaths.set(entry, fullPath);
+          this._commands.push(entry);
+        }
+      }
+    }
+  }
+
+  /** Resolve binary path for a command. */
+  private _resolveBinaryPath(command: string): string {
+    // commandDirs mode: look up per-command binary path
+    const perCommand = this._commandPaths.get(command);
+    if (perCommand) return perCommand;
+
+    // Legacy mode: all commands use the single multicall binary
+    if (this._legacyMode) return this._wasmBinaryPath;
+
+    // Fallback to wasmBinaryPath if set (shouldn't reach here normally)
+    return this._wasmBinaryPath;
+  }
+
+  // -------------------------------------------------------------------------
+  // FD helpers
+  // -------------------------------------------------------------------------
 
   /** Check if a process's FD is routed through kernel (pipe or PTY). */
   private _isFdKernelRouted(pid: number, fd: number): boolean {
@@ -210,6 +350,7 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
     ctx: ProcessContext,
     proc: DriverProcess,
     resolveExit: (code: number) => void,
+    binaryPath: string,
   ): void {
     const kernel = this._kernel!;
 
@@ -232,7 +373,7 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
     }
 
     const workerData: WorkerInitData = {
-      wasmBinaryPath: this._wasmBinaryPath,
+      wasmBinaryPath: binaryPath,
       command,
       args,
       pid: ctx.pid,

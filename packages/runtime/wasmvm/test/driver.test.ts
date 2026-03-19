@@ -6,7 +6,7 @@
  * tests are skipped when the binary is not built.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createWasmVmRuntime, WASMVM_COMMANDS, mapErrorToErrno } from '../src/driver.ts';
 import type { WasmVmRuntimeOptions } from '../src/driver.ts';
 import { DATA_BUFFER_BYTES } from '../src/syscall-rpc.ts';
@@ -20,12 +20,17 @@ import type {
 } from '@secure-exec/kernel';
 import { ERRNO_MAP } from '../src/wasi-constants.ts';
 import { existsSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { writeFile, mkdir, rm, symlink } from 'node:fs/promises';
+import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WASM_BINARY_PATH = resolve(__dirname, '../../../../wasmvm/target/wasm32-wasip1/release/multicall.wasm');
 const hasWasmBinary = existsSync(WASM_BINARY_PATH);
+
+// Valid WASM magic: \0asm + version 1
+const VALID_WASM = new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
 
 // Minimal in-memory VFS for kernel tests (same pattern as kernel test helpers)
 class SimpleVFS {
@@ -161,6 +166,16 @@ class MockRuntimeDriver implements RuntimeDriver {
   async dispose(): Promise<void> {}
 }
 
+/** Create a temp dir with WASM command binaries for testing. */
+async function createCommandDir(commands: string[]): Promise<string> {
+  const dir = join(tmpdir(), `wasmvm-cmd-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  await mkdir(dir, { recursive: true });
+  for (const cmd of commands) {
+    await writeFile(join(dir, cmd), VALID_WASM);
+  }
+  return dir;
+}
+
 // -------------------------------------------------------------------------
 // Tests
 // -------------------------------------------------------------------------
@@ -173,9 +188,9 @@ describe('WasmVM RuntimeDriver', () => {
     });
   }
 
-  describe('factory', () => {
+  describe('factory — legacy mode', () => {
     it('createWasmVmRuntime returns a RuntimeDriver', () => {
-      const driver = createWasmVmRuntime();
+      const driver = createWasmVmRuntime({ wasmBinaryPath: '/fake' });
       expect(driver).toBeDefined();
       expect(driver.name).toBe('wasmvm');
       expect(typeof driver.init).toBe('function');
@@ -184,23 +199,23 @@ describe('WasmVM RuntimeDriver', () => {
     });
 
     it('driver.name is "wasmvm"', () => {
-      const driver = createWasmVmRuntime();
+      const driver = createWasmVmRuntime({ wasmBinaryPath: '/fake' });
       expect(driver.name).toBe('wasmvm');
     });
 
-    it('driver.commands contains 90+ commands', () => {
-      const driver = createWasmVmRuntime();
+    it('legacy mode: driver.commands contains 90+ commands from WASMVM_COMMANDS', () => {
+      const driver = createWasmVmRuntime({ wasmBinaryPath: '/fake' });
       expect(driver.commands.length).toBeGreaterThanOrEqual(90);
     });
 
-    it('commands include shell commands', () => {
-      const driver = createWasmVmRuntime();
+    it('legacy mode: commands include shell commands', () => {
+      const driver = createWasmVmRuntime({ wasmBinaryPath: '/fake' });
       expect(driver.commands).toContain('sh');
       expect(driver.commands).toContain('bash');
     });
 
-    it('commands include coreutils', () => {
-      const driver = createWasmVmRuntime();
+    it('legacy mode: commands include coreutils', () => {
+      const driver = createWasmVmRuntime({ wasmBinaryPath: '/fake' });
       expect(driver.commands).toContain('cat');
       expect(driver.commands).toContain('ls');
       expect(driver.commands).toContain('grep');
@@ -210,8 +225,8 @@ describe('WasmVM RuntimeDriver', () => {
       expect(driver.commands).toContain('wc');
     });
 
-    it('commands include text processing tools', () => {
-      const driver = createWasmVmRuntime();
+    it('legacy mode: commands include text processing tools', () => {
+      const driver = createWasmVmRuntime({ wasmBinaryPath: '/fake' });
       expect(driver.commands).toContain('jq');
       expect(driver.commands).toContain('sort');
       expect(driver.commands).toContain('uniq');
@@ -225,8 +240,6 @@ describe('WasmVM RuntimeDriver', () => {
     });
 
     it('accepts custom wasmBinaryPath', async () => {
-      // Verify the custom path is actually used by spawning with a bogus path
-      // and checking the error references it
       const bogusPath = '/bogus/nonexistent-binary.wasm';
       const vfs = new SimpleVFS();
       const kernel = createKernel({ filesystem: vfs as any });
@@ -247,14 +260,222 @@ describe('WasmVM RuntimeDriver', () => {
     });
   });
 
-  describe('kernel integration', () => {
+  describe('factory — commandDirs mode', () => {
+    let tempDir: string;
+
+    afterEach(async () => {
+      if (tempDir) await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    });
+
+    it('no-args: commands is empty before init', () => {
+      const driver = createWasmVmRuntime();
+      expect(driver.commands).toEqual([]);
+    });
+
+    it('discovers commands from commandDirs at init', async () => {
+      tempDir = await createCommandDir(['ls', 'cat', 'grep']);
+      const driver = createWasmVmRuntime({ commandDirs: [tempDir] });
+      const mockKernel: Partial<KernelInterface> = {};
+      await driver.init(mockKernel as KernelInterface);
+
+      expect(driver.commands).toContain('ls');
+      expect(driver.commands).toContain('cat');
+      expect(driver.commands).toContain('grep');
+      expect(driver.commands.length).toBe(3);
+    });
+
+    it('skips dotfiles during scan', async () => {
+      tempDir = await createCommandDir(['ls', '.hidden']);
+      const driver = createWasmVmRuntime({ commandDirs: [tempDir] });
+      const mockKernel: Partial<KernelInterface> = {};
+      await driver.init(mockKernel as KernelInterface);
+
+      expect(driver.commands).toContain('ls');
+      expect(driver.commands).not.toContain('.hidden');
+    });
+
+    it('skips directories during scan', async () => {
+      tempDir = await createCommandDir(['ls']);
+      await mkdir(join(tempDir, 'subdir'), { recursive: true });
+      const driver = createWasmVmRuntime({ commandDirs: [tempDir] });
+      const mockKernel: Partial<KernelInterface> = {};
+      await driver.init(mockKernel as KernelInterface);
+
+      expect(driver.commands).toContain('ls');
+      expect(driver.commands).not.toContain('subdir');
+    });
+
+    it('skips non-WASM files during scan', async () => {
+      tempDir = await createCommandDir(['ls']);
+      await writeFile(join(tempDir, 'README.md'), 'This is a readme');
+      await writeFile(join(tempDir, 'script.sh'), '#!/bin/bash\necho hi');
+      const driver = createWasmVmRuntime({ commandDirs: [tempDir] });
+      const mockKernel: Partial<KernelInterface> = {};
+      await driver.init(mockKernel as KernelInterface);
+
+      expect(driver.commands).toEqual(['ls']);
+    });
+
+    it('first directory wins on naming conflict (PATH semantics)', async () => {
+      const dir1 = await createCommandDir(['ls', 'cat']);
+      const dir2 = await createCommandDir(['ls', 'grep']);
+      tempDir = dir1; // for cleanup
+
+      const driver = createWasmVmRuntime({ commandDirs: [dir1, dir2] }) as any;
+      const mockKernel: Partial<KernelInterface> = {};
+      await driver.init(mockKernel as KernelInterface);
+
+      // ls from dir1 should be used (first match)
+      expect(driver.commands).toContain('ls');
+      expect(driver.commands).toContain('cat');
+      expect(driver.commands).toContain('grep');
+      // Verify ls path points to dir1, not dir2
+      expect(driver._commandPaths.get('ls')).toBe(join(dir1, 'ls'));
+
+      await rm(dir2, { recursive: true, force: true });
+    });
+
+    it('handles nonexistent commandDirs gracefully', async () => {
+      const driver = createWasmVmRuntime({ commandDirs: ['/nonexistent/path'] });
+      const mockKernel: Partial<KernelInterface> = {};
+      await driver.init(mockKernel as KernelInterface);
+
+      expect(driver.commands).toEqual([]);
+    });
+
+    it('handles empty commandDirs gracefully', async () => {
+      tempDir = join(tmpdir(), `empty-cmd-${Date.now()}`);
+      await mkdir(tempDir, { recursive: true });
+      const driver = createWasmVmRuntime({ commandDirs: [tempDir] });
+      const mockKernel: Partial<KernelInterface> = {};
+      await driver.init(mockKernel as KernelInterface);
+
+      expect(driver.commands).toEqual([]);
+    });
+  });
+
+  describe('tryResolve — on-demand discovery', () => {
+    let tempDir: string;
+
+    afterEach(async () => {
+      if (tempDir) await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    });
+
+    it('discovers a binary added after init', async () => {
+      tempDir = await createCommandDir(['ls']);
+      const driver = createWasmVmRuntime({ commandDirs: [tempDir] });
+      const mockKernel: Partial<KernelInterface> = {};
+      await driver.init(mockKernel as KernelInterface);
+
+      expect(driver.commands).not.toContain('new-cmd');
+
+      // Drop a new binary after init
+      await writeFile(join(tempDir, 'new-cmd'), VALID_WASM);
+
+      // tryResolve finds it
+      expect(driver.tryResolve!('new-cmd')).toBe(true);
+      expect(driver.commands).toContain('new-cmd');
+    });
+
+    it('returns false for nonexistent command', async () => {
+      tempDir = await createCommandDir(['ls']);
+      const driver = createWasmVmRuntime({ commandDirs: [tempDir] });
+      const mockKernel: Partial<KernelInterface> = {};
+      await driver.init(mockKernel as KernelInterface);
+
+      expect(driver.tryResolve!('nonexistent')).toBe(false);
+    });
+
+    it('returns false for non-WASM file', async () => {
+      tempDir = await createCommandDir([]);
+      await writeFile(join(tempDir, 'readme'), 'not wasm');
+      const driver = createWasmVmRuntime({ commandDirs: [tempDir] });
+      const mockKernel: Partial<KernelInterface> = {};
+      await driver.init(mockKernel as KernelInterface);
+
+      expect(driver.tryResolve!('readme')).toBe(false);
+    });
+
+    it('returns true for already-known command', async () => {
+      tempDir = await createCommandDir(['ls']);
+      const driver = createWasmVmRuntime({ commandDirs: [tempDir] });
+      const mockKernel: Partial<KernelInterface> = {};
+      await driver.init(mockKernel as KernelInterface);
+
+      // ls is already discovered — tryResolve returns true immediately
+      expect(driver.tryResolve!('ls')).toBe(true);
+    });
+
+    it('skips directories in tryResolve', async () => {
+      tempDir = await createCommandDir([]);
+      await mkdir(join(tempDir, 'subdir'), { recursive: true });
+      const driver = createWasmVmRuntime({ commandDirs: [tempDir] });
+      const mockKernel: Partial<KernelInterface> = {};
+      await driver.init(mockKernel as KernelInterface);
+
+      expect(driver.tryResolve!('subdir')).toBe(false);
+    });
+
+    it('returns false in legacy mode', () => {
+      const driver = createWasmVmRuntime({ wasmBinaryPath: '/fake' });
+      expect(driver.tryResolve!('ls')).toBe(false);
+    });
+
+    it('does not add duplicate entries on repeated tryResolve', async () => {
+      tempDir = await createCommandDir(['ls']);
+      const driver = createWasmVmRuntime({ commandDirs: [tempDir] });
+      const mockKernel: Partial<KernelInterface> = {};
+      await driver.init(mockKernel as KernelInterface);
+
+      const countBefore = driver.commands.length;
+      driver.tryResolve!('ls');
+      driver.tryResolve!('ls');
+      expect(driver.commands.length).toBe(countBefore);
+    });
+  });
+
+  describe('backwards compatibility — deprecation warnings', () => {
+    it('emits deprecation warning for wasmBinaryPath only', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      createWasmVmRuntime({ wasmBinaryPath: '/fake' });
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('deprecated'));
+      warnSpy.mockRestore();
+    });
+
+    it('emits warning that wasmBinaryPath is ignored when commandDirs is set', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const tempDir = await createCommandDir([]);
+      createWasmVmRuntime({ wasmBinaryPath: '/fake', commandDirs: [tempDir] });
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('ignored'));
+      warnSpy.mockRestore();
+      await rm(tempDir, { recursive: true, force: true });
+    });
+
+    it('no warning when commandDirs only', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const tempDir = await createCommandDir([]);
+      createWasmVmRuntime({ commandDirs: [tempDir] });
+      expect(warnSpy).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+      await rm(tempDir, { recursive: true, force: true });
+    });
+
+    it('no warning when no options', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      createWasmVmRuntime();
+      expect(warnSpy).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+  });
+
+  describe('kernel integration — legacy mode', () => {
     let kernel: Kernel;
     let driver: RuntimeDriver;
 
     beforeEach(async () => {
       const vfs = new SimpleVFS();
       kernel = createKernel({ filesystem: vfs as any });
-      driver = createWasmVmRuntime();
+      driver = createWasmVmRuntime({ wasmBinaryPath: '/fake' });
       await kernel.mount(driver);
     });
 
@@ -263,7 +484,6 @@ describe('WasmVM RuntimeDriver', () => {
     });
 
     it('mounts to kernel successfully', () => {
-      // If we got here without error, mount succeeded
       expect(kernel.commands.size).toBeGreaterThan(0);
     });
 
@@ -284,8 +504,29 @@ describe('WasmVM RuntimeDriver', () => {
 
     it('dispose is idempotent', async () => {
       await kernel.dispose();
-      // Second dispose should not throw
       await kernel.dispose();
+    });
+  });
+
+  describe('kernel integration — commandDirs mode', () => {
+    let kernel: Kernel;
+    let tempDir: string;
+
+    afterEach(async () => {
+      await kernel?.dispose();
+      if (tempDir) await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    });
+
+    it('registers scanned commands in kernel', async () => {
+      tempDir = await createCommandDir(['ls', 'cat', 'grep']);
+      const vfs = new SimpleVFS();
+      kernel = createKernel({ filesystem: vfs as any });
+      const driver = createWasmVmRuntime({ commandDirs: [tempDir] });
+      await kernel.mount(driver);
+
+      expect(kernel.commands.get('ls')).toBe('wasmvm');
+      expect(kernel.commands.get('cat')).toBe('wasmvm');
+      expect(kernel.commands.get('grep')).toBe('wasmvm');
     });
   });
 
@@ -317,7 +558,6 @@ describe('WasmVM RuntimeDriver', () => {
     it('spawn with missing binary exits with code 1', async () => {
       const proc = kernel.spawn('echo', ['hello']);
       const exitCode = await proc.wait();
-      // Worker fails because binary doesn't exist — exits 1 or 127
       expect(exitCode).toBeGreaterThan(0);
     });
 
@@ -328,7 +568,7 @@ describe('WasmVM RuntimeDriver', () => {
 
   describe('driver lifecycle', () => {
     it('throws when spawning before init', () => {
-      const driver = createWasmVmRuntime();
+      const driver = createWasmVmRuntime({ wasmBinaryPath: '/fake' });
       const ctx: ProcessContext = {
         pid: 1, ppid: 0, env: {}, cwd: '/home/user',
         fds: { stdin: 0, stdout: 1, stderr: 2 },
@@ -343,7 +583,6 @@ describe('WasmVM RuntimeDriver', () => {
 
     it('dispose after init cleans up', async () => {
       const driver = createWasmVmRuntime();
-      // Mock KernelInterface
       const mockKernel: Partial<KernelInterface> = {};
       await driver.init(mockKernel as KernelInterface);
       await driver.dispose();
@@ -521,7 +760,6 @@ describe('WasmVM RuntimeDriver', () => {
     });
 
     it('prefers structured .code over string matching', () => {
-      // Error with code=ENOENT but message mentions EBADF — code wins
       const err = new KernelError('ENOENT', 'EBADF appears in message');
       expect(mapErrorToErrno(err)).toBe(ERRNO_MAP.ENOENT);
     });
