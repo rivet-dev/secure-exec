@@ -38,7 +38,7 @@
         "Tests pass"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": "Files: packages/kernel/src/types.ts (RuntimeDriver interface), packages/kernel/src/kernel.ts (spawnInternal). The kernel stores mounted drivers in this.drivers array. Loop through them in spawnInternal after registry miss. See spec Section 4.1 and 4.3. Use createTestKernel and MockRuntimeDriver from test helpers."
     },
     {

@@ -8,6 +8,9 @@ PRD: ralph/wasmvm-dynamic-modules (19 stories)
 - createMockDriver helper is defined locally in the test file (not from helpers.ts)
 - Pre-existing TS error in resource-exhaustion.test.ts (TS18047) and flaky PTY stress test — both on main
 - The kernel package typecheck script is `pnpm run typecheck` (not turbo `check-types`)
+- MockRuntimeDriver in test/helpers.ts has an optional `tryResolve` property for on-demand discovery tests
+- spawnInternal extracts basename before calling tryResolve — drivers always receive the bare command name
+- populateBinEntry is async but called fire-and-forget from spawnInternal (sync context); tests need a microtask yield to observe the result
 
 ## 2026-03-19 12:04 PM PDT - US-001
 - Implemented path-based resolution in CommandRegistry.resolve() — extracts basename when command contains '/'
@@ -21,4 +24,22 @@ PRD: ralph/wasmvm-dynamic-modules (19 stories)
   - resolve() now tries direct Map.get first, then falls back to basename extraction if command contains '/'
   - registerCommand() is for single-command registration (vs register() which iterates driver.commands)
   - populateBinEntry() creates a single /bin stub (vs populateBin() which does all commands)
+---
+
+## 2026-03-19 12:15 PM PDT - US-002
+- Added optional `tryResolve?(command: string): boolean` to RuntimeDriver interface in types.ts
+- Modified kernel.spawnInternal() to loop through mounted drivers calling tryResolve when registry lookup fails
+- On tryResolve success: registers command, populates /bin entry, retries spawn
+- Added tryResolve property to MockRuntimeDriver in test helpers
+- Added 6 integration tests covering discovery, ENOENT fallback, caching, driver skipping, path-based, and /bin population
+- Files changed:
+  - packages/kernel/src/types.ts
+  - packages/kernel/src/kernel.ts
+  - packages/kernel/test/helpers.ts
+  - packages/kernel/test/kernel-integration.test.ts
+- **Learnings for future iterations:**
+  - spawnInternal is synchronous — async operations like populateBinEntry must be fire-and-forget
+  - tryResolve receives the basename, not the full path — kernel does basename extraction
+  - driver.spawn() still receives the original command string (including path); drivers are responsible for internal handling
+  - MockRuntimeDriver.spawn uses the full command string as config key — path-based tests must account for this
 ---
