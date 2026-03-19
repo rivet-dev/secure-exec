@@ -37,6 +37,34 @@ jobs:
       - name: Build WASM binary
         run: cd wasmvm && make wasm
 
+      # --- C toolchain (wasi-sdk + patched sysroot + C test fixtures) ---
+      - name: Cache wasi-sdk
+        id: cache-wasi-sdk
+        uses: actions/cache@v4
+        with:
+          path: wasmvm/c/vendor/wasi-sdk
+          key: wasi-sdk-25-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Download wasi-sdk
+        if: steps.cache-wasi-sdk.outputs.cache-hit != 'true'
+        run: make -C wasmvm/c wasi-sdk
+
+      - name: Cache patched wasi-libc sysroot
+        id: cache-sysroot
+        uses: actions/cache@v4
+        with:
+          path: |
+            wasmvm/c/sysroot
+            wasmvm/c/vendor/wasi-libc
+          key: wasi-libc-sysroot-${{ runner.os }}-${{ hashFiles('wasmvm/patches/wasi-libc/*.patch', 'wasmvm/scripts/patch-wasi-libc.sh') }}
+
+      - name: Build patched wasi-libc sysroot
+        if: steps.cache-sysroot.outputs.cache-hit != 'true'
+        run: make -C wasmvm/c sysroot
+
+      - name: Build C test fixtures (WASM + native)
+        run: make -C wasmvm/c programs native
+
       # --- Node.js / TypeScript ---
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
