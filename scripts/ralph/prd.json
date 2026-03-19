@@ -287,7 +287,7 @@
         "Tests pass"
       ],
       "priority": 15,
-      "passes": false,
+      "passes": true,
       "notes": "These tests exercise the full pipeline: kernel -> CommandRegistry -> WasmVmRuntimeDriver -> ModuleCache -> Worker. Use createIntegrationKernel from test helpers. Tests must be guarded with skipUnlessWasmBuilt() since they require compiled WASM binaries. Symlink test validates that aliases like egrep->grep are followed during directory scan (P2-5). WASMVM_COMMANDS test validates the public export reflects discovered commands (P0-4/P1-9). See spec Section 11 for test examples."
     },
     {

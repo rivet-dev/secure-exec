@@ -121,3 +121,27 @@ PRD: ralph/wasmvm-dynamic-modules (19 stories)
   - Timing-based tests for module cache are unreliable — worker thread startup overhead dominates; test cache population (`.size`) instead
   - For the ~15MB multicall binary, compile time is modest compared to worker creation overhead
 ---
+
+## 2026-03-19 1:44 PM PDT - US-015
+- Created `dynamic-module-integration.test.ts` with 18 integration tests covering the full dynamic module loading pipeline
+- Tests cover:
+  - commandDirs discovery through kernel (mount + registry verification)
+  - First-dir-wins PATH semantics through kernel
+  - Non-WASM file filtering through kernel
+  - Symlink alias resolution during scan (grep -> egrep/fgrep symlinks)
+  - Symlinks to non-WASM targets ignored
+  - On-demand discovery through kernel via tryResolve
+  - tryResolve caching (subsequent spawns skip tryResolve after registry hit)
+  - ENOENT for truly missing commands
+  - Path-based resolution through kernel (/bin/ls -> ls, /usr/bin/grep -> grep)
+  - WASMVM_COMMANDS static export vs dynamic driver.commands
+  - Backwards-compat wasmBinaryPath deprecation mode
+  - Module cache integration with real WASM execution (skipIf guard)
+- Files changed:
+  - packages/runtime/wasmvm/test/dynamic-module-integration.test.ts (new)
+- **Learnings for future iterations:**
+  - `vi.spyOn(driver, 'tryResolve')` fails typecheck because tryResolve is optional on RuntimeDriver — cast to `any` for the spy
+  - Symlinks to WASM files work transparently with the driver's `stat()` + `isWasmBinary()` scan — no special handling needed
+  - In legacy mode (wasmBinaryPath), all commands share one cache entry since they use the same multicall binary
+  - SimpleVFS class is duplicated across test files — consider extracting to shared test helper
+---
