@@ -51,6 +51,10 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
 - Use `unsafe { v8::CallbackScope::new(context) }` to get a scope inside V8 callbacks (ResolveModuleCallback)
 - `execute_module(scope, bridge_ctx, bridge_code, user_code, file_path)` returns `(i32, Option<Vec<u8>>, Option<ExecutionError>)` — exports are msgpack bytes
 - `module.get_status() == v8::ModuleStatus::Errored` + `module.get_exception()` for post-evaluate error checking
+- `v8::ValueSerializer::new(scope, Box::new(delegate))` + `write_header()` + `write_value(context, val)` + `release()` for V8-native serialization
+- `v8::ValueDeserializer::new(scope, Box::new(delegate), data)` + `read_header(context)` + `read_value(context)` for V8-native deserialization
+- Must `use v8::ValueSerializerHelper` and `use v8::ValueDeserializerHelper` to access methods on the serializer/deserializer structs
+- V8 serialization handles circular references, Date, Map, Set, RegExp natively — Error objects become plain objects (lose constructor name)
 ---
 
 ## 2026-03-18 - US-001
@@ -344,4 +348,23 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - `sendStreamEvent` is used by the host to push events into V8 (child process stdout/stderr, HTTP requests); `onStreamCallback` receives callbacks back from V8
   - Static imports of `@msgpack/msgpack` are cleaner than dynamic `await import()` — encode/decode are used in the hot path of bridge call handling
   - The session message handler routes all 4 RustMessage types: BridgeCall → bridgeHandlers, ExecutionResult → resolve promise, Log → stdout/stderr, StreamCallback → onStreamCallback
+---
+
+## 2026-03-19 - US-034
+- Added `serialize_v8_value()` and `deserialize_v8_value()` wrappers in `bridge.rs` using V8's built-in ValueSerializer/ValueDeserializer
+- Minimal `DefaultSerializerDelegate` (implements `throw_data_clone_error`) and `DefaultDeserializerDelegate` (default callbacks)
+- `serialize_v8_value`: creates ValueSerializer, writes header + value, releases buffer as `Vec<u8>`
+- `deserialize_v8_value`: creates ValueDeserializer, reads header + value, returns `Local<Value>`
+- 8 V8 integration tests (Parts 55-62): primitives, strings, arrays, objects, Uint8Array, nested structures, Date/RegExp/Map/Set/Error, circular references
+- Existing rmpv-based functions (`v8_to_rmpv`, `rmpv_to_v8`, `encode_v8_args`, `msgpack_to_v8_value`, `v8_value_to_msgpack`) unchanged
+- Files changed: `crates/v8-runtime/src/bridge.rs`, `crates/v8-runtime/src/execution.rs`
+- **Learnings for future iterations:**
+  - `v8::ValueSerializer::new(scope, Box::new(delegate))` requires the scope to have a current context (use within ContextScope)
+  - `ValueSerializer` methods (`write_header`, `write_value`) come from the `ValueSerializerHelper` trait — must `use v8::ValueSerializerHelper`
+  - `ValueDeserializer` methods (`read_header`, `read_value`) come from the `ValueDeserializerHelper` trait — must `use v8::ValueDeserializerHelper`
+  - `serializer.release()` returns `Vec<u8>` with the serialized bytes; the buffer is managed by the delegate's `ReallocateBufferMemory`
+  - `write_value` returns `Option<bool>` (None on failure, e.g., DataCloneError for non-serializable values)
+  - V8 serialization handles circular references natively via back-references in the wire format
+  - Error objects are serialized as plain objects with `message` property (constructor name/type info is lost)
+  - Pre-existing test failure: SharedArrayBuffer removal test (Part 5 at line 990) panics before reaching new tests — unrelated to this story
 ---

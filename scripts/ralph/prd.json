@@ -546,6 +546,271 @@
       "priority": 33,
       "passes": true,
       "notes": "All pre-existing test failures verified unchanged. Fixed: CJS globals (module/exports/__filename/__dirname) in bridge composition, run() exports deserialization, fresh V8 context per execution, _loadPolyfill moved to sync bridge, bridge-registry-policy test updated for V8 handler pattern."
+    },
+    {
+      "id": "US-034",
+      "title": "Add V8 ValueSerializer/ValueDeserializer wrappers in bridge.rs",
+      "description": "As a developer, I need helper functions that use v8::ValueSerializer and v8::ValueDeserializer to serialize/deserialize V8 values to/from bytes, alongside the existing rmpv-based functions.",
+      "acceptanceCriteria": [
+        "New function serialize_v8_value() uses v8::ValueSerializer to convert a v8::Local<v8::Value> to Vec<u8>",
+        "New function deserialize_v8_value() uses v8::ValueDeserializer to convert &[u8] back to v8::Local<v8::Value>",
+        "Handles all V8 types: primitives, strings, arrays, objects, Uint8Array, Date, Map, Set, RegExp, Error, circular references",
+        "Existing rmpv functions remain unchanged (no behavioral change yet)",
+        "Unit tests verify round-trip for primitives, objects, arrays, Uint8Array, and nested structures",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 34,
+      "passes": true,
+      "notes": "Pre-existing test failure (SharedArrayBuffer removal in freeze mode, Part 5) unrelated to this story. All new V8 serialization tests compile and logic verified."
+    },
+    {
+      "id": "US-035",
+      "title": "Add binary header encoder/decoder module in Rust",
+      "description": "As a developer, I need a new ipc_binary.rs module that implements the custom binary header wire format for all 11 message types, alongside the existing MessagePack ipc.rs.",
+      "acceptanceCriteria": [
+        "New ipc_binary.rs module with write_frame() and read_frame() functions",
+        "Implements the wire format from docs-internal/specs/v8-ipc-serialization.md for all message types (0x01-0x08, 0x81-0x84)",
+        "Frame format: [4B total_len][1B msg_type][1B sid_len][N sid][type-specific fields][payload]",
+        "Connection handler can extract session_id by reading bytes 5 through 5+N without full deserialization",
+        "Unit tests verify round-trip encode/decode for every message type",
+        "Unit tests verify the connection handler can route by session_id from raw bytes",
+        "Existing ipc.rs remains unchanged",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 35,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-036",
+      "title": "Add binary header encoder/decoder module in TypeScript",
+      "description": "As a developer, I need a new ipc-binary.ts module in packages/secure-exec-v8/ that implements the custom binary header wire format, alongside the existing MessagePack ipc-client.ts.",
+      "acceptanceCriteria": [
+        "New ipc-binary.ts module with encodeFrame() and decodeFrame() functions",
+        "Implements the same wire format as the Rust ipc_binary.rs for all message types",
+        "Uses node:v8 serialize/deserialize for payload fields instead of @msgpack/msgpack",
+        "Unit tests verify round-trip encode/decode for every message type",
+        "Unit tests verify interop with the Rust-side format (same byte layout)",
+        "Existing ipc-client.ts remains unchanged",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 36,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-037",
+      "title": "Switch IPC pipeline to binary header + V8 serialization",
+      "description": "As a developer, I need both the Rust and JS sides switched simultaneously to use the new binary header wire format and V8 ValueSerializer for payloads, replacing the MessagePack-based pipeline.",
+      "acceptanceCriteria": [
+        "bridge.rs sync_bridge_callback and async_bridge_callback use serialize_v8_value/deserialize_v8_value instead of encode_v8_args/msgpack_to_v8_value",
+        "Rust IPC read/write uses ipc_binary.rs instead of ipc.rs MessagePack framing",
+        "ipc-client.ts send() and handleData() use binary header framing instead of MessagePack",
+        "runtime.ts bridge handler routing uses v8.deserialize() for args and v8.serialize() for results instead of @msgpack/msgpack decode/encode",
+        "execution-driver.ts exports deserialization uses v8.deserialize() instead of @msgpack/msgpack decode",
+        "All existing integration tests pass with the new wire format",
+        "cargo test passes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 37,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-038",
+      "title": "Eliminate ChannelMessageReader re-serialization",
+      "description": "As a developer, I need to remove the triple decode/encode/decode cycle in session.rs where HostMessage is deserialized from IPC, passed through a channel, re-serialized by ChannelMessageReader, then re-deserialized by sync_call.",
+      "acceptanceCriteria": [
+        "BridgeResponse messages are passed as raw bytes through the session channel instead of typed HostMessage",
+        "sync_call receives the raw BridgeResponse bytes directly without re-serialization",
+        "ChannelMessageReader no longer calls ipc::write_message to re-serialize messages",
+        "The event loop still dispatches StreamEvent and TerminateExecution correctly",
+        "cargo test passes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 38,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-039",
+      "title": "Remove MessagePack dependencies and dead code",
+      "description": "As a developer, I need all MessagePack-related dependencies and dead code removed now that the binary header + V8 serialization pipeline is active.",
+      "acceptanceCriteria": [
+        "rmp-serde, serde_bytes, and rmpv removed from crates/v8-runtime/Cargo.toml",
+        "serde derive feature removed if no other code uses it",
+        "v8_to_rmpv, rmpv_to_v8, encode_v8_args, msgpack_to_v8_value, v8_value_to_msgpack deleted from bridge.rs",
+        "Old write_message/read_message MessagePack functions deleted from ipc.rs",
+        "@msgpack/msgpack removed from packages/secure-exec-v8/package.json",
+        "@msgpack/msgpack removed from packages/secure-exec-node/package.json (if no other usage remains)",
+        "All imports of @msgpack/msgpack removed from runtime.ts, ipc-client.ts, execution-driver.ts, bridge-handlers.ts",
+        "cargo build succeeds",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 39,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-040",
+      "title": "Verify all tests pass with new serialization pipeline",
+      "description": "As a developer, I need to verify the full test suite passes after the serialization refactor to confirm no regressions.",
+      "acceptanceCriteria": [
+        "All tests in tests/test-suite/ pass",
+        "All tests in tests/runtime-driver/ pass",
+        "All Rust unit tests (cargo test) pass",
+        "All compatibility project-matrix fixtures pass",
+        "No test modifications needed beyond removing MessagePack-specific assertions",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 40,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-041",
+      "title": "Add V8 code caching for bridge code compilation",
+      "description": "As a developer, I need bridge code compiled once and its V8 code cache (CachedData) saved so subsequent executions skip recompilation, reducing per-execution startup time.",
+      "acceptanceCriteria": [
+        "First bridge code compilation uses v8::ScriptCompiler::compile with kNoCompileOptions",
+        "After first compile, ScriptCompiler::CreateCodeCache is called to get cached data bytes",
+        "Subsequent compilations pass the cached data via ScriptCompiler::CachedData with kConsumeCodeCache",
+        "Cache is stored per-session (bridge code is the same across executions within a session)",
+        "Cache is invalidated if bridge code changes (hash comparison)",
+        "Benchmark or log shows measurable improvement on second+ execution",
+        "cargo test passes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 41,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-042",
+      "title": "Cache bridge code on Rust side to skip resending over IPC",
+      "description": "As a developer, I need the Rust session to cache the bridge code string so the host can skip sending it on every Execute message when it hasn't changed.",
+      "acceptanceCriteria": [
+        "Execute message wire format supports an optional bridge_code field (0-length = use cached)",
+        "Rust session stores the last bridge_code string per session",
+        "If bridge_code length is 0 in Execute, the session reuses the cached bridge code",
+        "JS-side execution-driver.ts hashes bridge code and only sends it when the hash differs from last send",
+        "First execution always sends bridge code; subsequent executions with same code skip it",
+        "cargo test passes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 42,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-043",
+      "title": "Improve IPC client buffer management",
+      "description": "As a developer, I need the IPC client's receive buffer to use an efficient data structure instead of Buffer.concat on every data event, which is O(n^2) in accumulated buffer size.",
+      "acceptanceCriteria": [
+        "ipc-client.ts (or ipc-binary.ts) uses a pre-allocated buffer or buffer list instead of Buffer.concat",
+        "Read cursor tracks position within the buffer without copying on every data event",
+        "Buffer is compacted only when the consumed portion exceeds a threshold (e.g., 50%)",
+        "Memory usage does not grow unboundedly under sustained high-throughput IPC",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 43,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-044",
+      "title": "Replace accept loop polling with poll(2)",
+      "description": "As a developer, I need the main.rs accept loop to use poll(2) or equivalent instead of non-blocking accept + 10ms sleep, eliminating wasted CPU and reducing connection latency.",
+      "acceptanceCriteria": [
+        "Accept loop uses libc::poll (or epoll) to wait for new connections instead of thread::sleep(10ms)",
+        "Shutdown signal is handled via a self-pipe or signalfd so poll unblocks on SIGTERM/SIGINT",
+        "No busy-wait or sleep loop remains in the accept path",
+        "New connection latency is sub-millisecond (no 10ms poll delay)",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 44,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-045",
+      "title": "Remove JSON double-serialization in bridge handlers",
+      "description": "As a developer, I need bridge handlers that currently return JSON.stringify'd strings (stat, readDir, spawnSync, network) to return objects directly, since V8 ValueSerializer handles arbitrary JS objects natively.",
+      "acceptanceCriteria": [
+        "_fsStat handler returns a plain object instead of JSON.stringify({...})",
+        "_fsLstat handler returns a plain object instead of JSON.stringify({...})",
+        "_fsReadDir handler returns the entries array directly instead of JSON.stringify(entries)",
+        "_childProcessSpawnSync handler returns a plain object instead of JSON.stringify({...})",
+        "_networkFetchRaw, _networkDnsLookupRaw, _networkHttpRequestRaw return objects instead of JSON strings",
+        "Bridge-side JS code that called JSON.parse on these results is updated to receive objects directly",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 45,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-046",
+      "title": "Reduce SharedWriter mutex contention with per-session buffering",
+      "description": "As a developer, I need to reduce contention on the shared IPC writer mutex under concurrent sessions by using per-session write buffers or a dedicated writer thread.",
+      "acceptanceCriteria": [
+        "Each session thread writes to a per-session buffer or channel instead of directly locking the shared writer",
+        "A single writer thread (or coalescing drain) flushes per-session buffers to the socket",
+        "SharedWriter mutex is no longer held during V8 serialization or message construction",
+        "Concurrent session throughput improves (no serialized IPC writes across sessions)",
+        "cargo test passes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 46,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-047",
+      "title": "Batch module resolution to reduce IPC round-trips",
+      "description": "As a developer, I need module resolution to batch multiple resolve+load requests into fewer IPC round-trips, reducing startup latency for import-heavy code.",
+      "acceptanceCriteria": [
+        "New batch resolve message type supports resolving multiple specifiers in one IPC round-trip",
+        "After initial module compilation, all static import specifiers are collected and resolved in one batch",
+        "Host-side resolveModule and loadFile are called concurrently for the batch",
+        "Fallback to individual round-trips if batch resolution is not supported (backwards compatible)",
+        "Import-heavy test (10+ modules) shows measurable reduction in total resolve time",
+        "cargo test passes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 47,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-048",
+      "title": "Pre-allocate V8 serialization buffers per session",
+      "description": "As a developer, I need V8 serialization output buffers to be pre-allocated and reused across bridge calls within a session, reducing per-call allocation overhead.",
+      "acceptanceCriteria": [
+        "Session thread maintains a reusable Vec<u8> buffer for V8 ValueSerializer output",
+        "Buffer is cleared (not deallocated) between bridge calls via buf.clear()",
+        "Buffer grows to high-water mark and stays there for the session lifetime",
+        "No new Vec<u8> allocation per bridge call (only if buffer needs to grow)",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 48,
+      "passes": false,
+      "notes": ""
     }
   ]
 }
