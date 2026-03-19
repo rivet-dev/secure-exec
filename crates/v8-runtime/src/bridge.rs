@@ -264,8 +264,16 @@ fn encode_v8_args(scope: &mut v8::HandleScope, args: &v8::FunctionCallbackArgume
     buf
 }
 
+/// Serialize a V8 value to MessagePack bytes.
+pub fn v8_value_to_msgpack(scope: &mut v8::HandleScope, val: v8::Local<v8::Value>) -> Vec<u8> {
+    let rmpv_val = v8_to_rmpv(scope, val);
+    let mut buf = Vec::new();
+    rmpv::encode::write_value(&mut buf, &rmpv_val).unwrap();
+    buf
+}
+
 /// Convert a V8 value to an rmpv::Value for MessagePack serialization.
-fn v8_to_rmpv(scope: &mut v8::HandleScope, val: v8::Local<v8::Value>) -> rmpv::Value {
+pub fn v8_to_rmpv(scope: &mut v8::HandleScope, val: v8::Local<v8::Value>) -> rmpv::Value {
     if val.is_null_or_undefined() {
         rmpv::Value::Nil
     } else if val.is_boolean() {

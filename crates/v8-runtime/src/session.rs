@@ -8,6 +8,8 @@ use crossbeam_channel::{Receiver, Sender};
 
 use crate::ipc::HostMessage;
 #[cfg(not(test))]
+use crate::host_call::BridgeCallContext;
+#[cfg(not(test))]
 use crate::ipc::ExecuteMode;
 #[cfg(not(test))]
 use crate::{execution, isolate};
@@ -233,6 +235,7 @@ fn session_thread(
                         bridge_code,
                         user_code,
                         mode,
+                        file_path,
                         ..
                     } => {
                         if mode == ExecuteMode::Exec {
@@ -242,8 +245,25 @@ fn session_thread(
                             let (_code, _error) =
                                 execution::execute_script(scope, &bridge_code, &user_code);
                             // ExecutionResult sent via IPC in later stories (US-013)
+                        } else if mode == ExecuteMode::Run {
+                            let scope = &mut v8::HandleScope::new(&mut v8_isolate);
+                            let ctx = v8::Local::new(scope, &v8_context);
+                            let scope = &mut v8::ContextScope::new(scope, ctx);
+                            // Placeholder BridgeCallContext — real IPC wired in US-013
+                            let bridge_ctx = BridgeCallContext::new(
+                                Box::new(std::io::sink()),
+                                Box::new(std::io::empty()),
+                                String::new(),
+                            );
+                            let (_code, _exports, _error) = execution::execute_module(
+                                scope,
+                                &bridge_ctx,
+                                &bridge_code,
+                                &user_code,
+                                file_path.as_deref(),
+                            );
+                            // ExecutionResult sent via IPC in later stories (US-013)
                         }
-                        // ESM mode handled in US-012
                     }
                     _ => {
                         // Other messages handled in later stories

@@ -1,5 +1,10 @@
 // Script compilation, CJS/ESM execution, module loading
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::num::NonZeroI32;
+
+use crate::host_call::BridgeCallContext;
 use crate::ipc::{ExecutionError, OsConfig, ProcessConfig};
 
 /// Callback that denies all WebAssembly code generation.
@@ -250,6 +255,373 @@ fn build_os_config<'s>(
     obj
 }
 
+// --- ESM module loading ---
+
+/// Thread-local state for module resolution during execute_module.
+/// Avoids passing user data through V8's ResolveModuleCallback (which is a plain fn pointer).
+struct ModuleResolveState {
+    bridge_ctx: *const BridgeCallContext,
+    /// identity_hash → resource_name for referrer lookup
+    module_names: HashMap<NonZeroI32, String>,
+    /// resolved_path → Global<Module> cache
+    module_cache: HashMap<String, v8::Global<v8::Module>>,
+}
+
+// SAFETY: ModuleResolveState is only accessed from the session thread
+// (single-threaded per session). The raw pointer is valid for the
+// duration of execute_module.
+unsafe impl Send for ModuleResolveState {}
+
+thread_local! {
+    static MODULE_RESOLVE_STATE: RefCell<Option<ModuleResolveState>> = RefCell::new(None);
+}
+
+fn clear_module_state() {
+    MODULE_RESOLVE_STATE.with(|cell| {
+        *cell.borrow_mut() = None;
+    });
+}
+
+/// Execute user code as an ES module (mode='run').
+///
+/// Runs bridge_code as CJS IIFE first (if non-empty), then compiles and runs
+/// user_code as a v8::Module. The ResolveModuleCallback sends sync-blocking IPC
+/// calls via BridgeCallContext to resolve import specifiers and load sources.
+/// Returns (exit_code, serialized_exports, error).
+pub fn execute_module(
+    scope: &mut v8::HandleScope,
+    bridge_ctx: &BridgeCallContext,
+    bridge_code: &str,
+    user_code: &str,
+    file_path: Option<&str>,
+) -> (i32, Option<Vec<u8>>, Option<ExecutionError>) {
+    // Set up thread-local resolve state
+    MODULE_RESOLVE_STATE.with(|cell| {
+        *cell.borrow_mut() = Some(ModuleResolveState {
+            bridge_ctx: bridge_ctx as *const BridgeCallContext,
+            module_names: HashMap::new(),
+            module_cache: HashMap::new(),
+        });
+    });
+
+    // Run bridge code IIFE (same as CJS mode)
+    if !bridge_code.is_empty() {
+        let tc = &mut v8::TryCatch::new(scope);
+        let source = match v8::String::new(tc, bridge_code) {
+            Some(s) => s,
+            None => {
+                clear_module_state();
+                return (
+                    1,
+                    None,
+                    Some(ExecutionError {
+                        error_type: "Error".into(),
+                        message: "bridge code string too large for V8".into(),
+                        stack: String::new(),
+                        code: None,
+                    }),
+                );
+            }
+        };
+        let script = match v8::Script::compile(tc, source, None) {
+            Some(s) => s,
+            None => {
+                let exc = tc.exception();
+                clear_module_state();
+                return (1, None, exc.map(|e| extract_error_info(tc, e)));
+            }
+        };
+        if script.run(tc).is_none() {
+            let exc = tc.exception();
+            clear_module_state();
+            return (1, None, exc.map(|e| extract_error_info(tc, e)));
+        }
+    }
+
+    // Compile and evaluate as ES module
+    {
+        let tc = &mut v8::TryCatch::new(scope);
+        let resource_name_str = file_path.unwrap_or("<user_module>");
+        let resource = v8::String::new(tc, resource_name_str).unwrap();
+        let origin = v8::ScriptOrigin::new(
+            tc,
+            resource.into(),
+            0,
+            0,
+            false,
+            -1,
+            None,
+            false,
+            false,
+            true, // is_module
+            None,
+        );
+
+        let v8_source = match v8::String::new(tc, user_code) {
+            Some(s) => s,
+            None => {
+                clear_module_state();
+                return (
+                    1,
+                    None,
+                    Some(ExecutionError {
+                        error_type: "Error".into(),
+                        message: "user code string too large for V8".into(),
+                        stack: String::new(),
+                        code: None,
+                    }),
+                );
+            }
+        };
+
+        let mut source = v8::script_compiler::Source::new(v8_source, Some(&origin));
+        let module = match v8::script_compiler::compile_module(tc, &mut source) {
+            Some(m) => m,
+            None => {
+                let exc = tc.exception();
+                clear_module_state();
+                return (1, None, exc.map(|e| extract_error_info(tc, e)));
+            }
+        };
+
+        // Store root module name for referrer lookup in resolve callback
+        MODULE_RESOLVE_STATE.with(|cell| {
+            if let Some(state) = cell.borrow_mut().as_mut() {
+                state
+                    .module_names
+                    .insert(module.get_identity_hash(), resource_name_str.to_string());
+            }
+        });
+
+        // Instantiate (calls resolve callback for each import)
+        if module.instantiate_module(tc, module_resolve_callback).is_none() {
+            let exc = tc.exception();
+            clear_module_state();
+            return (1, None, exc.map(|e| extract_error_info(tc, e)));
+        }
+
+        // Evaluate
+        let eval_result = module.evaluate(tc);
+        if eval_result.is_none() {
+            let exc = tc.exception();
+            clear_module_state();
+            return (1, None, exc.map(|e| extract_error_info(tc, e)));
+        }
+
+        // Check module status for errors (handles TLA rejection case)
+        if module.get_status() == v8::ModuleStatus::Errored {
+            let exc = module.get_exception();
+            clear_module_state();
+            return (1, None, Some(extract_error_info(tc, exc)));
+        }
+
+        // Serialize module namespace (exports)
+        let namespace = module.get_module_namespace();
+        let exports_bytes = crate::bridge::v8_value_to_msgpack(tc, namespace);
+
+        clear_module_state();
+        (0, Some(exports_bytes), None)
+    }
+}
+
+/// V8 ResolveModuleCallback — called during instantiate_module for each import.
+///
+/// Sends sync-blocking IPC calls to resolve specifiers and load source code,
+/// compiles resolved modules, and caches them.
+fn module_resolve_callback<'a>(
+    context: v8::Local<'a, v8::Context>,
+    specifier: v8::Local<'a, v8::String>,
+    _import_attributes: v8::Local<'a, v8::FixedArray>,
+    referrer: v8::Local<'a, v8::Module>,
+) -> Option<v8::Local<'a, v8::Module>> {
+    // SAFETY: CallbackScope can be constructed from Local<Context> within a V8 callback
+    let scope = &mut unsafe { v8::CallbackScope::new(context) };
+
+    let specifier_str = specifier.to_rust_string_lossy(scope);
+    let referrer_hash = referrer.get_identity_hash();
+
+    // Phase 1: Check cache by specifier (brief borrow, released before V8 work)
+    let cached_global = MODULE_RESOLVE_STATE.with(|cell| {
+        let borrow = cell.borrow();
+        let state = borrow.as_ref()?;
+        state.module_cache.get(&specifier_str).cloned()
+    });
+    if let Some(cached) = cached_global {
+        return Some(v8::Local::new(scope, &cached));
+    }
+
+    // Phase 2: Get context data (brief borrow)
+    let (bridge_ctx_ptr, referrer_name) = MODULE_RESOLVE_STATE.with(|cell| {
+        let borrow = cell.borrow();
+        let state = borrow.as_ref().expect("module resolve state not set");
+        (
+            state.bridge_ctx,
+            state
+                .module_names
+                .get(&referrer_hash)
+                .cloned()
+                .unwrap_or_default(),
+        )
+    });
+
+    let ctx = unsafe { &*bridge_ctx_ptr };
+
+    // Phase 3: Resolve module via sync-blocking IPC
+    let resolved_path = resolve_module_via_ipc(scope, ctx, &specifier_str, &referrer_name)?;
+
+    // Phase 4: Check cache by resolved path (brief borrow)
+    let cached_global = MODULE_RESOLVE_STATE.with(|cell| {
+        let borrow = cell.borrow();
+        let state = borrow.as_ref()?;
+        state.module_cache.get(&resolved_path).cloned()
+    });
+    if let Some(cached) = cached_global {
+        return Some(v8::Local::new(scope, &cached));
+    }
+
+    // Phase 5: Load module source via sync-blocking IPC
+    let source_code = load_module_via_ipc(scope, ctx, &resolved_path)?;
+
+    // Phase 6: Compile as ES module
+    let resource = v8::String::new(scope, &resolved_path)?;
+    let origin = v8::ScriptOrigin::new(
+        scope,
+        resource.into(),
+        0,
+        0,
+        false,
+        -1,
+        None,
+        false,
+        false,
+        true, // is_module
+        None,
+    );
+    let v8_source = match v8::String::new(scope, &source_code) {
+        Some(s) => s,
+        None => {
+            throw_module_error(scope, "module source too large for V8");
+            return None;
+        }
+    };
+    let mut compiled = v8::script_compiler::Source::new(v8_source, Some(&origin));
+    let module = v8::script_compiler::compile_module(scope, &mut compiled)?;
+
+    // Phase 7: Cache the module (brief borrow)
+    MODULE_RESOLVE_STATE.with(|cell| {
+        if let Some(state) = cell.borrow_mut().as_mut() {
+            state
+                .module_names
+                .insert(module.get_identity_hash(), resolved_path.clone());
+            let global = v8::Global::new(scope, module);
+            state.module_cache.insert(resolved_path, global);
+        }
+    });
+
+    Some(module)
+}
+
+/// Send _resolveModule(specifier, referrer_path) via sync-blocking IPC.
+fn resolve_module_via_ipc(
+    scope: &mut v8::HandleScope,
+    ctx: &BridgeCallContext,
+    specifier: &str,
+    referrer: &str,
+) -> Option<String> {
+    let mut args = Vec::new();
+    rmpv::encode::write_value(
+        &mut args,
+        &rmpv::Value::Array(vec![
+            rmpv::Value::String(specifier.into()),
+            rmpv::Value::String(referrer.into()),
+        ]),
+    )
+    .unwrap();
+
+    match ctx.sync_call("_resolveModule", args) {
+        Ok(Some(bytes)) => match rmpv::decode::read_value(&mut &bytes[..]) {
+            Ok(rmpv::Value::String(s)) => match s.as_str() {
+                Some(path) => Some(path.to_string()),
+                None => {
+                    throw_module_error(scope, "invalid UTF-8 in resolved module path");
+                    None
+                }
+            },
+            Ok(_) => {
+                throw_module_error(
+                    scope,
+                    &format!("_resolveModule returned non-string for '{}'", specifier),
+                );
+                None
+            }
+            Err(e) => {
+                throw_module_error(scope, &format!("_resolveModule decode error: {}", e));
+                None
+            }
+        },
+        Ok(None) => {
+            throw_module_error(scope, &format!("Cannot resolve module '{}'", specifier));
+            None
+        }
+        Err(e) => {
+            throw_module_error(scope, &e);
+            None
+        }
+    }
+}
+
+/// Send _loadFile(resolved_path) via sync-blocking IPC.
+fn load_module_via_ipc(
+    scope: &mut v8::HandleScope,
+    ctx: &BridgeCallContext,
+    resolved_path: &str,
+) -> Option<String> {
+    let mut args = Vec::new();
+    rmpv::encode::write_value(
+        &mut args,
+        &rmpv::Value::Array(vec![rmpv::Value::String(resolved_path.into())]),
+    )
+    .unwrap();
+
+    match ctx.sync_call("_loadFile", args) {
+        Ok(Some(bytes)) => match rmpv::decode::read_value(&mut &bytes[..]) {
+            Ok(rmpv::Value::String(s)) => match s.as_str() {
+                Some(src) => Some(src.to_string()),
+                None => {
+                    throw_module_error(scope, "invalid UTF-8 in module source");
+                    None
+                }
+            },
+            Ok(_) => {
+                throw_module_error(
+                    scope,
+                    &format!("_loadFile returned non-string for '{}'", resolved_path),
+                );
+                None
+            }
+            Err(e) => {
+                throw_module_error(scope, &format!("_loadFile decode error: {}", e));
+                None
+            }
+        },
+        Ok(None) => {
+            throw_module_error(scope, &format!("Cannot load module '{}'", resolved_path));
+            None
+        }
+        Err(e) => {
+            throw_module_error(scope, &e);
+            None
+        }
+    }
+}
+
+/// Throw a V8 exception for module resolution errors.
+fn throw_module_error(scope: &mut v8::HandleScope, message: &str) {
+    let msg = v8::String::new(scope, message).unwrap();
+    let exc = v8::Exception::error(scope, msg);
+    scope.throw_exception(exc);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -257,6 +629,7 @@ mod tests {
     use crate::host_call::BridgeCallContext;
     use crate::isolate;
     use std::collections::HashMap;
+use std::num::NonZeroI32;
     use std::io::{Cursor, Write};
     use std::sync::{Arc, Mutex};
 
@@ -1278,6 +1651,236 @@ mod tests {
             assert_eq!(err.message, "raw string error");
             assert!(err.stack.is_empty());
             assert!(err.code.is_none());
+        }
+
+        // --- Part 25: ESM — simple module with exports ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(Vec::new()),
+                Box::new(Cursor::new(Vec::new())),
+                "test-session".into(),
+            );
+
+            let user_code = "export const x = 42;\nexport const msg = 'hello';";
+            let (code, exports, error) = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                execute_module(scope, &bridge_ctx, "", user_code, None)
+            };
+
+            assert_eq!(code, 0);
+            assert!(error.is_none());
+            let exports = exports.unwrap();
+            let val: rmpv::Value =
+                rmpv::decode::read_value(&mut &exports[..]).unwrap();
+            let map = val.as_map().unwrap();
+            let find = |key: &str| -> rmpv::Value {
+                map.iter()
+                    .find(|(k, _)| k.as_str() == Some(key))
+                    .map(|(_, v)| v.clone())
+                    .unwrap()
+            };
+            assert_eq!(find("x").as_u64(), Some(42));
+            assert_eq!(find("msg").as_str(), Some("hello"));
+        }
+
+        // --- Part 26: ESM — default export ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(Vec::new()),
+                Box::new(Cursor::new(Vec::new())),
+                "test-session".into(),
+            );
+
+            let (code, exports, error) = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                execute_module(scope, &bridge_ctx, "", "export default 'world';", None)
+            };
+
+            assert_eq!(code, 0);
+            assert!(error.is_none());
+            let exports = exports.unwrap();
+            let val: rmpv::Value =
+                rmpv::decode::read_value(&mut &exports[..]).unwrap();
+            let map = val.as_map().unwrap();
+            let default_val = map
+                .iter()
+                .find(|(k, _)| k.as_str() == Some("default"))
+                .map(|(_, v)| v)
+                .unwrap();
+            assert_eq!(default_val.as_str(), Some("world"));
+        }
+
+        // --- Part 27: ESM — SyntaxError ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(Vec::new()),
+                Box::new(Cursor::new(Vec::new())),
+                "test-session".into(),
+            );
+
+            let (code, _exports, error) = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                execute_module(scope, &bridge_ctx, "", "export const x = {;", None)
+            };
+
+            assert_eq!(code, 1);
+            let err = error.unwrap();
+            assert_eq!(err.error_type, "SyntaxError");
+        }
+
+        // --- Part 28: ESM — runtime TypeError ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(Vec::new()),
+                Box::new(Cursor::new(Vec::new())),
+                "test-session".into(),
+            );
+
+            let (code, _exports, error) = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                execute_module(
+                    scope,
+                    &bridge_ctx,
+                    "",
+                    "const x = null; x.foo;",
+                    None,
+                )
+            };
+
+            assert_eq!(code, 1);
+            let err = error.unwrap();
+            assert_eq!(err.error_type, "TypeError");
+        }
+
+        // --- Part 29: ESM — bridge code IIFE runs before module ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(Vec::new()),
+                Box::new(Cursor::new(Vec::new())),
+                "test-session".into(),
+            );
+
+            let bridge = "(function() { globalThis._bridgeReady = true; })()";
+            let user = "export const saw = _bridgeReady;";
+            let (code, exports, error) = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                execute_module(scope, &bridge_ctx, bridge, user, None)
+            };
+
+            assert_eq!(code, 0);
+            assert!(error.is_none());
+            let exports = exports.unwrap();
+            let val: rmpv::Value =
+                rmpv::decode::read_value(&mut &exports[..]).unwrap();
+            let map = val.as_map().unwrap();
+            let saw_val = map
+                .iter()
+                .find(|(k, _)| k.as_str() == Some("saw"))
+                .map(|(_, v)| v)
+                .unwrap();
+            assert_eq!(saw_val.as_bool(), Some(true));
+        }
+
+        // --- Part 30: ESM — import from dependency via resolve callback ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            // Prepare BridgeResponse messages for _resolveModule and _loadFile
+            let mut response_buf = Vec::new();
+
+            // Response 1: _resolveModule returns "/dep.mjs"
+            let mut resolve_result = Vec::new();
+            rmpv::encode::write_value(
+                &mut resolve_result,
+                &rmpv::Value::String("/dep.mjs".into()),
+            )
+            .unwrap();
+            crate::ipc::write_message(
+                &mut response_buf,
+                &crate::ipc::HostMessage::BridgeResponse {
+                    call_id: 1,
+                    result: Some(resolve_result),
+                    error: None,
+                },
+            )
+            .unwrap();
+
+            // Response 2: _loadFile returns the dependency source
+            let mut load_result = Vec::new();
+            rmpv::encode::write_value(
+                &mut load_result,
+                &rmpv::Value::String("export const dep_val = 99;".into()),
+            )
+            .unwrap();
+            crate::ipc::write_message(
+                &mut response_buf,
+                &crate::ipc::HostMessage::BridgeResponse {
+                    call_id: 2,
+                    result: Some(load_result),
+                    error: None,
+                },
+            )
+            .unwrap();
+
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(Vec::new()),
+                Box::new(Cursor::new(response_buf)),
+                "test-session".into(),
+            );
+
+            let user_code =
+                "import { dep_val } from './dep.mjs';\nexport const result = dep_val + 1;";
+            let (code, exports, error) = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                execute_module(
+                    scope,
+                    &bridge_ctx,
+                    "",
+                    user_code,
+                    Some("/app/main.mjs"),
+                )
+            };
+
+            assert_eq!(code, 0, "error: {:?}", error);
+            assert!(error.is_none());
+            let exports = exports.unwrap();
+            let val: rmpv::Value =
+                rmpv::decode::read_value(&mut &exports[..]).unwrap();
+            let map = val.as_map().unwrap();
+            let result_val = map
+                .iter()
+                .find(|(k, _)| k.as_str() == Some("result"))
+                .map(|(_, v)| v)
+                .unwrap();
+            assert_eq!(result_val.as_u64(), Some(100));
         }
     }
 }
