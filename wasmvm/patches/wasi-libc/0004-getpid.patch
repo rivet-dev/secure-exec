@@ -54,7 +54,7 @@ Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
 
 --- /dev/null
 +++ b/libc-bottom-half/sources/host_getpid.c
-@@ -0,0 +1,33 @@
+@@ -0,0 +1,36 @@
 +// getpid() and getppid() via wasmVM host_process imports.
 +//
 +// Replaces wasi-libc's hardcoded getpid (which returns 42) and
@@ -63,7 +63,7 @@ Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
 +//
 +// Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
 +
-+#include <errno.h>
++#include <__errno.h>
 +#include <stdint.h>
 +#include <unistd.h>
 +

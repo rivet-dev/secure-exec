@@ -5,11 +5,30 @@ __wasilibc_unmodified_upstream) and provides an implementation
 that calls host_process.proc_kill. Other signal functions
 (sigemptyset, sigaction, etc.) remain hidden.
 
+Also ensures pid_t is defined before the kill() declaration by
+adding __NEED_pid_t + bits/alltypes.h outside the upstream-only block.
+
 Import signature matches wasmvm/crates/wasi-ext/src/lib.rs exactly.
 
 --- a/libc-top-half/musl/include/signal.h
 +++ b/libc-top-half/musl/include/signal.h
-@@ -220,11 +220,11 @@
+@@ -14,7 +14,14 @@
+ || defined(_XOPEN_SOURCE) || defined(_GNU_SOURCE) \
+  || defined(_BSD_SOURCE)
+
+-#ifdef __wasilibc_unmodified_upstream /* WASI has no ucontext support */
++#ifndef __wasilibc_unmodified_upstream
++// Ensure pid_t is available for kill() declaration below.
++// The upstream __NEED_pid_t is inside the ifdef'd-out block.
++#define __NEED_pid_t
++#include <bits/alltypes.h>
++#endif
++
++#ifdef __wasilibc_unmodified_upstream /* WASI has no ucontext/sigaction */
+ #ifdef _GNU_SOURCE
+ #define __ucontext ucontext
+ #endif
+@@ -220,11 +227,11 @@
  #define SIGRTMAX  (__libc_current_sigrtmax())
  #endif
 
@@ -25,7 +44,7 @@ Import signature matches wasmvm/crates/wasi-ext/src/lib.rs exactly.
 
 --- /dev/null
 +++ b/libc-bottom-half/sources/host_kill.c
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,26 @@
 +// kill() via wasmVM host_process import.
 +//
 +// Replaces wasi-libc's hidden kill() declaration with an implementation
@@ -33,9 +52,9 @@ Import signature matches wasmvm/crates/wasi-ext/src/lib.rs exactly.
 +//
 +// Import signature matches wasmvm/crates/wasi-ext/src/lib.rs exactly.
 +
-+#include <errno.h>
++#include <__errno.h>
 +#include <stdint.h>
-+#include <signal.h>
++#include <sys/types.h>
 +
 +#define WASM_IMPORT(mod, fn) \
 +    __attribute__((__import_module__(mod), __import_name__(fn)))

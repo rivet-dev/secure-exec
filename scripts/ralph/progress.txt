@@ -38,6 +38,19 @@ PRD: ralph/wasmvm-dynamic-modules (19 stories)
 - Per-program Makefile overrides for multi-file compilation (cJSON, SQLite): define `$(BUILD_DIR)/prog:` target
 - C parity test: `commandDirs: [C_BUILD_DIR, COMMANDS_DIR]` — C first for precedence, COMMANDS_DIR for `sh`
 - C parity test skip: check `existsSync` for hello binary in all 3 dirs (COMMANDS_DIR, C_BUILD_DIR, NATIVE_DIR)
+- wasi-libc pinned commit (wasi-sdk-25): `574b88da481569b65a237cb80daf9a2d5aeaf82d`; cloned to `c/vendor/wasi-libc/`
+- Patched sysroot: `make -C wasmvm/c sysroot`; output at `c/sysroot/`; verify via `c/sysroot/lib/wasm32-wasi/libc.a`
+- wasi-libc patches go in `wasmvm/patches/wasi-libc/`; applied by `scripts/patch-wasi-libc.sh`
+- Must `make clean` in wasi-libc before rebuild — stale objects break `check-symbols` target
+- Canonical WASM import signatures: `wasmvm/crates/wasi-ext/src/lib.rs` — C patches must match exactly
+- Patch `@@ -X,OLD +X,NEW @@` counts must be exact: context lines count in both OLD and NEW, `-` only in OLD, `+` only in NEW
+- musl's `process/` dir NOT compiled for WASI — reimplements (posix_spawn, waitpid, file_actions helpers) go in `libc-bottom-half/sources/`
+- posix_spawn ABI: argv/envp serialized as null-separated strings; first argv entry = command; file_actions → stdin/stdout/stderr fd params
+- wasi-libc `libc-bottom-half/sources/` files: use `<__errno.h>` NOT `<errno.h>` (avoids musl's `features.h` `weak` macro)
+- For errno constants (EBADF etc.), include `<__errno_values.h>` separately from `<__errno.h>`
+- `<spawn.h>` and `<sys/wait.h>` are NOT in wasi sysroot — define needed types inline in source files
+- signal.h's `__NEED_pid_t`+`bits/alltypes.h` are inside `#ifdef __wasilibc_unmodified_upstream` — add your own outside when exposing `pid_t`-using declarations
+- wasi-libc's `sigset_t` is `unsigned char` (not `unsigned long`) — use `__NEED_sigset_t`+`bits/alltypes.h` for correct type
 
 ## 2026-03-19 12:04 PM PDT - US-001
 - Implemented path-based resolution in CommandRegistry.resolve() — extracts basename when command contains '/'
@@ -416,4 +429,120 @@ PRD: ralph/wasmvm-dynamic-modules (19 stories)
   - argv[0] differs between native (full binary path) and WASM (command name) — normalize with regex replace
   - Tests skip gracefully when any of the 3 binary sets is missing (Rust WASM, C WASM, C native)
   - spawn() from child_process gives consistent exitCode handling for both zero and non-zero exits
+---
+
+## 2026-03-19 3:00 PM PDT - US-025
+- Created `wasmvm/scripts/patch-wasi-libc.sh` following the pattern of `patch-std.sh` and `patch-vendor.sh`
+- Script clones wasi-libc at commit `574b88da481569b65a237cb80daf9a2d5aeaf82d` (pinned by wasi-sdk-25 submodule)
+- Supports `--check` (dry-run) and `--reverse` (unapply) flags
+- Applies patches from `patches/wasi-libc/` in sorted order (currently empty, patches added in US-026-028)
+- Builds patched sysroot using wasi-sdk's clang/llvm-ar/llvm-nm, outputs to `c/sysroot/`
+- Cleans previous build artifacts before rebuilding for reproducibility
+- Verifies build by checking for `sysroot/lib/wasm32-wasi/libc.a`
+- Vanilla (unpatched) sysroot builds successfully — verified as baseline
+- Updated `wasmvm/c/Makefile` sysroot target to invoke `patch-wasi-libc.sh` with `wasi-sdk` dependency
+- Files changed:
+  - wasmvm/scripts/patch-wasi-libc.sh (new)
+  - wasmvm/c/Makefile (sysroot target)
+- **Learnings for future iterations:**
+  - wasi-libc pinned commit for wasi-sdk-25: `574b88da481569b65a237cb80daf9a2d5aeaf82d` (from wasi-sdk's git submodule at `src/wasi-libc`)
+  - wasi-libc builds via `make` with CC/AR/NM from wasi-sdk and SYSROOT output dir
+  - Must `make clean` in wasi-libc dir before rebuilding — otherwise stale object files cause `check-symbols` to fail on missing `include-all.c`
+  - Build output: `sysroot/lib/wasm32-wasi/libc.a` is the key artifact to verify
+  - `make -C wasmvm/c sysroot` is the user-facing command; it depends on `wasi-sdk` being downloaded first
+  - The `patches/wasi-libc/` directory exists with just `.gitkeep` — patches are added in US-026, US-027, US-028
+---
+
+## 2026-03-19 3:05 PM PDT - US-026
+- Created `wasmvm/patches/wasi-libc/0001-pipe-dup.patch` with two hunks:
+  1. Header patch: un-ifdefs `pipe()`, `dup()`, `dup2()` declarations in `unistd.h` (keeps `pipe2()` and `dup3()` hidden)
+  2. New file: `libc-bottom-half/sources/host_pipe_dup.c` with WASM import implementations
+- `pipe()` calls `__host_fd_pipe()` from `host_process.fd_pipe` — returns read/write fds via out-pointers
+- `dup()` calls `__host_fd_dup()` from `host_process.fd_dup` — returns new fd via out-pointer
+- `dup2()` calls `__host_fd_dup2()` from `host_process.fd_dup2` — old_fd duplicated to new_fd
+- All import signatures match `wasmvm/crates/wasi-ext/src/lib.rs` exactly (u32 params, errno return)
+- Uses `WASM_IMPORT(mod, fn)` macro pattern from spec Section 2.3
+- Patch applies cleanly via `patch-wasi-libc.sh --check`
+- Files changed:
+  - wasmvm/patches/wasi-libc/0001-pipe-dup.patch (new)
+- **Learnings for future iterations:**
+  - wasi-libc hides pipe/dup/dup2 declarations behind `#ifdef __wasilibc_unmodified_upstream` in `unistd.h` — patch must un-ifdef them
+  - musl's `pipe.c`, `dup.c`, `dup2.c` source files are NOT compiled for WASI (not in Makefile's explicit unistd list) — no duplicate symbol risk
+  - New `.c` files in `libc-bottom-half/sources/` are auto-discovered by wasi-libc Makefile's `find` command — no Makefile changes needed
+  - Keep `pipe2()` and `dup3()` hidden (still `#ifdef`'d out) — we don't implement those
+  - WASM import declarations use `__attribute__((__import_module__(mod), __import_name__(fn)))` — double underscores on both sides
+  - POSIX convention: pipe/dup return int (fd number or -1), set errno on failure; wasi-ext returns u32 errno
+---
+
+## 2026-03-19 3:22 PM PDT - US-027
+- Created 3 wasi-libc patches implementing posix_spawn, waitpid, kill, getpid, getppid:
+  - `0002-spawn-wait.patch` — posix_spawn(), posix_spawnp(), waitpid(), wait() via host_process.proc_spawn/proc_waitpid
+    - Includes all posix_spawn_file_actions helpers (init, destroy, adddup2, addclose, addopen, addchdir_np, addfchdir_np)
+    - Includes all posix_spawnattr helpers (init, destroy, set/get flags/pgroup/sigmask/sigdefault/schedparam/schedpolicy)
+    - posix_spawn serializes argv as null-terminated strings in contiguous buffer matching wasi-ext ABI
+    - file_actions mapped to stdin_fd/stdout_fd/stderr_fd params; attrp silently ignored
+    - waitpid encodes exit status in POSIX format (raw_status << 8) for WEXITSTATUS compatibility
+  - `0003-kill.patch` — kill() via host_process.proc_kill
+    - Un-ifdefs `kill()` from signal.h; other signal functions remain hidden
+  - `0004-getpid.patch` — getpid() and getppid() via host_process.proc_getpid/proc_getppid
+    - Removes _WASI_EMULATED_GETPID deprecation warning from unistd.h
+    - Un-ifdefs getppid() from unistd.h
+    - Replaces getpid/getpid.c (hardcoded 42) with empty file; real impl in sources/host_getpid.c
+- All patches apply cleanly via `patch-wasi-libc.sh --check`
+- All patches apply in sequence without conflicts
+- Files changed:
+  - wasmvm/patches/wasi-libc/0002-spawn-wait.patch (new)
+  - wasmvm/patches/wasi-libc/0003-kill.patch (new)
+  - wasmvm/patches/wasi-libc/0004-getpid.patch (new)
+- **Learnings for future iterations:**
+  - musl's entire `process/` directory (posix_spawn.c, waitpid.c, etc.) is NOT compiled for WASI — no LIBC_TOP_HALF_MUSL_SOURCES entries
+  - posix_spawn_file_actions helpers must be reimplemented since they're in musl's process/ (not compiled)
+  - fdop struct layout must match musl's internal `fdop.h`: {next, prev, cmd, fd, srcfd, oflag, mode, path[]}
+  - getpid() has two declaration paths: with `_WASI_EMULATED_GETPID` or with deprecation warning — patch removes both
+  - `libc-bottom-half/getpid/getpid.c` compiles to separate `libwasi-emulated-getpid.a` — put real impl in sources/ to avoid requiring -lwasi-emulated-getpid link flag
+  - Patch line counts in `@@ -X,OLD +X,NEW @@` must be exact or `patch` reports "malformed patch"
+  - signal.h `#ifdef` block hides kill + all signal set functions — un-ifdef only kill, create new #ifdef for signal sets
+  - proc_spawn ABI: first null-terminated string in argv buffer is the command, rest are args; envp also null-separated
+  - waitpid status encoding: host returns raw exit code, must shift left 8 for POSIX WEXITSTATUS compatibility
+  - posix_spawnp delegates to posix_spawn — PATH resolution happens on the host side (kernel CommandRegistry)
+---
+
+## 2026-03-19 3:50 PM PDT - US-028
+- Created `wasmvm/patches/wasi-libc/0005-user-identity.patch` for getuid, getgid, geteuid, getegid:
+  - Un-ifdefs the four user identity function declarations from unistd.h
+  - Keeps getgroups, setuid, seteuid, setgid, setegid hidden (still `#ifdef`'d out)
+  - New `libc-bottom-half/sources/host_user_identity.c` with implementations calling host_user WASM imports
+- Created `wasmvm/patches/wasi-libc/0006-isatty.patch` for isatty:
+  - Replaces `libc-bottom-half/sources/isatty.c` — swaps fdstat-based heuristic for host_user.isatty import
+  - Preserves `__isatty` / `isatty` weak alias pattern used by musl's `__stdout_write.c` and `__fdopen.c`
+- Fixed pre-existing bugs in patches 0001-0004 that prevented sysroot from building:
+  - All patches had wrong line counts in `@@ -0,0 +1,N @@` hunk headers (truncating generated files)
+  - All patches used `<errno.h>` which pulls in musl internal `features.h` defining `weak` as a macro — changed to `<__errno.h>`
+  - 0002: `<spawn.h>` and `<sys/wait.h>` not in wasi sysroot — defined types inline
+  - 0003: `<signal.h>` triggers `#error` in wasi-libc — changed to `<sys/types.h>` for `pid_t`
+  - 0003: `kill(pid_t, int)` declaration exposed but `pid_t` undefined — added `__NEED_pid_t` + `bits/alltypes.h` outside `#ifdef` block
+  - 0002: `sigset_t` redefinition conflict — used `__NEED_sigset_t` + `bits/alltypes.h` instead of inline typedef
+  - 0002: Missing `EBADF`/`ENOMEM` constants — added `<__errno_values.h>` include
+- Fixed `patch-wasi-libc.sh` to use `--no-backup-if-mismatch` (prevents `.orig` files in sysroot)
+- All 6 patches apply cleanly via `--check`
+- Patched sysroot builds successfully: `make -C wasmvm/c sysroot` produces `c/sysroot/lib/wasm32-wasi/libc.a`
+- Files changed:
+  - wasmvm/patches/wasi-libc/0005-user-identity.patch (new)
+  - wasmvm/patches/wasi-libc/0006-isatty.patch (new)
+  - wasmvm/patches/wasi-libc/0001-pipe-dup.patch (line count fix, errno.h → __errno.h)
+  - wasmvm/patches/wasi-libc/0002-spawn-wait.patch (line count fix, errno.h → __errno.h, inline spawn types)
+  - wasmvm/patches/wasi-libc/0003-kill.patch (line count fix, signal.h → sys/types.h, pid_t availability fix)
+  - wasmvm/patches/wasi-libc/0004-getpid.patch (line count fix, errno.h → __errno.h)
+  - wasmvm/scripts/patch-wasi-libc.sh (--no-backup-if-mismatch)
+- **Learnings for future iterations:**
+  - wasi-libc internal build context uses musl's `features.h` which defines `weak` as a macro — NEVER use `<errno.h>` in libc-bottom-half/sources/ files, use `<__errno.h>` instead
+  - For errno constants (EBADF, ENOMEM etc.), include `<__errno_values.h>` separately
+  - `<spawn.h>` and `<sys/wait.h>` are NOT installed in the wasi sysroot — must define types inline
+  - `<signal.h>` requires `_WASI_EMULATED_SIGNAL` to compile — avoid including it in patched source files
+  - signal.h's `__NEED_pid_t` + `bits/alltypes.h` are inside `#ifdef __wasilibc_unmodified_upstream` — must add our own outside the block when exposing declarations that use `pid_t`
+  - `bits/alltypes.h` uses `__NEED_*` / `__DEFINED_*` guards (NOT include guards) — safe to include multiple times
+  - wasi-libc's `sigset_t` is `unsigned char` (NOT `unsigned long` like glibc) — use `__NEED_sigset_t` + `bits/alltypes.h`
+  - Patch `@@ -0,0 +1,N @@` counts must exactly match the number of `+` lines — `patch` truncates files at N lines
+  - Use `--no-backup-if-mismatch` with patch to prevent `.orig` files being installed to sysroot
+  - The `__isatty` / `isatty` weak alias pattern in isatty.c is used by musl's `__stdout_write.c` and `__fdopen.c` — must preserve it
 ---

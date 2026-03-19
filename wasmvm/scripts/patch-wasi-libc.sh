@@ -126,7 +126,7 @@ else
             apply)
                 echo -n "Applying $PATCH_NAME ... "
                 if patch --dry-run -p1 -d "$WASI_LIBC_DIR" < "$PATCH" > /dev/null 2>&1; then
-                    patch -p1 -d "$WASI_LIBC_DIR" < "$PATCH" > /dev/null 2>&1
+                    patch --no-backup-if-mismatch -p1 -d "$WASI_LIBC_DIR" < "$PATCH" > /dev/null 2>&1
                     echo "applied"
                 else
                     echo "already applied (skipping)"

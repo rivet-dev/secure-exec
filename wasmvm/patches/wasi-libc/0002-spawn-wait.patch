@@ -16,7 +16,7 @@ Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
 
 --- /dev/null
 +++ b/libc-bottom-half/sources/host_spawn_wait.c
-@@ -0,0 +1,218 @@
+@@ -0,0 +1,275 @@
 +// Process spawning and waiting via wasmVM host_process imports.
 +//
 +// Replaces musl's posix_spawn (which uses fork/clone, unavailable in WASI)
@@ -29,13 +29,36 @@ Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
 +//
 +// Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
 +
-+#include <errno.h>
++#include <__errno.h>
++#include <__errno_values.h>
 +#include <stdint.h>
 +#include <stdlib.h>
 +#include <string.h>
-+#include <spawn.h>
-+#include <sys/wait.h>
 +#include <unistd.h>
++#include <sys/types.h>
++
++// spawn.h and sys/wait.h are not installed in the wasi sysroot.
++// Define the needed types inline (matching musl's spawn.h layout).
++
++#define __NEED_sigset_t
++#include <bits/alltypes.h>
++
++typedef struct {
++    int __flags;
++    pid_t __pgrp;
++    sigset_t __def, __mask;
++    int __prio, __pol;
++    void *__fn;
++    char __pad[64-sizeof(void *)];
++} posix_spawnattr_t;
++
++typedef struct {
++    int __pad0[2];
++    void *__actions;
++    int __pad[16];
++} posix_spawn_file_actions_t;
++
++struct sched_param { int sched_priority; };
 +
 +#define WASM_IMPORT(mod, fn) \
 +    __attribute__((__import_module__(mod), __import_name__(fn)))

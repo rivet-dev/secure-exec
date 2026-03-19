@@ -29,7 +29,7 @@ Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
 
 --- /dev/null
 +++ b/libc-bottom-half/sources/host_pipe_dup.c
-@@ -0,0 +1,52 @@
+@@ -0,0 +1,58 @@
 +// Pipe and FD duplication via wasmVM host_process imports.
 +//
 +// Replaces wasi-libc's ENOSYS stubs with calls to our custom WASM imports:
@@ -39,7 +39,7 @@ Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
 +//
 +// Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
 +
-+#include <errno.h>
++#include <__errno.h>
 +#include <stdint.h>
 +#include <unistd.h>
 +

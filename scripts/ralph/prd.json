@@ -490,7 +490,7 @@
         "Tests pass"
       ],
       "priority": 25,
-      "passes": false,
+      "passes": true,
       "notes": "See spec Section 3.3. Follow the exact pattern of wasmvm/scripts/patch-std.sh and wasmvm/scripts/patch-vendor.sh. Pin wasi-libc to the commit referenced by wasi-sdk-25's submodule for guaranteed compatibility — check the wasi-sdk repo's git submodule entries for the exact commit hash. Verify the vanilla (unpatched) sysroot builds before adding any patches to establish a known-good baseline. Canonical import source: wasmvm/crates/wasi-ext/src/lib.rs."
     },
     {
@@ -510,7 +510,7 @@
         "Tests pass"
       ],
       "priority": 26,
-      "passes": false,
+      "passes": true,
       "notes": "See spec Section 2.1 and 2.3 for the exact pattern. Each function: declare WASM import with __attribute__((import_module, import_name)), implement POSIX wrapper that calls import, sets errno on failure, returns -1/0. The canonical import signatures are in wasmvm/crates/wasi-ext/src/lib.rs — C signatures must match the Rust extern FFI exactly. pipe() example is in spec Section 2.3."
     },
     {
@@ -534,7 +534,7 @@
         "Tests pass"
       ],
       "priority": 27,
-      "passes": false,
+      "passes": true,
       "notes": "See spec Section 2.1. CRITICAL: posix_spawn() is the hardest patch. Read wasmvm/crates/wasi-ext/src/lib.rs proc_spawn wrapper to understand the exact serialization format: argv is serialized as null-terminated strings concatenated back-to-back in a buffer, with total byte length passed as a separate i32 param. The host_process.proc_spawn signature is (cmd_ptr, cmd_len, argv_buf_ptr, argv_buf_len, envp_buf_ptr, envp_buf_len, stdin_fd, stdout_fd, stderr_fd, cwd_ptr, cwd_len, ret_pid_ptr) -> errno. file_actions from posix_spawn are mapped to stdin/stdout/stderr fd params; posix_spawnattr_t (scheduling, signal masks) is not supported and is silently ignored. waitpid returns status via out-pointer. kill takes (pid, signal) -> errno."
     },
     {
@@ -556,7 +556,7 @@
         "Tests pass"
       ],
       "priority": 28,
-      "passes": false,
+      "passes": true,
       "notes": "See spec Section 2.1. These are the simplest patches — each function is ~5 lines (declare import, call it, return result). isatty replaces wasi-libc's basic filetype check with our host_user.isatty which checks the actual PTY state. After this story, all 6 patches exist and the patched sysroot should build end-to-end. Verify with: make -C wasmvm/c sysroot && ls wasmvm/c/sysroot/lib/wasm32-wasi/libc.a"
     },
     {
