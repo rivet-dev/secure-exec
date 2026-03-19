@@ -2505,3 +2505,16 @@ PRD: ralph/kernel-hardening (46 stories)
   - JS and Rust hash algorithms don't need to match since they serve different purposes: JS hash is for deciding whether to resend, Rust hash (64-bit) is for V8 bytecode cache invalidation
   - The per-session bridge code cache in session.rs (`last_bridge_code`) is distinct from the V8 bytecode cache (`bridge_cache`) — one avoids IPC transfer, the other avoids V8 recompilation
 ---
+
+## 2026-03-19 - US-043
+- Replaced O(n^2) Buffer.concat pattern in IpcClient.handleData with pre-allocated buffer using read/write cursors
+- Buffer starts at 64KB, doubles when needed, compacts when consumed portion exceeds 50%
+- No new allocations per data event unless buffer needs to grow
+- Files changed:
+  - packages/secure-exec-v8/src/ipc-client.ts — replaced recvBuf Buffer.alloc(0) + Buffer.concat with pre-allocated buffer, added readPos/writePos cursors, ensureCapacity() for grow/compact, threshold-based compaction
+  - scripts/ralph/prd.json — marked US-043 passes: true
+- **Learnings for future iterations:**
+  - Buffer.copyWithin is efficient for in-place compaction (no allocation)
+  - Buffer.allocUnsafe is safe here since we always write before reading
+  - The subarray() calls for body extraction are still zero-copy views into the pre-allocated buffer; Buffer.from(body) copy is needed because decodeFrame may reference the data after readPos advances
+---
