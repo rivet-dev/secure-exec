@@ -2310,3 +2310,16 @@ PRD: ralph/kernel-hardening (46 stories)
   - The debug binary at crates/v8-runtime/target/debug/secure-exec-v8 is used for tests; release binary used if available
   - Tests skip automatically if no Rust binary is built (skipIf pattern)
 ---
+
+## 2026-03-19 - US-030
+- What was implemented: Crash isolation tests proving V8 OOM kills only the child process (not host), timeout termination works for infinite loops, and child process can be killed via dispose (SIGKILL) as last resort
+- Files changed:
+  - packages/secure-exec-v8/test/crash-isolation.test.ts — new test file with 6 tests: OOM host survival, OOM error surfacing, infinite loop timeout, sync bridge call timeout, runtime reusability after timeout, SIGKILL via dispose
+  - packages/secure-exec-v8/src/runtime.ts — added rejectPendingSessions() to resolve pending execute Promises when child crashes; added isConnected guards on BridgeResponse sends
+- **Learnings for future iterations:**
+  - V8 heap_limits without near_heap_limit_callback causes V8 to abort() the Rust process on OOM — this is the desired behavior for process-level crash isolation
+  - Bridge function names in tests must match SYNC_BRIDGE_FNS or ASYNC_BRIDGE_FNS arrays in session.rs — custom names like `_slowBridgeCall` won't be registered in V8
+  - When child process crashes during active execution, the execute() Promise must be resolved with an error — added rejectPendingSessions() to handle this
+  - Bridge handler async callbacks can outlive the IPC connection (e.g., slow handler returns after timeout kills connection) — guard client.send() with isConnected check to avoid unhandled rejections
+  - TimeoutGuard drops abort_tx to unblock ChannelMessageReader's select!, which returns TimedOut error to sync_call — this unblocks both sync bridge calls and the event loop
+---
