@@ -696,6 +696,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmd-gzip"
+version = "0.1.0"
+dependencies = [
+ "secureexec-gzip",
+]
+
+[[package]]
 name = "cmd-jq"
 version = "0.1.0"
 dependencies = [
@@ -735,6 +742,13 @@ name = "cmd-strings"
 version = "0.1.0"
 dependencies = [
  "secureexec-strings-cmd",
+]
+
+[[package]]
+name = "cmd-tar"
+version = "0.1.0"
+dependencies = [
+ "secureexec-tar",
 ]
 
 [[package]]
@@ -3148,6 +3162,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "secureexec-gzip"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+]
+
+[[package]]
 name = "secureexec-jq"
 version = "0.1.0"
 dependencies = [
@@ -3164,6 +3185,14 @@ version = "0.1.0"
 [[package]]
 name = "secureexec-strings-cmd"
 version = "0.1.0"
+
+[[package]]
+name = "secureexec-tar"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "tar",
+]
 
 [[package]]
 name = "secureexec-tree"
