@@ -159,15 +159,23 @@ $(NATIVE_DIR)/json_parse: programs/json_parse.c libs/cjson/cJSON.c
 	@mkdir -p $(NATIVE_DIR)
 	$(NATIVE_CC) $(NATIVE_CFLAGS) -Ilibs/cjson -o $@ programs/json_parse.c libs/cjson/cJSON.c
 
-# Example for sqlite3_mem (US-033):
-#   SQLITE_FLAGS := -DSQLITE_OS_OTHER -DSQLITE_OMIT_WAL -DSQLITE_OMIT_LOAD_EXTENSION \
-#                   -DSQLITE_THREADSAFE=0 -lwasi-emulated-signal -lwasi-emulated-mman
-#   $(BUILD_DIR)/sqlite3_mem: programs/sqlite3_mem.c libs/sqlite3/sqlite3.c $(WASI_SDK_DIR)/bin/clang
-#   	@mkdir -p $(BUILD_DIR)
-#   	$(CC) $(WASM_CFLAGS) $(SQLITE_FLAGS) -Ilibs/sqlite3 -o $@.wasm \
-#   	    programs/sqlite3_mem.c libs/sqlite3/sqlite3.c
-#   	wasm-opt -O3 --strip-debug $@.wasm -o $@
-#   	@rm -f $@.wasm
+# sqlite3_mem: links SQLite amalgamation
+SQLITE_COMMON  := -DSQLITE_OMIT_WAL -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_THREADSAFE=0 \
+                  -DSQLITE_OMIT_LOCALTIME
+SQLITE_WASM    := -DSQLITE_OS_OTHER $(SQLITE_COMMON) -lwasi-emulated-signal -lwasi-emulated-mman
+SQLITE_NATIVE  := $(SQLITE_COMMON)
+
+$(BUILD_DIR)/sqlite3_mem: programs/sqlite3_mem.c libs/sqlite3/sqlite3.c $(WASI_SDK_DIR)/bin/clang
+	@mkdir -p $(BUILD_DIR)
+	$(CC) $(WASM_CFLAGS) $(SQLITE_WASM) -Ilibs/sqlite3 -o $@.wasm \
+	    programs/sqlite3_mem.c libs/sqlite3/sqlite3.c
+	wasm-opt -O3 --strip-debug $@.wasm -o $@
+	@rm -f $@.wasm
+
+$(NATIVE_DIR)/sqlite3_mem: programs/sqlite3_mem.c libs/sqlite3/sqlite3.c
+	@mkdir -p $(NATIVE_DIR)
+	$(NATIVE_CC) $(NATIVE_CFLAGS) $(SQLITE_NATIVE) -Ilibs/sqlite3 -o $@ \
+	    programs/sqlite3_mem.c libs/sqlite3/sqlite3.c -lm -lpthread
 
 # --- Compile all C programs to native binaries (for parity testing) ---
 

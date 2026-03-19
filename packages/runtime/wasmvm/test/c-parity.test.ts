@@ -521,6 +521,29 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
     ? 'C Tier 5 binaries not built (run make -C wasmvm/c programs && make -C wasmvm/c native)'
     : false;
 
+  const hasSqliteBinary = existsSync(join(C_BUILD_DIR, 'sqlite3_mem'));
+  const hasSqliteNative = existsSync(join(NATIVE_DIR, 'sqlite3_mem'));
+  const sqliteSkip = (!hasSqliteBinary || !hasSqliteNative)
+    ? 'SQLite binaries not built (run make -C wasmvm/c programs && make -C wasmvm/c native)'
+    : false;
+
+  it.skipIf(sqliteSkip)('sqlite3_mem: in-memory SQL operations parity', async () => {
+    const native = await runNative('sqlite3_mem');
+    const wasm = await kernel.exec('sqlite3_mem');
+
+    expect(wasm.exitCode).toBe(native.exitCode);
+    expect(wasm.exitCode).toBe(0);
+    expect(wasm.stdout).toBe(native.stdout);
+    // Verify key structural elements
+    expect(wasm.stdout).toContain('db: open');
+    expect(wasm.stdout).toContain('table: created');
+    expect(wasm.stdout).toContain('rows: 4');
+    expect(wasm.stdout).toContain('name=Alice|score=95.5');
+    expect(wasm.stdout).toContain('name=Charlie|score=NULL');
+    expect(wasm.stdout).toContain('avg_score=');
+    expect(wasm.stdout).toContain('db: closed');
+  });
+
   it.skipIf(tier5Skip)('json_parse: cJSON parse and format parity', async () => {
     const sampleJson = JSON.stringify({
       name: 'secure-exec',

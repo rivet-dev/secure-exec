@@ -648,7 +648,7 @@
         "Tests pass"
       ],
       "priority": 33,
-      "passes": false,
+      "passes": true,
       "notes": "See spec Section 4.5 Tier 5. SQLite amalgamation is public domain. This is the boss fight — SQLite exercises massive libc surface (malloc, mmap emulation, file I/O, string formatting, math). Compile flags: -DSQLITE_OS_OTHER or -DSQLITE_OS_UNIX, -DSQLITE_OMIT_WAL, -DSQLITE_OMIT_LOAD_EXTENSION, -DSQLITE_THREADSAFE=0. May need -lwasi-emulated-signal and -lwasi-emulated-mman. Expected binary size ~1-2MB native, potentially up to ~3MB as WASM with wasi-libc overhead."
     },
     {

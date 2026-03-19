@@ -691,3 +691,31 @@ PRD: ralph/wasmvm-dynamic-modules (19 stories)
   - cJSON binary is only 38KB after wasm-opt — single-file C libraries compile to very compact WASM
   - C parity test count: now 25 tests (10 Tier 1 + 6 Tier 2 + 4 Tier 3 + 4 Tier 4 + 1 Tier 5)
 ---
+
+## 2026-03-19 4:40 PM PDT - US-033
+- Vendored SQLite amalgamation (v3.46.1, public domain) into `wasmvm/c/libs/sqlite3/`
+- Created `wasmvm/c/programs/sqlite3_mem.c` — in-memory DB: create table, insert 4 rows, SELECT all/AVG/TOP queries
+  - Uses `#ifdef SQLITE_OS_OTHER` guard for WASM-only `sqlite3_os_init()`/`sqlite3_os_end()` stubs
+  - Native build uses default Unix VFS (no SQLITE_OS_OTHER), WASM uses SQLITE_OS_OTHER for in-memory only
+- Updated `wasmvm/c/Makefile` with SQLite compilation rules:
+  - WASM: `-DSQLITE_OS_OTHER -DSQLITE_OMIT_WAL -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_THREADSAFE=0 -DSQLITE_OMIT_LOCALTIME -lwasi-emulated-signal -lwasi-emulated-mman`
+  - Native: same flags minus SQLITE_OS_OTHER and WASM linker flags, plus `-lm -lpthread`
+  - Separate `SQLITE_WASM` and `SQLITE_NATIVE` flag variables for clean separation
+- WASM binary size: 916KB after wasm-opt (well under 3MB limit)
+- Added parity test in `c-parity.test.ts` with separate skip guard for sqlite3_mem binary
+- All 510 WasmVM tests pass, typecheck passes
+- Files changed:
+  - wasmvm/c/libs/sqlite3/sqlite3.c (new, vendored, 257K lines)
+  - wasmvm/c/libs/sqlite3/sqlite3.h (new, vendored)
+  - wasmvm/c/libs/sqlite3/LICENSE (new, public domain)
+  - wasmvm/c/programs/sqlite3_mem.c (new)
+  - wasmvm/c/Makefile (SQLite multi-file override rules)
+  - packages/runtime/wasmvm/test/c-parity.test.ts (SQLite parity test)
+- **Learnings for future iterations:**
+  - `SQLITE_OS_OTHER` requires implementing `sqlite3_os_init()` and `sqlite3_os_end()` stubs — use `#ifdef` to only define them for WASM
+  - Native SQLite compilation needs `-lm` (math) and `-lpthread` (even with THREADSAFE=0, the unix VFS references it)
+  - SQLite amalgamation compiles to 916KB WASM after wasm-opt — surprisingly compact; validates complex malloc/free/realloc patterns
+  - `SQLITE_OMIT_LOCALTIME` avoids references to `localtime_r` which may not work in WASI
+  - SQLite 3.46.1 has a typo in `sqlite3IsOverflow` vs `sqlite3IsOVerflow` — not an issue since it only appears with certain flags
+  - C parity test count: now 26 tests (10 Tier 1 + 6 Tier 2 + 4 Tier 3 + 4 Tier 4 + 2 Tier 5)
+---
