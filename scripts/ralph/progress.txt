@@ -18,7 +18,12 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
 - Use `v8::Global<v8::Context>` to persist context handles across HandleScope lifetimes
 - Consolidate V8 tests into a single `#[test]` fn to avoid inter-test isolate state issues
 - V8 platform MUST be initialized on the main thread before spawning session threads (SIGSEGV otherwise)
-- Session tests use `#[cfg(not(test))]` to skip V8 isolate creation; V8 lifecycle tested in `isolate::tests`
+- Session tests use `#[cfg(not(test))]` to skip V8 isolate creation; V8 lifecycle tested in `execution::tests`
+- ALL V8 tests live in `execution::tests::v8_inject_globals_and_hardening` — do NOT add new `#[test]` fns that create V8 isolates
+- Use `obj.set_integrity_level(scope, v8::IntegrityLevel::Frozen)` for Object.freeze()
+- Use `obj.define_own_property(scope, key, val, READ_ONLY | DONT_DELETE)` for non-writable, non-configurable properties
+- Use `isolate.set_allow_wasm_code_generation_callback(fn)` to disable WASM — callback returns false
+- Use `scope.get_current_context()` to get the context from within a ContextScope
 - `session_id` is `String` in IPC types (not u32/u128) for JS interop; use hex nonces for 128-bit security
 - Session concurrency is configurable via `SECURE_EXEC_V8_MAX_SESSIONS` env var (default: available CPUs)
 - Use `std::thread::available_parallelism()` instead of `num_cpus` crate for CPU count
@@ -108,4 +113,23 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - `std::thread::available_parallelism()` (stable since Rust 1.59) replaces the `num_cpus` crate
   - `BridgeResponse` messages don't carry session_id; routing will need a separate mechanism (call_id → session mapping) in later stories
   - Connection handler threads handle the message loop; the main thread only does accept + auth
+---
+
+## 2026-03-18 - US-008
+- Implemented InjectGlobals handling and V8 context hardening in `execution.rs`
+- `inject_globals()`: sets `_processConfig` and `_osConfig` as frozen, non-writable, non-configurable global properties
+- `disable_wasm()`: disables WASM compilation via `set_allow_wasm_code_generation_callback` returning false
+- SharedArrayBuffer removed from global when `timing_mitigation` is "freeze", preserved otherwise
+- Env sub-object within `_processConfig` is also frozen
+- Updated `session.rs` to handle InjectGlobals messages and call `disable_wasm` on isolate creation
+- Consolidated all V8 tests into single `execution::tests::v8_inject_globals_and_hardening` test (moved isolate lifecycle tests from `isolate.rs`)
+- 7-part test covering: config values, null frozen_time_ms, frozen/non-writable/non-configurable properties, SharedArrayBuffer removal in freeze mode, SharedArrayBuffer preserved in non-freeze mode, WASM disabled, WASM enabled by default
+- Files changed: `crates/v8-runtime/src/execution.rs`, `crates/v8-runtime/src/session.rs`, `crates/v8-runtime/src/isolate.rs`
+- **Learnings for future iterations:**
+  - `v8::PropertyAttribute` does NOT implement `Copy` — must create a new instance for each `define_own_property` call
+  - Multiple `#[test]` functions that create V8 isolates cause SIGSEGV even with `--test-threads=1` — all V8 tests MUST live in a single test function
+  - `scope.get_current_context()` works within a ContextScope to retrieve the current context
+  - `Object.freeze()` is `set_integrity_level(scope, IntegrityLevel::Frozen)` — only shallow-freezes, so nested objects (like env) need separate freeze calls
+  - `obj.delete(scope, key.into())` removes a property from global (used for SharedArrayBuffer removal)
+  - `deny_wasm_code_generation` callback must be `extern "C"` with signature `fn(Local<Context>, Local<String>) -> bool`
 ---
