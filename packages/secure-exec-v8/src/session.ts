@@ -45,6 +45,8 @@ export interface V8ExecutionOptions {
 	};
 	/** Bridge handler functions called when sandbox code invokes bridge globals. */
 	bridgeHandlers: BridgeHandlers;
+	/** Callback invoked when V8 sends a stream callback (e.g. from _childProcessDispatch). */
+	onStreamCallback?: (callbackType: string, payload: Uint8Array) => void;
 }
 
 /** Options for creating a V8 session. */
@@ -59,6 +61,8 @@ export interface V8SessionOptions {
 export interface V8Session {
 	/** Execute code in this session's isolate. */
 	execute(options: V8ExecutionOptions): Promise<V8ExecutionResult>;
+	/** Send a stream event to the V8 isolate (e.g. child process stdout, HTTP request). */
+	sendStreamEvent(eventType: string, payload: Uint8Array): void;
 	/** Destroy the session and its V8 isolate. */
 	destroy(): Promise<void>;
 }

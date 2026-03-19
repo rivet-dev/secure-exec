@@ -7,6 +7,7 @@ import { existsSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { encode, decode } from "@msgpack/msgpack";
 import { IpcClient } from "./ipc-client.js";
 import type { RustMessage } from "./ipc-types.js";
 import type { V8Session, V8SessionOptions } from "./session.js";
@@ -182,6 +183,19 @@ export async function createV8Runtime(
 			// Create session proxy
 			const client = ipcClient;
 			const session: V8Session = {
+				sendStreamEvent(eventType: string, payload: Uint8Array): void {
+					ensureAlive();
+					if (!client.isConnected) {
+						throw new Error("IPC client is not connected");
+					}
+					client.send({
+						type: "StreamEvent",
+						session_id: sessionId,
+						event_type: eventType,
+						payload,
+					});
+				},
+
 				async execute(execOptions) {
 					ensureAlive();
 					if (!client.isConnected) {
@@ -197,7 +211,7 @@ export async function createV8Runtime(
 					});
 
 					// Set up result promise
-					return new Promise((resolve, reject) => {
+					return new Promise((resolve, _reject) => {
 						// Register session message handler
 						sessionHandlers.set(sessionId, (msg) => {
 							switch (msg.type) {
@@ -217,9 +231,6 @@ export async function createV8Runtime(
 									// Deserialize args and call handler
 									void (async () => {
 										try {
-											const { decode } = await import(
-												"@msgpack/msgpack"
-											);
 											const args = decode(
 												msg.args,
 											) as unknown[];
@@ -227,9 +238,6 @@ export async function createV8Runtime(
 												...(Array.isArray(args)
 													? args
 													: [args]),
-											);
-											const { encode } = await import(
-												"@msgpack/msgpack"
 											);
 											client.send({
 												type: "BridgeResponse",
@@ -275,7 +283,11 @@ export async function createV8Runtime(
 									}
 									break;
 								case "StreamCallback":
-									// Handled by session-level callback if registered
+									// Route to execution-level stream callback handler
+									execOptions.onStreamCallback?.(
+										msg.callback_type,
+										msg.payload,
+									);
 									break;
 							}
 						});
