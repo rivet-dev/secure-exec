@@ -2223,3 +2223,21 @@ PRD: ralph/kernel-hardening (46 stories)
   - Bridge bundle must be rebuilt (pnpm run build:bridge in core) after changing bridge source — not just isolate-runtime
   - Pre-existing test failures: injection-policy CJS globals, node test suite run()/ESM, all Python tests — not caused by this change
 ---
+
+## 2026-03-19 - US-025
+- What was implemented: Replaced base64 encoding with native binary (Uint8Array) for all binary data transfers across the bridge boundary
+- Files changed:
+  - packages/secure-exec-core/src/shared/bridge-contract.ts — CryptoRandomFillBridgeRef, FsReadFileBinaryBridgeRef, FsWriteFileBinaryBridgeRef return/accept Uint8Array instead of string
+  - packages/secure-exec-core/src/bridge/fs.ts — readFileSync binary path uses Uint8Array directly, writeFileSync passes raw Uint8Array
+  - packages/secure-exec-core/src/bridge/process.ts — crypto.getRandomValues uses Uint8Array directly from host
+  - packages/secure-exec-node/src/bridge-handlers.ts — V8 handlers return raw Buffer/Uint8Array, removed getBase64EncodedByteLength import
+  - packages/secure-exec-node/src/bridge-setup.ts — ivm handlers updated for type consistency (dead code path, to be removed in US-028)
+  - packages/secure-exec-browser/src/worker.ts — browser handlers return Uint8Array, removed btoa/atob encoding, removed unused getBase64EncodedByteLength
+  - packages/secure-exec/tests/runtime-driver/node/payload-limits.test.ts — updated payload size calculations from base64-encoded to raw byte sizes
+- **Learnings for future iterations:**
+  - base64 encoding was the legacy approach for ivm boundary (couldn't transfer Uint8Array). With V8 MessagePack IPC, binary goes through as native bin type
+  - Payload size limits now apply to raw byte length instead of base64-encoded length — effectively more permissive (16MB raw instead of ~12MB raw)
+  - bytesOverBase64Limit helper replaced with bytesOverBinaryLimit — test data must exceed raw byte limit now, not base64-encoded limit
+  - Network HTTP body base64 encoding (bridge/network.ts, driver.ts) is a separate concern from IPC binary transfers — not changed in this story
+  - Pre-existing test failures unchanged: injection-policy CJS globals, node test suite run()/ESM, all Python tests, network payload tests
+---
