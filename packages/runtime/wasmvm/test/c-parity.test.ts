@@ -344,4 +344,58 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
     expect(native.stdout).toContain('requested=50ms');
     expect(native.stdout).toContain('ok=yes');
   });
+
+  // --- Tier 3: process management (patched sysroot) ---
+
+  const hasCTier3Binaries = existsSync(join(C_BUILD_DIR, 'spawn_child'));
+  const tier3Skip = !hasCTier3Binaries
+    ? 'C Tier 3 WASM binaries not built (need patched sysroot: make -C wasmvm/c sysroot && make -C wasmvm/c programs)'
+    : false;
+
+  it.skipIf(tier3Skip)('spawn_child: posix_spawn echo, capture stdout via pipe', async () => {
+    const native = await runNative('spawn_child');
+    const wasm = await kernel.exec('spawn_child');
+
+    expect(wasm.exitCode).toBe(native.exitCode);
+    expect(wasm.exitCode).toBe(0);
+    expect(wasm.stdout).toBe(native.stdout);
+    expect(wasm.stdout).toContain('child_stdout: hello');
+    expect(wasm.stdout).toContain('child_exit: 0');
+  });
+
+  it.skipIf(tier3Skip)('spawn_exit_code: child exits non-zero, verify via waitpid', async () => {
+    const native = await runNative('spawn_exit_code');
+    const wasm = await kernel.exec('spawn_exit_code');
+
+    expect(wasm.exitCode).toBe(native.exitCode);
+    expect(wasm.exitCode).toBe(0);
+    expect(wasm.stdout).toBe(native.stdout);
+    expect(wasm.stdout).toContain('child_exit_code: 7');
+    expect(wasm.stdout).toContain('match: yes');
+  });
+
+  it.skipIf(tier3Skip)('pipeline: echo hello | cat via pipe + posix_spawn', async () => {
+    const native = await runNative('pipeline');
+    const wasm = await kernel.exec('pipeline');
+
+    expect(wasm.exitCode).toBe(native.exitCode);
+    expect(wasm.exitCode).toBe(0);
+    expect(wasm.stdout).toBe(native.stdout);
+    expect(wasm.stdout).toContain('pipeline_output: hello');
+    expect(wasm.stdout).toContain('echo_exit: 0');
+    expect(wasm.stdout).toContain('cat_exit: 0');
+  });
+
+  it.skipIf(tier3Skip)('kill_child: spawn sleep, kill SIGTERM, verify terminated', async () => {
+    const native = await runNative('kill_child');
+    const wasm = await kernel.exec('kill_child');
+
+    expect(wasm.exitCode).toBe(native.exitCode);
+    expect(wasm.exitCode).toBe(0);
+    // Both should complete the spawn/kill/wait cycle successfully
+    expect(wasm.stdout).toBe(native.stdout);
+    expect(wasm.stdout).toContain('spawned: yes');
+    expect(wasm.stdout).toContain('kill: ok');
+    expect(wasm.stdout).toContain('terminated: yes');
+  });
 });
