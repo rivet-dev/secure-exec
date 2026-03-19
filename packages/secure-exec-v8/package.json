@@ -25,7 +25,7 @@
   "scripts": {
     "check-types": "tsc --noEmit",
     "build": "tsc",
-    "test": "echo 'no tests yet'",
+    "test": "vitest run",
     "postinstall": "node postinstall.js"
   },
   "optionalDependencies": {
@@ -40,6 +40,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
   }
 }
