@@ -3,6 +3,7 @@ Started: 2026-03-17
 PRD: ralph/kernel-hardening (46 stories)
 
 ## Codebase Patterns
+- @secure-exec/v8 is ESM — use `fileURLToPath(import.meta.url)` for __dirname, not `require()` or `__dirname` global
 - Claude binary at ~/.claude/local/claude — not on PATH by default; skip helpers must check this fallback location
 - Claude Code --output-format stream-json requires --verbose flag; uses ANTHROPIC_BASE_URL natively (no fetch interceptor)
 - Python WORKER_SOURCE is String.raw — use array.join("\n") for multiline Python code; f-strings with escaped quotes break
@@ -2154,4 +2155,19 @@ PRD: ralph/kernel-hardening (46 stories)
   - libc::pipe() does NOT set CLOEXEC (unlike pipe2), making it ideal for testing set_cloexec transitions from 0 to 1
   - Cannot test close_inherited_fds directly in cargo test — it would close test harness FDs; tested indirectly via set_cloexec and CLOEXEC verification on socket types
   - set_cloexec uses F_GETFD/F_SETFD (file descriptor flags), not F_GETFL/F_SETFL (file status flags) — these are different fcntl flag spaces
+---
+
+## 2026-03-18 - US-020
+- What was implemented: createV8Runtime() that spawns Rust binary, reads socket path from stdout, connects over UDS with IPC client, authenticates, and provides session creation and dispose lifecycle
+- Files changed:
+  - packages/secure-exec-v8/src/runtime.ts — full implementation replacing stub
+  - scripts/ralph/prd.json — marked US-020 as passes: true
+- **Learnings for future iterations:**
+  - Package is ESM ("type": "module") — use import.meta.url + fileURLToPath for __dirname equivalent, not require()
+  - Binary name is "secure-exec-v8" (Cargo.toml [[bin]] name), crate name is "secure-exec-v8-runtime"
+  - Rust binary prints socket path as first stdout line then flushes — use readline createInterface to read it
+  - resolveBinaryPath checks crates/v8-runtime/target/{release,debug}/ relative to dist/ output dir — needs adjustment when package is published (US-026)
+  - Session message routing uses Map<sessionId, handler> — each execute() call registers its own handler, cleaned up on ExecutionResult
+  - Bridge call args/results are MessagePack-encoded Uint8Array — must decode args and encode results in the JS-side handler
+  - Child stderr is buffered (capped at 8KB) for error reporting on spawn failure
 ---
