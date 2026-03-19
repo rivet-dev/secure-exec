@@ -31,6 +31,11 @@ PRD: ralph/wasmvm-dynamic-modules (19 stories)
 - Tests use `commandDirs: [COMMANDS_DIR]` where `COMMANDS_DIR = wasmvm/target/wasm32-wasip1/release/commands`
 - CI guard test variable is `hasWasmBinaries` (checks for commands dir, not multicall binary)
 - Legacy `wasmBinaryPath` option still works (deprecated) but tests now use commandDirs for real WASM execution
+- C build system: `wasmvm/c/Makefile` handles wasi-sdk download, C→WASM compilation, and install
+- Top-level `make c-wasm` (in wasmvm/) builds C programs; `make -C wasmvm/c programs` directly
+- wasi-sdk cached in `wasmvm/c/vendor/wasi-sdk/`; vanilla sysroot at `vendor/wasi-sdk/share/wasi-sysroot`
+- C WASM output goes to `wasmvm/c/build/`; native test binaries to `wasmvm/c/build/native/`
+- Per-program Makefile overrides for multi-file compilation (cJSON, SQLite): define `$(BUILD_DIR)/prog:` target
 
 ## 2026-03-19 12:04 PM PDT - US-001
 - Implemented path-based resolution in CommandRegistry.resolve() — extracts basename when command contains '/'
@@ -298,4 +303,35 @@ PRD: ralph/wasmvm-dynamic-modules (19 stories)
   - Legacy mode (wasmBinaryPath) is deprecated but still functional; unit tests use fake paths, real execution tests now use commandDirs
   - In commandDirs mode, the module cache creates separate entries per command binary (vs legacy mode where all share one)
   - CI already uses `make wasm` (standalone binaries), so CI workflow didn't need changes
+---
+
+## 2026-03-19 2:35 PM PDT - US-021
+- Created `wasmvm/c/` directory structure: `programs/`, `libs/`, `vendor/` (gitignored), `sysroot/` (gitignored), `build/` (gitignored)
+- Created `wasmvm/c/Makefile` with targets:
+  - `wasi-sdk`: downloads and caches wasi-sdk-25.0 (platform-detected: linux/macos, x86_64/arm64)
+  - `programs`: compiles all `.c` files in `programs/` with `clang --target=wasm32-wasip1 --sysroot=... -O2 -flto`
+  - `wasm-opt-check`: fails with clear install instructions if wasm-opt/binaryen not found
+  - `sysroot`: delegates to `patch-wasi-libc.sh` (not yet created, US-025)
+  - `install`: copies opted-in COMMANDS to COMMANDS_DIR
+  - `native`: compiles all `.c` files to native binaries (for parity testing, US-024)
+- Per-program override rules documented with examples for json_parse (cJSON) and sqlite3_mem (SQLite)
+- Patched sysroot auto-detected: uses `sysroot/` if built, falls back to vanilla wasi-sdk sysroot
+- Output binaries have no `.wasm` extension (stripped after wasm-opt)
+- Added `c-wasm` target to top-level `wasmvm/Makefile`
+- Created `wasmvm/patches/wasi-libc/` directory for future sysroot patches (US-026-028)
+- Files changed:
+  - wasmvm/c/.gitignore (new)
+  - wasmvm/c/Makefile (new)
+  - wasmvm/c/programs/.gitkeep (new)
+  - wasmvm/c/libs/.gitkeep (new)
+  - wasmvm/patches/wasi-libc/.gitkeep (new)
+  - wasmvm/Makefile (added c-wasm target)
+- **Learnings for future iterations:**
+  - wasi-sdk-25 download URL format: `wasi-sdk-25.0-{arch}-{platform}.tar.gz` (e.g. `wasi-sdk-25.0-x86_64-linux.tar.gz`)
+  - wasi-sdk extracts to `wasi-sdk-25.0-x86_64-linux/` directory, must be renamed to `vendor/wasi-sdk/`
+  - Vanilla sysroot is at `vendor/wasi-sdk/share/wasi-sysroot`; patched sysroot goes to `c/sysroot/`
+  - The `programs` target requires wasi-sdk AND wasm-opt; `native` target only requires cc/gcc/clang
+  - Per-program Makefile overrides: define a specific `$(BUILD_DIR)/program_name:` target that takes precedence over the wildcard rule
+  - `make -C c programs` runs from top-level via `c-wasm` target
+  - Pre-existing typecheck failure in `example-ai-sdk` (missing node_modules) is unrelated
 ---
