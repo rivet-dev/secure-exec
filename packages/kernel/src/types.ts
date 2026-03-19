@@ -178,6 +178,14 @@ export interface RuntimeDriver {
 	 */
 	spawn(command: string, args: string[], ctx: ProcessContext): DriverProcess;
 
+	/**
+	 * On-demand command discovery. Called by the kernel when a command is not
+	 * found in the registry. Returns true if this driver can handle the command
+	 * (e.g. found a matching WASM binary on disk). The kernel then registers
+	 * the command and retries the spawn.
+	 */
+	tryResolve?(command: string): boolean;
+
 	/** Cleanup resources */
 	dispose(): Promise<void>;
 }

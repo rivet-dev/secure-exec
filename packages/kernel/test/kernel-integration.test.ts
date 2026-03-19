@@ -3789,4 +3789,122 @@ describe("kernel + MockRuntimeDriver integration", () => {
 			for (const p of procs) { p.kill(); await p.wait(); }
 		});
 	});
+
+	// -----------------------------------------------------------------------
+	// On-demand command discovery via tryResolve
+	// -----------------------------------------------------------------------
+
+	describe("on-demand command discovery (tryResolve)", () => {
+		it("discovers a command not in initial commands list", async () => {
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { exitCode: 0 },
+				"dynamic-cmd": { exitCode: 7, stdout: "discovered\n" },
+			});
+			// Add tryResolve that discovers "dynamic-cmd"
+			driver.tryResolve = (command: string) => command === "dynamic-cmd";
+
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			// "dynamic-cmd" was not in the initial commands list, but tryResolve finds it
+			const proc = kernel.spawn("dynamic-cmd", []);
+			const code = await proc.wait();
+			expect(code).toBe(7);
+		});
+
+		it("tryResolve returning false for all drivers results in ENOENT", async () => {
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { exitCode: 0 },
+			});
+			driver.tryResolve = (_command: string) => false;
+
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			expect(() => kernel.spawn("nonexistent", [])).toThrow("ENOENT");
+		});
+
+		it("after tryResolve succeeds, subsequent spawns resolve via registry without calling tryResolve again", async () => {
+			let tryResolveCallCount = 0;
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { exitCode: 0 },
+				"lazy-cmd": { exitCode: 0, stdout: "ok\n" },
+			});
+			driver.tryResolve = (command: string) => {
+				tryResolveCallCount++;
+				return command === "lazy-cmd";
+			};
+
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			// First spawn triggers tryResolve
+			const proc1 = kernel.spawn("lazy-cmd", []);
+			await proc1.wait();
+			expect(tryResolveCallCount).toBe(1);
+
+			// Second spawn should resolve from registry — no tryResolve call
+			const proc2 = kernel.spawn("lazy-cmd", []);
+			await proc2.wait();
+			expect(tryResolveCallCount).toBe(1);
+		});
+
+		it("drivers without tryResolve are skipped", async () => {
+			const driver1 = new MockRuntimeDriver(["sh"], { sh: { exitCode: 0 } });
+			// driver1 has no tryResolve
+
+			const driver2 = new MockRuntimeDriver(["cat"], {
+				cat: { exitCode: 0 },
+				"extra-cmd": { exitCode: 0, stdout: "from-driver2\n" },
+			});
+			driver2.name = "mock2";
+			driver2.tryResolve = (command: string) => command === "extra-cmd";
+
+			({ kernel } = await createTestKernel({ drivers: [driver1, driver2] }));
+
+			// driver1 is skipped (no tryResolve), driver2 discovers "extra-cmd"
+			const proc = kernel.spawn("extra-cmd", []);
+			const code = await proc.wait();
+			expect(code).toBe(0);
+		});
+
+		it("tryResolve works with path-based command lookups", async () => {
+			let tryResolvedWith: string | undefined;
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { exitCode: 0 },
+			});
+			driver.tryResolve = (command: string) => {
+				tryResolvedWith = command;
+				return command === "path-cmd";
+			};
+
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			// Path-based lookup extracts basename before trying tryResolve
+			const proc = kernel.spawn("/usr/bin/path-cmd", []);
+			await proc.wait();
+			// tryResolve received the basename, not the full path
+			expect(tryResolvedWith).toBe("path-cmd");
+		});
+
+		it("populates /bin entry after tryResolve succeeds", async () => {
+			let vfs: TestFileSystem;
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { exitCode: 0 },
+				"new-cmd": { exitCode: 0 },
+			});
+			driver.tryResolve = (command: string) => command === "new-cmd";
+
+			({ kernel, vfs } = await createTestKernel({ drivers: [driver] }));
+
+			// Before spawn, /bin/new-cmd should not exist
+			expect(await vfs.exists("/bin/new-cmd")).toBe(false);
+
+			const proc = kernel.spawn("new-cmd", []);
+			await proc.wait();
+
+			// populateBinEntry is async fire-and-forget — wait for it to settle
+			await new Promise((r) => setTimeout(r, 0));
+
+			// After spawn, /bin/new-cmd should be populated
+			expect(await vfs.exists("/bin/new-cmd")).toBe(true);
+		});
+	});
 });

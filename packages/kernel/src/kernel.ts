@@ -383,7 +383,25 @@ class KernelImpl implements Kernel {
 		options?: SpawnOptions,
 		callerPid?: number,
 	): InternalProcess {
-		const driver = this.commandRegistry.resolve(command);
+		let driver = this.commandRegistry.resolve(command);
+
+		// On-demand discovery: ask mounted drivers to resolve unknown commands
+		if (!driver) {
+			const basename = command.includes("/")
+				? command.split("/").pop()!
+				: command;
+			if (basename) {
+				for (const d of this.drivers) {
+					if (d.tryResolve?.(basename)) {
+						this.commandRegistry.registerCommand(basename, d);
+						this.commandRegistry.populateBinEntry(this.vfs, basename);
+						driver = d;
+						break;
+					}
+				}
+			}
+		}
+
 		if (!driver) {
 			throw new KernelError("ENOENT", `command not found: ${command}`);
 		}

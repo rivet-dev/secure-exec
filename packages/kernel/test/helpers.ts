@@ -246,6 +246,7 @@ export class MockRuntimeDriver implements RuntimeDriver {
 	name = "mock";
 	commands: string[];
 	kernelInterface: KernelInterface | null = null;
+	tryResolve?: (command: string) => boolean;
 	private commandConfigs: Map<string, MockCommandConfig>;
 
 	constructor(
