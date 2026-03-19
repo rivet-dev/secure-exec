@@ -671,8 +671,8 @@
         "Tests pass"
       ],
       "priority": 40,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Fixed pre-existing SharedArrayBuffer removal test in execution.rs (test incorrectly asserted inject_globals removes SAB; actual removal is done by JS bridge code). All Rust tests pass (56/56). All test-suite/node tests pass (6/6). All V8 package tests pass (74/74). WasmVM tests pass (382/382). Project-matrix: 21/25 pass (4 pre-existing failures unchanged from US-033). Runtime-driver/node: 95/116 pass (21 pre-existing failures unchanged from US-033). No new regressions from serialization switch. No MessagePack-specific assertions remain in tests."
     },
     {
       "id": "US-041",

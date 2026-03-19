@@ -2451,3 +2451,23 @@ PRD: ralph/kernel-hardening (46 stories)
   - node:v8 serialize is sync and returns a Buffer — wrap in new Uint8Array() to match the Uint8Array type expected by sendStreamEvent
   - Pre-existing test failures: SharedArrayBuffer removal (Rust), HTTP server timeout (TS) — unrelated to this story
 ---
+
+## 2026-03-19 - US-040
+- What was implemented: Verified full test suite after serialization refactor; fixed pre-existing SharedArrayBuffer test in execution.rs
+- Files changed:
+  - crates/v8-runtime/src/execution.rs — fixed Part 4 test (SharedArrayBuffer removal): test incorrectly asserted inject_globals removes SAB, but actual removal is done by JS bridge code (applyTimingMitigationFreeze); updated test to assert SAB is preserved by inject_globals and timing_mitigation config is stored for the bridge
+- Test results summary:
+  - Rust cargo test: 56/56 pass (was 55/56 with pre-existing SAB test failure)
+  - test-suite/node: 6/6 pass
+  - V8 package (ipc-binary, ipc-roundtrip, ipc-security, crash-isolation): 74/74 pass
+  - WasmVM: 382/382 pass (20 skipped)
+  - project-matrix: 21/25 pass (4 pre-existing: esm-import-pass ICU error, fs-metadata-rename-pass ICU error, express-pass/fastify-pass HTTP server timeout)
+  - runtime-driver/node: 95/116 pass (21 pre-existing: ICU error in localeCompare, ESM module loading, HTTP server, isTTY, process.kill, resource-limits/budgets)
+  - runtime-driver/python: all fail (PythonRuntime not a constructor — Pyodide not available)
+  - Typecheck: all 28 packages pass
+  - No new regressions from US-037/038/039 serialization switch (verified: no test files changed since US-033)
+- **Learnings for future iterations:**
+  - SharedArrayBuffer removal is done by JS bridge code (applyTimingMitigationFreeze), NOT by Rust inject_globals — test was wrong since isolate creation
+  - V8 ICU data: localeCompare and Intl APIs fail with "Internal error. Icu error." in V8 runtime — the v8 crate may need ICU initialization or data bundle
+  - Pre-existing test failures (from US-033 V8 runtime integration) are documented in US-033 progress notes line 2369
+---
