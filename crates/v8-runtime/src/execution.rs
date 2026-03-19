@@ -1882,5 +1882,400 @@ use std::num::NonZeroI32;
                 .unwrap();
             assert_eq!(result_val.as_u64(), Some(100));
         }
+
+        // --- Part 31: Event loop — BridgeResponse resolves pending promise ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(Vec::new()),
+                Box::new(Cursor::new(Vec::new())),
+                "test-session".into(),
+            );
+            let pending = bridge::PendingPromises::new();
+
+            // Register async bridge function
+            let _fn_store;
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                _fn_store = bridge::register_async_bridge_fns(
+                    scope,
+                    &bridge_ctx as *const BridgeCallContext,
+                    &pending as *const bridge::PendingPromises,
+                    &["_asyncFn"],
+                );
+            }
+
+            // Call async function from V8 — creates pending promise
+            eval(
+                &mut iso,
+                &ctx,
+                "var _eventLoopResult = 'pending'; _asyncFn('test').then(function(v) { _eventLoopResult = v; })",
+            );
+            assert_eq!(pending.len(), 1);
+            assert_eq!(eval(&mut iso, &ctx, "_eventLoopResult"), "pending");
+
+            // Create channel and send BridgeResponse
+            let (tx, rx) = crossbeam_channel::unbounded();
+            let mut result_msgpack = Vec::new();
+            rmpv::encode::write_value(
+                &mut result_msgpack,
+                &rmpv::Value::String("event-loop-resolved".into()),
+            )
+            .unwrap();
+            tx.send(crate::session::SessionCommand::Message(
+                crate::ipc::HostMessage::BridgeResponse {
+                    call_id: 1,
+                    result: Some(result_msgpack),
+                    error: None,
+                },
+            ))
+            .unwrap();
+
+            // Run event loop
+            let completed = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                crate::session::run_event_loop(scope, &rx, &pending)
+            };
+
+            assert!(completed, "event loop should complete normally");
+            assert_eq!(pending.len(), 0);
+            assert_eq!(eval(&mut iso, &ctx, "_eventLoopResult"), "event-loop-resolved");
+        }
+
+        // --- Part 32: Event loop — multiple BridgeResponses resolved in sequence ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(Vec::new()),
+                Box::new(Cursor::new(Vec::new())),
+                "test-session".into(),
+            );
+            let pending = bridge::PendingPromises::new();
+
+            let _fn_store;
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                _fn_store = bridge::register_async_bridge_fns(
+                    scope,
+                    &bridge_ctx as *const BridgeCallContext,
+                    &pending as *const bridge::PendingPromises,
+                    &["_fetch", "_dns"],
+                );
+            }
+
+            // Create two pending promises
+            eval(
+                &mut iso,
+                &ctx,
+                "var _r1 = 'pending'; var _r2 = 'pending'; \
+                 _fetch('url').then(function(v) { _r1 = v; }); \
+                 _dns('host').then(function(v) { _r2 = v; })",
+            );
+            assert_eq!(pending.len(), 2);
+
+            // Create channel and send both responses
+            let (tx, rx) = crossbeam_channel::unbounded();
+            // Resolve in reverse order
+            let mut r2 = Vec::new();
+            rmpv::encode::write_value(&mut r2, &rmpv::Value::String("dns-result".into())).unwrap();
+            tx.send(crate::session::SessionCommand::Message(
+                crate::ipc::HostMessage::BridgeResponse {
+                    call_id: 2,
+                    result: Some(r2),
+                    error: None,
+                },
+            ))
+            .unwrap();
+            let mut r1 = Vec::new();
+            rmpv::encode::write_value(&mut r1, &rmpv::Value::String("fetch-result".into())).unwrap();
+            tx.send(crate::session::SessionCommand::Message(
+                crate::ipc::HostMessage::BridgeResponse {
+                    call_id: 1,
+                    result: Some(r1),
+                    error: None,
+                },
+            ))
+            .unwrap();
+
+            let completed = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                crate::session::run_event_loop(scope, &rx, &pending)
+            };
+
+            assert!(completed);
+            assert_eq!(pending.len(), 0);
+            assert_eq!(eval(&mut iso, &ctx, "_r1"), "fetch-result");
+            assert_eq!(eval(&mut iso, &ctx, "_r2"), "dns-result");
+        }
+
+        // --- Part 33: Event loop — TerminateExecution breaks loop ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(Vec::new()),
+                Box::new(Cursor::new(Vec::new())),
+                "test-session".into(),
+            );
+            let pending = bridge::PendingPromises::new();
+
+            let _fn_store;
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                _fn_store = bridge::register_async_bridge_fns(
+                    scope,
+                    &bridge_ctx as *const BridgeCallContext,
+                    &pending as *const bridge::PendingPromises,
+                    &["_asyncFn"],
+                );
+            }
+
+            eval(&mut iso, &ctx, "_asyncFn('test')");
+            assert_eq!(pending.len(), 1);
+
+            // Send TerminateExecution
+            let (tx, rx) = crossbeam_channel::unbounded();
+            tx.send(crate::session::SessionCommand::Message(
+                crate::ipc::HostMessage::TerminateExecution {
+                    session_id: "test-session".into(),
+                },
+            ))
+            .unwrap();
+
+            let completed = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                crate::session::run_event_loop(scope, &rx, &pending)
+            };
+
+            assert!(!completed, "event loop should return false on termination");
+            // Promise is still pending (not resolved)
+            assert_eq!(pending.len(), 1);
+
+            // Cancel termination so isolate is usable again
+            iso.cancel_terminate_execution();
+        }
+
+        // --- Part 34: Event loop — Shutdown breaks loop ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(Vec::new()),
+                Box::new(Cursor::new(Vec::new())),
+                "test-session".into(),
+            );
+            let pending = bridge::PendingPromises::new();
+
+            let _fn_store;
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                _fn_store = bridge::register_async_bridge_fns(
+                    scope,
+                    &bridge_ctx as *const BridgeCallContext,
+                    &pending as *const bridge::PendingPromises,
+                    &["_asyncFn"],
+                );
+            }
+
+            eval(&mut iso, &ctx, "_asyncFn('test')");
+            assert_eq!(pending.len(), 1);
+
+            // Send Shutdown
+            let (tx, rx) = crossbeam_channel::unbounded();
+            tx.send(crate::session::SessionCommand::Shutdown).unwrap();
+
+            let completed = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                crate::session::run_event_loop(scope, &rx, &pending)
+            };
+
+            assert!(!completed, "event loop should return false on shutdown");
+        }
+
+        // --- Part 35: Event loop — exits immediately when no pending promises ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+            let pending = bridge::PendingPromises::new();
+
+            let (_tx, rx) = crossbeam_channel::unbounded::<crate::session::SessionCommand>();
+
+            // No pending promises — event loop should exit immediately
+            let completed = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                crate::session::run_event_loop(scope, &rx, &pending)
+            };
+
+            assert!(completed);
+        }
+
+        // --- Part 36: Event loop — StreamEvent dispatches to V8 callback ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(Vec::new()),
+                Box::new(Cursor::new(Vec::new())),
+                "test-session".into(),
+            );
+            let pending = bridge::PendingPromises::new();
+
+            let _fn_store;
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                _fn_store = bridge::register_async_bridge_fns(
+                    scope,
+                    &bridge_ctx as *const BridgeCallContext,
+                    &pending as *const bridge::PendingPromises,
+                    &["_asyncFn"],
+                );
+            }
+
+            // Register dispatch callback and create pending promise
+            eval(
+                &mut iso,
+                &ctx,
+                "var _streamEvents = []; \
+                 globalThis._childProcessDispatch = function(eventType, payload) { \
+                     _streamEvents.push({ type: eventType, data: payload }); \
+                 }; \
+                 _asyncFn('keep-alive')",
+            );
+            assert_eq!(pending.len(), 1);
+
+            // Send StreamEvent followed by BridgeResponse
+            let (tx, rx) = crossbeam_channel::unbounded();
+
+            // Encode payload as MessagePack string
+            let mut payload_bytes = Vec::new();
+            rmpv::encode::write_value(
+                &mut payload_bytes,
+                &rmpv::Value::String("hello from child".into()),
+            )
+            .unwrap();
+
+            tx.send(crate::session::SessionCommand::Message(
+                crate::ipc::HostMessage::StreamEvent {
+                    session_id: "test-session".into(),
+                    event_type: "child_stdout".into(),
+                    payload: payload_bytes,
+                },
+            ))
+            .unwrap();
+
+            // Resolve the pending promise to exit the event loop
+            let mut r = Vec::new();
+            rmpv::encode::write_value(&mut r, &rmpv::Value::Nil).unwrap();
+            tx.send(crate::session::SessionCommand::Message(
+                crate::ipc::HostMessage::BridgeResponse {
+                    call_id: 1,
+                    result: Some(r),
+                    error: None,
+                },
+            ))
+            .unwrap();
+
+            let completed = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                crate::session::run_event_loop(scope, &rx, &pending)
+            };
+
+            assert!(completed);
+            assert_eq!(pending.len(), 0);
+
+            // Verify stream event was dispatched
+            assert_eq!(eval(&mut iso, &ctx, "_streamEvents.length"), "1");
+            assert_eq!(eval(&mut iso, &ctx, "_streamEvents[0].type"), "child_stdout");
+            assert_eq!(
+                eval(&mut iso, &ctx, "_streamEvents[0].data"),
+                "hello from child"
+            );
+        }
+
+        // --- Part 37: Event loop — microtasks flushed after BridgeResponse ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(Vec::new()),
+                Box::new(Cursor::new(Vec::new())),
+                "test-session".into(),
+            );
+            let pending = bridge::PendingPromises::new();
+
+            let _fn_store;
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                _fn_store = bridge::register_async_bridge_fns(
+                    scope,
+                    &bridge_ctx as *const BridgeCallContext,
+                    &pending as *const bridge::PendingPromises,
+                    &["_asyncFn"],
+                );
+            }
+
+            // Set up .then handler that mutates global state
+            eval(
+                &mut iso,
+                &ctx,
+                "var _microtaskRan = false; \
+                 _asyncFn('test').then(function() { _microtaskRan = true; })",
+            );
+            assert!(eval_bool(&mut iso, &ctx, "_microtaskRan === false"));
+
+            let (tx, rx) = crossbeam_channel::unbounded();
+            let mut r = Vec::new();
+            rmpv::encode::write_value(&mut r, &rmpv::Value::Nil).unwrap();
+            tx.send(crate::session::SessionCommand::Message(
+                crate::ipc::HostMessage::BridgeResponse {
+                    call_id: 1,
+                    result: Some(r),
+                    error: None,
+                },
+            ))
+            .unwrap();
+
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                crate::session::run_event_loop(scope, &rx, &pending);
+            }
+
+            // .then handler should have run (microtasks flushed)
+            assert!(eval_bool(&mut iso, &ctx, "_microtaskRan === true"));
+        }
     }
 }

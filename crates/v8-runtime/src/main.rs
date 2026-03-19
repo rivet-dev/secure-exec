@@ -9,6 +9,7 @@ mod timeout;
 mod stream;
 mod session;
 
+use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::os::unix::fs::PermissionsExt;
@@ -17,8 +18,9 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use host_call::CallIdRouter;
 use ipc::HostMessage;
-use session::SessionManager;
+use session::{SessionManager, SharedWriter};
 
 /// Generate a 128-bit random hex string from /dev/urandom
 fn random_hex_128() -> io::Result<String> {
@@ -123,10 +125,29 @@ fn handle_connection(
                     );
                 }
             }
+            // Route BridgeResponse via call_id → session_id routing table
+            HostMessage::BridgeResponse { call_id, .. } => {
+                let mgr = session_mgr.lock().unwrap();
+                let router = mgr.call_id_router();
+                let session_id = router.lock().unwrap().remove(&call_id);
+
+                if let Some(sid) = session_id {
+                    if let Err(e) = mgr.send_to_session(&sid, connection_id, msg) {
+                        eprintln!(
+                            "connection {}: route BridgeResponse call_id={} to session {} failed: {}",
+                            connection_id, call_id, sid, e
+                        );
+                    }
+                } else {
+                    eprintln!(
+                        "connection {}: no session found for BridgeResponse call_id={}",
+                        connection_id, call_id
+                    );
+                }
+            }
             // Forward session-scoped messages to the session thread
             msg @ (HostMessage::Execute { .. }
             | HostMessage::InjectGlobals { .. }
-            | HostMessage::BridgeResponse { .. }
             | HostMessage::StreamEvent { .. }
             | HostMessage::TerminateExecution { .. }) => {
                 let session_id = match &msg {
@@ -134,11 +155,6 @@ fn handle_connection(
                     | HostMessage::InjectGlobals { session_id, .. }
                     | HostMessage::StreamEvent { session_id, .. }
                     | HostMessage::TerminateExecution { session_id } => session_id.clone(),
-                    HostMessage::BridgeResponse { .. } => {
-                        // BridgeResponse doesn't have session_id; routing handled later
-                        // For now, skip
-                        continue;
-                    }
                     _ => unreachable!(),
                 };
                 let mgr = session_mgr.lock().unwrap();
@@ -174,9 +190,6 @@ fn main() {
                 .map(|n| n.get())
                 .unwrap_or(4)
         });
-
-    // Create shared session manager
-    let session_mgr = Arc::new(Mutex::new(SessionManager::new(max_concurrency)));
 
     // Create socket directory with 128-bit random suffix and 0700 permissions
     let (tmpdir, socket_path) = create_socket_dir().expect("failed to create socket directory");
@@ -221,6 +234,19 @@ fn main() {
                     continue;
                 }
 
+                // Create per-connection shared writer and routing table
+                let conn_writer: SharedWriter = Arc::new(Mutex::new(Box::new(
+                    stream.try_clone().expect("failed to clone UDS stream"),
+                )));
+                let call_id_router: CallIdRouter = Arc::new(Mutex::new(HashMap::new()));
+
+                // Create shared session manager for this connection
+                let session_mgr = Arc::new(Mutex::new(SessionManager::new(
+                    max_concurrency,
+                    conn_writer,
+                    call_id_router,
+                )));
+
                 // Authenticated — spawn connection handler thread
                 let conn_id = NEXT_CONNECTION_ID.fetch_add(1, Ordering::Relaxed);
                 let mgr = Arc::clone(&session_mgr);
@@ -241,18 +267,8 @@ fn main() {
         }
     }
 
-    // Graceful shutdown: close listener, clean up remaining sessions, remove socket
+    // Graceful shutdown: close listener, remove socket
     drop(listener);
-    let mut mgr = session_mgr.lock().unwrap();
-    // Destroy all sessions on shutdown
-    let all_ids: Vec<(String, u64)> = mgr
-        .all_sessions()
-        .into_iter()
-        .collect();
-    for (sid, conn_id) in all_ids {
-        let _ = mgr.destroy_session(&sid, conn_id);
-    }
-    drop(mgr);
     cleanup(&socket_path, &tmpdir);
 }
 

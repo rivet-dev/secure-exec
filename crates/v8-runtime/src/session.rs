@@ -1,18 +1,20 @@
 // Session management: create/destroy sessions with V8 isolates on dedicated threads
 
 use std::collections::HashMap;
+use std::io::Write;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 
 use crossbeam_channel::{Receiver, Sender};
 
+use crate::host_call::CallIdRouter;
 use crate::ipc::HostMessage;
 #[cfg(not(test))]
 use crate::host_call::BridgeCallContext;
 #[cfg(not(test))]
-use crate::ipc::ExecuteMode;
+use crate::ipc::{self, ExecuteMode, RustMessage};
 #[cfg(not(test))]
-use crate::{execution, isolate};
+use crate::{bridge, execution, isolate, stream};
 
 /// Commands sent to a session thread
 pub enum SessionCommand {
@@ -21,6 +23,10 @@ pub enum SessionCommand {
     /// Forward a host message to the session for processing
     Message(HostMessage),
 }
+
+/// Shared IPC writer for outgoing messages to the host.
+/// Wrapped in Arc<Mutex<>> so multiple session threads can share a connection writer.
+pub type SharedWriter = Arc<Mutex<Box<dyn Write + Send>>>;
 
 /// Internal entry for a running session
 struct SessionEntry {
@@ -44,14 +50,20 @@ pub struct SessionManager {
     sessions: HashMap<String, SessionEntry>,
     max_concurrency: usize,
     slot_control: SlotControl,
+    /// Shared IPC writer for outgoing messages (all sessions on a connection)
+    writer: SharedWriter,
+    /// Call_id → session_id routing table for BridgeResponse dispatch
+    call_id_router: CallIdRouter,
 }
 
 impl SessionManager {
-    pub fn new(max_concurrency: usize) -> Self {
+    pub fn new(max_concurrency: usize, writer: SharedWriter, call_id_router: CallIdRouter) -> Self {
         SessionManager {
             sessions: HashMap::new(),
             max_concurrency,
             slot_control: Arc::new((Mutex::new(0), Condvar::new())),
+            writer,
+            call_id_router,
         }
     }
 
@@ -71,6 +83,8 @@ impl SessionManager {
         let (tx, rx) = crossbeam_channel::unbounded();
         let slot_control = Arc::clone(&self.slot_control);
         let max = self.max_concurrency;
+        let writer = Arc::clone(&self.writer);
+        let router = Arc::clone(&self.call_id_router);
 
         let name_prefix = if session_id.len() > 8 {
             &session_id[..8]
@@ -80,7 +94,7 @@ impl SessionManager {
         let join_handle = thread::Builder::new()
             .name(format!("session-{}", name_prefix))
             .spawn(move || {
-                session_thread(heap_limit_mb, rx, slot_control, max);
+                session_thread(heap_limit_mb, rx, slot_control, max, writer, router);
             })
             .map_err(|e| format!("failed to spawn session thread: {}", e))?;
 
@@ -182,6 +196,20 @@ impl SessionManager {
         let (lock, _) = &*self.slot_control;
         *lock.lock().unwrap()
     }
+
+    /// Get the call_id routing table for BridgeResponse dispatch.
+    pub fn call_id_router(&self) -> &CallIdRouter {
+        &self.call_id_router
+    }
+}
+
+/// Write a RustMessage to the shared IPC writer.
+#[cfg(not(test))]
+fn send_message(writer: &SharedWriter, msg: &RustMessage) {
+    let mut w = writer.lock().unwrap();
+    if let Err(e) = ipc::write_message(&mut *w, msg) {
+        eprintln!("failed to write IPC message: {}", e);
+    }
 }
 
 /// Session thread: acquires a concurrency slot, creates a V8 isolate, and
@@ -191,6 +219,8 @@ fn session_thread(
     rx: Receiver<SessionCommand>,
     slot_control: SlotControl,
     max_concurrency: usize,
+    #[cfg_attr(test, allow(unused_variables))] writer: SharedWriter,
+    #[cfg_attr(test, allow(unused_variables))] call_id_router: CallIdRouter,
 ) {
     // Acquire concurrency slot (blocks if at capacity)
     {
@@ -214,6 +244,9 @@ fn session_thread(
         (iso, ctx)
     };
 
+    #[cfg(not(test))]
+    let pending = bridge::PendingPromises::new();
+
     // Process commands until shutdown or channel close
     loop {
         match rx.recv() {
@@ -232,38 +265,99 @@ fn session_thread(
                         execution::inject_globals(scope, &process_config, &os_config);
                     }
                     HostMessage::Execute {
+                        session_id,
                         bridge_code,
                         user_code,
                         mode,
                         file_path,
-                        ..
                     } => {
-                        if mode == ExecuteMode::Exec {
+                        // Create BridgeCallContext with real IPC writer and channel-based reader
+                        let channel_reader = ChannelMessageReader::new(rx.clone());
+                        let bridge_ctx = BridgeCallContext::with_router(
+                            Box::new(MutexWriter(Arc::clone(&writer))),
+                            Box::new(channel_reader),
+                            session_id.clone(),
+                            Arc::clone(&call_id_router),
+                        );
+
+                        // Register sync and async bridge functions
+                        let _sync_store;
+                        let _async_store;
+                        {
                             let scope = &mut v8::HandleScope::new(&mut v8_isolate);
                             let ctx = v8::Local::new(scope, &v8_context);
                             let scope = &mut v8::ContextScope::new(scope, ctx);
-                            let (_code, _error) =
-                                execution::execute_script(scope, &bridge_code, &user_code);
-                            // ExecutionResult sent via IPC in later stories (US-013)
-                        } else if mode == ExecuteMode::Run {
-                            let scope = &mut v8::HandleScope::new(&mut v8_isolate);
-                            let ctx = v8::Local::new(scope, &v8_context);
-                            let scope = &mut v8::ContextScope::new(scope, ctx);
-                            // Placeholder BridgeCallContext — real IPC wired in US-013
-                            let bridge_ctx = BridgeCallContext::new(
-                                Box::new(std::io::sink()),
-                                Box::new(std::io::empty()),
-                                String::new(),
+
+                            // Register sync bridge functions
+                            _sync_store = bridge::register_sync_bridge_fns(
+                                scope,
+                                &bridge_ctx as *const BridgeCallContext,
+                                &SYNC_BRIDGE_FNS,
                             );
-                            let (_code, _exports, _error) = execution::execute_module(
+
+                            // Register async bridge functions
+                            _async_store = bridge::register_async_bridge_fns(
+                                scope,
+                                &bridge_ctx as *const BridgeCallContext,
+                                &pending as *const bridge::PendingPromises,
+                                &ASYNC_BRIDGE_FNS,
+                            );
+                        }
+
+                        // Execute code
+                        let (code, exports, error) = if mode == ExecuteMode::Exec {
+                            let scope = &mut v8::HandleScope::new(&mut v8_isolate);
+                            let ctx = v8::Local::new(scope, &v8_context);
+                            let scope = &mut v8::ContextScope::new(scope, ctx);
+                            let (c, e) =
+                                execution::execute_script(scope, &bridge_code, &user_code);
+                            (c, None, e)
+                        } else {
+                            let scope = &mut v8::HandleScope::new(&mut v8_isolate);
+                            let ctx = v8::Local::new(scope, &v8_context);
+                            let scope = &mut v8::ContextScope::new(scope, ctx);
+                            execution::execute_module(
                                 scope,
                                 &bridge_ctx,
                                 &bridge_code,
                                 &user_code,
                                 file_path.as_deref(),
-                            );
-                            // ExecutionResult sent via IPC in later stories (US-013)
-                        }
+                            )
+                        };
+
+                        // Run event loop if there are pending async promises
+                        let terminated = if pending.len() > 0 {
+                            let scope = &mut v8::HandleScope::new(&mut v8_isolate);
+                            let ctx = v8::Local::new(scope, &v8_context);
+                            let scope = &mut v8::ContextScope::new(scope, ctx);
+                            !run_event_loop(scope, &rx, &pending)
+                        } else {
+                            false
+                        };
+
+                        // Send ExecutionResult
+                        let result_msg = if terminated {
+                            RustMessage::ExecutionResult {
+                                session_id,
+                                code: 1,
+                                exports: None,
+                                error: Some(ipc::ExecutionError {
+                                    error_type: "Error".into(),
+                                    message: "Execution terminated".into(),
+                                    stack: String::new(),
+                                    code: None,
+                                }),
+                            }
+                        } else {
+                            RustMessage::ExecutionResult {
+                                session_id,
+                                code,
+                                exports,
+                                error,
+                            }
+                        };
+
+                        send_message(&writer, &result_msg);
                     }
                     _ => {
                         // Other messages handled in later stories
@@ -289,9 +383,168 @@ fn session_thread(
     }
 }
 
+/// Sync and async bridge function names registered on the V8 global.
+/// These match the bridge contract (bridge-contract.ts).
+#[cfg(not(test))]
+const SYNC_BRIDGE_FNS: [&str; 12] = [
+    "_fsReadFile",
+    "_fsStatSync",
+    "_fsReaddirSync",
+    "_fsWriteFileSync",
+    "_fsUnlinkSync",
+    "_fsMkdirSync",
+    "_fsRmdirSync",
+    "_childProcessSpawnStart",
+    "_childProcessStdinWrite",
+    "_log",
+    "_error",
+    "_cryptoRandomFill",
+];
+
+#[cfg(not(test))]
+const ASYNC_BRIDGE_FNS: [&str; 7] = [
+    "_networkFetchRaw",
+    "_networkDnsLookupRaw",
+    "_networkHttpServerListenRaw",
+    "_dynamicImport",
+    "_loadPolyfill",
+    "_scheduleTimer",
+    "_waitForActiveHandles",
+];
+
+/// Run the session event loop: dispatch incoming messages to V8.
+///
+/// Called after script/module execution when there are pending async promises.
+/// Polls the session channel for BridgeResponse, StreamEvent, and
+/// TerminateExecution messages, dispatching each into V8 with microtask flush.
+///
+/// Returns true if execution completed normally, false if terminated.
+pub(crate) fn run_event_loop(
+    scope: &mut v8::HandleScope,
+    rx: &Receiver<SessionCommand>,
+    pending: &crate::bridge::PendingPromises,
+) -> bool {
+    while pending.len() > 0 {
+        match rx.recv() {
+            Ok(SessionCommand::Message(msg)) => match msg {
+                HostMessage::BridgeResponse {
+                    call_id,
+                    result,
+                    error,
+                } => {
+                    let _ = crate::bridge::resolve_pending_promise(
+                        scope, pending, call_id, result, error,
+                    );
+                    // Microtasks already flushed in resolve_pending_promise
+                }
+                HostMessage::StreamEvent {
+                    event_type,
+                    payload,
+                    ..
+                } => {
+                    crate::stream::dispatch_stream_event(scope, &event_type, &payload);
+                    scope.perform_microtask_checkpoint();
+                }
+                HostMessage::TerminateExecution { .. } => {
+                    scope.terminate_execution();
+                    return false;
+                }
+                _ => {
+                    // Ignore other messages during event loop
+                }
+            },
+            Ok(SessionCommand::Shutdown) | Err(_) => return false,
+        }
+    }
+    true
+}
+
+/// Writer adapter that wraps Arc<Mutex<Box<dyn Write + Send>>> for BridgeCallContext.
+#[cfg(not(test))]
+struct MutexWriter(SharedWriter);
+
+#[cfg(not(test))]
+impl std::io::Write for MutexWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().write(buf)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.lock().unwrap().flush()
+    }
+}
+
+/// Reader adapter that wraps a crossbeam Receiver<SessionCommand> as a Read.
+///
+/// When sync_call reads from this, it blocks on the channel waiting for the next
+/// message. The message is serialized into the internal buffer and bytes are
+/// served from there. This allows BridgeCallContext.sync_call() to work unchanged
+/// while reading from the session's channel instead of a raw socket.
+#[cfg(not(test))]
+struct ChannelMessageReader {
+    rx: Receiver<SessionCommand>,
+    buf: Vec<u8>,
+    pos: usize,
+}
+
+#[cfg(not(test))]
+impl ChannelMessageReader {
+    fn new(rx: Receiver<SessionCommand>) -> Self {
+        ChannelMessageReader {
+            rx,
+            buf: Vec::new(),
+            pos: 0,
+        }
+    }
+}
+
+#[cfg(not(test))]
+impl std::io::Read for ChannelMessageReader {
+    fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+        // Serve bytes from buffered message
+        if self.pos < self.buf.len() {
+            let available = self.buf.len() - self.pos;
+            let n = std::cmp::min(output.len(), available);
+            output[..n].copy_from_slice(&self.buf[self.pos..self.pos + n]);
+            self.pos += n;
+            return Ok(n);
+        }
+
+        // Buffer empty — wait for next message from channel
+        match self.rx.recv() {
+            Ok(SessionCommand::Message(msg)) => {
+                self.buf.clear();
+                self.pos = 0;
+                // Serialize the HostMessage with length-prefixed framing
+                ipc::write_message(&mut self.buf, &msg)?;
+                // Serve from buffer
+                let n = std::cmp::min(output.len(), self.buf.len());
+                output[..n].copy_from_slice(&self.buf[..n]);
+                self.pos = n;
+                Ok(n)
+            }
+            Ok(SessionCommand::Shutdown) => Err(std::io::Error::new(
+                std::io::ErrorKind::ConnectionAborted,
+                "session shutdown",
+            )),
+            Err(_) => Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "channel closed",
+            )),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+
+    /// Helper to create a SessionManager for tests
+    fn test_manager(max: usize) -> SessionManager {
+        let writer: SharedWriter = Arc::new(Mutex::new(Box::new(Vec::<u8>::new())));
+        let router: CallIdRouter = Arc::new(Mutex::new(HashMap::new()));
+        SessionManager::new(max, writer, router)
+    }
 
     #[test]
     fn session_management() {
@@ -300,7 +553,7 @@ mod tests {
 
         // --- Part 1: Single session create/destroy ---
         {
-            let mut mgr = SessionManager::new(4);
+            let mut mgr = test_manager(4);
 
             mgr.create_session("session-aaa".into(), 1, None)
                 .expect("create session A");
@@ -317,7 +570,7 @@ mod tests {
 
         // --- Part 2: Multiple sessions + connection binding ---
         {
-            let mut mgr = SessionManager::new(4);
+            let mut mgr = test_manager(4);
 
             mgr.create_session("session-bbb".into(), 1, None)
                 .expect("create session B");
@@ -360,7 +613,7 @@ mod tests {
 
         // --- Part 3: Max concurrency queuing ---
         {
-            let mut mgr = SessionManager::new(2);
+            let mut mgr = test_manager(2);
 
             mgr.create_session("s1".into(), 1, None).expect("create s1");
             mgr.create_session("s2".into(), 1, None).expect("create s2");
@@ -388,7 +641,7 @@ mod tests {
 
         // --- Part 4: Multiple connections ---
         {
-            let mut mgr = SessionManager::new(4);
+            let mut mgr = test_manager(4);
 
             mgr.create_session("conn1-s1".into(), 100, None)
                 .expect("create");

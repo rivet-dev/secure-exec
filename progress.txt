@@ -119,6 +119,11 @@ PRD: ralph/kernel-hardening (46 stories)
 - NodeExecutionDriver split into 5 modules in src/node/: isolate-bootstrap.ts (types+utilities), module-resolver.ts, esm-compiler.ts, bridge-setup.ts, execution-lifecycle.ts; facade is execution-driver.ts (<300 lines)
 - Source policy tests (isolate-runtime-injection-policy, bridge-registry-policy) read specific source files by path — update them when moving code between files
 - esmModuleCache has a sibling esmModuleReverseCache (Map<ivm.Module, string>) for O(1) module→path lookup — both must be updated together and cleared together in execution.ts
+- V8 runtime event loop uses crossbeam Receiver<SessionCommand> — run_event_loop(scope, rx, pending) polls channel for BridgeResponse/StreamEvent/TerminateExecution
+- CallIdRouter (Arc<Mutex<HashMap<u32,String>>>) maps call_id→session_id for BridgeResponse routing; populated by BridgeCallContext, consumed by connection handler
+- ChannelMessageReader wraps crossbeam Receiver as io::Read for BridgeCallContext sync_call compatibility — serializes HostMessage back to length-prefixed bytes
+- Per-connection SessionManager: each UDS connection gets its own SharedWriter and CallIdRouter (not global)
+- After iso.terminate_execution() in tests, call iso.cancel_terminate_execution() to allow continued isolate use
 
 ---
 
@@ -2117,4 +2122,23 @@ PRD: ralph/kernel-hardening (46 stories)
   - authenticate_connection takes a &mut UnixStream and uses ipc::read_message directly — no need for separate framing; the existing length-prefixed MessagePack framing handles everything
   - Tests create real UDS connections via temp_listener() helper — no mocking needed for connection-level tests
   - cargo test runs all tests (ipc, isolate, main) from a single binary since it's a bin crate
+---
+
+## 2026-03-18 - US-013
+- What was implemented: Session event loop that dispatches BridgeResponse, StreamEvent, and TerminateExecution into V8 while awaiting pending promises
+- Files changed:
+  - crates/v8-runtime/src/stream.rs — implemented dispatch_stream_event() that calls registered V8 callback functions (_childProcessDispatch, _httpServerDispatch) with event_type and msgpack-decoded payload
+  - crates/v8-runtime/src/host_call.rs — added CallIdRouter type (Arc<Mutex<HashMap<u32, String>>>), with_router() constructor, call_id registration in sync_call/async_send for BridgeResponse routing
+  - crates/v8-runtime/src/session.rs — added run_event_loop() function, SharedWriter type, MutexWriter/ChannelMessageReader adapters, wired event loop into session_thread after execute, registered sync/async bridge functions, sends ExecutionResult via IPC after execution
+  - crates/v8-runtime/src/main.rs — per-connection SharedWriter and CallIdRouter, BridgeResponse routing via call_id→session_id lookup, per-connection SessionManager
+  - crates/v8-runtime/src/execution.rs — added 7 event loop tests (Parts 31-37)
+  - scripts/ralph/prd.json — marked US-013 as passes: true
+- **Learnings for future iterations:**
+  - run_event_loop polls crossbeam Receiver<SessionCommand> — blocking recv() is fine since we know there must be pending promises that will eventually resolve
+  - ChannelMessageReader wraps Receiver as io::Read: serializes incoming HostMessage back into length-prefixed bytes for BridgeCallContext.sync_call() compatibility
+  - CallIdRouter is populated by BridgeCallContext (sync_call/async_send register call_id→session_id) and consumed by connection handler for BridgeResponse routing
+  - TerminateExecution in event loop calls scope.terminate_execution() (HandleScope derefs to Isolate) then returns false; caller reports termination error
+  - Per-connection SessionManager instead of global: each connection gets its own SharedWriter (cloned UDS stream) and CallIdRouter
+  - Bridge function names (SYNC_BRIDGE_FNS, ASYNC_BRIDGE_FNS) are registered before execute — must match bridge-contract.ts names
+  - After TerminateExecution in tests, call iso.cancel_terminate_execution() to allow continued isolate use
 ---

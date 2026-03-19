@@ -1,11 +1,16 @@
 // Sync-blocking bridge call: serialize, write to socket, block on read, deserialize
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use crate::ipc::{self, HostMessage, RustMessage};
+
+/// Shared routing table: maps call_id → session_id for BridgeResponse routing.
+/// The connection handler uses this to determine which session a BridgeResponse
+/// belongs to (since BridgeResponse has call_id but no session_id).
+pub type CallIdRouter = Arc<Mutex<HashMap<u32, String>>>;
 
 /// Context for sync-blocking bridge calls from a V8 session.
 ///
@@ -23,6 +28,10 @@ pub struct BridgeCallContext {
     next_call_id: AtomicU32,
     /// Set of in-flight call_ids (for duplicate rejection)
     pending_calls: Mutex<HashSet<u32>>,
+    /// Optional routing table for call_id → session_id mapping.
+    /// When set, call_ids are registered here so the connection handler
+    /// can route BridgeResponse messages to the correct session.
+    call_id_router: Option<CallIdRouter>,
 }
 
 impl BridgeCallContext {
@@ -37,6 +46,26 @@ impl BridgeCallContext {
             session_id,
             next_call_id: AtomicU32::new(1),
             pending_calls: Mutex::new(HashSet::new()),
+            call_id_router: None,
+        }
+    }
+
+    /// Create a BridgeCallContext with a call_id routing table.
+    /// Call_ids are registered in the router so the connection handler
+    /// can route BridgeResponse messages to the correct session.
+    pub fn with_router(
+        writer: Box<dyn Write + Send>,
+        reader: Box<dyn Read + Send>,
+        session_id: String,
+        router: CallIdRouter,
+    ) -> Self {
+        BridgeCallContext {
+            writer: Mutex::new(writer),
+            reader: Mutex::new(reader),
+            session_id,
+            next_call_id: AtomicU32::new(1),
+            pending_calls: Mutex::new(HashSet::new()),
+            call_id_router: Some(router),
         }
     }
 
@@ -54,6 +83,14 @@ impl BridgeCallContext {
             if !pending.insert(call_id) {
                 return Err(format!("duplicate call_id: {}", call_id));
             }
+        }
+
+        // Register call_id → session_id for BridgeResponse routing
+        if let Some(ref router) = self.call_id_router {
+            router
+                .lock()
+                .unwrap()
+                .insert(call_id, self.session_id.clone());
         }
 
         // Send BridgeCall to host
@@ -115,6 +152,14 @@ impl BridgeCallContext {
     /// Used by async promise-returning bridge functions.
     pub fn async_send(&self, method: &str, args: Vec<u8>) -> Result<u32, String> {
         let call_id = self.next_call_id.fetch_add(1, Ordering::Relaxed);
+
+        // Register call_id → session_id for BridgeResponse routing
+        if let Some(ref router) = self.call_id_router {
+            router
+                .lock()
+                .unwrap()
+                .insert(call_id, self.session_id.clone());
+        }
 
         let bridge_call = RustMessage::BridgeCall {
             call_id,
