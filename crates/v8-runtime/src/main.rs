@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use host_call::CallIdRouter;
-use ipc::HostMessage;
+use ipc_binary::BinaryFrame;
 use session::{SessionManager, SharedWriter};
 
 /// Close all file descriptors > 2 (stdin/stdout/stderr preserved).
@@ -80,8 +80,8 @@ fn cleanup(socket_path: &PathBuf, tmpdir: &PathBuf) {
 /// Returns true if authentication succeeds, false otherwise.
 fn authenticate_connection(stream: &mut UnixStream, expected_token: &str) -> bool {
     // Connection is blocking — read the first message
-    match ipc::read_message::<_, HostMessage>(stream) {
-        Ok(HostMessage::Authenticate { token }) => {
+    match ipc_binary::read_frame(stream) {
+        Ok(BinaryFrame::Authenticate { token }) => {
             if token == expected_token {
                 true
             } else {
@@ -110,9 +110,9 @@ fn handle_connection(
     session_mgr: Arc<Mutex<SessionManager>>,
 ) {
     loop {
-        // Read next message from connection
-        let msg: HostMessage = match ipc::read_message(&mut stream) {
-            Ok(msg) => msg,
+        // Read next binary frame from connection
+        let frame = match ipc_binary::read_frame(&mut stream) {
+            Ok(f) => f,
             Err(ref e) if e.kind() == io::ErrorKind::UnexpectedEof => {
                 // Client disconnected — clean up sessions
                 break;
@@ -123,22 +123,24 @@ fn handle_connection(
             }
         };
 
-        // Dispatch message
-        match msg {
-            HostMessage::Authenticate { .. } => {
+        // Dispatch frame
+        match frame {
+            BinaryFrame::Authenticate { .. } => {
                 eprintln!(
                     "connection {}: unexpected Authenticate after handshake",
                     connection_id
                 );
                 break;
             }
-            HostMessage::CreateSession {
+            BinaryFrame::CreateSession {
                 session_id,
                 heap_limit_mb,
                 cpu_time_limit_ms,
             } => {
+                let hlm = if heap_limit_mb == 0 { None } else { Some(heap_limit_mb) };
+                let ctl = if cpu_time_limit_ms == 0 { None } else { Some(cpu_time_limit_ms) };
                 let mut mgr = session_mgr.lock().unwrap();
-                if let Err(e) = mgr.create_session(session_id.clone(), connection_id, heap_limit_mb, cpu_time_limit_ms)
+                if let Err(e) = mgr.create_session(session_id.clone(), connection_id, hlm, ctl)
                 {
                     eprintln!(
                         "connection {}: create session {} failed: {}",
@@ -146,7 +148,7 @@ fn handle_connection(
                     );
                 }
             }
-            HostMessage::DestroySession { session_id } => {
+            BinaryFrame::DestroySession { session_id } => {
                 let mut mgr = session_mgr.lock().unwrap();
                 if let Err(e) = mgr.destroy_session(&session_id, connection_id) {
                     eprintln!(
@@ -156,13 +158,13 @@ fn handle_connection(
                 }
             }
             // Route BridgeResponse via call_id → session_id routing table
-            HostMessage::BridgeResponse { call_id, .. } => {
+            BinaryFrame::BridgeResponse { call_id, .. } => {
                 let mgr = session_mgr.lock().unwrap();
                 let router = mgr.call_id_router();
                 let session_id = router.lock().unwrap().remove(&call_id);
 
                 if let Some(sid) = session_id {
-                    if let Err(e) = mgr.send_to_session(&sid, connection_id, msg) {
+                    if let Err(e) = mgr.send_to_session(&sid, connection_id, frame) {
                         eprintln!(
                             "connection {}: route BridgeResponse call_id={} to session {} failed: {}",
                             connection_id, call_id, sid, e
@@ -176,24 +178,27 @@ fn handle_connection(
                 }
             }
             // Forward session-scoped messages to the session thread
-            msg @ (HostMessage::Execute { .. }
-            | HostMessage::InjectGlobals { .. }
-            | HostMessage::StreamEvent { .. }
-            | HostMessage::TerminateExecution { .. }) => {
-                let session_id = match &msg {
-                    HostMessage::Execute { session_id, .. }
-                    | HostMessage::InjectGlobals { session_id, .. }
-                    | HostMessage::StreamEvent { session_id, .. }
-                    | HostMessage::TerminateExecution { session_id } => session_id.clone(),
+            frame @ (BinaryFrame::Execute { .. }
+            | BinaryFrame::InjectGlobals { .. }
+            | BinaryFrame::StreamEvent { .. }
+            | BinaryFrame::TerminateExecution { .. }) => {
+                let session_id = match &frame {
+                    BinaryFrame::Execute { session_id, .. }
+                    | BinaryFrame::InjectGlobals { session_id, .. }
+                    | BinaryFrame::StreamEvent { session_id, .. }
+                    | BinaryFrame::TerminateExecution { session_id } => session_id.clone(),
                     _ => unreachable!(),
                 };
                 let mgr = session_mgr.lock().unwrap();
-                if let Err(e) = mgr.send_to_session(&session_id, connection_id, msg) {
+                if let Err(e) = mgr.send_to_session(&session_id, connection_id, frame) {
                     eprintln!(
                         "connection {}: send to session {} failed: {}",
                         connection_id, session_id, e
                     );
                 }
+            }
+            _ => {
+                eprintln!("connection {}: unexpected frame type", connection_id);
             }
         }
     }
@@ -422,9 +427,9 @@ mod tests {
         let mut client = UnixStream::connect(&socket_path).expect("connect");
         let (mut server_stream, _) = listener.accept().expect("accept");
 
-        ipc::write_message(
+        ipc_binary::write_frame(
             &mut client,
-            &HostMessage::Authenticate {
+            &BinaryFrame::Authenticate {
                 token: token.into(),
             },
         )
@@ -442,9 +447,9 @@ mod tests {
         let mut client = UnixStream::connect(&socket_path).expect("connect");
         let (mut server_stream, _) = listener.accept().expect("accept");
 
-        ipc::write_message(
+        ipc_binary::write_frame(
             &mut client,
-            &HostMessage::Authenticate {
+            &BinaryFrame::Authenticate {
                 token: "wrong-token".into(),
             },
         )
@@ -463,12 +468,12 @@ mod tests {
         let (mut server_stream, _) = listener.accept().expect("accept");
 
         // Send a CreateSession instead of Authenticate
-        ipc::write_message(
+        ipc_binary::write_frame(
             &mut client,
-            &HostMessage::CreateSession {
+            &BinaryFrame::CreateSession {
                 session_id: "1".into(),
-                heap_limit_mb: None,
-                cpu_time_limit_ms: None,
+                heap_limit_mb: 0,
+                cpu_time_limit_ms: 0,
             },
         )
         .expect("write");

@@ -8,9 +8,9 @@ import { createRequire } from "node:module";
 import { createInterface } from "node:readline";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { encode, decode } from "@msgpack/msgpack";
+import v8 from "node:v8";
 import { IpcClient } from "./ipc-client.js";
-import type { RustMessage } from "./ipc-types.js";
+import type { BinaryFrame } from "./ipc-binary.js";
 import type { V8Session, V8SessionOptions } from "./session.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -152,18 +152,16 @@ export async function createV8Runtime(
 	// Message routing: session-level handlers registered per session_id
 	const sessionHandlers = new Map<
 		string,
-		(msg: RustMessage) => void
+		(frame: BinaryFrame) => void
 	>();
 
 	ipcClient = new IpcClient({
 		socketPath,
-		onMessage: (msg) => {
-			// Route message to the appropriate session handler
-			if ("session_id" in msg) {
-				const handler = sessionHandlers.get(
-					msg.session_id as string,
-				);
-				handler?.(msg);
+		onMessage: (frame) => {
+			// Route frame to the appropriate session handler by sessionId
+			if ("sessionId" in frame && frame.sessionId) {
+				const handler = sessionHandlers.get(frame.sessionId);
+				handler?.(frame);
 			}
 		},
 		onClose: () => {
@@ -196,16 +194,16 @@ export async function createV8Runtime(
 		for (const [sid, handler] of handlers) {
 			handler({
 				type: "ExecutionResult",
-				session_id: sid,
-				code: 1,
+				sessionId: sid,
+				exitCode: 1,
 				exports: null,
 				error: {
-					type: "Error",
+					errorType: "Error",
 					message: error.message,
 					stack: "",
 					code: "ERR_V8_PROCESS_CRASH",
 				},
-			} as RustMessage);
+			});
 		}
 	}
 
@@ -229,9 +227,9 @@ export async function createV8Runtime(
 			// Send CreateSession
 			ipcClient.send({
 				type: "CreateSession",
-				session_id: sessionId,
-				heap_limit_mb: sessionOptions?.heapLimitMb ?? null,
-				cpu_time_limit_ms: sessionOptions?.cpuTimeLimitMs ?? null,
+				sessionId,
+				heapLimitMb: sessionOptions?.heapLimitMb ?? 0,
+				cpuTimeLimitMs: sessionOptions?.cpuTimeLimitMs ?? 0,
 			});
 
 			// Create session proxy
@@ -244,9 +242,9 @@ export async function createV8Runtime(
 					}
 					client.send({
 						type: "StreamEvent",
-						session_id: sessionId,
-						event_type: eventType,
-						payload,
+						sessionId,
+						eventType,
+						payload: Buffer.from(payload),
 					});
 				},
 
@@ -256,37 +254,41 @@ export async function createV8Runtime(
 						throw new Error("IPC client is not connected");
 					}
 
-					// Inject globals first
+					// Inject globals — V8-serialize { processConfig, osConfig }
+					const globalsPayload = v8.serialize({
+						processConfig: execOptions.processConfig,
+						osConfig: execOptions.osConfig,
+					});
 					client.send({
 						type: "InjectGlobals",
-						session_id: sessionId,
-						process_config: execOptions.processConfig,
-						os_config: execOptions.osConfig,
+						sessionId,
+						payload: globalsPayload,
 					});
 
 					// Set up result promise
 					return new Promise((resolve, _reject) => {
 						// Register session message handler
-						sessionHandlers.set(sessionId, (msg) => {
-							switch (msg.type) {
+						sessionHandlers.set(sessionId, (frame) => {
+							switch (frame.type) {
 								case "BridgeCall": {
 									// Route to bridge handler
 									const handler =
-										execOptions.bridgeHandlers[msg.method];
+										execOptions.bridgeHandlers[frame.method];
 									if (!handler) {
 										client.send({
 											type: "BridgeResponse",
-											call_id: msg.call_id,
-											result: null,
-											error: `No handler for bridge method: ${msg.method}`,
+											sessionId,
+											callId: frame.callId,
+											status: 1,
+											payload: Buffer.from(`No handler for bridge method: ${frame.method}`, "utf8"),
 										});
 										return;
 									}
 									// Deserialize args and call handler
 									void (async () => {
 										try {
-											const args = decode(
-												msg.args,
+											const args = v8.deserialize(
+												frame.payload,
 											) as unknown[];
 											const result = await handler(
 												...(Array.isArray(args)
@@ -294,27 +296,39 @@ export async function createV8Runtime(
 													: [args]),
 											);
 											if (!client.isConnected) return;
-											client.send({
-												type: "BridgeResponse",
-												call_id: msg.call_id,
-												result:
-													result !== undefined
-														? new Uint8Array(
-																encode(result),
-															)
-														: null,
-												error: null,
-											});
+											// Use status=2 for raw binary (Uint8Array/Buffer) to avoid
+											// V8 typed array format incompatibility across V8 versions.
+											if (result instanceof Uint8Array) {
+												client.send({
+													type: "BridgeResponse",
+													sessionId,
+													callId: frame.callId,
+													status: 2,
+													payload: Buffer.from(result),
+												});
+											} else {
+												client.send({
+													type: "BridgeResponse",
+													sessionId,
+													callId: frame.callId,
+													status: 0,
+													payload:
+														result !== undefined
+															? Buffer.from(v8.serialize(result))
+															: Buffer.alloc(0),
+												});
+											}
 										} catch (err) {
 											if (!client.isConnected) return;
+											const errMsg = err instanceof Error
+												? err.message
+												: String(err);
 											client.send({
 												type: "BridgeResponse",
-												call_id: msg.call_id,
-												result: null,
-												error:
-													err instanceof Error
-														? err.message
-														: String(err),
+												sessionId,
+												callId: frame.callId,
+												status: 1,
+												payload: Buffer.from(errMsg, "utf8"),
 											});
 										}
 									})();
@@ -324,25 +338,30 @@ export async function createV8Runtime(
 									// Clean up handler and resolve
 									sessionHandlers.delete(sessionId);
 									resolve({
-										code: msg.code,
-										exports: msg.exports,
-										error: msg.error,
+										code: frame.exitCode,
+										exports: frame.exports,
+										error: frame.error ? {
+											type: frame.error.errorType,
+											message: frame.error.message,
+											stack: frame.error.stack,
+											code: frame.error.code || undefined,
+										} : null,
 									});
 									break;
 								}
 								case "Log":
 									// Emit to stdout/stderr
-									if (msg.channel === "stderr") {
-										process.stderr.write(msg.message);
+									if (frame.channel === 1) {
+										process.stderr.write(frame.message);
 									} else {
-										process.stdout.write(msg.message);
+										process.stdout.write(frame.message);
 									}
 									break;
 								case "StreamCallback":
 									// Route to execution-level stream callback handler
 									execOptions.onStreamCallback?.(
-										msg.callback_type,
-										msg.payload,
+										frame.callbackType,
+										frame.payload,
 									);
 									break;
 							}
@@ -351,11 +370,11 @@ export async function createV8Runtime(
 						// Send Execute
 						client.send({
 							type: "Execute",
-							session_id: sessionId,
-							bridge_code: execOptions.bridgeCode,
-							user_code: execOptions.userCode,
-							mode: execOptions.mode,
-							file_path: execOptions.filePath ?? null,
+							sessionId,
+							bridgeCode: execOptions.bridgeCode,
+							userCode: execOptions.userCode,
+							mode: execOptions.mode === "exec" ? 0 : 1,
+							filePath: execOptions.filePath ?? "",
 						});
 					});
 				},
@@ -365,7 +384,7 @@ export async function createV8Runtime(
 					if (client.isConnected) {
 						client.send({
 							type: "DestroySession",
-							session_id: sessionId,
+							sessionId,
 						});
 					}
 				},

@@ -2,7 +2,7 @@
  * IPC security tests for the V8 runtime.
  *
  * Covers: auth token validation, cross-session access prevention,
- * oversized message rejection, and duplicate BridgeResponse call_id
+ * oversized message rejection, and duplicate BridgeResponse callId
  * integrity.
  */
 
@@ -14,9 +14,9 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { createInterface } from "node:readline";
 import net from "node:net";
-import { encode, decode } from "@msgpack/msgpack";
+import v8 from "node:v8";
 import { IpcClient } from "../src/ipc-client.js";
-import type { HostMessage, RustMessage } from "../src/ipc-types.js";
+import { encodeFrame, type BinaryFrame } from "../src/ipc-binary.js";
 import { createV8Runtime } from "../src/runtime.js";
 import type { V8Runtime } from "../src/runtime.js";
 import type { V8ExecutionOptions } from "../src/session.js";
@@ -130,7 +130,7 @@ async function killChild(child: ChildProcess): Promise<void> {
 /** Create a connected IpcClient to the given socket path. */
 async function connectClient(
 	socketPath: string,
-	onMessage: (msg: RustMessage) => void,
+	onMessage: (msg: BinaryFrame) => void,
 ): Promise<IpcClient> {
 	const client = new IpcClient({
 		socketPath,
@@ -208,7 +208,7 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 		const { child, socketPath } = await spawnRustBinary();
 		children.push(child);
 
-		const messages: RustMessage[] = [];
+		const messages: BinaryFrame[] = [];
 		let connectionClosed = false;
 
 		const client = new IpcClient({
@@ -236,7 +236,7 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 		const { child, socketPath } = await spawnRustBinary();
 		children.push(child);
 
-		const messages: RustMessage[] = [];
+		const messages: BinaryFrame[] = [];
 		let connectionClosed = false;
 
 		const client = new IpcClient({
@@ -252,9 +252,9 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 		// Send a CreateSession instead of Authenticate
 		client.send({
 			type: "CreateSession",
-			session_id: randomBytes(16).toString("hex"),
-			heap_limit_mb: null,
-			cpu_time_limit_ms: null,
+			sessionId: randomBytes(16).toString("hex"),
+			heapLimitMb: 0,
+			cpuTimeLimitMs: 0,
 		});
 
 		// Wait for Rust to close the connection
@@ -271,7 +271,7 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 		children.push(child);
 
 		// Connect client A
-		const messagesA: RustMessage[] = [];
+		const messagesA: BinaryFrame[] = [];
 		const clientA = await connectClient(socketPath, (msg) =>
 			messagesA.push(msg),
 		);
@@ -279,7 +279,7 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 		clientA.authenticate(authToken);
 
 		// Connect client B
-		const messagesB: RustMessage[] = [];
+		const messagesB: BinaryFrame[] = [];
 		const clientB = await connectClient(socketPath, (msg) =>
 			messagesB.push(msg),
 		);
@@ -290,9 +290,9 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 		const sessionId = randomBytes(16).toString("hex");
 		clientA.send({
 			type: "CreateSession",
-			session_id: sessionId,
-			heap_limit_mb: null,
-			cpu_time_limit_ms: null,
+			sessionId,
+			heapLimitMb: 0,
+			cpuTimeLimitMs: 0,
 		});
 
 		// Give session time to initialize
@@ -301,28 +301,30 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 		// Client B tries to execute code on client A's session
 		clientB.send({
 			type: "InjectGlobals",
-			session_id: sessionId,
-			process_config: {
-				cwd: "/tmp",
-				env: {},
-				timing_mitigation: "none",
-				frozen_time_ms: null,
-			},
-			os_config: {
-				homedir: "/root",
-				tmpdir: "/tmp",
-				platform: "linux",
-				arch: "x64",
-			},
+			sessionId,
+			payload: v8.serialize({
+				processConfig: {
+					cwd: "/tmp",
+					env: {},
+					timing_mitigation: "none",
+					frozen_time_ms: null,
+				},
+				osConfig: {
+					homedir: "/root",
+					tmpdir: "/tmp",
+					platform: "linux",
+					arch: "x64",
+				},
+			}),
 		});
 
 		clientB.send({
 			type: "Execute",
-			session_id: sessionId,
-			bridge_code: "",
-			user_code: "1 + 1;",
-			mode: "exec",
-			file_path: null,
+			sessionId,
+			bridgeCode: "",
+			userCode: "1 + 1;",
+			mode: 0,
+			filePath: "",
 		});
 
 		// Wait for any responses
@@ -337,27 +339,29 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 		// Client A's session should still work — execute on it
 		clientA.send({
 			type: "InjectGlobals",
-			session_id: sessionId,
-			process_config: {
-				cwd: "/tmp",
-				env: {},
-				timing_mitigation: "none",
-				frozen_time_ms: null,
-			},
-			os_config: {
-				homedir: "/root",
-				tmpdir: "/tmp",
-				platform: "linux",
-				arch: "x64",
-			},
+			sessionId,
+			payload: v8.serialize({
+				processConfig: {
+					cwd: "/tmp",
+					env: {},
+					timing_mitigation: "none",
+					frozen_time_ms: null,
+				},
+				osConfig: {
+					homedir: "/root",
+					tmpdir: "/tmp",
+					platform: "linux",
+					arch: "x64",
+				},
+			}),
 		});
 		clientA.send({
 			type: "Execute",
-			session_id: sessionId,
-			bridge_code: "",
-			user_code: "1 + 1;",
-			mode: "exec",
-			file_path: null,
+			sessionId,
+			bridgeCode: "",
+			userCode: "1 + 1;",
+			mode: 0,
+			filePath: "",
 		});
 
 		// Wait for result
@@ -367,32 +371,30 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 			(m) => m.type === "ExecutionResult",
 		);
 		expect(aResults.length).toBe(1);
-		expect((aResults[0] as { code: number }).code).toBe(0);
+		expect((aResults[0] as { exitCode: number }).exitCode).toBe(0);
 
 		// Clean up session
-		clientA.send({ type: "DestroySession", session_id: sessionId });
+		clientA.send({ type: "DestroySession", sessionId });
 	});
 
 	// --- Oversized message rejection ---
 
-	it("IpcClient rejects sending messages exceeding 64MB", () => {
-		// Create a message with payload > 64MB by constructing an object
-		// with a large string field
-		const largePayload = "x".repeat(64 * 1024 * 1024 + 1);
+	it("encodeFrame rejects frames exceeding 64MB", () => {
+		// Create a frame with payload > 64MB by constructing an Execute
+		// with a large userCode field
+		const largeCode = "x".repeat(64 * 1024 * 1024 + 1);
 
-		// Use a dummy IpcClient (not connected) to test send() validation
-		// We need a connected client, so test the encode path
-		const payload = encode({
-			type: "Execute",
-			session_id: "test",
-			bridge_code: largePayload,
-			user_code: "",
-			mode: "exec",
-			file_path: null,
-		});
-
-		// The payload should exceed 64MB
-		expect(payload.byteLength).toBeGreaterThan(64 * 1024 * 1024);
+		// encodeFrame should throw when the body exceeds 64 MB
+		expect(() =>
+			encodeFrame({
+				type: "Execute",
+				sessionId: "test",
+				bridgeCode: "",
+				userCode: largeCode,
+				mode: 0,
+				filePath: "",
+			}),
+		).toThrow(/exceeds maximum/);
 	});
 
 	it("Rust process rejects oversized message length prefix", async () => {
@@ -403,15 +405,9 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 		const socket = net.createConnection(socketPath);
 		await new Promise<void>((r) => socket.on("connect", r));
 
-		// Send valid auth message
-		const authPayload = encode({
-			type: "Authenticate",
-			token: authToken,
-		} satisfies HostMessage);
-		const authHeader = Buffer.alloc(4);
-		authHeader.writeUInt32BE(authPayload.byteLength, 0);
-		socket.write(authHeader);
-		socket.write(Buffer.from(authPayload));
+		// Send valid auth message using binary frame format
+		const authFrame = encodeFrame({ type: "Authenticate", token: authToken });
+		socket.write(authFrame);
 
 		// Wait for auth to be processed
 		await new Promise((r) => setTimeout(r, 200));
@@ -441,13 +437,13 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 		expect(child.exitCode).toBeNull();
 	});
 
-	// --- Duplicate BridgeResponse call_id integrity ---
+	// --- Duplicate BridgeResponse callId integrity ---
 
-	it("duplicate BridgeResponse call_id does not crash or corrupt state", async () => {
+	it("duplicate BridgeResponse callId does not crash or corrupt state", async () => {
 		const { child, socketPath, authToken } = await spawnRustBinary();
 		children.push(child);
 
-		const messages: RustMessage[] = [];
+		const messages: BinaryFrame[] = [];
 		const client = await connectClient(socketPath, (msg) =>
 			messages.push(msg),
 		);
@@ -458,43 +454,45 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 		const sessionId = randomBytes(16).toString("hex");
 		client.send({
 			type: "CreateSession",
-			session_id: sessionId,
-			heap_limit_mb: null,
-			cpu_time_limit_ms: null,
+			sessionId,
+			heapLimitMb: 0,
+			cpuTimeLimitMs: 0,
 		});
 		await new Promise((r) => setTimeout(r, 200));
 
 		// Inject globals
 		client.send({
 			type: "InjectGlobals",
-			session_id: sessionId,
-			process_config: {
-				cwd: "/tmp",
-				env: {},
-				timing_mitigation: "none",
-				frozen_time_ms: null,
-			},
-			os_config: {
-				homedir: "/root",
-				tmpdir: "/tmp",
-				platform: "linux",
-				arch: "x64",
-			},
+			sessionId,
+			payload: v8.serialize({
+				processConfig: {
+					cwd: "/tmp",
+					env: {},
+					timing_mitigation: "none",
+					frozen_time_ms: null,
+				},
+				osConfig: {
+					homedir: "/root",
+					tmpdir: "/tmp",
+					platform: "linux",
+					arch: "x64",
+				},
+			}),
 		});
 
 		// Execute code that makes a sync bridge call — we'll manually
-		// respond with the correct call_id TWICE
+		// respond with the correct callId TWICE
 		client.send({
 			type: "Execute",
-			session_id: sessionId,
-			bridge_code: "",
-			user_code: '_log("test");',
-			mode: "exec",
-			file_path: null,
+			sessionId,
+			bridgeCode: "",
+			userCode: '_log("test");',
+			mode: 0,
+			filePath: "",
 		});
 
 		// Wait for the BridgeCall
-		const bridgeCall = await new Promise<RustMessage>((resolve) => {
+		const bridgeCall = await new Promise<BinaryFrame>((resolve) => {
 			const check = setInterval(() => {
 				const bc = messages.find((m) => m.type === "BridgeCall");
 				if (bc) {
@@ -506,22 +504,24 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 		});
 
 		expect(bridgeCall.type).toBe("BridgeCall");
-		const callId = (bridgeCall as { call_id: number }).call_id;
+		const callId = (bridgeCall as { callId: number }).callId;
 
 		// Send the first BridgeResponse (legitimate)
 		client.send({
 			type: "BridgeResponse",
-			call_id: callId,
-			result: null,
-			error: null,
+			sessionId,
+			callId,
+			status: 0,
+			payload: Buffer.alloc(0),
 		});
 
-		// Send a duplicate BridgeResponse with the same call_id
+		// Send a duplicate BridgeResponse with the same callId
 		client.send({
 			type: "BridgeResponse",
-			call_id: callId,
-			result: null,
-			error: null,
+			sessionId,
+			callId,
+			status: 0,
+			payload: Buffer.alloc(0),
 		});
 
 		// Wait for the ExecutionResult
@@ -544,9 +544,9 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 		// Execution should have completed successfully
 		const execResult = messages.find(
 			(m) => m.type === "ExecutionResult",
-		) as { code: number; error: unknown } | undefined;
+		) as { exitCode: number; error: unknown } | undefined;
 		expect(execResult).toBeTruthy();
-		expect(execResult!.code).toBe(0);
+		expect(execResult!.exitCode).toBe(0);
 
 		// Rust process should still be alive (not crashed by duplicate)
 		expect(child.exitCode).toBeNull();
@@ -556,28 +556,30 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 
 		client.send({
 			type: "InjectGlobals",
-			session_id: sessionId,
-			process_config: {
-				cwd: "/tmp",
-				env: {},
-				timing_mitigation: "none",
-				frozen_time_ms: null,
-			},
-			os_config: {
-				homedir: "/root",
-				tmpdir: "/tmp",
-				platform: "linux",
-				arch: "x64",
-			},
+			sessionId,
+			payload: v8.serialize({
+				processConfig: {
+					cwd: "/tmp",
+					env: {},
+					timing_mitigation: "none",
+					frozen_time_ms: null,
+				},
+				osConfig: {
+					homedir: "/root",
+					tmpdir: "/tmp",
+					platform: "linux",
+					arch: "x64",
+				},
+			}),
 		});
 
 		client.send({
 			type: "Execute",
-			session_id: sessionId,
-			bridge_code: "",
-			user_code: "42;",
-			mode: "exec",
-			file_path: null,
+			sessionId,
+			bridgeCode: "",
+			userCode: "42;",
+			mode: 0,
+			filePath: "",
 		});
 
 		// Wait for result
@@ -599,10 +601,10 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 
 		const secondResult = messages.find(
 			(m) => m.type === "ExecutionResult",
-		) as { code: number } | undefined;
+		) as { exitCode: number } | undefined;
 		expect(secondResult).toBeTruthy();
-		expect(secondResult!.code).toBe(0);
+		expect(secondResult!.exitCode).toBe(0);
 
-		client.send({ type: "DestroySession", session_id: sessionId });
+		client.send({ type: "DestroySession", sessionId });
 	});
 });

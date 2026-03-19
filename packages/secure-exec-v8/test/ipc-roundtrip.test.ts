@@ -10,7 +10,6 @@ import { describe, it, expect, afterEach } from "vitest";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
-import { encode } from "@msgpack/msgpack";
 import { createV8Runtime } from "../src/runtime.js";
 import type { V8Runtime, V8RuntimeOptions } from "../src/runtime.js";
 import type {

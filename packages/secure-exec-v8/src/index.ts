@@ -17,7 +17,11 @@ export type {
 export { IpcClient } from "./ipc-client.js";
 export type { IpcClientOptions, MessageHandler } from "./ipc-client.js";
 
-// IPC message types.
+// Binary frame types (active wire format).
+export type { BinaryFrame, ExecutionErrorBin } from "./ipc-binary.js";
+export { encodeFrame, decodeFrame, serializePayload, deserializePayload } from "./ipc-binary.js";
+
+// Legacy IPC message types (kept for backward compatibility).
 export type {
 	HostMessage,
 	RustMessage,

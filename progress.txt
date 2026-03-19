@@ -118,6 +118,10 @@ PRD: ralph/kernel-hardening (46 stories)
 - runtime-node has two VFS adapters (createKernelVfsAdapter, createHostFallbackVfs) that both need new VFS methods forwarded
 - diagnostics_channel is Tier 4 (deferred) with a custom no-op stub in require-setup.ts — channels report no subscribers, publish is no-op; needed for Fastify compatibility
 - V8 session creates a FRESH context per execute() — globals from previous executions (non-configurable hardened globals) must not persist; store InjectGlobals config and re-inject into each fresh context
+- V8 ValueSerializer cannot serialize exotic objects (ModuleNamespace) — copy properties to plain v8::Object before serialization
+- V8 typed array serialization format differs between V8 versions — use status=2 raw binary for Uint8Array results, TryCatch fallback in Rust deserializer
+- BridgeResponse status byte: 0=V8-serialized success, 1=UTF-8 error, 2=raw binary (Uint8Array)
+- Active IPC wire format is ipc_binary (BinaryFrame); old ipc.rs MessagePack types retained for reference but unused in active code path
 - _loadPolyfill MUST be in SYNC_BRIDGE_FNS (not ASYNC) — require() calls it synchronously; if async, it returns a Promise that bypasses the null check and breaks module loading
 - composeBridgeCode must include initCommonjsModuleGlobals + applyCustomGlobalPolicy after requireSetup; per-execution preamble must inject __runtimeCommonJsFileConfig + setCommonjsFileGlobals when filePath is provided
 - V8 execute_module falls back to globalThis.module.exports when ESM namespace has no own properties (CJS compat for run() mode)
@@ -2395,4 +2399,27 @@ PRD: ralph/kernel-hardening (46 stories)
   - Buffer.readInt32BE exists for signed 32-bit reads (needed for ExecutionResult.exitCode which can be negative)
   - readLenPrefixedU16 helper needed for ExecutionResult error fields (u16-length-prefixed strings)
   - Existing ipc-client.ts and ipc-types.ts remain unchanged — new module is additive only
+---
+
+## 2026-03-19 - US-037
+- What was implemented: Switched IPC pipeline to binary header + V8 serialization on both Rust and JS sides simultaneously
+- Files changed:
+  - crates/v8-runtime/src/bridge.rs — replaced encode_v8_args/msgpack_to_v8_value with serialize_v8_value/deserialize_v8_value; added TryCatch fallback for raw binary (Uint8Array) results
+  - crates/v8-runtime/src/host_call.rs — switched to ipc_binary::write_frame/read_frame for BridgeCall/BridgeResponse; updated tests
+  - crates/v8-runtime/src/session.rs — SessionCommand::Message now carries BinaryFrame; send_message uses ipc_binary::write_frame; ChannelMessageReader uses binary framing; event loop matches BinaryFrame variants; InjectGlobals stores raw V8 payload bytes
+  - crates/v8-runtime/src/main.rs — connection handler reads binary frames; authenticate_connection uses ipc_binary::read_frame; updated auth tests
+  - crates/v8-runtime/src/execution.rs — module resolution (resolve_module_via_ipc, load_module_via_ipc) uses V8 serialization for args/results; module exports use serialize_v8_value with plain object copy for namespace; added inject_globals_from_payload for V8-serialized config; updated all test fixtures
+  - crates/v8-runtime/src/stream.rs — dispatch_stream_event uses deserialize_v8_value instead of msgpack_to_v8_value
+  - packages/secure-exec-v8/src/ipc-client.ts — replaced @msgpack/msgpack with ipc-binary.ts encodeFrame/decodeFrame
+  - packages/secure-exec-v8/src/runtime.ts — replaced @msgpack/msgpack with node:v8 serialize/deserialize; constructs BinaryFrame objects; InjectGlobals sends v8.serialize({processConfig, osConfig}); Uint8Array results use status=2
+  - packages/secure-exec-v8/src/index.ts — added BinaryFrame type exports
+  - packages/secure-exec-node/src/execution-driver.ts — replaced @msgpack/msgpack decode with node:v8.deserialize for exports
+  - packages/secure-exec-v8/test/ipc-roundtrip.test.ts — removed unused @msgpack/msgpack import
+  - packages/secure-exec-v8/test/ipc-security.test.ts — migrated all message construction to BinaryFrame types
+- **Learnings for future iterations:**
+  - V8 ValueSerializer cannot serialize v8::ModuleNamespace (exotic object) — must copy properties to a plain v8::Object before serialization
+  - V8 typed array serialization format changed between V8 13.0 (Rust crate) and V8 13.6 (Node.js) — kFixedLengthArrayBuffer tag 0x5c not recognized by older V8; workaround: send Uint8Array as raw bytes with status=2 and use TryCatch-based fallback in Rust deserialization
+  - V8 ValueDeserializer may throw a V8 exception (not just return None) on invalid data — must use v8::TryCatch scope to prevent exception from propagating to sandbox code
+  - BinaryFrame::BridgeResponse status byte: 0=V8-serialized success, 1=UTF-8 error, 2=raw binary (Uint8Array)
+  - InjectGlobals with V8 payload: store raw bytes, deserialize in V8 scope at execution time (inject_globals_from_payload); no intermediate Rust structs needed
 ---

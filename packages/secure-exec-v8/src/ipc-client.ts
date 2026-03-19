@@ -1,21 +1,24 @@
 // IPC client: connects to the Rust V8 runtime over UDS with
-// length-prefixed MessagePack framing.
+// binary header framing and V8 serialization.
 
 import net from "node:net";
-import { encode, decode } from "@msgpack/msgpack";
-import type { HostMessage, RustMessage } from "./ipc-types.js";
+import {
+	type BinaryFrame,
+	encodeFrame,
+	decodeFrame,
+} from "./ipc-binary.js";
 
 /** Maximum message payload size: 64 MB. */
 const MAX_MESSAGE_SIZE = 64 * 1024 * 1024;
 
-/** Callback invoked for each decoded message from the Rust process. */
-export type MessageHandler = (msg: RustMessage) => void;
+/** Callback invoked for each decoded frame from the Rust process. */
+export type MessageHandler = (frame: BinaryFrame) => void;
 
 /** Options for creating an IPC client. */
 export interface IpcClientOptions {
 	/** Unix domain socket path to connect to. */
 	socketPath: string;
-	/** Handler called for each incoming message. */
+	/** Handler called for each incoming frame. */
 	onMessage: MessageHandler;
 	/** Handler called when the connection closes. */
 	onClose?: () => void;
@@ -25,9 +28,9 @@ export interface IpcClientOptions {
 
 /**
  * IPC client that communicates with the Rust V8 runtime process over
- * a Unix domain socket using length-prefixed MessagePack framing.
+ * a Unix domain socket using binary header framing with V8 serialization.
  *
- * Wire format: [4-byte u32 big-endian length][N-byte MessagePack payload]
+ * Wire format: [4-byte u32 big-endian length][N-byte binary frame body]
  */
 export class IpcClient {
 	private socket: net.Socket | null = null;
@@ -82,25 +85,15 @@ export class IpcClient {
 		this.send({ type: "Authenticate", token });
 	}
 
-	/** Send a host message to the Rust process. */
-	send(msg: HostMessage): void {
+	/** Send a binary frame to the Rust process. */
+	send(frame: BinaryFrame): void {
 		if (!this.socket || !this.connected) {
 			throw new Error("IPC client is not connected");
 		}
 
-		// Encode payload.
-		const payload = encode(msg);
-		if (payload.byteLength > MAX_MESSAGE_SIZE) {
-			throw new Error(
-				`Message size ${payload.byteLength} exceeds maximum ${MAX_MESSAGE_SIZE}`,
-			);
-		}
-
-		// Write length prefix (4-byte u32 big-endian) + payload.
-		const header = Buffer.alloc(4);
-		header.writeUInt32BE(payload.byteLength, 0);
-		this.socket.write(header);
-		this.socket.write(payload);
+		// Encode and write the frame (encodeFrame includes 4-byte length prefix).
+		const buf = encodeFrame(frame);
+		this.socket.write(buf);
 	}
 
 	/** Close the connection. */
@@ -121,7 +114,7 @@ export class IpcClient {
 	private handleData(chunk: Buffer): void {
 		this.recvBuf = Buffer.concat([this.recvBuf, chunk]);
 
-		// Drain as many complete messages as possible.
+		// Drain as many complete frames as possible.
 		while (this.recvBuf.length >= 4) {
 			const payloadLen = this.recvBuf.readUInt32BE(0);
 
@@ -141,18 +134,18 @@ export class IpcClient {
 				break;
 			}
 
-			// Extract and decode payload.
-			const payload = this.recvBuf.subarray(4, totalLen);
+			// Extract body (without length prefix) and decode.
+			const body = this.recvBuf.subarray(4, totalLen);
 			this.recvBuf = this.recvBuf.subarray(totalLen);
 
 			try {
-				const msg = decode(payload) as RustMessage;
-				this.onMessage(msg);
+				const frame = decodeFrame(Buffer.from(body));
+				this.onMessage(frame);
 			} catch (err) {
 				this.onError?.(
 					err instanceof Error
 						? err
-						: new Error(`Failed to decode IPC message: ${err}`),
+						: new Error(`Failed to decode IPC frame: ${err}`),
 				);
 				this.close();
 				return;

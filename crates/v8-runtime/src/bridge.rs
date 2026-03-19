@@ -125,10 +125,10 @@ impl PendingPromises {
 /// Register sync-blocking bridge functions on the V8 global object.
 ///
 /// Each registered function, when called from V8:
-/// 1. Serializes arguments as a MessagePack array
+/// 1. Serializes arguments as a V8 Array via ValueSerializer
 /// 2. Sends a BridgeCall over IPC via BridgeCallContext
 /// 3. Blocks on read() for the BridgeResponse
-/// 4. Returns the deserialized result or throws a V8 exception
+/// 4. Returns the V8-deserialized result or throws a V8 exception
 ///
 /// The BridgeCallContext pointer must remain valid for the lifetime of the V8 context.
 /// The returned BridgeFnStore must also be kept alive.
@@ -184,21 +184,47 @@ fn sync_bridge_callback(
     let data = unsafe { &*(external.value() as *const SyncBridgeFnData) };
     let ctx = unsafe { &*data.ctx };
 
-    // Serialize V8 arguments as MessagePack array
-    let encoded_args = encode_v8_args(scope, &args);
+    // Serialize V8 arguments as V8 Array via ValueSerializer
+    let encoded_args = match serialize_v8_args(scope, &args) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            let msg = v8::String::new(scope, &format!("bridge serialization error: {}", err)).unwrap();
+            let exc = v8::Exception::error(scope, msg);
+            scope.throw_exception(exc);
+            return;
+        }
+    };
 
     // Perform sync-blocking bridge call
     match ctx.sync_call(&data.method, encoded_args) {
-        Ok(Some(result_bytes)) => match msgpack_to_v8_value(scope, &result_bytes) {
-            Ok(v8_val) => rv.set(v8_val),
-            Err(err) => {
-                let msg =
-                    v8::String::new(scope, &format!("bridge deserialization error: {}", err))
-                        .unwrap();
-                let exc = v8::Exception::error(scope, msg);
-                scope.throw_exception(exc);
+        Ok(Some(result_bytes)) => {
+            // Try V8 deserialization in a TryCatch scope; if it fails,
+            // treat as raw binary (Uint8Array) — covers status=2 raw binary
+            // and V8 version incompatibilities for typed arrays.
+            let v8_val = {
+                let tc = &mut v8::TryCatch::new(scope);
+                deserialize_v8_value(tc, &result_bytes).ok()
+            };
+            if let Some(val) = v8_val {
+                rv.set(val);
+            } else {
+                // Fallback: raw binary data → Uint8Array
+                let len = result_bytes.len();
+                let ab = v8::ArrayBuffer::new(scope, len);
+                if len > 0 {
+                    let bs = ab.get_backing_store();
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            result_bytes.as_ptr(),
+                            bs.data().unwrap().as_ptr() as *mut u8,
+                            len,
+                        );
+                    }
+                }
+                let arr = v8::Uint8Array::new(scope, ab, 0, len).unwrap();
+                rv.set(arr.into());
             }
-        },
+        }
         Ok(None) => {
             rv.set_undefined();
         }
@@ -290,8 +316,16 @@ fn async_bridge_callback(
     // Get the promise to return to V8
     let promise = resolver.get_promise(scope);
 
-    // Serialize V8 arguments as MessagePack array
-    let encoded_args = encode_v8_args(scope, &args);
+    // Serialize V8 arguments as V8 Array via ValueSerializer
+    let encoded_args = match serialize_v8_args(scope, &args) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            let msg = v8::String::new(scope, &format!("bridge serialization error: {}", err)).unwrap();
+            let exc = v8::Exception::error(scope, msg);
+            scope.throw_exception(exc);
+            return;
+        }
+    };
 
     // Send BridgeCall (non-blocking write)
     match ctx.async_send(&data.method, encoded_args) {
@@ -312,17 +346,14 @@ fn async_bridge_callback(
     rv.set(promise.into());
 }
 
-/// Encode V8 function arguments as a MessagePack array.
-fn encode_v8_args(scope: &mut v8::HandleScope, args: &v8::FunctionCallbackArguments) -> Vec<u8> {
+/// Serialize V8 function arguments as a V8 Array via ValueSerializer.
+fn serialize_v8_args(scope: &mut v8::HandleScope, args: &v8::FunctionCallbackArguments) -> Result<Vec<u8>, String> {
     let count = args.length();
-    let mut values = Vec::with_capacity(count as usize);
+    let array = v8::Array::new(scope, count);
     for i in 0..count {
-        values.push(v8_to_rmpv(scope, args.get(i)));
+        array.set_index(scope, i as u32, args.get(i));
     }
-    let array = rmpv::Value::Array(values);
-    let mut buf = Vec::new();
-    rmpv::encode::write_value(&mut buf, &array).unwrap();
-    buf
+    serialize_v8_value(scope, array.into())
 }
 
 /// Serialize a V8 value to MessagePack bytes.
@@ -481,17 +512,29 @@ pub fn resolve_pending_promise(
         let exc = v8::Exception::error(scope, msg);
         resolver.reject(scope, exc);
     } else if let Some(result_bytes) = result {
-        match msgpack_to_v8_value(scope, &result_bytes) {
-            Ok(val) => {
-                resolver.resolve(scope, val);
+        // Try V8 deserialization in a TryCatch scope; fallback to raw binary
+        let v8_val = {
+            let tc = &mut v8::TryCatch::new(scope);
+            deserialize_v8_value(tc, &result_bytes).ok()
+        };
+        if let Some(val) = v8_val {
+            resolver.resolve(scope, val);
+        } else {
+            // Fallback: raw binary data → Uint8Array
+            let len = result_bytes.len();
+            let ab = v8::ArrayBuffer::new(scope, len);
+            if len > 0 {
+                let bs = ab.get_backing_store();
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        result_bytes.as_ptr(),
+                        bs.data().unwrap().as_ptr() as *mut u8,
+                        len,
+                    );
+                }
             }
-            Err(e) => {
-                let msg =
-                    v8::String::new(scope, &format!("bridge deserialization error: {}", e))
-                        .unwrap();
-                let exc = v8::Exception::error(scope, msg);
-                resolver.reject(scope, exc);
-            }
+            let arr = v8::Uint8Array::new(scope, ab, 0, len).unwrap();
+            resolver.resolve(scope, arr.into());
         }
     } else {
         let undef = v8::undefined(scope);

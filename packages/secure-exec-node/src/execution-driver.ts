@@ -376,11 +376,11 @@ export class NodeExecutionDriver implements RuntimeDriver {
 				};
 			}
 
-			// Deserialize module exports from msgpack binary (Rust V8 serializes namespace)
+			// Deserialize module exports from V8 serialized binary
 			let exports: T | undefined;
 			if (result.exports && result.exports.byteLength > 0) {
-				const { decode: decodeMsgpack } = await import("@msgpack/msgpack");
-				exports = decodeMsgpack(result.exports) as T;
+				const nodeV8 = await import("node:v8");
+				exports = nodeV8.deserialize(Buffer.from(result.exports)) as T;
 			}
 			return {
 				code: result.code,

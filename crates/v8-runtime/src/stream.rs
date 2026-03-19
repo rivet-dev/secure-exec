@@ -32,7 +32,7 @@ pub fn dispatch_stream_event(
             // Pass event_type and payload as arguments
             let event_str = v8::String::new(scope, event_type).unwrap();
             let payload_val = if !payload.is_empty() {
-                match crate::bridge::msgpack_to_v8_value(scope, payload) {
+                match crate::bridge::deserialize_v8_value(scope, payload) {
                     Ok(v) => v,
                     Err(_) => v8::null(scope).into(),
                 }

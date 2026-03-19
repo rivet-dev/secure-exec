@@ -4,6 +4,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::num::NonZeroI32;
 
+use crate::bridge::{deserialize_v8_value, serialize_v8_value};
 use crate::host_call::BridgeCallContext;
 use crate::ipc::{ExecutionError, OsConfig, ProcessConfig};
 
@@ -50,6 +51,58 @@ pub fn inject_globals(
     // bridge code (applyTimingMitigationFreeze), which runs AFTER the bridge bundle
     // loads. The bridge bundle depends on SharedArrayBuffer being available during
     // its initialization (whatwg-url/webidl-conversions uses it).
+}
+
+/// Inject globals from a V8-serialized payload containing { processConfig, osConfig }.
+///
+/// The payload is produced by node:v8.serialize() on the host side.
+/// Deserializes into V8, extracts processConfig and osConfig, freezes them,
+/// and sets them as non-writable, non-configurable global properties.
+pub fn inject_globals_from_payload(
+    scope: &mut v8::HandleScope,
+    payload: &[u8],
+) {
+    let context = scope.get_current_context();
+    let global = context.global(scope);
+
+    // Deserialize the V8 payload { processConfig, osConfig }
+    let config_val = match deserialize_v8_value(scope, payload) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("failed to deserialize InjectGlobals payload: {}", e);
+            return;
+        }
+    };
+
+    let config_obj = match config_val.to_object(scope) {
+        Some(obj) => obj,
+        None => {
+            eprintln!("InjectGlobals payload is not an object");
+            return;
+        }
+    };
+
+    // Extract and set _processConfig
+    let pc_key = v8::String::new(scope, "processConfig").unwrap();
+    if let Some(pc_val) = config_obj.get(scope, pc_key.into()) {
+        if let Some(pc_obj) = pc_val.to_object(scope) {
+            pc_obj.set_integrity_level(scope, v8::IntegrityLevel::Frozen);
+        }
+        let global_key = v8::String::new(scope, "_processConfig").unwrap();
+        let attr = v8::PropertyAttribute::READ_ONLY | v8::PropertyAttribute::DONT_DELETE;
+        global.define_own_property(scope, global_key.into(), pc_val, attr);
+    }
+
+    // Extract and set _osConfig
+    let oc_key = v8::String::new(scope, "osConfig").unwrap();
+    if let Some(oc_val) = config_obj.get(scope, oc_key.into()) {
+        if let Some(oc_obj) = oc_val.to_object(scope) {
+            oc_obj.set_integrity_level(scope, v8::IntegrityLevel::Frozen);
+        }
+        let global_key = v8::String::new(scope, "_osConfig").unwrap();
+        let attr = v8::PropertyAttribute::READ_ONLY | v8::PropertyAttribute::DONT_DELETE;
+        global.define_own_property(scope, global_key.into(), oc_val, attr);
+    }
 }
 
 /// Execute user code as a CJS script (mode='exec').
@@ -476,12 +529,14 @@ pub fn execute_module(
         // Serialize module namespace (exports)
         // If the ESM namespace is empty, fall back to globalThis.module.exports
         // for CJS compatibility (code using module.exports = {...}).
+        // The module namespace is a V8 exotic object that ValueSerializer can't
+        // handle directly, so we copy its properties into a plain object.
         let namespace = module.get_module_namespace();
         let namespace_obj = namespace.to_object(tc).unwrap();
         let prop_names = namespace_obj
             .get_own_property_names(tc, v8::GetPropertyNamesArgs::default())
             .unwrap();
-        let exports_bytes = if prop_names.length() == 0 {
+        let exports_val: v8::Local<v8::Value> = if prop_names.length() == 0 {
             // No ESM exports — check CJS module.exports fallback
             let ctx = tc.get_current_context();
             let global = ctx.global(tc);
@@ -495,11 +550,33 @@ pub fn execute_module(
                 })
                 .filter(|v| !v.is_undefined() && !v.is_null_or_undefined());
             match cjs_exports {
-                Some(val) => crate::bridge::v8_value_to_msgpack(tc, val),
-                None => crate::bridge::v8_value_to_msgpack(tc, namespace),
+                Some(val) => val,
+                None => {
+                    // Empty namespace, empty CJS — return empty object
+                    v8::Object::new(tc).into()
+                }
             }
         } else {
-            crate::bridge::v8_value_to_msgpack(tc, namespace)
+            // Copy namespace properties to a plain object for serialization
+            let plain = v8::Object::new(tc);
+            for i in 0..prop_names.length() {
+                let key = prop_names.get_index(tc, i).unwrap();
+                let val = namespace_obj.get(tc, key).unwrap_or_else(|| v8::undefined(tc).into());
+                plain.set(tc, key, val);
+            }
+            plain.into()
+        };
+        let exports_bytes = match serialize_v8_value(tc, exports_val) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                clear_module_state();
+                return (1, None, Some(ExecutionError {
+                    error_type: "Error".into(),
+                    message: format!("failed to serialize exports: {}", e),
+                    stack: String::new(),
+                    code: None,
+                }));
+            }
         };
 
         clear_module_state();
@@ -611,31 +688,32 @@ fn resolve_module_via_ipc(
     specifier: &str,
     referrer: &str,
 ) -> Option<String> {
-    let mut args = Vec::new();
-    rmpv::encode::write_value(
-        &mut args,
-        &rmpv::Value::Array(vec![
-            rmpv::Value::String(specifier.into()),
-            rmpv::Value::String(referrer.into()),
-        ]),
-    )
-    .unwrap();
+    // Serialize [specifier, referrer] as V8 Array
+    let spec_v8 = v8::String::new(scope, specifier).unwrap();
+    let ref_v8 = v8::String::new(scope, referrer).unwrap();
+    let arr = v8::Array::new(scope, 2);
+    arr.set_index(scope, 0, spec_v8.into());
+    arr.set_index(scope, 1, ref_v8.into());
+    let args = match serialize_v8_value(scope, arr.into()) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            throw_module_error(scope, &format!("_resolveModule serialize error: {}", e));
+            return None;
+        }
+    };
 
     match ctx.sync_call("_resolveModule", args) {
-        Ok(Some(bytes)) => match rmpv::decode::read_value(&mut &bytes[..]) {
-            Ok(rmpv::Value::String(s)) => match s.as_str() {
-                Some(path) => Some(path.to_string()),
-                None => {
-                    throw_module_error(scope, "invalid UTF-8 in resolved module path");
+        Ok(Some(bytes)) => match deserialize_v8_value(scope, &bytes) {
+            Ok(val) => {
+                if val.is_string() {
+                    Some(val.to_rust_string_lossy(scope))
+                } else {
+                    throw_module_error(
+                        scope,
+                        &format!("_resolveModule returned non-string for '{}'", specifier),
+                    );
                     None
                 }
-            },
-            Ok(_) => {
-                throw_module_error(
-                    scope,
-                    &format!("_resolveModule returned non-string for '{}'", specifier),
-                );
-                None
             }
             Err(e) => {
                 throw_module_error(scope, &format!("_resolveModule decode error: {}", e));
@@ -659,28 +737,30 @@ fn load_module_via_ipc(
     ctx: &BridgeCallContext,
     resolved_path: &str,
 ) -> Option<String> {
-    let mut args = Vec::new();
-    rmpv::encode::write_value(
-        &mut args,
-        &rmpv::Value::Array(vec![rmpv::Value::String(resolved_path.into())]),
-    )
-    .unwrap();
+    // Serialize [resolved_path] as V8 Array
+    let path_v8 = v8::String::new(scope, resolved_path).unwrap();
+    let arr = v8::Array::new(scope, 1);
+    arr.set_index(scope, 0, path_v8.into());
+    let args = match serialize_v8_value(scope, arr.into()) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            throw_module_error(scope, &format!("_loadFile serialize error: {}", e));
+            return None;
+        }
+    };
 
     match ctx.sync_call("_loadFile", args) {
-        Ok(Some(bytes)) => match rmpv::decode::read_value(&mut &bytes[..]) {
-            Ok(rmpv::Value::String(s)) => match s.as_str() {
-                Some(src) => Some(src.to_string()),
-                None => {
-                    throw_module_error(scope, "invalid UTF-8 in module source");
+        Ok(Some(bytes)) => match deserialize_v8_value(scope, &bytes) {
+            Ok(val) => {
+                if val.is_string() {
+                    Some(val.to_rust_string_lossy(scope))
+                } else {
+                    throw_module_error(
+                        scope,
+                        &format!("_loadFile returned non-string for '{}'", resolved_path),
+                    );
                     None
                 }
-            },
-            Ok(_) => {
-                throw_module_error(
-                    scope,
-                    &format!("_loadFile returned non-string for '{}'", resolved_path),
-                );
-                None
             }
             Err(e) => {
                 throw_module_error(scope, &format!("_loadFile decode error: {}", e));
@@ -712,7 +792,6 @@ mod tests {
     use crate::host_call::BridgeCallContext;
     use crate::isolate;
     use std::collections::HashMap;
-use std::num::NonZeroI32;
     use std::io::{Cursor, Write};
     use std::sync::{Arc, Mutex};
 
@@ -726,6 +805,44 @@ use std::num::NonZeroI32;
         fn flush(&mut self) -> std::io::Result<()> {
             self.0.lock().unwrap().flush()
         }
+    }
+
+    /// Helper: serialize a V8 string value for test BridgeResponse payloads
+    fn v8_serialize_str(iso: &mut v8::OwnedIsolate, ctx: &v8::Global<v8::Context>, s: &str) -> Vec<u8> {
+        let scope = &mut v8::HandleScope::new(iso);
+        let local = v8::Local::new(scope, ctx);
+        let scope = &mut v8::ContextScope::new(scope, local);
+        let val = v8::String::new(scope, s).unwrap();
+        crate::bridge::serialize_v8_value(scope, val.into()).unwrap()
+    }
+
+    /// Helper: serialize a V8 integer value for test BridgeResponse payloads
+    fn v8_serialize_int(iso: &mut v8::OwnedIsolate, ctx: &v8::Global<v8::Context>, n: i64) -> Vec<u8> {
+        let scope = &mut v8::HandleScope::new(iso);
+        let local = v8::Local::new(scope, ctx);
+        let scope = &mut v8::ContextScope::new(scope, local);
+        let val = v8::Number::new(scope, n as f64);
+        crate::bridge::serialize_v8_value(scope, val.into()).unwrap()
+    }
+
+    /// Helper: serialize a V8 null value for test BridgeResponse payloads
+    fn v8_serialize_null(iso: &mut v8::OwnedIsolate, ctx: &v8::Global<v8::Context>) -> Vec<u8> {
+        let scope = &mut v8::HandleScope::new(iso);
+        let local = v8::Local::new(scope, ctx);
+        let scope = &mut v8::ContextScope::new(scope, local);
+        let val = v8::null(scope);
+        crate::bridge::serialize_v8_value(scope, val.into()).unwrap()
+    }
+
+    /// Helper: serialize a V8 object (from JS expression) for test BridgeResponse payloads
+    fn v8_serialize_eval(iso: &mut v8::OwnedIsolate, ctx: &v8::Global<v8::Context>, expr: &str) -> Vec<u8> {
+        let scope = &mut v8::HandleScope::new(iso);
+        let local = v8::Local::new(scope, ctx);
+        let scope = &mut v8::ContextScope::new(scope, local);
+        let source = v8::String::new(scope, expr).unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        let val = script.run(scope).unwrap();
+        crate::bridge::serialize_v8_value(scope, val).unwrap()
     }
 
     /// Enter a context, run JS, return the string result.
@@ -1060,20 +1177,16 @@ use std::num::NonZeroI32;
             let ctx = isolate::create_context(&mut iso);
 
             // Prepare BridgeResponse: call_id=1, result="hello world"
-            let mut result_msgpack = Vec::new();
-            rmpv::encode::write_value(
-                &mut result_msgpack,
-                &rmpv::Value::String("hello world".into()),
-            )
-            .unwrap();
+            let result_v8 = v8_serialize_str(&mut iso, &ctx, "hello world");
 
             let mut response_buf = Vec::new();
-            crate::ipc::write_message(
+            crate::ipc_binary::write_frame(
                 &mut response_buf,
-                &crate::ipc::HostMessage::BridgeResponse {
+                &crate::ipc_binary::BinaryFrame::BridgeResponse {
+                    session_id: String::new(),
                     call_id: 1,
-                    result: Some(result_msgpack),
-                    error: None,
+                    status: 0,
+                    payload: result_v8,
                 },
             )
             .unwrap();
@@ -1105,12 +1218,13 @@ use std::num::NonZeroI32;
             let ctx = isolate::create_context(&mut iso);
 
             let mut response_buf = Vec::new();
-            crate::ipc::write_message(
+            crate::ipc_binary::write_frame(
                 &mut response_buf,
-                &crate::ipc::HostMessage::BridgeResponse {
+                &crate::ipc_binary::BinaryFrame::BridgeResponse {
+                    session_id: String::new(),
                     call_id: 1,
-                    result: None,
-                    error: Some("ENOENT: file not found".into()),
+                    status: 1,
+                    payload: "ENOENT: file not found".as_bytes().to_vec(),
                 },
             )
             .unwrap();
@@ -1142,35 +1256,27 @@ use std::num::NonZeroI32;
             let ctx = isolate::create_context(&mut iso);
 
             // Prepare two BridgeResponses (call_id=1 for _fn1, call_id=2 for _fn2)
-            let mut r1_bytes = Vec::new();
-            rmpv::encode::write_value(
-                &mut r1_bytes,
-                &rmpv::Value::String("result-one".into()),
-            )
-            .unwrap();
-            let mut r2_bytes = Vec::new();
-            rmpv::encode::write_value(
-                &mut r2_bytes,
-                &rmpv::Value::Integer(rmpv::Integer::from(42i64)),
-            )
-            .unwrap();
+            let r1_bytes = v8_serialize_str(&mut iso, &ctx, "result-one");
+            let r2_bytes = v8_serialize_int(&mut iso, &ctx, 42);
 
             let mut response_buf = Vec::new();
-            crate::ipc::write_message(
+            crate::ipc_binary::write_frame(
                 &mut response_buf,
-                &crate::ipc::HostMessage::BridgeResponse {
+                &crate::ipc_binary::BinaryFrame::BridgeResponse {
+                    session_id: String::new(),
                     call_id: 1,
-                    result: Some(r1_bytes),
-                    error: None,
+                    status: 0,
+                    payload: r1_bytes,
                 },
             )
             .unwrap();
-            crate::ipc::write_message(
+            crate::ipc_binary::write_frame(
                 &mut response_buf,
-                &crate::ipc::HostMessage::BridgeResponse {
+                &crate::ipc_binary::BinaryFrame::BridgeResponse {
+                    session_id: String::new(),
                     call_id: 2,
-                    result: Some(r2_bytes),
-                    error: None,
+                    status: 0,
+                    payload: r2_bytes,
                 },
             )
             .unwrap();
@@ -1203,12 +1309,13 @@ use std::num::NonZeroI32;
             let ctx = isolate::create_context(&mut iso);
 
             let mut response_buf = Vec::new();
-            crate::ipc::write_message(
+            crate::ipc_binary::write_frame(
                 &mut response_buf,
-                &crate::ipc::HostMessage::BridgeResponse {
+                &crate::ipc_binary::BinaryFrame::BridgeResponse {
+                    session_id: String::new(),
                     call_id: 1,
-                    result: None,
-                    error: None,
+                    status: 0,
+                    payload: vec![],
                 },
             )
             .unwrap();
@@ -1270,10 +1377,9 @@ use std::num::NonZeroI32;
             // Verify a BridgeCall was sent
             {
                 let written = writer_buf.lock().unwrap();
-                let call: crate::ipc::RustMessage =
-                    crate::ipc::read_message(&mut Cursor::new(&*written)).unwrap();
+                let call = crate::ipc_binary::read_frame(&mut Cursor::new(&*written)).unwrap();
                 match call {
-                    crate::ipc::RustMessage::BridgeCall {
+                    crate::ipc_binary::BinaryFrame::BridgeCall {
                         call_id, method, ..
                     } => {
                         assert_eq!(call_id, 1);
@@ -1288,12 +1394,7 @@ use std::num::NonZeroI32;
             assert!(eval_bool(&mut iso, &ctx, "_promise instanceof Promise"));
 
             // Resolve the promise
-            let mut result_msgpack = Vec::new();
-            rmpv::encode::write_value(
-                &mut result_msgpack,
-                &rmpv::Value::String("async result".into()),
-            )
-            .unwrap();
+            let result_v8 = v8_serialize_str(&mut iso, &ctx, "async result");
 
             {
                 let scope = &mut v8::HandleScope::new(&mut iso);
@@ -1303,7 +1404,7 @@ use std::num::NonZeroI32;
                     scope,
                     &pending,
                     1,
-                    Some(result_msgpack),
+                    Some(result_v8),
                     None,
                 )
                 .unwrap();
@@ -1427,12 +1528,7 @@ use std::num::NonZeroI32;
             assert_eq!(pending.len(), 2);
 
             // Resolve in reverse order (p2 first, then p1)
-            let mut r2 = Vec::new();
-            rmpv::encode::write_value(
-                &mut r2,
-                &rmpv::Value::String("dns-result".into()),
-            )
-            .unwrap();
+            let r2 = v8_serialize_str(&mut iso, &ctx, "dns-result");
             {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
@@ -1442,12 +1538,7 @@ use std::num::NonZeroI32;
             }
             assert_eq!(pending.len(), 1);
 
-            let mut r1 = Vec::new();
-            rmpv::encode::write_value(
-                &mut r1,
-                &rmpv::Value::String("fetch-result".into()),
-            )
-            .unwrap();
+            let r1 = v8_serialize_str(&mut iso, &ctx, "fetch-result");
             {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
@@ -1758,17 +1849,18 @@ use std::num::NonZeroI32;
             assert_eq!(code, 0);
             assert!(error.is_none());
             let exports = exports.unwrap();
-            let val: rmpv::Value =
-                rmpv::decode::read_value(&mut &exports[..]).unwrap();
-            let map = val.as_map().unwrap();
-            let find = |key: &str| -> rmpv::Value {
-                map.iter()
-                    .find(|(k, _)| k.as_str() == Some(key))
-                    .map(|(_, v)| v.clone())
-                    .unwrap()
-            };
-            assert_eq!(find("x").as_u64(), Some(42));
-            assert_eq!(find("msg").as_str(), Some("hello"));
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                let val = crate::bridge::deserialize_v8_value(scope, &exports).unwrap();
+                assert!(val.is_object());
+                let obj = v8::Local::<v8::Object>::try_from(val).unwrap();
+                let k = v8::String::new(scope, "x").unwrap();
+                assert_eq!(obj.get(scope, k.into()).unwrap().int32_value(scope).unwrap(), 42);
+                let k = v8::String::new(scope, "msg").unwrap();
+                assert_eq!(obj.get(scope, k.into()).unwrap().to_rust_string_lossy(scope), "hello");
+            }
         }
 
         // --- Part 26: ESM — default export ---
@@ -1792,15 +1884,16 @@ use std::num::NonZeroI32;
             assert_eq!(code, 0);
             assert!(error.is_none());
             let exports = exports.unwrap();
-            let val: rmpv::Value =
-                rmpv::decode::read_value(&mut &exports[..]).unwrap();
-            let map = val.as_map().unwrap();
-            let default_val = map
-                .iter()
-                .find(|(k, _)| k.as_str() == Some("default"))
-                .map(|(_, v)| v)
-                .unwrap();
-            assert_eq!(default_val.as_str(), Some("world"));
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                let val = crate::bridge::deserialize_v8_value(scope, &exports).unwrap();
+                assert!(val.is_object());
+                let obj = v8::Local::<v8::Object>::try_from(val).unwrap();
+                let k = v8::String::new(scope, "default").unwrap();
+                assert_eq!(obj.get(scope, k.into()).unwrap().to_rust_string_lossy(scope), "world");
+            }
         }
 
         // --- Part 27: ESM — SyntaxError ---
@@ -1878,15 +1971,16 @@ use std::num::NonZeroI32;
             assert_eq!(code, 0);
             assert!(error.is_none());
             let exports = exports.unwrap();
-            let val: rmpv::Value =
-                rmpv::decode::read_value(&mut &exports[..]).unwrap();
-            let map = val.as_map().unwrap();
-            let saw_val = map
-                .iter()
-                .find(|(k, _)| k.as_str() == Some("saw"))
-                .map(|(_, v)| v)
-                .unwrap();
-            assert_eq!(saw_val.as_bool(), Some(true));
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                let val = crate::bridge::deserialize_v8_value(scope, &exports).unwrap();
+                assert!(val.is_object());
+                let obj = v8::Local::<v8::Object>::try_from(val).unwrap();
+                let k = v8::String::new(scope, "saw").unwrap();
+                assert!(obj.get(scope, k.into()).unwrap().is_true());
+            }
         }
 
         // --- Part 30: ESM — import from dependency via resolve callback ---
@@ -1898,35 +1992,27 @@ use std::num::NonZeroI32;
             let mut response_buf = Vec::new();
 
             // Response 1: _resolveModule returns "/dep.mjs"
-            let mut resolve_result = Vec::new();
-            rmpv::encode::write_value(
-                &mut resolve_result,
-                &rmpv::Value::String("/dep.mjs".into()),
-            )
-            .unwrap();
-            crate::ipc::write_message(
+            let resolve_result = v8_serialize_str(&mut iso, &ctx, "/dep.mjs");
+            crate::ipc_binary::write_frame(
                 &mut response_buf,
-                &crate::ipc::HostMessage::BridgeResponse {
+                &crate::ipc_binary::BinaryFrame::BridgeResponse {
+                    session_id: String::new(),
                     call_id: 1,
-                    result: Some(resolve_result),
-                    error: None,
+                    status: 0,
+                    payload: resolve_result,
                 },
             )
             .unwrap();
 
             // Response 2: _loadFile returns the dependency source
-            let mut load_result = Vec::new();
-            rmpv::encode::write_value(
-                &mut load_result,
-                &rmpv::Value::String("export const dep_val = 99;".into()),
-            )
-            .unwrap();
-            crate::ipc::write_message(
+            let load_result = v8_serialize_str(&mut iso, &ctx, "export const dep_val = 99;");
+            crate::ipc_binary::write_frame(
                 &mut response_buf,
-                &crate::ipc::HostMessage::BridgeResponse {
+                &crate::ipc_binary::BinaryFrame::BridgeResponse {
+                    session_id: String::new(),
                     call_id: 2,
-                    result: Some(load_result),
-                    error: None,
+                    status: 0,
+                    payload: load_result,
                 },
             )
             .unwrap();
@@ -1955,15 +2041,16 @@ use std::num::NonZeroI32;
             assert_eq!(code, 0, "error: {:?}", error);
             assert!(error.is_none());
             let exports = exports.unwrap();
-            let val: rmpv::Value =
-                rmpv::decode::read_value(&mut &exports[..]).unwrap();
-            let map = val.as_map().unwrap();
-            let result_val = map
-                .iter()
-                .find(|(k, _)| k.as_str() == Some("result"))
-                .map(|(_, v)| v)
-                .unwrap();
-            assert_eq!(result_val.as_u64(), Some(100));
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                let val = crate::bridge::deserialize_v8_value(scope, &exports).unwrap();
+                assert!(val.is_object());
+                let obj = v8::Local::<v8::Object>::try_from(val).unwrap();
+                let k = v8::String::new(scope, "result").unwrap();
+                assert_eq!(obj.get(scope, k.into()).unwrap().int32_value(scope).unwrap(), 100);
+            }
         }
 
         // --- Part 31: Event loop — BridgeResponse resolves pending promise ---
@@ -2003,17 +2090,13 @@ use std::num::NonZeroI32;
 
             // Create channel and send BridgeResponse
             let (tx, rx) = crossbeam_channel::unbounded();
-            let mut result_msgpack = Vec::new();
-            rmpv::encode::write_value(
-                &mut result_msgpack,
-                &rmpv::Value::String("event-loop-resolved".into()),
-            )
-            .unwrap();
+            let result_v8 = v8_serialize_str(&mut iso, &ctx, "event-loop-resolved");
             tx.send(crate::session::SessionCommand::Message(
-                crate::ipc::HostMessage::BridgeResponse {
+                crate::ipc_binary::BinaryFrame::BridgeResponse {
+                    session_id: String::new(),
                     call_id: 1,
-                    result: Some(result_msgpack),
-                    error: None,
+                    status: 0,
+                    payload: result_v8,
                 },
             ))
             .unwrap();
@@ -2069,23 +2152,23 @@ use std::num::NonZeroI32;
             // Create channel and send both responses
             let (tx, rx) = crossbeam_channel::unbounded();
             // Resolve in reverse order
-            let mut r2 = Vec::new();
-            rmpv::encode::write_value(&mut r2, &rmpv::Value::String("dns-result".into())).unwrap();
+            let r2 = v8_serialize_str(&mut iso, &ctx, "dns-result");
             tx.send(crate::session::SessionCommand::Message(
-                crate::ipc::HostMessage::BridgeResponse {
+                crate::ipc_binary::BinaryFrame::BridgeResponse {
+                    session_id: String::new(),
                     call_id: 2,
-                    result: Some(r2),
-                    error: None,
+                    status: 0,
+                    payload: r2,
                 },
             ))
             .unwrap();
-            let mut r1 = Vec::new();
-            rmpv::encode::write_value(&mut r1, &rmpv::Value::String("fetch-result".into())).unwrap();
+            let r1 = v8_serialize_str(&mut iso, &ctx, "fetch-result");
             tx.send(crate::session::SessionCommand::Message(
-                crate::ipc::HostMessage::BridgeResponse {
+                crate::ipc_binary::BinaryFrame::BridgeResponse {
+                    session_id: String::new(),
                     call_id: 1,
-                    result: Some(r1),
-                    error: None,
+                    status: 0,
+                    payload: r1,
                 },
             ))
             .unwrap();
@@ -2134,7 +2217,7 @@ use std::num::NonZeroI32;
             // Send TerminateExecution
             let (tx, rx) = crossbeam_channel::unbounded();
             tx.send(crate::session::SessionCommand::Message(
-                crate::ipc::HostMessage::TerminateExecution {
+                crate::ipc_binary::BinaryFrame::TerminateExecution {
                     session_id: "test-session".into(),
                 },
             ))
@@ -2256,16 +2339,11 @@ use std::num::NonZeroI32;
             // Send StreamEvent followed by BridgeResponse
             let (tx, rx) = crossbeam_channel::unbounded();
 
-            // Encode payload as MessagePack string
-            let mut payload_bytes = Vec::new();
-            rmpv::encode::write_value(
-                &mut payload_bytes,
-                &rmpv::Value::String("hello from child".into()),
-            )
-            .unwrap();
+            // Encode payload as V8-serialized string
+            let payload_bytes = v8_serialize_str(&mut iso, &ctx, "hello from child");
 
             tx.send(crate::session::SessionCommand::Message(
-                crate::ipc::HostMessage::StreamEvent {
+                crate::ipc_binary::BinaryFrame::StreamEvent {
                     session_id: "test-session".into(),
                     event_type: "child_stdout".into(),
                     payload: payload_bytes,
@@ -2274,13 +2352,13 @@ use std::num::NonZeroI32;
             .unwrap();
 
             // Resolve the pending promise to exit the event loop
-            let mut r = Vec::new();
-            rmpv::encode::write_value(&mut r, &rmpv::Value::Nil).unwrap();
+            let r = v8_serialize_null(&mut iso, &ctx);
             tx.send(crate::session::SessionCommand::Message(
-                crate::ipc::HostMessage::BridgeResponse {
+                crate::ipc_binary::BinaryFrame::BridgeResponse {
+                    session_id: String::new(),
                     call_id: 1,
-                    result: Some(r),
-                    error: None,
+                    status: 0,
+                    payload: r,
                 },
             ))
             .unwrap();
@@ -2339,13 +2417,13 @@ use std::num::NonZeroI32;
             assert!(eval_bool(&mut iso, &ctx, "_microtaskRan === false"));
 
             let (tx, rx) = crossbeam_channel::unbounded();
-            let mut r = Vec::new();
-            rmpv::encode::write_value(&mut r, &rmpv::Value::Nil).unwrap();
+            let r = v8_serialize_null(&mut iso, &ctx);
             tx.send(crate::session::SessionCommand::Message(
-                crate::ipc::HostMessage::BridgeResponse {
+                crate::ipc_binary::BinaryFrame::BridgeResponse {
+                    session_id: String::new(),
                     call_id: 1,
-                    result: Some(r),
-                    error: None,
+                    status: 0,
+                    payload: r,
                 },
             ))
             .unwrap();
@@ -2401,14 +2479,9 @@ use std::num::NonZeroI32;
             let (tx, rx) = crossbeam_channel::unbounded();
 
             // Send child_stderr event
-            let mut stderr_payload = Vec::new();
-            rmpv::encode::write_value(
-                &mut stderr_payload,
-                &rmpv::Value::String("error output".into()),
-            )
-            .unwrap();
+            let stderr_payload = v8_serialize_str(&mut iso, &ctx, "error output");
             tx.send(crate::session::SessionCommand::Message(
-                crate::ipc::HostMessage::StreamEvent {
+                crate::ipc_binary::BinaryFrame::StreamEvent {
                     session_id: "test-session".into(),
                     event_type: "child_stderr".into(),
                     payload: stderr_payload,
@@ -2417,14 +2490,9 @@ use std::num::NonZeroI32;
             .unwrap();
 
             // Send child_exit event with exit code
-            let mut exit_payload = Vec::new();
-            rmpv::encode::write_value(
-                &mut exit_payload,
-                &rmpv::Value::Integer(rmpv::Integer::from(1i64)),
-            )
-            .unwrap();
+            let exit_payload = v8_serialize_int(&mut iso, &ctx, 1);
             tx.send(crate::session::SessionCommand::Message(
-                crate::ipc::HostMessage::StreamEvent {
+                crate::ipc_binary::BinaryFrame::StreamEvent {
                     session_id: "test-session".into(),
                     event_type: "child_exit".into(),
                     payload: exit_payload,
@@ -2433,13 +2501,13 @@ use std::num::NonZeroI32;
             .unwrap();
 
             // Resolve the pending promise to exit the event loop
-            let mut r = Vec::new();
-            rmpv::encode::write_value(&mut r, &rmpv::Value::Nil).unwrap();
+            let r = v8_serialize_null(&mut iso, &ctx);
             tx.send(crate::session::SessionCommand::Message(
-                crate::ipc::HostMessage::BridgeResponse {
+                crate::ipc_binary::BinaryFrame::BridgeResponse {
+                    session_id: String::new(),
                     call_id: 1,
-                    result: Some(r),
-                    error: None,
+                    status: 0,
+                    payload: r,
                 },
             ))
             .unwrap();
@@ -2499,23 +2567,9 @@ use std::num::NonZeroI32;
             let (tx, rx) = crossbeam_channel::unbounded();
 
             // Send http_request event with request data
-            let mut http_payload = Vec::new();
-            rmpv::encode::write_value(
-                &mut http_payload,
-                &rmpv::Value::Map(vec![
-                    (
-                        rmpv::Value::String("method".into()),
-                        rmpv::Value::String("GET".into()),
-                    ),
-                    (
-                        rmpv::Value::String("url".into()),
-                        rmpv::Value::String("/api/test".into()),
-                    ),
-                ]),
-            )
-            .unwrap();
+            let http_payload = v8_serialize_eval(&mut iso, &ctx, "({method: 'GET', url: '/api/test'})");
             tx.send(crate::session::SessionCommand::Message(
-                crate::ipc::HostMessage::StreamEvent {
+                crate::ipc_binary::BinaryFrame::StreamEvent {
                     session_id: "test-session".into(),
                     event_type: "http_request".into(),
                     payload: http_payload,
@@ -2524,13 +2578,13 @@ use std::num::NonZeroI32;
             .unwrap();
 
             // Resolve the pending promise to exit the event loop
-            let mut r = Vec::new();
-            rmpv::encode::write_value(&mut r, &rmpv::Value::Nil).unwrap();
+            let r = v8_serialize_null(&mut iso, &ctx);
             tx.send(crate::session::SessionCommand::Message(
-                crate::ipc::HostMessage::BridgeResponse {
+                crate::ipc_binary::BinaryFrame::BridgeResponse {
+                    session_id: String::new(),
                     call_id: 1,
-                    result: Some(r),
-                    error: None,
+                    status: 0,
+                    payload: r,
                 },
             ))
             .unwrap();
@@ -2587,10 +2641,9 @@ use std::num::NonZeroI32;
             let (tx, rx) = crossbeam_channel::unbounded();
 
             // Send unknown event type
-            let mut payload = Vec::new();
-            rmpv::encode::write_value(&mut payload, &rmpv::Value::Nil).unwrap();
+            let payload = v8_serialize_null(&mut iso, &ctx);
             tx.send(crate::session::SessionCommand::Message(
-                crate::ipc::HostMessage::StreamEvent {
+                crate::ipc_binary::BinaryFrame::StreamEvent {
                     session_id: "test-session".into(),
                     event_type: "unknown_event".into(),
                     payload,
@@ -2599,13 +2652,13 @@ use std::num::NonZeroI32;
             .unwrap();
 
             // Resolve pending promise to exit loop
-            let mut r = Vec::new();
-            rmpv::encode::write_value(&mut r, &rmpv::Value::Nil).unwrap();
+            let r = v8_serialize_null(&mut iso, &ctx);
             tx.send(crate::session::SessionCommand::Message(
-                crate::ipc::HostMessage::BridgeResponse {
+                crate::ipc_binary::BinaryFrame::BridgeResponse {
+                    session_id: String::new(),
                     call_id: 1,
-                    result: Some(r),
-                    error: None,
+                    status: 0,
+                    payload: r,
                 },
             ))
             .unwrap();
@@ -2654,10 +2707,9 @@ use std::num::NonZeroI32;
             let (tx, rx) = crossbeam_channel::unbounded();
 
             // Send child_stdout without _childProcessDispatch registered
-            let mut payload = Vec::new();
-            rmpv::encode::write_value(&mut payload, &rmpv::Value::String("data".into())).unwrap();
+            let payload = v8_serialize_str(&mut iso, &ctx, "data");
             tx.send(crate::session::SessionCommand::Message(
-                crate::ipc::HostMessage::StreamEvent {
+                crate::ipc_binary::BinaryFrame::StreamEvent {
                     session_id: "test-session".into(),
                     event_type: "child_stdout".into(),
                     payload,
@@ -2666,13 +2718,13 @@ use std::num::NonZeroI32;
             .unwrap();
 
             // Resolve pending promise
-            let mut r = Vec::new();
-            rmpv::encode::write_value(&mut r, &rmpv::Value::Nil).unwrap();
+            let r = v8_serialize_null(&mut iso, &ctx);
             tx.send(crate::session::SessionCommand::Message(
-                crate::ipc::HostMessage::BridgeResponse {
+                crate::ipc_binary::BinaryFrame::BridgeResponse {
+                    session_id: String::new(),
                     call_id: 1,
-                    result: Some(r),
-                    error: None,
+                    status: 0,
+                    payload: r,
                 },
             ))
             .unwrap();
@@ -2727,10 +2779,9 @@ use std::num::NonZeroI32;
 
             let (tx, rx) = crossbeam_channel::unbounded();
 
-            let mut payload = Vec::new();
-            rmpv::encode::write_value(&mut payload, &rmpv::Value::String("data".into())).unwrap();
+            let payload = v8_serialize_str(&mut iso, &ctx, "data");
             tx.send(crate::session::SessionCommand::Message(
-                crate::ipc::HostMessage::StreamEvent {
+                crate::ipc_binary::BinaryFrame::StreamEvent {
                     session_id: "test-session".into(),
                     event_type: "child_stdout".into(),
                     payload,
@@ -2739,13 +2790,13 @@ use std::num::NonZeroI32;
             .unwrap();
 
             // Resolve pending promise
-            let mut r = Vec::new();
-            rmpv::encode::write_value(&mut r, &rmpv::Value::Nil).unwrap();
+            let r = v8_serialize_null(&mut iso, &ctx);
             tx.send(crate::session::SessionCommand::Message(
-                crate::ipc::HostMessage::BridgeResponse {
+                crate::ipc_binary::BinaryFrame::BridgeResponse {
+                    session_id: String::new(),
                     call_id: 1,
-                    result: Some(r),
-                    error: None,
+                    status: 0,
+                    payload: r,
                 },
             ))
             .unwrap();

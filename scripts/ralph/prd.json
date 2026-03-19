@@ -617,8 +617,8 @@
         "Tests pass"
       ],
       "priority": 37,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Switched both Rust and JS sides simultaneously to binary header wire format (ipc_binary) and V8 ValueSerializer for payloads. Uint8Array results use status=2 raw binary to avoid V8 typed array format incompatibility across V8 versions (13.0 vs 13.6). Module namespace exports copied to plain object before serialization (V8 exotic object limitation)."
     },
     {
       "id": "US-038",

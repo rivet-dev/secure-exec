@@ -8,11 +8,11 @@ use std::thread;
 use crossbeam_channel::{Receiver, Sender};
 
 use crate::host_call::CallIdRouter;
-use crate::ipc::HostMessage;
+use crate::ipc_binary::BinaryFrame;
 #[cfg(not(test))]
 use crate::host_call::BridgeCallContext;
 #[cfg(not(test))]
-use crate::ipc::{self, ExecuteMode, RustMessage};
+use crate::ipc_binary::{self, ExecutionErrorBin};
 #[cfg(not(test))]
 use crate::{bridge, execution, isolate, stream};
 
@@ -20,8 +20,8 @@ use crate::{bridge, execution, isolate, stream};
 pub enum SessionCommand {
     /// Shut down the session and destroy the isolate
     Shutdown,
-    /// Forward a host message to the session for processing
-    Message(HostMessage),
+    /// Forward a binary frame to the session for processing
+    Message(BinaryFrame),
 }
 
 /// Shared IPC writer for outgoing messages to the host.
@@ -145,7 +145,7 @@ impl SessionManager {
         &self,
         session_id: &str,
         connection_id: u64,
-        msg: HostMessage,
+        msg: BinaryFrame,
     ) -> Result<(), String> {
         let entry = self
             .sessions
@@ -204,11 +204,11 @@ impl SessionManager {
     }
 }
 
-/// Write a RustMessage to the shared IPC writer.
+/// Write a BinaryFrame to the shared IPC writer.
 #[cfg(not(test))]
-fn send_message(writer: &SharedWriter, msg: &RustMessage) {
+fn send_message(writer: &SharedWriter, frame: &BinaryFrame) {
     let mut w = writer.lock().unwrap();
-    if let Err(e) = ipc::write_message(&mut *w, msg) {
+    if let Err(e) = ipc_binary::write_frame(&mut *w, frame) {
         eprintln!("failed to write IPC message: {}", e);
     }
 }
@@ -249,11 +249,9 @@ fn session_thread(
     #[cfg(not(test))]
     let pending = bridge::PendingPromises::new();
 
-    // Store latest InjectGlobals config for re-injection into fresh contexts
+    // Store latest InjectGlobals V8 payload for re-injection into fresh contexts
     #[cfg(not(test))]
-    let mut last_process_config: Option<ipc::ProcessConfig> = None;
-    #[cfg(not(test))]
-    let mut last_os_config: Option<ipc::OsConfig> = None;
+    let mut last_globals_payload: Option<Vec<u8>> = None;
 
     // Process commands until shutdown or channel close
     loop {
@@ -262,16 +260,14 @@ fn session_thread(
             Ok(SessionCommand::Message(_msg)) => {
                 #[cfg(not(test))]
                 match _msg {
-                    HostMessage::InjectGlobals {
-                        process_config,
-                        os_config,
+                    BinaryFrame::InjectGlobals {
+                        payload,
                         ..
                     } => {
-                        // Store config for injection into fresh context at Execute time
-                        last_process_config = Some(process_config);
-                        last_os_config = Some(os_config);
+                        // Store V8-serialized config for injection into fresh context at Execute time
+                        last_globals_payload = Some(payload);
                     }
-                    HostMessage::Execute {
+                    BinaryFrame::Execute {
                         session_id,
                         bridge_code,
                         user_code,
@@ -281,12 +277,12 @@ fn session_thread(
                         // Create a fresh V8 context per execution (clean global scope)
                         let exec_context = isolate::create_context(&mut v8_isolate);
 
-                        // Inject globals from last InjectGlobals into the fresh context
-                        if let (Some(ref pc), Some(ref oc)) = (&last_process_config, &last_os_config) {
+                        // Inject globals from last InjectGlobals payload into the fresh context
+                        if let Some(ref payload) = last_globals_payload {
                             let scope = &mut v8::HandleScope::new(&mut v8_isolate);
                             let ctx = v8::Local::new(scope, &exec_context);
                             let scope = &mut v8::ContextScope::new(scope, ctx);
-                            execution::inject_globals(scope, pc, oc);
+                            execution::inject_globals_from_payload(scope, payload);
                         }
 
                         // Create abort channel for timeout enforcement
@@ -341,7 +337,8 @@ fn session_thread(
                         };
 
                         // Execute code (fresh context per execution)
-                        let (code, exports, error) = if mode == ExecuteMode::Exec {
+                        let file_path_opt = if file_path.is_empty() { None } else { Some(file_path.as_str()) };
+                        let (code, exports, error) = if mode == 0 {
                             let scope = &mut v8::HandleScope::new(&mut v8_isolate);
                             let ctx = v8::Local::new(scope, &exec_context);
                             let scope = &mut v8::ContextScope::new(scope, ctx);
@@ -357,7 +354,7 @@ fn session_thread(
                                 &bridge_ctx,
                                 &bridge_code,
                                 &user_code,
-                                file_path.as_deref(),
+                                file_path_opt,
                             )
                         };
 
@@ -381,40 +378,45 @@ fn session_thread(
                         drop(timeout_guard);
 
                         // Send ExecutionResult
-                        let result_msg = if timed_out {
-                            RustMessage::ExecutionResult {
+                        let result_frame = if timed_out {
+                            BinaryFrame::ExecutionResult {
                                 session_id,
-                                code: 1,
+                                exit_code: 1,
                                 exports: None,
-                                error: Some(ipc::ExecutionError {
+                                error: Some(ExecutionErrorBin {
                                     error_type: "Error".into(),
                                     message: "Script execution timed out".into(),
                                     stack: String::new(),
-                                    code: Some("ERR_SCRIPT_EXECUTION_TIMEOUT".into()),
+                                    code: "ERR_SCRIPT_EXECUTION_TIMEOUT".into(),
                                 }),
                             }
                         } else if terminated {
-                            RustMessage::ExecutionResult {
+                            BinaryFrame::ExecutionResult {
                                 session_id,
-                                code: 1,
+                                exit_code: 1,
                                 exports: None,
-                                error: Some(ipc::ExecutionError {
+                                error: Some(ExecutionErrorBin {
                                     error_type: "Error".into(),
                                     message: "Execution terminated".into(),
                                     stack: String::new(),
-                                    code: None,
+                                    code: String::new(),
                                 }),
                             }
                         } else {
-                            RustMessage::ExecutionResult {
+                            BinaryFrame::ExecutionResult {
                                 session_id,
-                                code,
+                                exit_code: code,
                                 exports,
-                                error,
+                                error: error.map(|e| ExecutionErrorBin {
+                                    error_type: e.error_type,
+                                    message: e.message,
+                                    stack: e.stack,
+                                    code: e.code.unwrap_or_default(),
+                                }),
                             }
                         };
 
-                        send_message(&writer, &result_msg);
+                        send_message(&writer, &result_frame);
                     }
                     _ => {
                         // Other messages handled in later stories
@@ -538,18 +540,27 @@ pub(crate) fn run_event_loop(
         };
 
         match cmd {
-            SessionCommand::Message(msg) => match msg {
-                HostMessage::BridgeResponse {
+            SessionCommand::Message(frame) => match frame {
+                BinaryFrame::BridgeResponse {
                     call_id,
-                    result,
-                    error,
+                    status,
+                    payload,
+                    ..
                 } => {
+                    let (result, error) = if status == 1 {
+                        (None, Some(String::from_utf8_lossy(&payload).to_string()))
+                    } else if !payload.is_empty() {
+                        // status=0: V8-serialized, status=2: raw binary (Uint8Array)
+                        (Some(payload), None)
+                    } else {
+                        (None, None)
+                    };
                     let _ = crate::bridge::resolve_pending_promise(
                         scope, pending, call_id, result, error,
                     );
                     // Microtasks already flushed in resolve_pending_promise
                 }
-                HostMessage::StreamEvent {
+                BinaryFrame::StreamEvent {
                     event_type,
                     payload,
                     ..
@@ -557,7 +568,7 @@ pub(crate) fn run_event_loop(
                     crate::stream::dispatch_stream_event(scope, &event_type, &payload);
                     scope.perform_microtask_checkpoint();
                 }
-                HostMessage::TerminateExecution { .. } => {
+                BinaryFrame::TerminateExecution { .. } => {
                     scope.terminate_execution();
                     return false;
                 }
@@ -664,11 +675,11 @@ impl std::io::Read for ChannelMessageReader {
         };
 
         match cmd {
-            SessionCommand::Message(msg) => {
+            SessionCommand::Message(frame) => {
                 self.buf.clear();
                 self.pos = 0;
-                // Serialize the HostMessage with length-prefixed framing
-                ipc::write_message(&mut self.buf, &msg)?;
+                // Serialize the BinaryFrame with length-prefixed framing
+                ipc_binary::write_frame(&mut self.buf, &frame)?;
                 // Serve from buffer
                 let n = std::cmp::min(output.len(), self.buf.len());
                 output[..n].copy_from_slice(&self.buf[..n]);
@@ -742,7 +753,7 @@ mod tests {
             let err = mgr.send_to_session(
                 "session-bbb",
                 2,
-                HostMessage::TerminateExecution {
+                BinaryFrame::TerminateExecution {
                     session_id: "session-bbb".into(),
                 },
             );

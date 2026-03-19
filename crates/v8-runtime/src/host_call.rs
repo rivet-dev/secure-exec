@@ -5,7 +5,7 @@ use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::ipc::{self, HostMessage, RustMessage};
+use crate::ipc_binary::{self, BinaryFrame};
 
 /// Shared routing table: maps call_id → session_id for BridgeResponse routing.
 /// The connection handler uses this to determine which session a BridgeResponse
@@ -94,26 +94,26 @@ impl BridgeCallContext {
         }
 
         // Send BridgeCall to host
-        let bridge_call = RustMessage::BridgeCall {
-            call_id,
+        let bridge_call = BinaryFrame::BridgeCall {
             session_id: self.session_id.clone(),
+            call_id,
             method: method.to_string(),
-            args,
+            payload: args,
         };
 
         {
             let mut writer = self.writer.lock().unwrap();
-            if let Err(e) = ipc::write_message(&mut *writer, &bridge_call) {
+            if let Err(e) = ipc_binary::write_frame(&mut *writer, &bridge_call) {
                 self.pending_calls.lock().unwrap().remove(&call_id);
                 return Err(format!("failed to write BridgeCall: {}", e));
             }
         }
 
         // Block on read for BridgeResponse
-        let response: HostMessage = {
+        let response = {
             let mut reader = self.reader.lock().unwrap();
-            match ipc::read_message(&mut *reader) {
-                Ok(msg) => msg,
+            match ipc_binary::read_frame(&mut *reader) {
+                Ok(frame) => frame,
                 Err(e) => {
                     self.pending_calls.lock().unwrap().remove(&call_id);
                     return Err(format!("failed to read BridgeResponse: {}", e));
@@ -126,10 +126,11 @@ impl BridgeCallContext {
 
         // Validate and extract BridgeResponse
         match response {
-            HostMessage::BridgeResponse {
+            BinaryFrame::BridgeResponse {
                 call_id: resp_id,
-                result,
-                error,
+                status,
+                payload,
+                ..
             } => {
                 if resp_id != call_id {
                     return Err(format!(
@@ -137,10 +138,14 @@ impl BridgeCallContext {
                         call_id, resp_id
                     ));
                 }
-                if let Some(err) = error {
-                    Err(err)
+                if status == 1 {
+                    // Error: payload is UTF-8 error message
+                    Err(String::from_utf8_lossy(&payload).to_string())
+                } else if payload.is_empty() {
+                    Ok(None)
                 } else {
-                    Ok(result)
+                    // status=0: V8-serialized result, status=2: raw binary (Uint8Array)
+                    Ok(Some(payload))
                 }
             }
             _ => Err("expected BridgeResponse, got different message type".into()),
@@ -161,16 +166,16 @@ impl BridgeCallContext {
                 .insert(call_id, self.session_id.clone());
         }
 
-        let bridge_call = RustMessage::BridgeCall {
-            call_id,
+        let bridge_call = BinaryFrame::BridgeCall {
             session_id: self.session_id.clone(),
+            call_id,
             method: method.to_string(),
-            args,
+            payload: args,
         };
 
         {
             let mut writer = self.writer.lock().unwrap();
-            if let Err(e) = ipc::write_message(&mut *writer, &bridge_call) {
+            if let Err(e) = ipc_binary::write_frame(&mut *writer, &bridge_call) {
                 return Err(format!("failed to write BridgeCall: {}", e));
             }
         }
@@ -207,19 +212,27 @@ mod tests {
         }
     }
 
-    /// Serialize a BridgeResponse into length-prefixed bytes
+    /// Serialize a BridgeResponse into length-prefixed binary frame bytes
     fn make_response_bytes(
         call_id: u32,
         result: Option<Vec<u8>>,
         error: Option<String>,
     ) -> Vec<u8> {
         let mut buf = Vec::new();
-        ipc::write_message(
+        let (status, payload) = if let Some(err) = error {
+            (1u8, err.into_bytes())
+        } else if let Some(res) = result {
+            (0u8, res)
+        } else {
+            (0u8, vec![])
+        };
+        ipc_binary::write_frame(
             &mut buf,
-            &HostMessage::BridgeResponse {
+            &BinaryFrame::BridgeResponse {
+                session_id: String::new(),
                 call_id,
-                result,
-                error,
+                status,
+                payload,
             },
         )
         .unwrap();
@@ -243,18 +256,19 @@ mod tests {
 
         // Verify the BridgeCall was written correctly
         let written = writer_buf.lock().unwrap();
-        let call: RustMessage = ipc::read_message(&mut Cursor::new(&*written)).unwrap();
+        let call = ipc_binary::read_frame(&mut Cursor::new(&*written)).unwrap();
         match call {
-            RustMessage::BridgeCall {
+            BinaryFrame::BridgeCall {
                 call_id,
                 session_id,
                 method,
-                args,
+                payload,
+                ..
             } => {
                 assert_eq!(call_id, 1);
                 assert_eq!(session_id, "test-session-abc");
                 assert_eq!(method, "_fsReadFile");
-                assert_eq!(args, vec![0x91, 0xa3, 0x66, 0x6f, 0x6f]);
+                assert_eq!(payload, vec![0x91, 0xa3, 0x66, 0x6f, 0x6f]);
             }
             _ => panic!("expected BridgeCall"),
         }
@@ -343,9 +357,9 @@ mod tests {
     fn sync_call_unexpected_message_type_rejected() {
         // Response is not a BridgeResponse
         let mut response_bytes = Vec::new();
-        ipc::write_message(
+        ipc_binary::write_frame(
             &mut response_bytes,
-            &HostMessage::TerminateExecution {
+            &BinaryFrame::TerminateExecution {
                 session_id: "session-1".into(),
             },
         )
@@ -378,18 +392,19 @@ mod tests {
 
         // Verify the BridgeCall was written correctly
         let written = writer_buf.lock().unwrap();
-        let call: RustMessage = ipc::read_message(&mut Cursor::new(&*written)).unwrap();
+        let call = ipc_binary::read_frame(&mut Cursor::new(&*written)).unwrap();
         match call {
-            RustMessage::BridgeCall {
+            BinaryFrame::BridgeCall {
                 call_id,
                 session_id,
                 method,
-                args,
+                payload,
+                ..
             } => {
                 assert_eq!(call_id, 1);
                 assert_eq!(session_id, "test-session-abc");
                 assert_eq!(method, "_asyncFn");
-                assert_eq!(args, vec![0x91, 0xa3, 0x66, 0x6f, 0x6f]);
+                assert_eq!(payload, vec![0x91, 0xa3, 0x66, 0x6f, 0x6f]);
             }
             _ => panic!("expected BridgeCall"),
         }
