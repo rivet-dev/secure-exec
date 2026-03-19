@@ -309,3 +309,24 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - Use `.js` extensions in ESM import paths (e.g., `"./runtime.js"`)
   - turbo auto-discovers the new package's `check-types` script
 ---
+
+## 2026-03-18 - US-019
+- Implemented TypeScript IPC client for communicating with the Rust V8 runtime over Unix domain socket
+- Created `ipc-types.ts`: all Host→Rust and Rust→Host message types as discriminated unions matching Rust-side `#[serde(tag = "type")]` enums
+- Created `ipc-client.ts`: `IpcClient` class with length-prefixed MessagePack framing
+  - Connects via `net.createConnection()` to UDS path
+  - `send()` encodes with `@msgpack/msgpack` `encode()`, writes 4-byte u32 BE length prefix + payload
+  - Incoming data accumulated in buffer, drained as complete frames arrive
+  - `authenticate(token)` sends auth message as first message
+  - 64MB max message size enforced on both send and receive
+  - Error/close callbacks for lifecycle management
+- Updated `index.ts` to export `IpcClient`, `IpcClientOptions`, `MessageHandler`, and all IPC message types
+- Files changed: `packages/secure-exec-v8/src/ipc-types.ts` (new), `packages/secure-exec-v8/src/ipc-client.ts` (new), `packages/secure-exec-v8/src/index.ts`
+- **Learnings for future iterations:**
+  - `@msgpack/msgpack` `encode()` returns `Uint8Array`, `decode()` takes `Uint8Array` or `Buffer` — Buffer is a Uint8Array subclass so it works directly
+  - `Buffer.readUInt32BE(0)` for reading the 4-byte length prefix, `Buffer.writeUInt32BE(val, 0)` for writing
+  - `Buffer.concat([existing, chunk])` for accumulating incoming data; `Buffer.subarray()` for zero-copy slicing
+  - IPC types use `Uint8Array` for binary fields (matching `serde_bytes` on Rust side) — msgpack bin format maps directly
+  - `ExecutionError` in `ipc-types.ts` is the wire format type (field `type`); `V8ExecutionError` in `session.ts` is the public API type — same shape, different names to avoid export conflicts
+  - Net socket `connect` event fires after successful UDS connection; error before connect fires should reject the connect promise
+---
