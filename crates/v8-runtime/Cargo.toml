@@ -1,0 +1,16 @@
+[package]
+name = "secure-exec-v8-runtime"
+version = "0.1.0"
+edition = "2021"
+description = "V8 runtime process for secure-exec, communicating over Unix domain socket with length-prefixed MessagePack IPC"
+publish = false
+
+[[bin]]
+name = "secure-exec-v8"
+path = "src/main.rs"
+
+[dependencies]
+v8 = "130"
+rmp-serde = "1"
+serde = { version = "1", features = ["derive"] }
+crossbeam-channel = "0.5"
