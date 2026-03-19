@@ -12,3 +12,27 @@ export type {
 	BridgeHandler,
 	BridgeHandlers,
 } from "./session.js";
+
+// IPC client for communicating with the Rust V8 runtime process.
+export { IpcClient } from "./ipc-client.js";
+export type { IpcClientOptions, MessageHandler } from "./ipc-client.js";
+
+// IPC message types.
+export type {
+	HostMessage,
+	RustMessage,
+	AuthenticateMsg,
+	CreateSessionMsg,
+	DestroySessionMsg,
+	ExecuteMsg,
+	InjectGlobalsMsg,
+	BridgeResponseMsg,
+	StreamEventMsg,
+	TerminateExecutionMsg,
+	BridgeCallMsg,
+	ExecutionResultMsg,
+	LogMsg,
+	StreamCallbackMsg,
+	ProcessConfig,
+	OsConfig,
+} from "./ipc-types.js";
