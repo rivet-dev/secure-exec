@@ -37,9 +37,36 @@ export class CommandRegistry {
 		return this.warnings;
 	}
 
-	/** Resolve a command name to a driver. Returns null if unknown. */
+	/**
+	 * Register a single command to a driver.
+	 * Used for on-demand dynamic registration (e.g. after tryResolve).
+	 */
+	registerCommand(command: string, driver: RuntimeDriver): void {
+		const existing = this.commands.get(command);
+		if (existing) {
+			const msg = `command "${command}" overridden: ${existing.name} → ${driver.name}`;
+			this.warnings.push(msg);
+			console.warn(`[CommandRegistry] ${msg}`);
+		}
+		this.commands.set(command, driver);
+	}
+
+	/**
+	 * Resolve a command name to a driver. Returns null if unknown.
+	 * Supports path-based lookup: '/bin/ls' resolves to the driver for 'ls'.
+	 */
 	resolve(command: string): RuntimeDriver | null {
-		return this.commands.get(command) ?? null;
+		// Direct name lookup
+		const direct = this.commands.get(command);
+		if (direct) return direct;
+
+		// Path-based: extract basename and retry
+		if (command.includes("/")) {
+			const basename = command.split("/").pop()!;
+			if (basename) return this.commands.get(basename) ?? null;
+		}
+
+		return null;
 	}
 
 	/** List all registered commands. Returns command → driver name. */
@@ -49,6 +76,26 @@ export class CommandRegistry {
 			result.set(cmd, driver.name);
 		}
 		return result;
+	}
+
+	/**
+	 * Create a single /bin stub entry for a command.
+	 * Used for on-demand registration after tryResolve discovers a new command.
+	 */
+	async populateBinEntry(vfs: VirtualFileSystem, command: string): Promise<void> {
+		if (!(await vfs.exists("/bin"))) {
+			await vfs.mkdir("/bin", { recursive: true });
+		}
+		const path = `/bin/${command}`;
+		if (!(await vfs.exists(path))) {
+			const stub = new TextEncoder().encode("#!/bin/sh\n# kernel command stub\n");
+			await vfs.writeFile(path, stub);
+			try {
+				await vfs.chmod(path, 0o755);
+			} catch {
+				// chmod may not be supported by all VFS backends
+			}
+		}
 	}
 
 	/**
