@@ -2260,3 +2260,16 @@ PRD: ralph/kernel-hardening (46 stories)
   - Windows binary name is `secure-exec-v8.exe` (not `secure-exec-v8`)
   - PLATFORM_PACKAGES map is duplicated between runtime.ts and postinstall.js — keep in sync
 ---
+
+## 2026-03-19 - US-027
+- What was implemented: CI workflow for building the Rust V8 runtime binary across all 5 target platforms, with cargo test on native runners and cross-compilation for linux-arm64
+- Files changed:
+  - .github/workflows/rust.yml — new CI workflow with 5-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64)
+  - crates/v8-runtime/rust-toolchain.toml — pinned Rust toolchain to stable 1.85.0
+- **Learnings for future iterations:**
+  - macos-latest in GitHub Actions is arm64 (M-series); use macos-13 for x86_64 macOS builds
+  - rusty_v8 crate (v8 = "130") provides prebuilt V8 libraries per target — cross-compilation only needs the right linker, not V8 source build
+  - linux-arm64 cross-compilation from ubuntu-latest requires gcc-aarch64-linux-gnu and a .cargo/config.toml linker override
+  - Workflow paths filter on crates/v8-runtime/** so it only triggers on Rust changes
+  - cargo test is skipped for cross-compiled targets (linux-arm64) since tests can't run on the host architecture
+---
