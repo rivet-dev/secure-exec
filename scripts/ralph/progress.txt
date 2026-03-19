@@ -335,3 +335,28 @@ PRD: ralph/wasmvm-dynamic-modules (19 stories)
   - `make -C c programs` runs from top-level via `c-wasm` target
   - Pre-existing typecheck failure in `example-ai-sdk` (missing node_modules) is unrelated
 ---
+
+## 2026-03-19 2:40 PM PDT - US-022
+- Created 5 Tier 1 C test fixtures in `wasmvm/c/programs/`:
+  - `hello.c` — prints "Hello, World!" to stdout (exercises fd_write)
+  - `args.c` — prints argc and each argv entry (exercises args_get)
+  - `env.c` — prints all environment variables via extern environ (exercises environ_get)
+  - `exitcode.c` — exits with code from argv[1] (exercises proc_exit)
+  - `cat.c` — reads stdin, writes to stdout in 4K chunks (exercises fd_read + fd_write)
+- All 5 compile with vanilla wasi-sdk sysroot (no patches needed)
+- All 5 compile natively with cc and produce correct output
+- All 5 produce valid WASM binaries (magic bytes verified: 0x00 0x61 0x73 0x6D)
+- Each program is under 50 lines, single .c file
+- Files changed:
+  - wasmvm/c/programs/hello.c (new)
+  - wasmvm/c/programs/args.c (new)
+  - wasmvm/c/programs/env.c (new)
+  - wasmvm/c/programs/exitcode.c (new)
+  - wasmvm/c/programs/cat.c (new)
+- **Learnings for future iterations:**
+  - C programs are test fixtures only — NOT installed to commandDirs (no entry in COMMANDS variable)
+  - `extern char **environ` is the standard way to access env vars in C (vs envp third arg to main, which is non-standard)
+  - Native compilation uses `/usr/bin/cc` (auto-detected); WASM uses `vendor/wasi-sdk/bin/clang`
+  - wasi-sdk download takes ~10s; compilation of 5 simple programs takes <2s
+  - `wasm-opt -O3 --strip-debug` runs as post-processing; the intermediate `.wasm` file is deleted
+---
