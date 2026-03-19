@@ -13,6 +13,7 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
 - Framing functions: `write_message(&mut writer, &msg)` and `read_message(&mut reader)` in `ipc.rs`
 - Max IPC message size is 64MB (`MAX_MESSAGE_SIZE` constant in `ipc.rs`)
 - V8 tests MUST run with `--test-threads=1` to avoid SIGSEGV from parallel V8 operations
+- `signal-hook::flag::register` clears the AtomicBool to `false` on signal receipt
 - `v8::Context::new(scope, Default::default())` — v130 requires a `ContextOptions` second arg
 - Use `v8::Global<v8::Context>` to persist context handles across HandleScope lifetimes
 - Consolidate V8 tests into a single `#[test]` fn to avoid inter-test isolate state issues
@@ -68,4 +69,22 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - rusty_v8 v130 changed `Context::new` to require a `ContextOptions` second arg (use `Default::default()`)
   - `v8::Global::new(scope, local)` creates a persistent handle; when dropped, it resets via the stored `IsolateHandle`
   - `v8::CreateParams::default().heap_limits(0, limit_bytes)` sets the max heap size
+---
+
+## 2026-03-18 - US-005
+- Implemented UDS listener in `main.rs` with socket path security
+- Creates tmpdir with 128-bit random hex suffix under system temp dir
+- Sets directory permissions to 0700 before binding socket
+- Binds `UnixListener` to `secure-exec.sock` inside the tmpdir
+- Prints socket path to stdout (with explicit flush for pipe consumers)
+- Registers SIGTERM and SIGINT handlers via `signal-hook` for graceful shutdown
+- Non-blocking accept loop polls shutdown flag every 10ms
+- Cleans up socket file and directory on shutdown
+- Files changed: `crates/v8-runtime/src/main.rs`, `crates/v8-runtime/Cargo.toml`
+- **Learnings for future iterations:**
+  - `signal-hook::flag::register` sets an AtomicBool to `false` on signal (inverts the running flag pattern) — pass the Arc directly, it clears to false
+  - Rust's `UnixListener::bind()` combines bind() and listen() — can't separate them without raw libc
+  - Setting 0700 on the directory before binding is equivalent to after-bind/before-listen when the directory name has 128-bit randomness
+  - Must flush stdout explicitly after printing socket path — Rust stdout is fully-buffered when piped
+  - `signal-hook` v0.3 was pulled (v0.4 available but 0.3 is fine for AtomicBool flag pattern)
 ---
