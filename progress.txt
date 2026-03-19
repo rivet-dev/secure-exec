@@ -2583,3 +2583,19 @@ PRD: ralph/kernel-hardening (46 stories)
   - The patched uucore stub at wasmvm/stubs/uucore/ handles all WASI compatibility — no per-crate patches needed
   - `more` is a symlink to cat (US-011), `dir`/`vdir` are symlinks to ls (US-011) — NOT separate binary crates
 ---
+
+## 2026-03-19 - US-009
+- What was implemented: Created 57 standalone binary crates for all remaining uutils coreutils commands from dispatch.rs
+- Commands created: dd, ln, logname, mktemp, pathchk, split, stat, tac, touch, tsort, base32, base64, basenc, basename, comm, dircolors, dirname, expand, factor, false, fmt, fold, join, nl, numfmt, od, paste, printenv, ptx, seq, shuf, true, unexpand, uniq, yes, b2sum, cksum, md5sum, sha1sum, sha224sum, sha256sum, sha384sum, sha512sum, sum, link, pwd, readlink, realpath, rmdir, shred, tee, truncate, unlink, arch, date, nproc, uname
+- Files changed:
+  - wasmvm/crates/commands/{57 new directories}/ — each with Cargo.toml + src/main.rs
+  - wasmvm/Cargo.toml — added all 57 new workspace members
+  - wasmvm/Cargo.lock — updated with new crate dependencies
+  - scripts/ralph/prd.json — marked US-009 passes: true
+- **Learnings for future iterations:**
+  - dispatch.rs has many more uutils commands than the AC list — always cross-reference dispatch.rs for completeness
+  - `id` and `groups` are stubs in dispatch.rs (not uutils crates) — they belong in _stubs (US-010), not standalone uutils binaries
+  - Additional commands beyond AC list found in dispatch.rs: base32, basenc, dircolors, fmt, numfmt, printenv, ptx, shuf, unexpand, b2sum, cksum, sha1sum, sha224sum, sha384sum, sha512sum, sum, link, rmdir, shred, truncate, unlink, arch, logname, pathchk, split, tac
+  - All 57 crates compile for wasm32-wasip1 without any additional patches — the existing uucore stub handles everything
+  - Pre-existing test failure in kernel resource-exhaustion.test.ts:270 (PTY read timing) — not related to Rust crate changes
+---
