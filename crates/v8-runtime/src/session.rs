@@ -75,6 +75,7 @@ impl SessionManager {
         session_id: String,
         connection_id: u64,
         heap_limit_mb: Option<u32>,
+        cpu_time_limit_ms: Option<u32>,
     ) -> Result<(), String> {
         if self.sessions.contains_key(&session_id) {
             return Err(format!("session {} already exists", session_id));
@@ -94,7 +95,7 @@ impl SessionManager {
         let join_handle = thread::Builder::new()
             .name(format!("session-{}", name_prefix))
             .spawn(move || {
-                session_thread(heap_limit_mb, rx, slot_control, max, writer, router);
+                session_thread(heap_limit_mb, cpu_time_limit_ms, rx, slot_control, max, writer, router);
             })
             .map_err(|e| format!("failed to spawn session thread: {}", e))?;
 
@@ -216,6 +217,7 @@ fn send_message(writer: &SharedWriter, msg: &RustMessage) {
 /// processes commands until shutdown.
 fn session_thread(
     #[cfg_attr(test, allow(unused_variables))] heap_limit_mb: Option<u32>,
+    #[cfg_attr(test, allow(unused_variables))] cpu_time_limit_ms: Option<u32>,
     rx: Receiver<SessionCommand>,
     slot_control: SlotControl,
     max_concurrency: usize,
@@ -271,8 +273,19 @@ fn session_thread(
                         mode,
                         file_path,
                     } => {
+                        // Create abort channel for timeout enforcement
+                        let (maybe_abort_tx, maybe_abort_rx) = if cpu_time_limit_ms.is_some() {
+                            let (tx, rx) = crossbeam_channel::bounded::<()>(0);
+                            (Some(tx), Some(rx))
+                        } else {
+                            (None, None)
+                        };
+
                         // Create BridgeCallContext with real IPC writer and channel-based reader
-                        let channel_reader = ChannelMessageReader::new(rx.clone());
+                        let channel_reader = match maybe_abort_rx {
+                            Some(ref arx) => ChannelMessageReader::with_abort(rx.clone(), arx.clone()),
+                            None => ChannelMessageReader::new(rx.clone()),
+                        };
                         let bridge_ctx = BridgeCallContext::with_router(
                             Box::new(MutexWriter(Arc::clone(&writer))),
                             Box::new(channel_reader),
@@ -288,14 +301,12 @@ fn session_thread(
                             let ctx = v8::Local::new(scope, &v8_context);
                             let scope = &mut v8::ContextScope::new(scope, ctx);
 
-                            // Register sync bridge functions
                             _sync_store = bridge::register_sync_bridge_fns(
                                 scope,
                                 &bridge_ctx as *const BridgeCallContext,
                                 &SYNC_BRIDGE_FNS,
                             );
 
-                            // Register async bridge functions
                             _async_store = bridge::register_async_bridge_fns(
                                 scope,
                                 &bridge_ctx as *const BridgeCallContext,
@@ -303,6 +314,15 @@ fn session_thread(
                                 &ASYNC_BRIDGE_FNS,
                             );
                         }
+
+                        // Start timeout guard before execution
+                        let mut timeout_guard = match (cpu_time_limit_ms, maybe_abort_tx) {
+                            (Some(ms), Some(abort_tx)) => {
+                                let handle = v8_isolate.thread_safe_handle();
+                                Some(crate::timeout::TimeoutGuard::new(ms, handle, abort_tx))
+                            }
+                            _ => None,
+                        };
 
                         // Execute code
                         let (code, exports, error) = if mode == ExecuteMode::Exec {
@@ -330,13 +350,34 @@ fn session_thread(
                             let scope = &mut v8::HandleScope::new(&mut v8_isolate);
                             let ctx = v8::Local::new(scope, &v8_context);
                             let scope = &mut v8::ContextScope::new(scope, ctx);
-                            !run_event_loop(scope, &rx, &pending)
+                            !run_event_loop(scope, &rx, &pending, maybe_abort_rx.as_ref())
                         } else {
                             false
                         };
 
+                        // Check if timeout fired
+                        let timed_out = timeout_guard.as_ref().map_or(false, |g| g.timed_out());
+
+                        // Cancel timeout guard (joins timer thread)
+                        if let Some(ref mut guard) = timeout_guard {
+                            guard.cancel();
+                        }
+                        drop(timeout_guard);
+
                         // Send ExecutionResult
-                        let result_msg = if terminated {
+                        let result_msg = if timed_out {
+                            RustMessage::ExecutionResult {
+                                session_id,
+                                code: 1,
+                                exports: None,
+                                error: Some(ipc::ExecutionError {
+                                    error_type: "Error".into(),
+                                    message: "Script execution timed out".into(),
+                                    stack: String::new(),
+                                    code: Some("ERR_SCRIPT_EXECUTION_TIMEOUT".into()),
+                                }),
+                            }
+                        } else if terminated {
                             RustMessage::ExecutionResult {
                                 session_id,
                                 code: 1,
@@ -418,15 +459,40 @@ const ASYNC_BRIDGE_FNS: [&str; 7] = [
 /// Polls the session channel for BridgeResponse, StreamEvent, and
 /// TerminateExecution messages, dispatching each into V8 with microtask flush.
 ///
+/// When `abort_rx` is provided (timeout is configured), uses `select!` to
+/// also monitor the abort channel — if the timeout fires and drops the sender,
+/// the abort channel unblocks and terminates execution.
+///
 /// Returns true if execution completed normally, false if terminated.
 pub(crate) fn run_event_loop(
     scope: &mut v8::HandleScope,
     rx: &Receiver<SessionCommand>,
     pending: &crate::bridge::PendingPromises,
+    abort_rx: Option<&crossbeam_channel::Receiver<()>>,
 ) -> bool {
     while pending.len() > 0 {
-        match rx.recv() {
-            Ok(SessionCommand::Message(msg)) => match msg {
+        // Receive next command, with optional abort monitoring
+        let cmd = if let Some(abort) = abort_rx {
+            crossbeam_channel::select! {
+                recv(rx) -> result => match result {
+                    Ok(cmd) => cmd,
+                    Err(_) => return false,
+                },
+                recv(abort) -> _ => {
+                    // Timeout fired — abort channel closed
+                    scope.terminate_execution();
+                    return false;
+                },
+            }
+        } else {
+            match rx.recv() {
+                Ok(cmd) => cmd,
+                Err(_) => return false,
+            }
+        };
+
+        match cmd {
+            SessionCommand::Message(msg) => match msg {
                 HostMessage::BridgeResponse {
                     call_id,
                     result,
@@ -453,7 +519,7 @@ pub(crate) fn run_event_loop(
                     // Ignore other messages during event loop
                 }
             },
-            Ok(SessionCommand::Shutdown) | Err(_) => return false,
+            SessionCommand::Shutdown => return false,
         }
     }
     true
@@ -479,9 +545,14 @@ impl std::io::Write for MutexWriter {
 /// message. The message is serialized into the internal buffer and bytes are
 /// served from there. This allows BridgeCallContext.sync_call() to work unchanged
 /// while reading from the session's channel instead of a raw socket.
+///
+/// When `abort_rx` is set (timeout configured), uses `select!` to also monitor
+/// the abort channel. If the timeout fires, the abort sender is dropped, which
+/// unblocks the select and returns a TimedOut error.
 #[cfg(not(test))]
 struct ChannelMessageReader {
     rx: Receiver<SessionCommand>,
+    abort_rx: Option<crossbeam_channel::Receiver<()>>,
     buf: Vec<u8>,
     pos: usize,
 }
@@ -491,6 +562,16 @@ impl ChannelMessageReader {
     fn new(rx: Receiver<SessionCommand>) -> Self {
         ChannelMessageReader {
             rx,
+            abort_rx: None,
+            buf: Vec::new(),
+            pos: 0,
+        }
+    }
+
+    fn with_abort(rx: Receiver<SessionCommand>, abort_rx: crossbeam_channel::Receiver<()>) -> Self {
+        ChannelMessageReader {
+            rx,
+            abort_rx: Some(abort_rx),
             buf: Vec::new(),
             pos: 0,
         }
@@ -509,9 +590,35 @@ impl std::io::Read for ChannelMessageReader {
             return Ok(n);
         }
 
-        // Buffer empty — wait for next message from channel
-        match self.rx.recv() {
-            Ok(SessionCommand::Message(msg)) => {
+        // Wait for next message, with optional abort monitoring
+        let cmd = if let Some(ref abort) = self.abort_rx {
+            crossbeam_channel::select! {
+                recv(self.rx) -> result => match result {
+                    Ok(cmd) => cmd,
+                    Err(_) => return Err(std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        "channel closed",
+                    )),
+                },
+                recv(abort) -> _ => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "execution timed out",
+                    ));
+                },
+            }
+        } else {
+            match self.rx.recv() {
+                Ok(cmd) => cmd,
+                Err(_) => return Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "channel closed",
+                )),
+            }
+        };
+
+        match cmd {
+            SessionCommand::Message(msg) => {
                 self.buf.clear();
                 self.pos = 0;
                 // Serialize the HostMessage with length-prefixed framing
@@ -522,13 +629,9 @@ impl std::io::Read for ChannelMessageReader {
                 self.pos = n;
                 Ok(n)
             }
-            Ok(SessionCommand::Shutdown) => Err(std::io::Error::new(
+            SessionCommand::Shutdown => Err(std::io::Error::new(
                 std::io::ErrorKind::ConnectionAborted,
                 "session shutdown",
-            )),
-            Err(_) => Err(std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                "channel closed",
             )),
         }
     }
@@ -555,7 +658,7 @@ mod tests {
         {
             let mut mgr = test_manager(4);
 
-            mgr.create_session("session-aaa".into(), 1, None)
+            mgr.create_session("session-aaa".into(), 1, None, None)
                 .expect("create session A");
             assert_eq!(mgr.session_count(), 1);
 
@@ -572,17 +675,16 @@ mod tests {
         {
             let mut mgr = test_manager(4);
 
-            mgr.create_session("session-bbb".into(), 1, None)
+            mgr.create_session("session-bbb".into(), 1, None, None)
                 .expect("create session B");
-            mgr.create_session("session-ccc".into(), 1, Some(16))
+            mgr.create_session("session-ccc".into(), 1, Some(16), None)
                 .expect("create session C");
             assert_eq!(mgr.session_count(), 2);
 
             std::thread::sleep(std::time::Duration::from_millis(200));
 
             // Duplicate session ID is rejected
-            let err = mgr.create_session("session-bbb".into(), 1, None);
-            assert!(err.is_err());
+            let err = mgr.create_session("session-bbb".into(), 1, None, None);            assert!(err.is_err());
             assert!(err.unwrap_err().contains("already exists"));
 
             // Connection binding: connection 2 cannot destroy connection 1's session
@@ -615,9 +717,9 @@ mod tests {
         {
             let mut mgr = test_manager(2);
 
-            mgr.create_session("s1".into(), 1, None).expect("create s1");
-            mgr.create_session("s2".into(), 1, None).expect("create s2");
-            mgr.create_session("s3".into(), 1, None).expect("create s3");
+            mgr.create_session("s1".into(), 1, None, None).expect("create s1");
+            mgr.create_session("s2".into(), 1, None, None).expect("create s2");
+            mgr.create_session("s3".into(), 1, None, None).expect("create s3");
 
             // Allow threads to acquire slots
             std::thread::sleep(std::time::Duration::from_millis(300));
@@ -643,9 +745,9 @@ mod tests {
         {
             let mut mgr = test_manager(4);
 
-            mgr.create_session("conn1-s1".into(), 100, None)
+            mgr.create_session("conn1-s1".into(), 100, None, None)
                 .expect("create");
-            mgr.create_session("conn2-s1".into(), 200, None)
+            mgr.create_session("conn2-s1".into(), 200, None, None)
                 .expect("create");
 
             std::thread::sleep(std::time::Duration::from_millis(200));

@@ -105,10 +105,10 @@ fn handle_connection(
             HostMessage::CreateSession {
                 session_id,
                 heap_limit_mb,
-                cpu_time_limit_ms: _,
+                cpu_time_limit_ms,
             } => {
                 let mut mgr = session_mgr.lock().unwrap();
-                if let Err(e) = mgr.create_session(session_id.clone(), connection_id, heap_limit_mb)
+                if let Err(e) = mgr.create_session(session_id.clone(), connection_id, heap_limit_mb, cpu_time_limit_ms)
                 {
                     eprintln!(
                         "connection {}: create session {} failed: {}",
