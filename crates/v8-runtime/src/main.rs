@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::io::AsRawFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -21,6 +22,34 @@ use std::sync::{Arc, Mutex};
 use host_call::CallIdRouter;
 use ipc::HostMessage;
 use session::{SessionManager, SharedWriter};
+
+/// Close all file descriptors > 2 (stdin/stdout/stderr preserved).
+/// Called at process startup to prevent the parent from leaking FDs into the V8 runtime.
+fn close_inherited_fds() {
+    // Collect open FDs from /proc/self/fd, then close all > 2
+    let fds: Vec<i32> = fs::read_dir("/proc/self/fd")
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| e.file_name().to_string_lossy().parse::<i32>().ok())
+        .filter(|&fd| fd > 2)
+        .collect();
+    for fd in fds {
+        unsafe { libc::close(fd); }
+    }
+}
+
+/// Set FD_CLOEXEC on a file descriptor so it won't be inherited by child processes.
+fn set_cloexec(fd: i32) -> io::Result<()> {
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+    if flags < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if unsafe { libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
 
 /// Generate a 128-bit random hex string from /dev/urandom
 fn random_hex_128() -> io::Result<String> {
@@ -174,6 +203,9 @@ fn handle_connection(
 }
 
 fn main() {
+    // Close all inherited FDs > 2 before doing anything else
+    close_inherited_fds();
+
     // Initialize V8 platform on the main thread before any session threads
     isolate::init_v8_platform();
 
@@ -202,6 +234,7 @@ fn main() {
             panic!("failed to bind UDS: {}", e);
         }
     };
+    set_cloexec(listener.as_raw_fd()).expect("failed to set CLOEXEC on listener");
 
     // Print socket path to stdout so host process can connect
     println!("{}", socket_path.display());
@@ -223,6 +256,9 @@ fn main() {
     while running.load(Ordering::Relaxed) {
         match listener.accept() {
             Ok((mut stream, _addr)) => {
+                // Set CLOEXEC on accepted connection
+                set_cloexec(stream.as_raw_fd()).expect("failed to set CLOEXEC on connection");
+
                 // Set blocking for the auth handshake
                 stream
                     .set_nonblocking(false)
@@ -235,9 +271,11 @@ fn main() {
                 }
 
                 // Create per-connection shared writer and routing table
-                let conn_writer: SharedWriter = Arc::new(Mutex::new(Box::new(
-                    stream.try_clone().expect("failed to clone UDS stream"),
-                )));
+                let writer_stream = stream.try_clone().expect("failed to clone UDS stream");
+                set_cloexec(writer_stream.as_raw_fd())
+                    .expect("failed to set CLOEXEC on cloned stream");
+                let conn_writer: SharedWriter =
+                    Arc::new(Mutex::new(Box::new(writer_stream)));
                 let call_id_router: CallIdRouter = Arc::new(Mutex::new(HashMap::new()));
 
                 // Create shared session manager for this connection
@@ -275,6 +313,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::io::AsRawFd;
     use std::os::unix::net::UnixStream;
 
     /// Helper: bind a temp UDS listener and return (listener, socket_path, tmpdir)
@@ -282,6 +321,95 @@ mod tests {
         let (tmpdir, socket_path) = create_socket_dir().expect("create socket dir");
         let listener = UnixListener::bind(&socket_path).expect("bind");
         (listener, socket_path, tmpdir)
+    }
+
+    #[test]
+    fn set_cloexec_sets_flag_on_fd() {
+        // pipe() does NOT set CLOEXEC, so this is a good test target
+        let mut fds = [0i32; 2];
+        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+
+        let flags_before = unsafe { libc::fcntl(fds[0], libc::F_GETFD) };
+        assert_eq!(
+            flags_before & libc::FD_CLOEXEC,
+            0,
+            "pipe should not have CLOEXEC initially"
+        );
+
+        set_cloexec(fds[0]).expect("set_cloexec");
+
+        let flags_after = unsafe { libc::fcntl(fds[0], libc::F_GETFD) };
+        assert_ne!(
+            flags_after & libc::FD_CLOEXEC,
+            0,
+            "CLOEXEC should be set after set_cloexec"
+        );
+
+        unsafe {
+            libc::close(fds[0]);
+            libc::close(fds[1]);
+        }
+    }
+
+    #[test]
+    fn set_cloexec_returns_error_for_bad_fd() {
+        assert!(set_cloexec(-1).is_err());
+        assert!(set_cloexec(9999).is_err());
+    }
+
+    #[test]
+    fn listener_has_cloexec_after_set() {
+        let (listener, socket_path, tmpdir) = temp_listener();
+        set_cloexec(listener.as_raw_fd()).expect("set cloexec on listener");
+
+        let flags = unsafe { libc::fcntl(listener.as_raw_fd(), libc::F_GETFD) };
+        assert!(flags >= 0, "fcntl should succeed");
+        assert_ne!(
+            flags & libc::FD_CLOEXEC,
+            0,
+            "listener should have CLOEXEC"
+        );
+
+        cleanup(&socket_path, &tmpdir);
+    }
+
+    #[test]
+    fn accepted_stream_has_cloexec_after_set() {
+        let (listener, socket_path, tmpdir) = temp_listener();
+
+        let _client = UnixStream::connect(&socket_path).expect("connect");
+        let (stream, _) = listener.accept().expect("accept");
+        set_cloexec(stream.as_raw_fd()).expect("set cloexec on stream");
+
+        let flags = unsafe { libc::fcntl(stream.as_raw_fd(), libc::F_GETFD) };
+        assert!(flags >= 0, "fcntl should succeed");
+        assert_ne!(
+            flags & libc::FD_CLOEXEC,
+            0,
+            "accepted stream should have CLOEXEC"
+        );
+
+        cleanup(&socket_path, &tmpdir);
+    }
+
+    #[test]
+    fn cloned_stream_has_cloexec_after_set() {
+        let (listener, socket_path, tmpdir) = temp_listener();
+
+        let _client = UnixStream::connect(&socket_path).expect("connect");
+        let (stream, _) = listener.accept().expect("accept");
+        let clone = stream.try_clone().expect("clone");
+        set_cloexec(clone.as_raw_fd()).expect("set cloexec on clone");
+
+        let flags = unsafe { libc::fcntl(clone.as_raw_fd(), libc::F_GETFD) };
+        assert!(flags >= 0, "fcntl should succeed");
+        assert_ne!(
+            flags & libc::FD_CLOEXEC,
+            0,
+            "cloned stream should have CLOEXEC"
+        );
+
+        cleanup(&socket_path, &tmpdir);
     }
 
     #[test]
