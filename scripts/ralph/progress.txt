@@ -239,3 +239,18 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - `module.get_status()` returns `ModuleStatus` enum — check for `Errored` after evaluate() to catch TLA rejection cases
   - `module.get_exception()` returns the exception value for errored modules — use with `extract_error_info` for structured error
 ---
+
+## 2026-03-18 - US-014
+- Implemented streaming event dispatch for child process and HTTP server events
+- `dispatch_stream_event()` in `stream.rs` was already functionally complete from stub — removed stub comment
+- Event type routing: child_stdout/child_stderr/child_exit → `_childProcessDispatch`, http_request → `_httpServerDispatch`
+- Unknown event types are silently ignored; missing dispatch functions are safe (no crash)
+- Payload deserialized via `msgpack_to_v8_value` and passed as second argument to dispatch function
+- Microtask checkpoint performed after each dispatch in the event loop (`session.rs`)
+- Added 5 V8 integration tests (Parts 38-42): child_stderr+child_exit dispatch, http_request dispatch, unknown event ignored, missing callback safe, microtask flush after stream dispatch
+- Files changed: `crates/v8-runtime/src/stream.rs`, `crates/v8-runtime/src/execution.rs`
+- **Learnings for future iterations:**
+  - `dispatch_stream_event` does not call `perform_microtask_checkpoint()` itself — the caller (`run_event_loop`) handles it, keeping microtask policy centralized
+  - When a dispatch function is not registered on the V8 global, `global.get(scope, key)` returns `undefined` (not None) — check `.is_function()` before calling
+  - Stream event tests need a pending promise in the event loop (via `_asyncFn('keep-alive')`) to prevent immediate exit before the StreamEvent is processed
+---
