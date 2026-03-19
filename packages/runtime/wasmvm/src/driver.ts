@@ -31,6 +31,7 @@ import {
   type WorkerMessage,
   type SyscallRequest,
   type WorkerInitData,
+  type PermissionTier,
 } from './syscall-rpc.ts';
 import { ERRNO_MAP, ERRNO_EIO } from './wasi-constants.ts';
 import { isWasmBinary, isWasmBinarySync } from './wasm-magic.ts';
@@ -99,6 +100,8 @@ export interface WasmVmRuntimeOptions {
   wasmBinaryPath?: string;
   /** Directories to scan for WASM command binaries, searched in order (PATH semantics). */
   commandDirs?: string[];
+  /** Per-command permission tiers. Keys are command names, '*' sets the default. */
+  permissions?: Record<string, PermissionTier>;
 }
 
 /**
@@ -119,6 +122,8 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
   // Legacy mode: single multicall binary path
   private _wasmBinaryPath: string;
   private _legacyMode: boolean;
+  // Per-command permission tiers
+  private _permissions: Record<string, PermissionTier>;
 
   private _kernel: KernelInterface | null = null;
   private _activeWorkers = new Map<number, WorkerHandle>();
@@ -130,6 +135,7 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
   constructor(options?: WasmVmRuntimeOptions) {
     this._commandDirs = options?.commandDirs ?? [];
     this._wasmBinaryPath = options?.wasmBinaryPath ?? '';
+    this._permissions = options?.permissions ?? {};
 
     // Legacy mode when wasmBinaryPath is set and commandDirs is not
     this._legacyMode = !options?.commandDirs && !!options?.wasmBinaryPath;
@@ -303,6 +309,13 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
     }
   }
 
+  /** Resolve permission tier for a command. Exact name match, then '*' fallback, then 'read-write' default. */
+  private _resolvePermissionTier(command: string): PermissionTier {
+    if (command in this._permissions) return this._permissions[command];
+    if ('*' in this._permissions) return this._permissions['*'];
+    return 'read-write';
+  }
+
   /** Resolve binary path for a command. */
   private _resolveBinaryPath(command: string): string {
     // commandDirs mode: look up per-command binary path
@@ -383,6 +396,8 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
       if (kernel.isatty(ctx.pid, fd)) ttyFds.push(fd);
     }
 
+    const permissionTier = this._resolvePermissionTier(command);
+
     const workerData: WorkerInitData = {
       wasmBinaryPath: binaryPath,
       command,
@@ -399,6 +414,7 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
       stderrFd: (stderrPiped || stderrIsFile) ? 99 : undefined,
       ttyFds: ttyFds.length > 0 ? ttyFds : undefined,
       wasmModule,
+      permissionTier,
     };
 
     const workerUrl = new URL('./kernel-worker.ts', import.meta.url);

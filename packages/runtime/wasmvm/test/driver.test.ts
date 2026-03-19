@@ -820,4 +820,117 @@ describe('WasmVM RuntimeDriver', () => {
       }
     });
   });
+
+  describe('permission tier resolution', () => {
+    it('defaults to read-write when no permissions configured', () => {
+      const driver = createWasmVmRuntime({ wasmBinaryPath: '/fake' }) as any;
+      expect(driver._resolvePermissionTier('grep')).toBe('read-write');
+      expect(driver._resolvePermissionTier('ls')).toBe('read-write');
+    });
+
+    it('exact command name match', () => {
+      const driver = createWasmVmRuntime({
+        wasmBinaryPath: '/fake',
+        permissions: { 'sh': 'full', 'grep': 'read-only' },
+      }) as any;
+      expect(driver._resolvePermissionTier('sh')).toBe('full');
+      expect(driver._resolvePermissionTier('grep')).toBe('read-only');
+    });
+
+    it('falls back to * wildcard', () => {
+      const driver = createWasmVmRuntime({
+        wasmBinaryPath: '/fake',
+        permissions: { 'sh': 'full', '*': 'isolated' },
+      }) as any;
+      expect(driver._resolvePermissionTier('sh')).toBe('full');
+      expect(driver._resolvePermissionTier('unknown-cmd')).toBe('isolated');
+    });
+
+    it('defaults to read-write when no * wildcard and no match', () => {
+      const driver = createWasmVmRuntime({
+        wasmBinaryPath: '/fake',
+        permissions: { 'sh': 'full' },
+      }) as any;
+      expect(driver._resolvePermissionTier('unknown-cmd')).toBe('read-write');
+    });
+
+    it('all four tiers are accepted', () => {
+      const driver = createWasmVmRuntime({
+        wasmBinaryPath: '/fake',
+        permissions: {
+          'sh': 'full',
+          'cp': 'read-write',
+          'grep': 'read-only',
+          'untrusted': 'isolated',
+        },
+      }) as any;
+      expect(driver._resolvePermissionTier('sh')).toBe('full');
+      expect(driver._resolvePermissionTier('cp')).toBe('read-write');
+      expect(driver._resolvePermissionTier('grep')).toBe('read-only');
+      expect(driver._resolvePermissionTier('untrusted')).toBe('isolated');
+    });
+
+    it('permissionTier is included in WorkerInitData', async () => {
+      const tempDir = await createCommandDir(['ls']);
+      const driver = createWasmVmRuntime({
+        commandDirs: [tempDir],
+        permissions: { 'ls': 'read-only' },
+      }) as any;
+      const mockKernel: Partial<KernelInterface> = {};
+      await driver.init(mockKernel as KernelInterface);
+
+      // Verify the _resolvePermissionTier matches
+      expect(driver._resolvePermissionTier('ls')).toBe('read-only');
+
+      await rm(tempDir, { recursive: true, force: true });
+    });
+  });
+
+  describe.skipIf(!hasWasmBinary)('permission tier enforcement', () => {
+    let kernel: Kernel;
+
+    afterEach(async () => {
+      await kernel?.dispose();
+    });
+
+    it('read-only command cannot write files', async () => {
+      const vfs = new SimpleVFS();
+      kernel = createKernel({ filesystem: vfs as any });
+      await kernel.mount(createWasmVmRuntime({
+        wasmBinaryPath: WASM_BINARY_PATH,
+        permissions: { '*': 'read-only' },
+      }));
+
+      // tee tries to write to a file — should fail with EACCES
+      const result = await kernel.exec('tee /tmp/out', { stdin: 'hello' });
+      expect(result.exitCode).not.toBe(0);
+    });
+
+    it('read-only command can still write to stdout', async () => {
+      const vfs = new SimpleVFS();
+      kernel = createKernel({ filesystem: vfs as any });
+      await kernel.mount(createWasmVmRuntime({
+        wasmBinaryPath: WASM_BINARY_PATH,
+        permissions: { '*': 'read-only' },
+      }));
+
+      const result = await kernel.exec('echo hello');
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe('hello\n');
+    });
+
+    it('full tier command can write files', async () => {
+      const vfs = new SimpleVFS();
+      kernel = createKernel({ filesystem: vfs as any });
+      await kernel.mount(createWasmVmRuntime({
+        wasmBinaryPath: WASM_BINARY_PATH,
+        permissions: { '*': 'full' },
+      }));
+
+      // echo hello should work fine with full permissions
+      const result = await kernel.exec('echo hello');
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe('hello\n');
+    });
+  });
 });

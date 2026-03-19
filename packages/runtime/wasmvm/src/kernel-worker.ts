@@ -21,6 +21,7 @@ import {
   FILETYPE_REGULAR_FILE,
   FILETYPE_DIRECTORY,
   ERRNO_SUCCESS,
+  ERRNO_EACCES,
   ERRNO_EINVAL,
   ERRNO_EBADF,
 } from './wasi-constants.ts';
@@ -39,9 +40,26 @@ import {
   type WorkerInitData,
   type SyscallRequest,
 } from './syscall-rpc.ts';
+import {
+  isWriteBlocked as _isWriteBlocked,
+  isPathInCwd as _isPathInCwd,
+} from './permission-check.ts';
 
 const port = parentPort!;
 const init = workerData as WorkerInitData;
+
+// Permission tier for this command (default: read-write)
+const permissionTier = init.permissionTier ?? 'read-write';
+
+/** Check if the tier blocks write operations. */
+function isWriteBlocked(): boolean {
+  return _isWriteBlocked(permissionTier);
+}
+
+/** Check if a path is within the cwd subtree (for isolated tier). */
+function isPathInCwd(path: string): boolean {
+  return _isPathInCwd(path, init.cwd);
+}
 
 // -------------------------------------------------------------------------
 // RPC client — blocks worker thread until main thread responds
@@ -135,11 +153,26 @@ function createKernelFileIO(): WasiFileIO {
       return { errno: res.errno, data: res.data };
     },
     fdWrite(fd, data) {
+      // Permission check: read-only/isolated tiers can only write to stdout/stderr
+      if (isWriteBlocked() && fd !== 1 && fd !== 2) {
+        return { errno: ERRNO_EACCES, written: 0 };
+      }
       const res = rpcCall('fdWrite', { fd: kernelFd(fd), data: Array.from(data) });
       return { errno: res.errno, written: res.intResult };
     },
     fdOpen(path, dirflags, oflags, fdflags, rightsBase, rightsInheriting) {
       const isDirectory = !!(oflags & 0x2); // OFLAG_DIRECTORY
+
+      // Permission check: isolated tier restricts reads to cwd subtree
+      if (permissionTier === 'isolated' && !isPathInCwd(path)) {
+        return { errno: ERRNO_EACCES, fd: -1, filetype: 0 };
+      }
+
+      // Permission check: block write flags for read-only/isolated tiers
+      const hasWriteIntent = !!(oflags & 0x1) || !!(oflags & 0x8) || !!(fdflags & 0x1) || !!(rightsBase & 2n);
+      if (isWriteBlocked() && hasWriteIntent) {
+        return { errno: ERRNO_EACCES, fd: -1, filetype: 0 };
+      }
 
       // Directory opens: verify path exists as directory, return local FD
       // No kernel FD needed — directory ops use VFS RPCs, not kernel fdRead
@@ -304,10 +337,12 @@ function createKernelVfs(): WasiVFS {
       return res.errno === 0 && res.intResult === 1;
     },
     mkdir(path: string): void {
+      if (isWriteBlocked()) throw new VfsError('EACCES', path);
       const res = rpcCall('vfsMkdir', { path });
       if (res.errno !== 0) throw new VfsError('EACCES', path);
     },
     mkdirp(path: string): void {
+      if (isWriteBlocked()) throw new VfsError('EACCES', path);
       const segments = path.split('/').filter(Boolean);
       let current = '';
       for (const seg of segments) {
@@ -319,20 +354,31 @@ function createKernelVfs(): WasiVFS {
       }
     },
     writeFile(path: string, data: Uint8Array | string): void {
+      if (isWriteBlocked()) throw new VfsError('EACCES', path);
       const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
       rpcCall('vfsWriteFile', { path, data: Array.from(bytes) });
     },
     readFile(path: string): Uint8Array {
+      // Isolated tier: restrict reads to cwd subtree
+      if (permissionTier === 'isolated' && !isPathInCwd(path)) {
+        throw new VfsError('EACCES', path);
+      }
       const res = rpcCall('vfsReadFile', { path });
       if (res.errno !== 0) throw new VfsError('ENOENT', path);
       return res.data;
     },
     readdir(path: string): string[] {
+      if (permissionTier === 'isolated' && !isPathInCwd(path)) {
+        throw new VfsError('EACCES', path);
+      }
       const res = rpcCall('vfsReaddir', { path });
       if (res.errno !== 0) throw new VfsError('ENOENT', path);
       return JSON.parse(decoder.decode(res.data));
     },
     stat(path: string): VfsStat {
+      if (permissionTier === 'isolated' && !isPathInCwd(path)) {
+        throw new VfsError('EACCES', path);
+      }
       const res = rpcCall('vfsStat', { path });
       if (res.errno !== 0) throw new VfsError('ENOENT', path);
       return JSON.parse(decoder.decode(res.data));
@@ -341,18 +387,22 @@ function createKernelVfs(): WasiVFS {
       return this.stat(path);
     },
     unlink(path: string): void {
+      if (isWriteBlocked()) throw new VfsError('EACCES', path);
       const res = rpcCall('vfsUnlink', { path });
       if (res.errno !== 0) throw new VfsError('ENOENT', path);
     },
     rmdir(path: string): void {
+      if (isWriteBlocked()) throw new VfsError('EACCES', path);
       const res = rpcCall('vfsRmdir', { path });
       if (res.errno !== 0) throw new VfsError('ENOENT', path);
     },
     rename(oldPath: string, newPath: string): void {
+      if (isWriteBlocked()) throw new VfsError('EACCES', oldPath);
       const res = rpcCall('vfsRename', { oldPath, newPath });
       if (res.errno !== 0) throw new VfsError('ENOENT', oldPath);
     },
     symlink(target: string, linkPath: string): void {
+      if (isWriteBlocked()) throw new VfsError('EACCES', linkPath);
       const res = rpcCall('vfsSymlink', { target, linkPath });
       if (res.errno !== 0) throw new VfsError('EEXIST', linkPath);
     },

@@ -15,6 +15,7 @@ export { UserManager } from './user.ts';
 export type { UserManagerOptions, HostUserImports } from './user.ts';
 export { createWasmVmRuntime, WASMVM_COMMANDS } from './driver.ts';
 export type { WasmVmRuntimeOptions } from './driver.ts';
+export type { PermissionTier } from './syscall-rpc.ts';
 export { ModuleCache } from './module-cache.ts';
 export { isWasmBinary, isWasmBinarySync } from './wasm-magic.ts';
 export {

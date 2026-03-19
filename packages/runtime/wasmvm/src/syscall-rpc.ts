@@ -74,6 +74,9 @@ export interface StartMessage {
   type: 'start';
 }
 
+/** Permission tier controlling what a command can access. */
+export type PermissionTier = 'full' | 'read-write' | 'read-only' | 'isolated';
+
 export interface WorkerInitData {
   wasmBinaryPath: string;
   command: string;
@@ -94,4 +97,6 @@ export interface WorkerInitData {
   ttyFds?: number[];
   /** Pre-compiled WebAssembly.Module from main thread's ModuleCache (transferable via structured clone). */
   wasmModule?: WebAssembly.Module;
+  /** Permission tier for this command (default: 'read-write'). */
+  permissionTier?: PermissionTier;
 }
