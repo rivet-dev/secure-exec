@@ -2277,5 +2277,405 @@ use std::num::NonZeroI32;
             // .then handler should have run (microtasks flushed)
             assert!(eval_bool(&mut iso, &ctx, "_microtaskRan === true"));
         }
+
+        // --- Part 38: StreamEvent dispatches child_stderr and child_exit ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(Vec::new()),
+                Box::new(Cursor::new(Vec::new())),
+                "test-session".into(),
+            );
+            let pending = bridge::PendingPromises::new();
+
+            let _fn_store;
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                _fn_store = bridge::register_async_bridge_fns(
+                    scope,
+                    &bridge_ctx as *const BridgeCallContext,
+                    &pending as *const bridge::PendingPromises,
+                    &["_asyncFn"],
+                );
+            }
+
+            // Register child process dispatch and create pending promise
+            eval(
+                &mut iso,
+                &ctx,
+                "var _childEvents = []; \
+                 globalThis._childProcessDispatch = function(eventType, payload) { \
+                     _childEvents.push({ type: eventType, data: payload }); \
+                 }; \
+                 _asyncFn('keep-alive')",
+            );
+            assert_eq!(pending.len(), 1);
+
+            let (tx, rx) = crossbeam_channel::unbounded();
+
+            // Send child_stderr event
+            let mut stderr_payload = Vec::new();
+            rmpv::encode::write_value(
+                &mut stderr_payload,
+                &rmpv::Value::String("error output".into()),
+            )
+            .unwrap();
+            tx.send(crate::session::SessionCommand::Message(
+                crate::ipc::HostMessage::StreamEvent {
+                    session_id: "test-session".into(),
+                    event_type: "child_stderr".into(),
+                    payload: stderr_payload,
+                },
+            ))
+            .unwrap();
+
+            // Send child_exit event with exit code
+            let mut exit_payload = Vec::new();
+            rmpv::encode::write_value(
+                &mut exit_payload,
+                &rmpv::Value::Integer(rmpv::Integer::from(1i64)),
+            )
+            .unwrap();
+            tx.send(crate::session::SessionCommand::Message(
+                crate::ipc::HostMessage::StreamEvent {
+                    session_id: "test-session".into(),
+                    event_type: "child_exit".into(),
+                    payload: exit_payload,
+                },
+            ))
+            .unwrap();
+
+            // Resolve the pending promise to exit the event loop
+            let mut r = Vec::new();
+            rmpv::encode::write_value(&mut r, &rmpv::Value::Nil).unwrap();
+            tx.send(crate::session::SessionCommand::Message(
+                crate::ipc::HostMessage::BridgeResponse {
+                    call_id: 1,
+                    result: Some(r),
+                    error: None,
+                },
+            ))
+            .unwrap();
+
+            let completed = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                crate::session::run_event_loop(scope, &rx, &pending)
+            };
+
+            assert!(completed);
+            assert_eq!(eval(&mut iso, &ctx, "_childEvents.length"), "2");
+            assert_eq!(eval(&mut iso, &ctx, "_childEvents[0].type"), "child_stderr");
+            assert_eq!(eval(&mut iso, &ctx, "_childEvents[0].data"), "error output");
+            assert_eq!(eval(&mut iso, &ctx, "_childEvents[1].type"), "child_exit");
+            assert_eq!(eval(&mut iso, &ctx, "_childEvents[1].data"), "1");
+        }
+
+        // --- Part 39: StreamEvent dispatches http_request to _httpServerDispatch ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(Vec::new()),
+                Box::new(Cursor::new(Vec::new())),
+                "test-session".into(),
+            );
+            let pending = bridge::PendingPromises::new();
+
+            let _fn_store;
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                _fn_store = bridge::register_async_bridge_fns(
+                    scope,
+                    &bridge_ctx as *const BridgeCallContext,
+                    &pending as *const bridge::PendingPromises,
+                    &["_asyncFn"],
+                );
+            }
+
+            // Register HTTP dispatch and create pending promise
+            eval(
+                &mut iso,
+                &ctx,
+                "var _httpEvents = []; \
+                 globalThis._httpServerDispatch = function(eventType, payload) { \
+                     _httpEvents.push({ type: eventType, data: payload }); \
+                 }; \
+                 _asyncFn('keep-alive')",
+            );
+            assert_eq!(pending.len(), 1);
+
+            let (tx, rx) = crossbeam_channel::unbounded();
+
+            // Send http_request event with request data
+            let mut http_payload = Vec::new();
+            rmpv::encode::write_value(
+                &mut http_payload,
+                &rmpv::Value::Map(vec![
+                    (
+                        rmpv::Value::String("method".into()),
+                        rmpv::Value::String("GET".into()),
+                    ),
+                    (
+                        rmpv::Value::String("url".into()),
+                        rmpv::Value::String("/api/test".into()),
+                    ),
+                ]),
+            )
+            .unwrap();
+            tx.send(crate::session::SessionCommand::Message(
+                crate::ipc::HostMessage::StreamEvent {
+                    session_id: "test-session".into(),
+                    event_type: "http_request".into(),
+                    payload: http_payload,
+                },
+            ))
+            .unwrap();
+
+            // Resolve the pending promise to exit the event loop
+            let mut r = Vec::new();
+            rmpv::encode::write_value(&mut r, &rmpv::Value::Nil).unwrap();
+            tx.send(crate::session::SessionCommand::Message(
+                crate::ipc::HostMessage::BridgeResponse {
+                    call_id: 1,
+                    result: Some(r),
+                    error: None,
+                },
+            ))
+            .unwrap();
+
+            let completed = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                crate::session::run_event_loop(scope, &rx, &pending)
+            };
+
+            assert!(completed);
+            assert_eq!(eval(&mut iso, &ctx, "_httpEvents.length"), "1");
+            assert_eq!(eval(&mut iso, &ctx, "_httpEvents[0].type"), "http_request");
+            assert_eq!(eval(&mut iso, &ctx, "_httpEvents[0].data.method"), "GET");
+            assert_eq!(eval(&mut iso, &ctx, "_httpEvents[0].data.url"), "/api/test");
+        }
+
+        // --- Part 40: StreamEvent with unknown event_type is ignored ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(Vec::new()),
+                Box::new(Cursor::new(Vec::new())),
+                "test-session".into(),
+            );
+            let pending = bridge::PendingPromises::new();
+
+            let _fn_store;
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                _fn_store = bridge::register_async_bridge_fns(
+                    scope,
+                    &bridge_ctx as *const BridgeCallContext,
+                    &pending as *const bridge::PendingPromises,
+                    &["_asyncFn"],
+                );
+            }
+
+            eval(
+                &mut iso,
+                &ctx,
+                "var _anyDispatched = false; \
+                 globalThis._childProcessDispatch = function() { _anyDispatched = true; }; \
+                 globalThis._httpServerDispatch = function() { _anyDispatched = true; }; \
+                 _asyncFn('keep-alive')",
+            );
+            assert_eq!(pending.len(), 1);
+
+            let (tx, rx) = crossbeam_channel::unbounded();
+
+            // Send unknown event type
+            let mut payload = Vec::new();
+            rmpv::encode::write_value(&mut payload, &rmpv::Value::Nil).unwrap();
+            tx.send(crate::session::SessionCommand::Message(
+                crate::ipc::HostMessage::StreamEvent {
+                    session_id: "test-session".into(),
+                    event_type: "unknown_event".into(),
+                    payload,
+                },
+            ))
+            .unwrap();
+
+            // Resolve pending promise to exit loop
+            let mut r = Vec::new();
+            rmpv::encode::write_value(&mut r, &rmpv::Value::Nil).unwrap();
+            tx.send(crate::session::SessionCommand::Message(
+                crate::ipc::HostMessage::BridgeResponse {
+                    call_id: 1,
+                    result: Some(r),
+                    error: None,
+                },
+            ))
+            .unwrap();
+
+            let completed = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                crate::session::run_event_loop(scope, &rx, &pending)
+            };
+
+            assert!(completed);
+            // Unknown event should NOT have dispatched to any handler
+            assert!(eval_bool(&mut iso, &ctx, "_anyDispatched === false"));
+        }
+
+        // --- Part 41: StreamEvent dispatch with missing callback is safe (no crash) ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(Vec::new()),
+                Box::new(Cursor::new(Vec::new())),
+                "test-session".into(),
+            );
+            let pending = bridge::PendingPromises::new();
+
+            let _fn_store;
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                _fn_store = bridge::register_async_bridge_fns(
+                    scope,
+                    &bridge_ctx as *const BridgeCallContext,
+                    &pending as *const bridge::PendingPromises,
+                    &["_asyncFn"],
+                );
+            }
+
+            // No dispatch functions registered, just create a pending promise
+            eval(&mut iso, &ctx, "_asyncFn('keep-alive')");
+            assert_eq!(pending.len(), 1);
+
+            let (tx, rx) = crossbeam_channel::unbounded();
+
+            // Send child_stdout without _childProcessDispatch registered
+            let mut payload = Vec::new();
+            rmpv::encode::write_value(&mut payload, &rmpv::Value::String("data".into())).unwrap();
+            tx.send(crate::session::SessionCommand::Message(
+                crate::ipc::HostMessage::StreamEvent {
+                    session_id: "test-session".into(),
+                    event_type: "child_stdout".into(),
+                    payload,
+                },
+            ))
+            .unwrap();
+
+            // Resolve pending promise
+            let mut r = Vec::new();
+            rmpv::encode::write_value(&mut r, &rmpv::Value::Nil).unwrap();
+            tx.send(crate::session::SessionCommand::Message(
+                crate::ipc::HostMessage::BridgeResponse {
+                    call_id: 1,
+                    result: Some(r),
+                    error: None,
+                },
+            ))
+            .unwrap();
+
+            // Should not crash even without dispatch function registered
+            let completed = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                crate::session::run_event_loop(scope, &rx, &pending)
+            };
+
+            assert!(completed);
+        }
+
+        // --- Part 42: StreamEvent microtasks flushed after dispatch ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(Vec::new()),
+                Box::new(Cursor::new(Vec::new())),
+                "test-session".into(),
+            );
+            let pending = bridge::PendingPromises::new();
+
+            let _fn_store;
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                _fn_store = bridge::register_async_bridge_fns(
+                    scope,
+                    &bridge_ctx as *const BridgeCallContext,
+                    &pending as *const bridge::PendingPromises,
+                    &["_asyncFn"],
+                );
+            }
+
+            // Set up dispatch that enqueues a microtask via Promise.resolve().then()
+            eval(
+                &mut iso,
+                &ctx,
+                "var _microtaskRanFromStream = false; \
+                 globalThis._childProcessDispatch = function(eventType, payload) { \
+                     Promise.resolve().then(function() { _microtaskRanFromStream = true; }); \
+                 }; \
+                 _asyncFn('keep-alive')",
+            );
+            assert_eq!(pending.len(), 1);
+
+            let (tx, rx) = crossbeam_channel::unbounded();
+
+            let mut payload = Vec::new();
+            rmpv::encode::write_value(&mut payload, &rmpv::Value::String("data".into())).unwrap();
+            tx.send(crate::session::SessionCommand::Message(
+                crate::ipc::HostMessage::StreamEvent {
+                    session_id: "test-session".into(),
+                    event_type: "child_stdout".into(),
+                    payload,
+                },
+            ))
+            .unwrap();
+
+            // Resolve pending promise
+            let mut r = Vec::new();
+            rmpv::encode::write_value(&mut r, &rmpv::Value::Nil).unwrap();
+            tx.send(crate::session::SessionCommand::Message(
+                crate::ipc::HostMessage::BridgeResponse {
+                    call_id: 1,
+                    result: Some(r),
+                    error: None,
+                },
+            ))
+            .unwrap();
+
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                crate::session::run_event_loop(scope, &rx, &pending);
+            }
+
+            // Microtask enqueued by the dispatch callback should have run
+            assert!(eval_bool(&mut iso, &ctx, "_microtaskRanFromStream === true"));
+        }
     }
 }

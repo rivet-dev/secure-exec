@@ -7,8 +7,6 @@
 /// function is called:
 /// - "child_stdout", "child_stderr", "child_exit" → _childProcessDispatch
 /// - "http_request" → _httpServerDispatch
-///
-/// Full implementation in US-014. This stub logs unhandled events.
 pub fn dispatch_stream_event(
     scope: &mut v8::HandleScope,
     event_type: &str,
