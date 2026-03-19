@@ -1,5 +1,21 @@
 # Ralph Progress Log
-Started: 2026-03-18
-PRD: ralph/v8-runtime (33 stories)
+Started: Wed Mar 18 06:52:02 PM PDT 2026
+---
 
 ## Codebase Patterns
+- Use `pnpm turbo run check-types` for TypeScript typecheck (not `typecheck`)
+- Rust crate lives at `crates/v8-runtime/`; binary name is `secure-exec-v8`
+- `cargo check` in `crates/v8-runtime/` validates Rust compilation
+- rusty_v8 crate is imported as `v8` (e.g., `v8 = "130"` in Cargo.toml)
+---
+
+## 2026-03-18 - US-001
+- Scaffolded `crates/v8-runtime/` with Cargo.toml and all module stubs
+- Files created: Cargo.toml, src/{main,ipc,isolate,execution,bridge,host_call,timeout,stream}.rs
+- Dependencies: v8 (130), rmp-serde (1), serde (1, derive), crossbeam-channel (0.5)
+- **Learnings for future iterations:**
+  - The turbo task for typecheck is `check-types`, not `typecheck`
+  - `pnpm install` may be needed before first turbo run if node_modules is missing
+  - v8 crate compiles quickly with prebuilt V8 static lib (~8s for check)
+  - main.rs declares all modules with `mod` statements; each .rs file is a module
+---
