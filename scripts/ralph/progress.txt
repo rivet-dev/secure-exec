@@ -24,6 +24,9 @@ PRD: ralph/wasmvm-dynamic-modules (19 stories)
 - Driver in legacy mode (wasmBinaryPath only): uses static WASMVM_COMMANDS list, all commands use single binary
 - Permission enforcement is in kernel-worker.ts (WASI host imports), not the driver — use `permission-check.ts` helpers
 - `PermissionTier` type is in syscall-rpc.ts; driver resolves tier via `_resolvePermissionTier(command)`
+- Permission system is opt-in: no `permissions` config → all commands `full` (unrestricted); with config, resolution is: user exact > user glob > user `*` > DEFAULT_FIRST_PARTY_TIERS > 'read-write'
+- `resolvePermissionTier()` in permission-check.ts supports a `defaults` fallback layer; `DEFAULT_FIRST_PARTY_TIERS` in driver.ts maps known first-party commands to sensible tiers
+- proc_spawn enforcement: only `full` tier allows subprocess spawning (isSpawnBlocked helper)
 
 ## 2026-03-19 12:04 PM PDT - US-001
 - Implemented path-based resolution in CommandRegistry.resolve() — extracts basename when command contains '/'
@@ -219,4 +222,32 @@ PRD: ralph/wasmvm-dynamic-modules (19 stories)
   - `ERRNO_EACCES` (value 2) is the appropriate WASI errno for permission denials
   - VFS write operations (mkdir, writeFile, unlink, etc.) are a separate write path from fd_open — both need enforcement
   - isPathInCwd must handle relative paths, path traversal (..), trailing slashes, and prefix collisions (projectX vs project)
+---
+
+## 2026-03-19 2:15 PM PDT - US-019
+- Added `isSpawnBlocked()` helper to `permission-check.ts` — only `full` tier allows proc_spawn
+- Added proc_spawn permission check in `kernel-worker.ts` — returns EACCES for non-full tiers
+- Added `resolvePermissionTier()` function with glob pattern matching and fallback defaults layer
+- Added `DEFAULT_FIRST_PARTY_TIERS` constant mapping known commands to sensible tiers (sh:full, grep:read-only, etc.)
+- Updated `_resolvePermissionTier()` in driver to use pattern matching with priority: exact > glob > `*` > defaults > `read-write`
+- No permissions config → `full` (backward compatible, unrestricted)
+- User's `*` catch-all takes priority over defaults (user intent wins)
+- Defaults only consulted when no user pattern matches
+- Added 15 new unit tests in permission-check.test.ts (isSpawnBlocked, resolvePermissionTier, globs, defaults layer)
+- Added 8 new driver tests (wildcard patterns, default tiers, proc_spawn enforcement)
+- 2 new WASM-gated integration tests (full tier can spawn, read-write tier blocks spawn)
+- Files changed:
+  - packages/runtime/wasmvm/src/permission-check.ts (isSpawnBlocked, resolvePermissionTier, globMatch)
+  - packages/runtime/wasmvm/src/kernel-worker.ts (proc_spawn enforcement)
+  - packages/runtime/wasmvm/src/driver.ts (DEFAULT_FIRST_PARTY_TIERS, wildcard resolution)
+  - packages/runtime/wasmvm/src/index.ts (exports)
+  - packages/runtime/wasmvm/test/permission-check.test.ts
+  - packages/runtime/wasmvm/test/driver.test.ts
+- **Learnings for future iterations:**
+  - Permission system is opt-in: no `permissions` config → all commands get `full` (unrestricted, backward compatible)
+  - When user provides permissions, resolution priority is: user exact > user glob > user `*` > DEFAULT_FIRST_PARTY_TIERS > 'read-write'
+  - User's `*` catch-all MUST take priority over defaults — otherwise `{ '*': 'full' }` wouldn't make everything full
+  - `resolvePermissionTier()` supports a `defaults` parameter as a fallback layer, only consulted when primary permissions have no match
+  - WASI `rightsBase` in fdOpen includes FD_WRITE even for read-only file opens (programs request broad capabilities) — `read-only` tier blocks these due to `rightsBase & 2n` in hasWriteIntent check; this is a known limitation from US-018
+  - Integration tests for proc_spawn: `sh -c "ls /"` tests spawn since ls is not a shell builtin; echo IS a builtin so it doesn't test proc_spawn
 ---
