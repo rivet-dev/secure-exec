@@ -12,7 +12,7 @@ import { createWasmVmRuntime } from '../src/driver.ts';
 import { createKernel } from '@secure-exec/kernel';
 import type { Kernel } from '@secure-exec/kernel';
 import { existsSync } from 'node:fs';
-import { writeFile as fsWriteFile, readFile as fsReadFile, mkdtemp, rm } from 'node:fs/promises';
+import { writeFile as fsWriteFile, readFile as fsReadFile, mkdtemp, rm, mkdir as fsMkdir } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -397,5 +397,119 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
     expect(wasm.stdout).toContain('spawned: yes');
     expect(wasm.stdout).toContain('kill: ok');
     expect(wasm.stdout).toContain('terminated: yes');
+  });
+
+  // --- Tier 4: filesystem stress ---
+
+  const hasCTier4Binaries = existsSync(join(C_BUILD_DIR, 'c-ls'));
+  const hasCTier4Native = existsSync(join(NATIVE_DIR, 'c-ls'));
+  const tier4Skip = (!hasCTier4Binaries || !hasCTier4Native)
+    ? 'C Tier 4 binaries not built (run make -C wasmvm/c programs && make -C wasmvm/c native)'
+    : false;
+
+  // Helper: create test directory tree on disk and in VFS
+  async function setupTestTree(testVfs: SimpleVFS) {
+    const tmpDir = await mkdtemp(join(tmpdir(), 'c-parity-tree-'));
+    await fsMkdir(join(tmpDir, 'subdir', 'deep'), { recursive: true });
+    await fsWriteFile(join(tmpDir, 'alpha.txt'), 'hello\n');
+    await fsWriteFile(join(tmpDir, 'beta.txt'), 'world!\n');
+    await fsWriteFile(join(tmpDir, 'subdir', 'gamma.txt'), 'nested file\n');
+    await fsWriteFile(join(tmpDir, 'subdir', 'deep', 'delta.txt'), 'deep nested\n');
+
+    const base = '/testdir';
+    await testVfs.createDir(base);
+    await testVfs.createDir(`${base}/subdir`);
+    await testVfs.createDir(`${base}/subdir/deep`);
+    await testVfs.writeFile(`${base}/alpha.txt`, 'hello\n');
+    await testVfs.writeFile(`${base}/beta.txt`, 'world!\n');
+    await testVfs.writeFile(`${base}/subdir/gamma.txt`, 'nested file\n');
+    await testVfs.writeFile(`${base}/subdir/deep/delta.txt`, 'deep nested\n');
+
+    return { nativeDir: tmpDir, vfsBase: base };
+  }
+
+  it.skipIf(tier4Skip)('c-ls: directory listing with file sizes matches', async () => {
+    const { nativeDir } = await setupTestTree(vfs);
+    try {
+      const native = await runNative('c-ls', [nativeDir]);
+      const wasm = await kernel.exec('c-ls /testdir');
+
+      expect(wasm.exitCode).toBe(native.exitCode);
+      expect(wasm.exitCode).toBe(0);
+      expect(wasm.stdout).toBe(native.stdout);
+      // Verify expected entries
+      expect(wasm.stdout).toContain('alpha.txt');
+      expect(wasm.stdout).toContain('subdir');
+    } finally {
+      await rm(nativeDir, { recursive: true });
+    }
+  });
+
+  it.skipIf(tier4Skip)('c-tree: recursive directory listing matches', async () => {
+    const { nativeDir } = await setupTestTree(vfs);
+    try {
+      const native = await runNative('c-tree', [nativeDir]);
+      const wasm = await kernel.exec('c-tree /testdir');
+
+      expect(wasm.exitCode).toBe(native.exitCode);
+      expect(wasm.exitCode).toBe(0);
+      // Root path (first line) differs — normalize it
+      const normalizeRoot = (out: string) => out.replace(/^.+\n/, 'ROOT\n');
+      expect(normalizeRoot(wasm.stdout)).toBe(normalizeRoot(native.stdout));
+      // Verify tree structure present
+      expect(wasm.stdout).toContain('alpha.txt');
+      expect(wasm.stdout).toContain('deep');
+      expect(wasm.stdout).toContain('delta.txt');
+    } finally {
+      await rm(nativeDir, { recursive: true });
+    }
+  });
+
+  it.skipIf(tier4Skip)('c-find: find files matching glob pattern', async () => {
+    const { nativeDir } = await setupTestTree(vfs);
+    try {
+      const native = await runNative('c-find', [nativeDir, '*.txt']);
+      const wasm = await kernel.exec('c-find /testdir "*.txt"');
+
+      expect(wasm.exitCode).toBe(native.exitCode);
+      expect(wasm.exitCode).toBe(0);
+      // Paths have different roots — strip root prefix, compare relative paths
+      const relPaths = (out: string, root: string) =>
+        out.split('\n').filter(Boolean).map((l) => l.replace(root, '')).sort().join('\n');
+      expect(relPaths(wasm.stdout, '/testdir')).toBe(relPaths(native.stdout, nativeDir));
+      // Should find all 4 .txt files
+      expect(wasm.stdout.split('\n').filter(Boolean)).toHaveLength(4);
+    } finally {
+      await rm(nativeDir, { recursive: true });
+    }
+  });
+
+  it.skipIf(tier4Skip)('c-cp: copied file contents match', async () => {
+    const srcContent = 'copy test content\nwith multiple lines\n';
+
+    // Native: write source, copy, read dest
+    const tmpDir = await mkdtemp(join(tmpdir(), 'c-parity-cp-'));
+    try {
+      const nativeSrc = join(tmpDir, 'src.txt');
+      const nativeDst = join(tmpDir, 'dst.txt');
+      await fsWriteFile(nativeSrc, srcContent);
+      const native = await runNative('c-cp', [nativeSrc, nativeDst]);
+      const nativeCopied = await fsReadFile(nativeDst, 'utf8');
+
+      // WASM: write source to VFS, copy, read dest from VFS
+      await vfs.writeFile('/tmp/src.txt', srcContent);
+      const wasm = await kernel.exec('c-cp /tmp/src.txt /tmp/dst.txt');
+      const wasmCopied = await vfs.readTextFile('/tmp/dst.txt');
+
+      expect(wasm.exitCode).toBe(native.exitCode);
+      expect(wasm.exitCode).toBe(0);
+      expect(wasmCopied).toBe(nativeCopied);
+      expect(wasmCopied).toBe(srcContent);
+      // Stdout message paths differ — just verify both report success
+      expect(wasm.stdout).toContain('copied:');
+      expect(native.stdout).toContain('copied:');
+    } finally {
+      await rm(tmpDir, { recursive: true });
+    }
   });
 });
