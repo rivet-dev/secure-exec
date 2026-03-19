@@ -111,6 +111,31 @@
         return p.slice(0, lastSlash);
       }
 
+      // Widen TextDecoder to accept common encodings beyond utf-8.
+      // The text-encoding-utf-8 polyfill only supports utf-8 and throws for
+      // anything else. Packages like ssh2 import modules that create TextDecoder
+      // with 'ascii' or 'latin1' at module scope. We wrap the constructor to
+      // normalize known labels to utf-8 (which is a safe superset for ASCII-range
+      // data) and only throw for truly unsupported encodings.
+      if (typeof globalThis.TextDecoder === 'function') {
+        var _OrigTextDecoder = globalThis.TextDecoder;
+        var _utf8Aliases = {
+          'utf-8': true, 'utf8': true, 'unicode-1-1-utf-8': true,
+          'ascii': true, 'us-ascii': true, 'iso-8859-1': true,
+          'latin1': true, 'binary': true, 'windows-1252': true,
+          'utf-16le': true, 'utf-16': true, 'ucs-2': true, 'ucs2': true,
+        };
+        globalThis.TextDecoder = function TextDecoder(encoding, options) {
+          var label = encoding !== undefined ? String(encoding).toLowerCase().replace(/\s/g, '') : 'utf-8';
+          if (_utf8Aliases[label]) {
+            return new _OrigTextDecoder('utf-8', options);
+          }
+          // Fall through to original for unknown encodings (will throw).
+          return new _OrigTextDecoder(encoding, options);
+        };
+        globalThis.TextDecoder.prototype = _OrigTextDecoder.prototype;
+      }
+
       // Patch known polyfill gaps in one place after evaluation.
       function _patchPolyfill(name, result) {
         if ((typeof result !== 'object' && typeof result !== 'function') || result === null) {
@@ -238,6 +263,33 @@
 	          }
 	          return result;
 	        }
+
+        if (name === 'zlib') {
+          // browserify-zlib exposes Z_* values as flat exports but not as a
+          // constants object. Node.js zlib.constants bundles all Z_ values plus
+          // DEFLATE (1), INFLATE (2), GZIP (3), DEFLATERAW (4), INFLATERAW (5),
+          // UNZIP (6), GUNZIP (7). Packages like ssh2 destructure constants.
+          if (typeof result.constants !== 'object' || result.constants === null) {
+            var zlibConstants = {};
+            var constKeys = Object.keys(result);
+            for (var ci = 0; ci < constKeys.length; ci++) {
+              var ck = constKeys[ci];
+              if (ck.indexOf('Z_') === 0 && typeof result[ck] === 'number') {
+                zlibConstants[ck] = result[ck];
+              }
+            }
+            // Add mode constants that Node.js exposes but browserify-zlib does not.
+            if (typeof zlibConstants.DEFLATE !== 'number') zlibConstants.DEFLATE = 1;
+            if (typeof zlibConstants.INFLATE !== 'number') zlibConstants.INFLATE = 2;
+            if (typeof zlibConstants.GZIP !== 'number') zlibConstants.GZIP = 3;
+            if (typeof zlibConstants.DEFLATERAW !== 'number') zlibConstants.DEFLATERAW = 4;
+            if (typeof zlibConstants.INFLATERAW !== 'number') zlibConstants.INFLATERAW = 5;
+            if (typeof zlibConstants.UNZIP !== 'number') zlibConstants.UNZIP = 6;
+            if (typeof zlibConstants.GUNZIP !== 'number') zlibConstants.GUNZIP = 7;
+            result.constants = zlibConstants;
+          }
+          return result;
+        }
 
         if (name === 'crypto') {
           // Overlay host-backed createHash on top of crypto-browserify polyfill
@@ -911,6 +963,43 @@
 
             result.subtle = SandboxSubtle;
             result.webcrypto = { subtle: SandboxSubtle, getRandomValues: result.randomFillSync };
+          }
+
+          // Enumeration functions: getCurves, getCiphers, getHashes.
+          // Packages like ssh2 call these at module scope to build capability tables.
+          if (typeof result.getCurves !== 'function') {
+            result.getCurves = function getCurves() {
+              return [
+                'prime256v1', 'secp256r1', 'secp384r1', 'secp521r1',
+                'secp256k1', 'secp224r1', 'secp192k1',
+              ];
+            };
+          }
+          if (typeof result.getCiphers !== 'function') {
+            result.getCiphers = function getCiphers() {
+              return [
+                'aes-128-cbc', 'aes-128-gcm', 'aes-192-cbc', 'aes-192-gcm',
+                'aes-256-cbc', 'aes-256-gcm', 'aes-128-ctr', 'aes-192-ctr',
+                'aes-256-ctr',
+              ];
+            };
+          }
+          if (typeof result.getHashes !== 'function') {
+            result.getHashes = function getHashes() {
+              return ['md5', 'sha1', 'sha256', 'sha384', 'sha512'];
+            };
+          }
+          if (typeof result.timingSafeEqual !== 'function') {
+            result.timingSafeEqual = function timingSafeEqual(a, b) {
+              if (a.length !== b.length) {
+                throw new RangeError('Input buffers must have the same byte length');
+              }
+              var out = 0;
+              for (var i = 0; i < a.length; i++) {
+                out |= a[i] ^ b[i];
+              }
+              return out === 0;
+            };
           }
 
           return result;
