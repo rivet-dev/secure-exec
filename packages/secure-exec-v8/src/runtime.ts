@@ -125,6 +125,11 @@ export async function createV8Runtime(
 				`V8 runtime process killed by signal ${signal}`,
 			);
 		}
+
+		// Resolve all pending executions with a crash error
+		rejectPendingSessions(
+			exitError ?? new Error("V8 runtime process exited unexpectedly"),
+		);
 	});
 
 	// Collect stderr for error reporting
@@ -183,6 +188,25 @@ export async function createV8Runtime(
 		throw new Error(
 			`Failed to connect to V8 runtime: ${msg}${stderrBuf ? `\nstderr: ${stderrBuf}` : ""}`,
 		);
+	}
+
+	/** Resolve all pending executions with a crash/exit error. */
+	function rejectPendingSessions(error: Error): void {
+		const handlers = [...sessionHandlers.entries()];
+		for (const [sid, handler] of handlers) {
+			handler({
+				type: "ExecutionResult",
+				session_id: sid,
+				code: 1,
+				exports: null,
+				error: {
+					type: "Error",
+					message: error.message,
+					stack: "",
+					code: "ERR_V8_PROCESS_CRASH",
+				},
+			} as RustMessage);
+		}
 	}
 
 	/** Ensure the process is alive, throw if crashed. */
@@ -269,6 +293,7 @@ export async function createV8Runtime(
 													? args
 													: [args]),
 											);
+											if (!client.isConnected) return;
 											client.send({
 												type: "BridgeResponse",
 												call_id: msg.call_id,
@@ -281,6 +306,7 @@ export async function createV8Runtime(
 												error: null,
 											});
 										} catch (err) {
+											if (!client.isConnected) return;
 											client.send({
 												type: "BridgeResponse",
 												call_id: msg.call_id,
