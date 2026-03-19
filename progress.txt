@@ -2540,3 +2540,26 @@ PRD: ralph/kernel-hardening (46 stories)
   - poll(2) returns -1 with EINTR when interrupted by a signal — must re-check pollfds after EINTR
   - Self-pipe read end must be non-blocking to allow drain_pipe to consume all pending bytes without blocking
 ---
+
+## 2026-03-19 - US-045
+- Removed JSON double-serialization from bridge handlers: _fsStat, _fsLstat, _fsReadDir, _childProcessSpawnSync, _networkFetchRaw, _networkDnsLookupRaw, _networkHttpRequestRaw, _networkHttpServerListenRaw
+- Host-side handlers now return objects directly instead of JSON.stringify'd strings
+- Bridge-side JS code now receives objects directly instead of JSON.parse
+- Updated bridge-contract.ts with typed return types (FsStatResult, FsLstatResult, FsReadDirEntry, SpawnSyncBridgeResult, NetworkFetchResult, etc.)
+- Added estimateResponseSize() for network payload limit checks (body + headers + url + statusText + overhead)
+- Also removed JSON serialization from HTTP server dispatch stream events (request/response)
+- Files changed:
+  - packages/secure-exec-core/src/shared/bridge-contract.ts — new typed return types for all affected bridge refs
+  - packages/secure-exec-node/src/bridge-handlers.ts — removed JSON.stringify from handler returns, added estimateResponseSize helper
+  - packages/secure-exec-core/src/bridge/fs.ts — removed JSON.parse for readDir/stat/lstat results
+  - packages/secure-exec-core/src/bridge/child-process.ts — removed JSON.parse for spawnSync/execSync results
+  - packages/secure-exec-core/src/bridge/network.ts — removed JSON.parse for fetch/dns/http/server results
+  - packages/secure-exec-core/src/bridge/process.ts — removed JSON.parse for process.chdir stat check
+  - scripts/ralph/prd.json — marked US-045 passes: true
+- **Learnings for future iterations:**
+  - Bridge handler return types in bridge-contract.ts must match both host-side handler implementations and bridge-side consumer code
+  - V8 ValueSerializer handles arbitrary JS objects natively — no need for JSON encoding of structured data crossing the bridge
+  - Payload size checks that relied on JSON string length need to be replaced with field-level estimates when switching to object returns
+  - assertPayloadByteLength uses strict > (not >=), so size estimates must account for object structure overhead
+  - Bridge code (fs.ts, network.ts, etc.) is bundled by core's build scripts — must force rebuild core after bridge source changes
+---
