@@ -2530,3 +2530,26 @@ PRD: ralph/kernel-hardening (46 stories)
   - All new crates compile for wasm32-wasip1 with -Z build-std=std,panic_abort without patches
   - The multicall still builds in parallel — no changes to existing dispatch.rs during transition
 ---
+
+## 2026-03-19 - US-006
+- What was implemented: Extracted 9 file utility commands from multicall into standalone library + binary crates
+- Files changed:
+  - wasmvm/crates/libs/find/ — library crate (secureexec-find), depends on regex
+  - wasmvm/crates/libs/file-cmd/ — library crate (secureexec-file-cmd), depends on infer
+  - wasmvm/crates/libs/tree/ — library crate (secureexec-tree), no external deps
+  - wasmvm/crates/libs/du/ — library crate (secureexec-du), no external deps
+  - wasmvm/crates/libs/column/ — library crate (secureexec-column), no external deps
+  - wasmvm/crates/libs/rev/ — library crate (secureexec-rev), no external deps
+  - wasmvm/crates/libs/strings-cmd/ — library crate (secureexec-strings-cmd), no external deps
+  - wasmvm/crates/libs/expr/ — library crate (secureexec-expr), depends on regex
+  - wasmvm/crates/libs/diff/ — library crate (secureexec-diff), depends on similar
+  - wasmvm/crates/commands/{find,file,tree,du,column,rev,strings,expr,diff}/ — binary crates
+  - wasmvm/Cargo.toml — added 18 new workspace members
+  - wasmvm/Cargo.lock — updated with new workspace members
+- **Learnings for future iterations:**
+  - Commands with name conflicts (file, strings) use `-cmd` suffix for lib crate dirs (file-cmd, strings-cmd) but binary crate dirs keep the command name
+  - Custom implementations (find, file, tree, du, column, rev, strings, expr, diff) don't depend on uutils — they use std::fs and specialized crates (regex, infer, similar)
+  - tree, du, column, rev have zero external dependencies — pure std implementations
+  - All 9 binary crates compile for wasm32-wasip1 without any patches needed
+  - Pre-existing test failures: @secure-exec/example-ai-sdk typecheck (missing node_modules), kernel PTY adversarial stress test
+---
