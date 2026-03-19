@@ -512,4 +512,38 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
       await rm(tmpDir, { recursive: true });
     }
   });
+
+  // --- Tier 5: vendored libraries ---
+
+  const hasCTier5Binaries = existsSync(join(C_BUILD_DIR, 'json_parse'));
+  const hasCTier5Native = existsSync(join(NATIVE_DIR, 'json_parse'));
+  const tier5Skip = (!hasCTier5Binaries || !hasCTier5Native)
+    ? 'C Tier 5 binaries not built (run make -C wasmvm/c programs && make -C wasmvm/c native)'
+    : false;
+
+  it.skipIf(tier5Skip)('json_parse: cJSON parse and format parity', async () => {
+    const sampleJson = JSON.stringify({
+      name: 'secure-exec',
+      version: 2,
+      enabled: true,
+      tags: ['alpha', 'beta'],
+      config: { debug: false, timeout: null, ratio: 3.14 },
+      empty_arr: [],
+      empty_obj: {},
+    });
+
+    const native = await runNative('json_parse', [], { input: sampleJson });
+    const wasm = await kernel.exec('json_parse', { stdin: sampleJson });
+
+    expect(wasm.exitCode).toBe(native.exitCode);
+    expect(wasm.exitCode).toBe(0);
+    expect(wasm.stdout).toBe(native.stdout);
+    // Verify key structural elements are present
+    expect(wasm.stdout).toContain('"name": "secure-exec"');
+    expect(wasm.stdout).toContain('"enabled": true');
+    expect(wasm.stdout).toContain('"timeout": null');
+    expect(wasm.stdout).toContain('"ratio": 3.14');
+    expect(wasm.stdout).toContain('[]');
+    expect(wasm.stdout).toContain('{}');
+  });
 });

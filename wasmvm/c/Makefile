@@ -147,13 +147,18 @@ $(BUILD_DIR)/%: programs/%.c $(WASI_SDK_DIR)/bin/clang
 
 # --- Per-program override rules for multi-file compilation ---
 # Add overrides here for programs that link vendored libraries.
-# Example for json_parse (US-032):
-#   $(BUILD_DIR)/json_parse: programs/json_parse.c libs/cjson/cJSON.c $(WASI_SDK_DIR)/bin/clang
-#   	@mkdir -p $(BUILD_DIR)
-#   	$(CC) $(WASM_CFLAGS) -Ilibs/cjson -o $@.wasm programs/json_parse.c libs/cjson/cJSON.c
-#   	wasm-opt -O3 --strip-debug $@.wasm -o $@
-#   	@rm -f $@.wasm
-#
+
+# json_parse: links cJSON library
+$(BUILD_DIR)/json_parse: programs/json_parse.c libs/cjson/cJSON.c $(WASI_SDK_DIR)/bin/clang
+	@mkdir -p $(BUILD_DIR)
+	$(CC) $(WASM_CFLAGS) -Ilibs/cjson -o $@.wasm programs/json_parse.c libs/cjson/cJSON.c
+	wasm-opt -O3 --strip-debug $@.wasm -o $@
+	@rm -f $@.wasm
+
+$(NATIVE_DIR)/json_parse: programs/json_parse.c libs/cjson/cJSON.c
+	@mkdir -p $(NATIVE_DIR)
+	$(NATIVE_CC) $(NATIVE_CFLAGS) -Ilibs/cjson -o $@ programs/json_parse.c libs/cjson/cJSON.c
+
 # Example for sqlite3_mem (US-033):
 #   SQLITE_FLAGS := -DSQLITE_OS_OTHER -DSQLITE_OMIT_WAL -DSQLITE_OMIT_LOAD_EXTENSION \
 #                   -DSQLITE_THREADSAFE=0 -lwasi-emulated-signal -lwasi-emulated-mman

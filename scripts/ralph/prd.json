@@ -576,7 +576,7 @@
         "Tests pass"
       ],
       "priority": 29,
-      "passes": false,
+      "passes": true,
       "notes": "See spec Section 4.2 Tier 2. These validate that the patches from US-026-028 actually work. getpid_test is the key validation — vanilla wasi-libc returns 42, patched version returns real PID from host. pipe_test: pipe(fds), write(fds[1], ...), read(fds[0], ...), compare. NOTE: sleep_test uses standard WASI poll_oneoff-based sleep (via wasi-libc's nanosleep/sleep), NOT host_process.sleep_ms. It validates that C's sleep functions work correctly on our WASI runtime. It's grouped with Tier 2 despite being standard WASI because it tests timing behavior alongside the custom import fixtures."
     },
     {
@@ -594,7 +594,7 @@
         "Tests pass"
       ],
       "priority": 30,
-      "passes": false,
+      "passes": true,
       "notes": "See spec Section 4.3 Tier 3. These are the most complex test fixtures — they exercise proc_spawn + proc_waitpid + proc_kill + fd_pipe + fd_dup2 together. pipeline.c is the key integration test: creates pipe, spawns 'echo hello' with stdout redirected to pipe write end, spawns 'cat' with stdin from pipe read end, waits for both. This validates that C binaries can orchestrate multi-process pipelines just like Rust ones."
     },
     {
@@ -613,7 +613,7 @@
         "Tests pass"
       ],
       "priority": 31,
-      "passes": false,
+      "passes": true,
       "notes": "See spec Section 4.4 Tier 4. These exercise WASI filesystem APIs: path_open, fd_readdir, fd_filestat_get, path_filestat_get. c-ls should print name + size like 'ls -l' but simpler. c-tree uses recursive opendir/readdir. c-find uses simple glob matching (fnmatch or manual). c-cp opens source for reading, dest for writing, copies in chunks. Test setup must create a temp directory tree."
     },
     {
@@ -630,7 +630,7 @@
         "Tests pass"
       ],
       "priority": 32,
-      "passes": false,
+      "passes": true,
       "notes": "See spec Section 4.5 Tier 5. cJSON is MIT-licensed, single-file C library. This validates complex malloc/free patterns since cJSON allocates heavily. The test should parse a non-trivial JSON (nested objects, arrays, mixed types) and print a formatted representation. If cJSON fails to compile, it likely means our sysroot is missing something — document the gap."
     },
     {
