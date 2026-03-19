@@ -1,7 +1,6 @@
 // Session management: create/destroy sessions with V8 isolates on dedicated threads
 
 use std::collections::HashMap;
-use std::io::Write;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 
@@ -10,7 +9,7 @@ use crossbeam_channel::{Receiver, Sender};
 use crate::host_call::CallIdRouter;
 use crate::ipc_binary::BinaryFrame;
 #[cfg(not(test))]
-use crate::host_call::BridgeCallContext;
+use crate::host_call::{BridgeCallContext, ChannelFrameSender};
 #[cfg(not(test))]
 use crate::ipc_binary::{self, ExecutionErrorBin};
 #[cfg(not(test))]
@@ -24,9 +23,9 @@ pub enum SessionCommand {
     Message(BinaryFrame),
 }
 
-/// Shared IPC writer for outgoing messages to the host.
-/// Wrapped in Arc<Mutex<>> so multiple session threads can share a connection writer.
-pub type SharedWriter = Arc<Mutex<Box<dyn Write + Send>>>;
+/// Per-connection IPC sender: each session serializes frames independently
+/// and sends complete byte vectors through this channel to a dedicated writer thread.
+pub type IpcSender = crossbeam_channel::Sender<Vec<u8>>;
 
 /// Internal entry for a running session
 struct SessionEntry {
@@ -50,19 +49,20 @@ pub struct SessionManager {
     sessions: HashMap<String, SessionEntry>,
     max_concurrency: usize,
     slot_control: SlotControl,
-    /// Shared IPC writer for outgoing messages (all sessions on a connection)
-    writer: SharedWriter,
+    /// Per-connection IPC sender — session threads clone this to send frames
+    /// to the dedicated writer thread without shared mutex contention
+    ipc_tx: IpcSender,
     /// Call_id → session_id routing table for BridgeResponse dispatch
     call_id_router: CallIdRouter,
 }
 
 impl SessionManager {
-    pub fn new(max_concurrency: usize, writer: SharedWriter, call_id_router: CallIdRouter) -> Self {
+    pub fn new(max_concurrency: usize, ipc_tx: IpcSender, call_id_router: CallIdRouter) -> Self {
         SessionManager {
             sessions: HashMap::new(),
             max_concurrency,
             slot_control: Arc::new((Mutex::new(0), Condvar::new())),
-            writer,
+            ipc_tx,
             call_id_router,
         }
     }
@@ -84,7 +84,7 @@ impl SessionManager {
         let (tx, rx) = crossbeam_channel::unbounded();
         let slot_control = Arc::clone(&self.slot_control);
         let max = self.max_concurrency;
-        let writer = Arc::clone(&self.writer);
+        let ipc_tx = self.ipc_tx.clone();
         let router = Arc::clone(&self.call_id_router);
 
         let name_prefix = if session_id.len() > 8 {
@@ -95,7 +95,7 @@ impl SessionManager {
         let join_handle = thread::Builder::new()
             .name(format!("session-{}", name_prefix))
             .spawn(move || {
-                session_thread(heap_limit_mb, cpu_time_limit_ms, rx, slot_control, max, writer, router);
+                session_thread(heap_limit_mb, cpu_time_limit_ms, rx, slot_control, max, ipc_tx, router);
             })
             .map_err(|e| format!("failed to spawn session thread: {}", e))?;
 
@@ -204,12 +204,19 @@ impl SessionManager {
     }
 }
 
-/// Write a BinaryFrame to the shared IPC writer.
+/// Serialize and send a BinaryFrame via the per-connection IPC channel.
+/// No shared mutex is held — serialization happens on the session thread.
 #[cfg(not(test))]
-fn send_message(writer: &SharedWriter, frame: &BinaryFrame) {
-    let mut w = writer.lock().unwrap();
-    if let Err(e) = ipc_binary::write_frame(&mut *w, frame) {
-        eprintln!("failed to write IPC message: {}", e);
+fn send_message(ipc_tx: &IpcSender, frame: &BinaryFrame) {
+    match ipc_binary::frame_to_bytes(frame) {
+        Ok(bytes) => {
+            if let Err(e) = ipc_tx.send(bytes) {
+                eprintln!("failed to send IPC message: {}", e);
+            }
+        }
+        Err(e) => {
+            eprintln!("failed to encode IPC message: {}", e);
+        }
     }
 }
 
@@ -221,7 +228,7 @@ fn session_thread(
     rx: Receiver<SessionCommand>,
     slot_control: SlotControl,
     max_concurrency: usize,
-    #[cfg_attr(test, allow(unused_variables))] writer: SharedWriter,
+    #[cfg_attr(test, allow(unused_variables))] ipc_tx: IpcSender,
     #[cfg_attr(test, allow(unused_variables))] call_id_router: CallIdRouter,
 ) {
     // Acquire concurrency slot (blocks if at capacity)
@@ -309,13 +316,13 @@ fn session_thread(
                             (None, None)
                         };
 
-                        // Create BridgeCallContext with direct channel receiver (no re-serialization)
+                        // Create BridgeCallContext with channel sender (no shared mutex)
                         let channel_rx = match maybe_abort_rx {
                             Some(ref arx) => ChannelResponseReceiver::with_abort(rx.clone(), arx.clone()),
                             None => ChannelResponseReceiver::new(rx.clone()),
                         };
                         let bridge_ctx = BridgeCallContext::with_receiver(
-                            Box::new(MutexWriter(Arc::clone(&writer))),
+                            Box::new(ChannelFrameSender { tx: ipc_tx.clone() }),
                             Box::new(channel_rx),
                             session_id.clone(),
                             Arc::clone(&call_id_router),
@@ -433,7 +440,7 @@ fn session_thread(
                             }
                         };
 
-                        send_message(&writer, &result_frame);
+                        send_message(&ipc_tx, &result_frame);
                     }
                     _ => {
                         // Other messages handled in later stories
@@ -599,20 +606,6 @@ pub(crate) fn run_event_loop(
     true
 }
 
-/// Writer adapter that wraps Arc<Mutex<Box<dyn Write + Send>>> for BridgeCallContext.
-#[cfg(not(test))]
-struct MutexWriter(SharedWriter);
-
-#[cfg(not(test))]
-impl std::io::Write for MutexWriter {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0.lock().unwrap().write(buf)
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        self.0.lock().unwrap().flush()
-    }
-}
-
 /// ResponseReceiver that receives BinaryFrame directly from the session channel.
 ///
 /// Eliminates the re-serialization cycle: frames arrive already deserialized
@@ -680,9 +673,9 @@ mod tests {
 
     /// Helper to create a SessionManager for tests
     fn test_manager(max: usize) -> SessionManager {
-        let writer: SharedWriter = Arc::new(Mutex::new(Box::new(Vec::<u8>::new())));
+        let (tx, _rx) = crossbeam_channel::unbounded();
         let router: CallIdRouter = Arc::new(Mutex::new(HashMap::new()));
-        SessionManager::new(max, writer, router)
+        SessionManager::new(max, tx, router)
     }
 
     #[test]

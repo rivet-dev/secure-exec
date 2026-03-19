@@ -22,7 +22,7 @@ use std::sync::{Arc, Mutex};
 
 use host_call::CallIdRouter;
 use ipc_binary::BinaryFrame;
-use session::{SessionManager, SharedWriter};
+use session::SessionManager;
 
 /// Close all file descriptors > 2 (stdin/stdout/stderr preserved).
 /// Called at process startup to prevent the parent from leaking FDs into the V8 runtime.
@@ -124,6 +124,19 @@ fn authenticate_connection(stream: &mut UnixStream, expected_token: &str) -> boo
         Err(e) => {
             eprintln!("auth failed: read error: {}", e);
             false
+        }
+    }
+}
+
+/// Dedicated writer thread per connection: drains the frame channel and
+/// writes complete frames atomically to the socket. Session threads send
+/// pre-serialized byte vectors through the channel, so no shared mutex
+/// is held during V8 serialization or frame construction.
+fn ipc_writer_thread(rx: crossbeam_channel::Receiver<Vec<u8>>, mut writer: UnixStream) {
+    while let Ok(bytes) = rx.recv() {
+        if let Err(e) = writer.write_all(&bytes) {
+            eprintln!("IPC writer thread: write error: {}", e);
+            break;
         }
     }
 }
@@ -344,23 +357,30 @@ fn main() {
                         continue;
                     }
 
-                    // Create per-connection shared writer and routing table
+                    // Create per-connection writer thread and IPC channel
                     let writer_stream = stream.try_clone().expect("failed to clone UDS stream");
                     set_cloexec(writer_stream.as_raw_fd())
                         .expect("failed to set CLOEXEC on cloned stream");
-                    let conn_writer: SharedWriter =
-                        Arc::new(Mutex::new(Box::new(writer_stream)));
+                    let (ipc_tx, ipc_rx) = crossbeam_channel::unbounded::<Vec<u8>>();
                     let call_id_router: CallIdRouter = Arc::new(Mutex::new(HashMap::new()));
+
+                    // Spawn dedicated writer thread — only this thread writes to the socket
+                    let conn_id = NEXT_CONNECTION_ID.fetch_add(1, Ordering::Relaxed);
+                    std::thread::Builder::new()
+                        .name(format!("writer-{}", conn_id))
+                        .spawn(move || {
+                            ipc_writer_thread(ipc_rx, writer_stream);
+                        })
+                        .expect("failed to spawn IPC writer thread");
 
                     // Create shared session manager for this connection
                     let session_mgr = Arc::new(Mutex::new(SessionManager::new(
                         max_concurrency,
-                        conn_writer,
+                        ipc_tx,
                         call_id_router,
                     )));
 
                     // Authenticated — spawn connection handler thread
-                    let conn_id = NEXT_CONNECTION_ID.fetch_add(1, Ordering::Relaxed);
                     let mgr = Arc::clone(&session_mgr);
                     std::thread::Builder::new()
                         .name(format!("conn-{}", conn_id))

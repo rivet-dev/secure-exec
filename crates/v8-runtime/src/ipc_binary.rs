@@ -110,8 +110,9 @@ pub struct ExecutionErrorBin {
     pub code: String, // empty string = no code
 }
 
-/// Write a binary frame to a writer.
-pub fn write_frame<W: Write>(writer: &mut W, frame: &BinaryFrame) -> io::Result<()> {
+/// Serialize a binary frame to a complete byte vector (length prefix + body).
+/// Used by per-session buffering to build the frame without holding any shared lock.
+pub fn frame_to_bytes(frame: &BinaryFrame) -> io::Result<Vec<u8>> {
     let mut body = Vec::new();
     encode_body(&mut body, frame);
 
@@ -122,8 +123,16 @@ pub fn write_frame<W: Write>(writer: &mut W, frame: &BinaryFrame) -> io::Result<
             format!("frame size {total_len} exceeds maximum {MAX_FRAME_SIZE}"),
         ));
     }
-    writer.write_all(&(total_len as u32).to_be_bytes())?;
-    writer.write_all(&body)?;
+    let mut result = Vec::with_capacity(4 + total_len);
+    result.extend_from_slice(&(total_len as u32).to_be_bytes());
+    result.extend_from_slice(&body);
+    Ok(result)
+}
+
+/// Write a binary frame to a writer.
+pub fn write_frame<W: Write>(writer: &mut W, frame: &BinaryFrame) -> io::Result<()> {
+    let bytes = frame_to_bytes(frame)?;
+    writer.write_all(&bytes)?;
     Ok(())
 }
 
@@ -1065,5 +1074,51 @@ mod tests {
             // Byte 4 (after 4-byte length prefix) is the message type
             assert_eq!(buf[4], *expected_type, "type mismatch for: {:?}", frame);
         }
+    }
+
+    // -- frame_to_bytes tests --
+
+    #[test]
+    fn frame_to_bytes_matches_write_frame() {
+        let frame = BinaryFrame::BridgeCall {
+            session_id: "sess-42".into(),
+            call_id: 123,
+            method: "_fsReadFile".into(),
+            payload: vec![0x01, 0x02, 0x03],
+        };
+        let bytes = frame_to_bytes(&frame).expect("frame_to_bytes");
+        let mut buf = Vec::new();
+        write_frame(&mut buf, &frame).expect("write_frame");
+        assert_eq!(bytes, buf);
+    }
+
+    #[test]
+    fn frame_to_bytes_roundtrip() {
+        let frame = BinaryFrame::ExecutionResult {
+            session_id: "sess-1".into(),
+            exit_code: 0,
+            exports: Some(vec![0xAA, 0xBB]),
+            error: None,
+        };
+        let bytes = frame_to_bytes(&frame).expect("frame_to_bytes");
+        let mut cursor = std::io::Cursor::new(&bytes);
+        let decoded = read_frame(&mut cursor).expect("read_frame");
+        assert_eq!(decoded, frame);
+    }
+
+    #[test]
+    fn frame_to_bytes_atomic_no_interleaving() {
+        // Verify frame_to_bytes produces a single contiguous byte vector
+        // (no intermediate writes that could interleave)
+        let frame = BinaryFrame::BridgeCall {
+            session_id: "s".into(),
+            call_id: 1,
+            method: "_fn".into(),
+            payload: vec![0xFF; 1024],
+        };
+        let bytes = frame_to_bytes(&frame).expect("frame_to_bytes");
+        // Length prefix matches body
+        let len = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
+        assert_eq!(len, bytes.len() - 4);
     }
 }
