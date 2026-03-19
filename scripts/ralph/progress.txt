@@ -166,3 +166,24 @@ PRD: ralph/wasmvm-dynamic-modules (19 stories)
   - `vi.fn(async (url: string) => ...)` doesn't match `typeof fetch` — use `as unknown as typeof globalThis.fetch` cast
   - Options accept custom `fetch` function for testability (dependency injection pattern)
 ---
+
+## 2026-03-19 1:55 PM PDT - US-017
+- Added `BinaryStorage` interface for persistent WASM binary caching across page loads
+- Implemented `CacheApiBinaryStorage` (Cache API) and `IndexedDbBinaryStorage` (IndexedDB fallback)
+- Added `sha256Hex()` utility using Web Crypto API for integrity verification
+- Modified `_fetchAndCompile()` to check persistent cache first, verify SHA-256, evict stale entries
+- Added SHA-256 integrity check on every network fetch against manifest hash
+- Added `preload(commands: string[])` method for concurrent prefetch during idle time
+- Added `binaryStorage` option to `BrowserWasmVmRuntimeOptions` (auto-detects Cache API/IndexedDB if omitted)
+- 26 tests covering: SHA-256 verification, cache hit avoids network, stale eviction, preload, dedup
+- Files changed:
+  - packages/runtime/wasmvm/src/browser-driver.ts
+  - packages/runtime/wasmvm/src/index.ts (exports)
+  - packages/runtime/wasmvm/test/browser-driver.test.ts
+- **Learnings for future iterations:**
+  - `Uint8Array` doesn't directly satisfy `BufferSource` or `BodyInit` in strict TS — cast via `as BufferSource` or `as unknown as BodyInit`
+  - `crypto.subtle.digest` is available in Node.js (globalThis.crypto) — no need to mock for tests
+  - Test manifests must use real SHA-256 hashes of the test WASM bytes — pre-compute with `sha256Hex()` in beforeEach
+  - `BinaryStorage` interface (get/put/delete) is easily mockable with an in-memory Map for tests
+  - The driver now uses `WebAssembly.compile(bytes)` instead of `compileStreaming(fetch)` when reading from persistent cache — since we already have the bytes
+---
