@@ -12,7 +12,7 @@ path = "src/main.rs"
 [dependencies]
 uucore = "0.7.0"
 wasi-ext = { path = "../wasi-ext" }
-shims = { path = "../shims" }
+shims = { package = "secureexec-shims", path = "../libs/shims" }
 
 # --- Text processing / pure computation ---
 uu_base32 = "0.7.0"

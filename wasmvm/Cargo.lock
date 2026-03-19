@@ -787,6 +787,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmd-env"
+version = "0.1.0"
+dependencies = [
+ "secureexec-shims",
+]
+
+[[package]]
 name = "cmd-expand"
 version = "0.1.0"
 dependencies = [
@@ -934,10 +941,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmd-nice"
+version = "0.1.0"
+dependencies = [
+ "secureexec-shims",
+]
+
+[[package]]
 name = "cmd-nl"
 version = "0.1.0"
 dependencies = [
  "uu_nl",
+]
+
+[[package]]
+name = "cmd-nohup"
+version = "0.1.0"
+dependencies = [
+ "secureexec-shims",
 ]
 
 [[package]]
@@ -1116,6 +1137,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmd-sleep"
+version = "0.1.0"
+dependencies = [
+ "secureexec-builtins",
+]
+
+[[package]]
 name = "cmd-sort"
 version = "0.1.0"
 dependencies = [
@@ -1137,10 +1165,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmd-stdbuf"
+version = "0.1.0"
+dependencies = [
+ "secureexec-shims",
+]
+
+[[package]]
 name = "cmd-strings"
 version = "0.1.0"
 dependencies = [
  "secureexec-strings-cmd",
+]
+
+[[package]]
+name = "cmd-stubs"
+version = "0.1.0"
+dependencies = [
+ "secureexec-stubs",
 ]
 
 [[package]]
@@ -1176,6 +1218,20 @@ name = "cmd-tee"
 version = "0.1.0"
 dependencies = [
  "uu_tee",
+]
+
+[[package]]
+name = "cmd-test"
+version = "0.1.0"
+dependencies = [
+ "secureexec-builtins",
+]
+
+[[package]]
+name = "cmd-timeout"
+version = "0.1.0"
+dependencies = [
+ "secureexec-shims",
 ]
 
 [[package]]
@@ -1253,6 +1309,20 @@ name = "cmd-wc"
 version = "0.1.0"
 dependencies = [
  "uu_wc",
+]
+
+[[package]]
+name = "cmd-whoami"
+version = "0.1.0"
+dependencies = [
+ "secureexec-builtins",
+]
+
+[[package]]
+name = "cmd-xargs"
+version = "0.1.0"
+dependencies = [
+ "secureexec-shims",
 ]
 
 [[package]]
@@ -2803,10 +2873,10 @@ dependencies = [
  "jaq-std",
  "quick-xml",
  "regex",
+ "secureexec-shims",
  "sed",
  "serde_json",
  "serde_yaml",
- "shims",
  "similar",
  "tar",
  "toml 0.8.23",
@@ -3623,6 +3693,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "secureexec-builtins"
+version = "0.1.0"
+dependencies = [
+ "wasi-ext",
+]
+
+[[package]]
 name = "secureexec-column"
 version = "0.1.0"
 
@@ -3687,7 +3764,18 @@ name = "secureexec-rev"
 version = "0.1.0"
 
 [[package]]
+name = "secureexec-shims"
+version = "0.1.0"
+dependencies = [
+ "wasi-ext",
+]
+
+[[package]]
 name = "secureexec-strings-cmd"
+version = "0.1.0"
+
+[[package]]
+name = "secureexec-stubs"
 version = "0.1.0"
 
 [[package]]
@@ -3858,13 +3946,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f40ca3c46823713e0d4209592e8d6e826aa57e928f09752619fc696c499637f6"
 dependencies = [
  "lazy_static",
-]
-
-[[package]]
-name = "shims"
-version = "0.1.0"
-dependencies = [
- "wasi-ext",
 ]
 
 [[package]]

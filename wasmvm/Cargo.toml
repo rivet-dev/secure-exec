@@ -3,7 +3,9 @@ resolver = "2"
 members = [
     "crates/wasi-ext",
     "crates/multicall",
-    "crates/shims",
+    "crates/libs/shims",
+    "crates/libs/builtins",
+    "crates/libs/stubs",
     "crates/libs/grep",
     "crates/libs/awk",
     "crates/libs/jq",
@@ -110,6 +112,17 @@ members = [
     "crates/commands/date",
     "crates/commands/nproc",
     "crates/commands/uname",
+    # US-010: builtins, shims, and stubs
+    "crates/commands/sleep",
+    "crates/commands/test",
+    "crates/commands/whoami",
+    "crates/commands/env",
+    "crates/commands/timeout",
+    "crates/commands/xargs",
+    "crates/commands/nice",
+    "crates/commands/nohup",
+    "crates/commands/stdbuf",
+    "crates/commands/_stubs",
 ]
 
 [workspace.package]
