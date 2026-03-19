@@ -7,6 +7,9 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
 - Rust crate lives at `crates/v8-runtime/`; binary name is `secure-exec-v8`
 - `cargo check` in `crates/v8-runtime/` validates Rust compilation
 - rusty_v8 crate is imported as `v8` (e.g., `v8 = "130"` in Cargo.toml)
+- IPC enums use `#[serde(tag = "type")]` (internally tagged) for JS interop
+- Use `serde_bytes` for `Vec<u8>` fields to get MessagePack bin format
+- Use `rmp_serde::to_vec_named` (not `to_vec`) for named-field serialization
 ---
 
 ## 2026-03-18 - US-001
@@ -18,4 +21,19 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - `pnpm install` may be needed before first turbo run if node_modules is missing
   - v8 crate compiles quickly with prebuilt V8 static lib (~8s for check)
   - main.rs declares all modules with `mod` statements; each .rs file is a module
+---
+
+## 2026-03-18 - US-002
+- Defined all IPC message types in `ipc.rs`: HostMessage (7 variants) and RustMessage (4 variants)
+- Added ExecutionError structured type (type, message, stack, optional code)
+- Added helper types: ExecuteMode, LogChannel, ProcessConfig, OsConfig
+- Added serde_bytes dependency for efficient binary field serialization
+- 22 unit tests verifying MessagePack round-trip for every message variant
+- Files changed: `crates/v8-runtime/src/ipc.rs`, `crates/v8-runtime/Cargo.toml`
+- **Learnings for future iterations:**
+  - `#[serde(tag = "type")]` works with rmp-serde for internally tagged enums
+  - `serde_bytes` works on `Option<Vec<u8>>` with `#[serde(with = "serde_bytes")]`
+  - `rmp_serde::to_vec_named` is needed for named-field maps (not `to_vec` which uses positional)
+  - `#[serde(skip_serializing_if = "Option::is_none")]` correctly omits keys from msgpack maps
+  - Spec has `session_id: u32` in Message Types section but `u128` in Resource Budgets — used u32 for now, US-007 will upgrade
 ---
