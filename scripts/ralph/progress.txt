@@ -12,6 +12,10 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
 - Use `rmp_serde::to_vec_named` (not `to_vec`) for named-field serialization
 - Framing functions: `write_message(&mut writer, &msg)` and `read_message(&mut reader)` in `ipc.rs`
 - Max IPC message size is 64MB (`MAX_MESSAGE_SIZE` constant in `ipc.rs`)
+- V8 tests MUST run with `--test-threads=1` to avoid SIGSEGV from parallel V8 operations
+- `v8::Context::new(scope, Default::default())` — v130 requires a `ContextOptions` second arg
+- Use `v8::Global<v8::Context>` to persist context handles across HandleScope lifetimes
+- Consolidate V8 tests into a single `#[test]` fn to avoid inter-test isolate state issues
 ---
 
 ## 2026-03-18 - US-001
@@ -50,4 +54,18 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - `std::io::Cursor` is useful for testing Read/Write trait functions against in-memory buffers
   - `read_exact` returns `UnexpectedEof` when not enough data, distinct from `InvalidData` for size limits
   - `write_message` serializes then checks size; for truly oversized payloads, serialization happens first (memory implication for future hardening)
+---
+
+## 2026-03-18 - US-004
+- Implemented V8 platform init (`init_v8_platform()` with `Once`) and isolate lifecycle (`create_isolate()`, `create_context()`) in `isolate.rs`
+- Platform initialization is safe to call multiple times (idempotent via `std::sync::Once`)
+- `create_isolate()` supports optional `heap_limit_mb` parameter
+- `create_context()` returns `v8::Global<v8::Context>` for cross-scope persistence
+- Single consolidated test verifying: 3 sequential create/destroy cycles, heap-limited isolate, unlimited isolate, and Global context handle state persistence
+- Files changed: `crates/v8-runtime/src/isolate.rs`
+- **Learnings for future iterations:**
+  - V8 tests crash (SIGSEGV) when multiple `#[test]` functions create/destroy isolates even with `--test-threads=1` — consolidate V8 tests into single test functions
+  - rusty_v8 v130 changed `Context::new` to require a `ContextOptions` second arg (use `Default::default()`)
+  - `v8::Global::new(scope, local)` creates a persistent handle; when dropped, it resets via the stored `IsolateHandle`
+  - `v8::CreateParams::default().heap_limits(0, limit_bytes)` sets the max heap size
 ---
