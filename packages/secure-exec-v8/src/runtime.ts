@@ -4,8 +4,9 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import { createInterface } from "node:readline";
-import { resolve, dirname } from "node:path";
+import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { encode, decode } from "@msgpack/msgpack";
 import { IpcClient } from "./ipc-client.js";
@@ -14,6 +15,15 @@ import type { V8Session, V8SessionOptions } from "./session.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+/** Platform-specific package name mapping. */
+const PLATFORM_PACKAGES: Record<string, string> = {
+	"linux-x64": "@secure-exec/v8-linux-x64-gnu",
+	"linux-arm64": "@secure-exec/v8-linux-arm64-gnu",
+	"darwin-x64": "@secure-exec/v8-darwin-x64",
+	"darwin-arm64": "@secure-exec/v8-darwin-arm64",
+	"win32-x64": "@secure-exec/v8-win32-x64",
+};
 
 /** Options for creating a V8 runtime. */
 export interface V8RuntimeOptions {
@@ -33,8 +43,28 @@ export interface V8Runtime {
 
 /** Resolve the platform-specific binary path. */
 function resolveBinaryPath(): string {
-	// TODO(US-026): resolve from platform-specific npm packages
-	// For now, expect cargo-built binary at crate target path or on PATH
+	const binaryName =
+		process.platform === "win32" ? "secure-exec-v8.exe" : "secure-exec-v8";
+
+	// 1. Try platform-specific npm package
+	const platformKey = `${process.platform}-${process.arch}`;
+	const platformPkg = PLATFORM_PACKAGES[platformKey];
+	if (platformPkg) {
+		try {
+			const require = createRequire(import.meta.url);
+			const pkgDir = dirname(require.resolve(`${platformPkg}/package.json`));
+			const platformBinary = join(pkgDir, binaryName);
+			if (existsSync(platformBinary)) return platformBinary;
+		} catch {
+			// Platform package not installed — fall through
+		}
+	}
+
+	// 2. Try postinstall download location
+	const downloadedBinary = resolve(__dirname, "../bin", binaryName);
+	if (existsSync(downloadedBinary)) return downloadedBinary;
+
+	// 3. Try cargo-built binary at crate target path (development)
 	const crateRelative = resolve(
 		__dirname,
 		"../../../crates/v8-runtime/target/release/secure-exec-v8",
@@ -47,7 +77,7 @@ function resolveBinaryPath(): string {
 	);
 	if (existsSync(crateDebug)) return crateDebug;
 
-	// Fallback: assume on PATH
+	// 4. Fallback: assume on PATH
 	return "secure-exec-v8";
 }
 

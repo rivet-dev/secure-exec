@@ -7,6 +7,7 @@
   "types": "./dist/index.d.ts",
   "files": [
     "dist",
+    "postinstall.js",
     "README.md"
   ],
   "repository": {
@@ -24,7 +25,15 @@
   "scripts": {
     "check-types": "tsc --noEmit",
     "build": "tsc",
-    "test": "echo 'no tests yet'"
+    "test": "echo 'no tests yet'",
+    "postinstall": "node postinstall.js"
+  },
+  "optionalDependencies": {
+    "@secure-exec/v8-linux-x64-gnu": "0.1.0",
+    "@secure-exec/v8-linux-arm64-gnu": "0.1.0",
+    "@secure-exec/v8-darwin-x64": "0.1.0",
+    "@secure-exec/v8-darwin-arm64": "0.1.0",
+    "@secure-exec/v8-win32-x64": "0.1.0"
   },
   "dependencies": {
     "@msgpack/msgpack": "^3.0.0"
