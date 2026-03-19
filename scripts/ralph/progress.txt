@@ -16,6 +16,12 @@ PRD: ralph/wasmvm-dynamic-modules (19 stories)
 - Binary crates use `[[bin]] name = "command-name"` and depend on the corresponding library crate
 - `cargo build -p cmd-grep --target wasm32-wasip1 -Z build-std=std,panic_abort --release` for WASM builds
 - Standalone grep binary is ~864K vs ~15MB multicall — significant size reduction
+- WasmVM driver typecheck: `cd packages/runtime/wasmvm && pnpm run typecheck`
+- WasmVM driver tests: `cd packages/runtime/wasmvm && pnpm run test`
+- Use `node:fs/promises` `open()` (returns FileHandle) for async file operations, NOT separate `read`/`close` imports
+- `isWasmBinary()` (async) and `isWasmBinarySync()` are in `packages/runtime/wasmvm/src/wasm-magic.ts`
+- Driver in commandDirs mode: commands discovered from filesystem scan, _commandPaths maps name→path
+- Driver in legacy mode (wasmBinaryPath only): uses static WASMVM_COMMANDS list, all commands use single binary
 
 ## 2026-03-19 12:04 PM PDT - US-001
 - Implemented path-based resolution in CommandRegistry.resolve() — extracts basename when command contains '/'
@@ -70,4 +76,29 @@ PRD: ralph/wasmvm-dynamic-modules (19 stories)
   - Keep multicall building — don't modify or remove it until US-019
   - Standalone grep binary is ~864K vs ~15MB multicall binary
   - The `regex` crate is the only dependency needed for the grep library (no wasi-ext or shims)
+---
+
+## 2026-03-19 1:35 PM PDT - US-013
+- Created `wasm-magic.ts` with `isWasmBinary()` (async) and `isWasmBinarySync()` (sync) — validates WASM magic bytes (0x00 0x61 0x73 0x6D)
+- Refactored `WasmVmRuntimeOptions` to add `commandDirs: string[]` option alongside deprecated `wasmBinaryPath`
+- `WasmVmRuntimeDriver` now supports two modes:
+  - **commandDirs mode**: scans directories for WASM binaries, populates `_commandPaths` map, discovers on-demand via `tryResolve()`
+  - **legacy mode** (wasmBinaryPath only): uses static `WASMVM_COMMANDS` array, all commands share single binary
+- `init()` scans commandDirs, validates WASM magic, skips dotfiles/directories/non-WASM files, first dir wins on conflict
+- `tryResolve()` synchronously checks commandDirs for binaries added after init
+- `spawn()` resolves per-command binary path from `_commandPaths` map
+- Deprecation warnings emitted for `wasmBinaryPath` usage
+- Added comprehensive tests: filesystem scan, dotfile skipping, dir skipping, non-WASM skipping, PATH precedence, on-demand discovery, tryResolve, deprecation warnings, backwards compat
+- Files changed:
+  - packages/runtime/wasmvm/src/wasm-magic.ts (new)
+  - packages/runtime/wasmvm/src/driver.ts
+  - packages/runtime/wasmvm/src/index.ts
+  - packages/runtime/wasmvm/test/wasm-magic.test.ts (new)
+  - packages/runtime/wasmvm/test/driver.test.ts
+- **Learnings for future iterations:**
+  - `node:fs/promises` `open()` returns a `FileHandle` object — use `handle.read()` and `handle.close()`, NOT separate `read`/`close` imports
+  - Driver mode is determined by options: `commandDirs` present → commandDirs mode; only `wasmBinaryPath` → legacy mode
+  - `_commandPaths` is the authoritative source for per-command binary paths in commandDirs mode
+  - The WASM magic check is \0asm (0x00, 0x61, 0x73, 0x6D) — same approach Linux uses with ELF headers
+  - Legacy tests (shell-terminal.test.ts etc.) will emit deprecation warnings to stderr — expected behavior
 ---

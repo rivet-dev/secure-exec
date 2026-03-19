@@ -247,7 +247,7 @@
         "Tests pass"
       ],
       "priority": 13,
-      "passes": false,
+      "passes": true,
       "notes": "File: packages/runtime/wasmvm/src/driver.ts. Current driver has hardcoded WASMVM_COMMANDS array (lines 41-86) and single wasmBinaryPath. Replace with commandDirs + _commandPaths Map<string, string>. isWasmBinary: async version for init scan, sync version (fs.openSync + readSync) for tryResolve. See spec Section 3.2, 3.3, 4.2. The tryResolve method is called by the kernel (US-002)."
     },
     {
