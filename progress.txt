@@ -2509,3 +2509,24 @@ PRD: ralph/kernel-hardening (46 stories)
   - Standalone command binary crate pattern: cmd-<name> package name, [[bin]] name = '<command>', minimal main.rs
   - The 'bash' alias will be a symlink to sh (handled in US-011 build system), not a separate binary
 ---
+
+## 2026-03-19 - US-005
+- What was implemented: Extracted text/data processing commands into standalone library and binary crates
+- Files changed:
+  - wasmvm/crates/libs/awk/ — new library crate wrapping awk-rs (extracted from multicall/src/awk.rs)
+  - wasmvm/crates/libs/jq/ — new library crate wrapping jaq-core/jaq-std/jaq-json (extracted from multicall/src/jq.rs)
+  - wasmvm/crates/libs/yq/ — new library crate wrapping serde_yaml/toml/quick-xml + jaq (extracted from multicall/src/yq.rs)
+  - wasmvm/crates/commands/sed/ — new binary crate using sed 0.1.1 crate directly
+  - wasmvm/crates/commands/awk/ — new binary crate calling secureexec-awk lib
+  - wasmvm/crates/commands/jq/ — new binary crate calling secureexec-jq lib
+  - wasmvm/crates/commands/yq/ — new binary crate calling secureexec-yq lib
+  - wasmvm/crates/commands/rg/ — new binary crate calling secureexec-grep::rg (rg already in grep lib)
+  - wasmvm/Cargo.toml — added 8 new workspace members
+  - wasmvm/Cargo.lock — updated with new workspace members
+- **Learnings for future iterations:**
+  - sed crate uses sed::sed::uumain(args.into_iter()) pattern — same as uutils crates, no need for a library wrapper
+  - rg implementation is already in secureexec-grep lib (rg_cmd.rs module, exposed via secureexec_grep::rg) — no separate rg lib needed
+  - Library crate naming: secureexec-<tool> (e.g., secureexec-awk), binary crate naming: cmd-<tool> (e.g., cmd-awk)
+  - All new crates compile for wasm32-wasip1 with -Z build-std=std,panic_abort without patches
+  - The multicall still builds in parallel — no changes to existing dispatch.rs during transition
+---
