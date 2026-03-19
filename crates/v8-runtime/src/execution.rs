@@ -46,11 +46,10 @@ pub fn inject_globals(
     let attr = v8::PropertyAttribute::READ_ONLY | v8::PropertyAttribute::DONT_DELETE;
     global.define_own_property(scope, os_key.into(), os_obj.into(), attr);
 
-    // Remove SharedArrayBuffer when timing_mitigation is 'freeze'
-    if process_config.timing_mitigation == "freeze" {
-        let sab_key = v8::String::new(scope, "SharedArrayBuffer").unwrap();
-        global.delete(scope, sab_key.into());
-    }
+    // SharedArrayBuffer removal for timing mitigation is handled by the JS-side
+    // bridge code (applyTimingMitigationFreeze), which runs AFTER the bridge bundle
+    // loads. The bridge bundle depends on SharedArrayBuffer being available during
+    // its initialization (whatwg-url/webidl-conversions uses it).
 }
 
 /// Execute user code as a CJS script (mode='exec').

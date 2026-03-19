@@ -1,4 +1,3 @@
-import ivm from "isolated-vm";
 import { createRequire } from "node:module";
 import type {
 	CommandExecutor,
@@ -29,7 +28,6 @@ export interface BudgetState {
 
 /** Shared mutable state owned by NodeExecutionDriver, passed to extracted modules. */
 export interface DriverDeps {
-	isolate: ivm.Isolate;
 	filesystem: VirtualFileSystem;
 	commandExecutor: CommandExecutor;
 	networkAdapter: NetworkAdapter;
@@ -50,15 +48,22 @@ export interface DriverDeps {
 	activeHttpServerIds: Set<number>;
 	activeChildProcesses: Map<number, SpawnedProcess>;
 	activeHostTimers: Set<ReturnType<typeof setTimeout>>;
-	esmModuleCache: Map<string, ivm.Module>;
-	esmModuleReverseCache: Map<ivm.Module, string>;
-	moduleFormatCache: Map<string, "esm" | "cjs" | "json">;
-	packageTypeCache: Map<string, "module" | "commonjs" | null>;
-	dynamicImportCache: Map<string, ivm.Reference<unknown>>;
-	dynamicImportPending: Map<string, Promise<ivm.Reference<unknown>>>;
 	resolutionCache: ResolutionCache;
 	/** Optional callback for PTY setRawMode — wired by kernel when PTY is attached. */
 	onPtySetRawMode?: (mode: boolean) => void;
+
+	// Legacy ivm fields — retained for backward compatibility with esm-compiler.ts,
+	// module-resolver.ts, and bridge-setup.ts until isolated-vm is fully removed (US-028).
+	// Typed as `any` so the V8-based driver can provide dummies without importing ivm.
+	/* eslint-disable @typescript-eslint/no-explicit-any */
+	isolate: any;
+	esmModuleCache: Map<string, any>;
+	esmModuleReverseCache: Map<any, string>;
+	moduleFormatCache: Map<string, "esm" | "cjs" | "json">;
+	packageTypeCache: Map<string, "module" | "commonjs" | null>;
+	dynamicImportCache: Map<string, any>;
+	dynamicImportPending: Map<string, Promise<any>>;
+	/* eslint-enable @typescript-eslint/no-explicit-any */
 }
 
 // Constants

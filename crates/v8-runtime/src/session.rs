@@ -425,32 +425,62 @@ fn session_thread(
 }
 
 /// Sync and async bridge function names registered on the V8 global.
-/// These match the bridge contract (bridge-contract.ts).
+/// These match the bridge contract (bridge-contract.ts HOST_BRIDGE_GLOBAL_KEYS).
+///
+/// Sync functions block V8 while the host processes the call (applySync/applySyncPromise).
+/// Async functions return a Promise to V8, resolved when the host responds (apply).
 #[cfg(not(test))]
-const SYNC_BRIDGE_FNS: [&str; 12] = [
-    "_fsReadFile",
-    "_fsStatSync",
-    "_fsReaddirSync",
-    "_fsWriteFileSync",
-    "_fsUnlinkSync",
-    "_fsMkdirSync",
-    "_fsRmdirSync",
-    "_childProcessSpawnStart",
-    "_childProcessStdinWrite",
+const SYNC_BRIDGE_FNS: [&str; 30] = [
+    // Console
     "_log",
     "_error",
+    // Module loading (syncPromise — host resolves async, Rust blocks)
+    "_resolveModule",
+    "_loadFile",
+    // Crypto
     "_cryptoRandomFill",
+    "_cryptoRandomUUID",
+    // Filesystem (all syncPromise)
+    "_fsReadFile",
+    "_fsWriteFile",
+    "_fsReadFileBinary",
+    "_fsWriteFileBinary",
+    "_fsReadDir",
+    "_fsMkdir",
+    "_fsRmdir",
+    "_fsExists",
+    "_fsStat",
+    "_fsUnlink",
+    "_fsRename",
+    "_fsChmod",
+    "_fsChown",
+    "_fsLink",
+    "_fsSymlink",
+    "_fsReadlink",
+    "_fsLstat",
+    "_fsTruncate",
+    "_fsUtimes",
+    // Child process (sync)
+    "_childProcessSpawnStart",
+    "_childProcessStdinWrite",
+    "_childProcessStdinClose",
+    "_childProcessKill",
+    "_childProcessSpawnSync",
 ];
 
 #[cfg(not(test))]
-const ASYNC_BRIDGE_FNS: [&str; 7] = [
-    "_networkFetchRaw",
-    "_networkDnsLookupRaw",
-    "_networkHttpServerListenRaw",
+const ASYNC_BRIDGE_FNS: [&str; 8] = [
+    // Module loading (async)
     "_dynamicImport",
     "_loadPolyfill",
+    // Timer
     "_scheduleTimer",
-    "_waitForActiveHandles",
+    // Network (async)
+    "_networkFetchRaw",
+    "_networkDnsLookupRaw",
+    "_networkHttpRequestRaw",
+    "_networkHttpServerListenRaw",
+    "_networkHttpServerCloseRaw",
 ];
 
 /// Run the session event loop: dispatch incoming messages to V8.
