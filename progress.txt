@@ -3274,3 +3274,17 @@ PRD: ralph/kernel-hardening (46 stories)
   - Self-signed cert generation in tests: write key to temp file instead of piping through /dev/stdin (openssl req -key /dev/stdin fails silently)
   - TLSSocket cast to Socket via `as unknown as Socket` works because TLSSocket has compatible read/write/destroy interface
 ---
+
+## 2026-03-20 - US-072
+- What was implemented: DNS resolution via host bridge — netGetaddrinfo RPC handler using Node.js dns.promises.lookup()
+- Files changed:
+  - packages/runtime/wasmvm/src/driver.ts — added netGetaddrinfo case in _handleSyscall(), imports dns.promises.lookup; returns JSON array of {addr, family} objects
+  - packages/runtime/wasmvm/src/kernel-worker.ts — implemented net_getaddrinfo host import: extracts host/port from WASM memory, calls RPC, writes JSON response back to WASM buffer
+  - packages/runtime/wasmvm/test/net-socket.test.ts — added 5 DNS resolution tests: localhost resolution, invalid hostname, IPv4/IPv6 support, intResult byte length, empty port
+- **Learnings for future iterations:**
+  - dns.promises.lookup() with { all: true } returns array of { address, family } — good for both IPv4 and IPv6
+  - DNS errors use code ENOTFOUND (not EAI_NONAME) in Node.js — map to ENOENT since ERRNO_MAP doesn't have ENOTFOUND
+  - kernel-worker net_getaddrinfo reads ret_addr_len as u32 from WASM memory (DataView.getUint32 little-endian) and writes actual length back
+  - Response format is JSON-encoded UTF-8 bytes — Rust/C side parses JSON to extract addresses
+  - rpcCall returns { errno, intResult, data: Uint8Array } — use data.length for byte count, not intResult (intResult is set by driver)
+---
