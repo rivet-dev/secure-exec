@@ -88,6 +88,7 @@ function extractEnvPrefix(output: string, prefix: string): string {
 class SimpleVFS {
   private files = new Map<string, Uint8Array>();
   private dirs = new Set<string>(['/']);
+  private symlinks = new Map<string, string>();
 
   async readFile(path: string): Promise<Uint8Array> {
     const data = this.files.get(path);
@@ -125,17 +126,18 @@ class SimpleVFS {
   async createDir(path: string) { this.dirs.add(path); }
   async mkdir(path: string, _options?: { recursive?: boolean }) { this.dirs.add(path); }
   async exists(path: string): Promise<boolean> {
-    return this.files.has(path) || this.dirs.has(path);
+    return this.files.has(path) || this.dirs.has(path) || this.symlinks.has(path);
   }
   async stat(path: string) {
     const isDir = this.dirs.has(path);
+    const isSymlink = this.symlinks.has(path);
     const data = this.files.get(path);
-    if (!isDir && !data) throw new Error(`ENOENT: ${path}`);
+    if (!isDir && !isSymlink && !data) throw new Error(`ENOENT: ${path}`);
     return {
-      mode: isDir ? 0o40755 : 0o100644,
+      mode: isSymlink ? 0o120777 : (isDir ? 0o40755 : 0o100644),
       size: data?.length ?? 0,
       isDirectory: isDir,
-      isSymbolicLink: false,
+      isSymbolicLink: isSymlink,
       atimeMs: Date.now(),
       mtimeMs: Date.now(),
       ctimeMs: Date.now(),
@@ -151,10 +153,20 @@ class SimpleVFS {
     const data = this.files.get(from);
     if (data) { this.files.set(to, data); this.files.delete(from); }
   }
-  async unlink(path: string) { this.files.delete(path); }
+  async unlink(path: string) { this.files.delete(path); this.symlinks.delete(path); }
   async rmdir(path: string) { this.dirs.delete(path); }
-  async symlink() {}
-  async readlink() { return ''; }
+  async symlink(target: string, linkPath: string) {
+    this.symlinks.set(linkPath, target);
+    const parts = linkPath.split('/').filter(Boolean);
+    for (let i = 1; i < parts.length; i++) {
+      this.dirs.add('/' + parts.slice(0, i).join('/'));
+    }
+  }
+  async readlink(path: string): Promise<string> {
+    const target = this.symlinks.get(path);
+    if (!target) throw new Error(`EINVAL: ${path}`);
+    return target;
+  }
 }
 
 describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, () => {
@@ -459,6 +471,57 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
     // Return values are positive PIDs
     expect(wasm.stdout).toContain('test3_ret1_positive: yes');
     expect(wasm.stdout).toContain('test3_ret2_positive: yes');
+  });
+
+  // --- Capstone: syscall coverage (all tiers, patched sysroot) ---
+
+  const hasSyscallCoverage = existsSync(join(C_BUILD_DIR, 'syscall_coverage'));
+  const syscallCoverageSkip = !hasSyscallCoverage
+    ? 'syscall_coverage WASM binary not built (need patched sysroot: make -C wasmvm/c sysroot && make -C wasmvm/c programs)'
+    : false;
+
+  it.skipIf(syscallCoverageSkip)('syscall_coverage: all syscall categories pass parity', async () => {
+    // Pre-create /tmp in VFS for the program's file operations
+    await vfs.createDir('/tmp');
+
+    const env = { TEST_SC: '1', PATH: process.env.PATH ?? '/usr/bin:/bin' };
+    const native = await runNative('syscall_coverage', [], { env });
+
+    const wasmEnv = { TEST_SC: '1' };
+    const wasm = await kernel.exec('syscall_coverage', { env: wasmEnv });
+
+    // Debug: show WASM output if it fails
+    if (wasm.exitCode !== 0) {
+      console.log('WASM stdout:', wasm.stdout);
+      console.log('WASM stderr:', wasm.stderr);
+    }
+
+    // Both should exit 0 (all tests pass)
+    expect(native.exitCode).toBe(0);
+    expect(wasm.exitCode).toBe(0);
+
+    // Compare structured output line by line
+    expect(wasm.stdout).toBe(native.stdout);
+    expect(normalizeStderr(wasm.stderr)).toBe(normalizeStderr(native.stderr));
+
+    // Verify all expected syscalls are tested
+    const expectedSyscalls = [
+      // WASI FD ops
+      'open', 'write', 'read', 'seek', 'pread', 'pwrite', 'fstat', 'ftruncate', 'close',
+      // WASI path ops
+      'mkdir', 'stat', 'rename', 'opendir', 'readdir', 'closedir',
+      'symlink', 'readlink', 'unlink', 'rmdir',
+      // Args/env/clock
+      'argc', 'argv', 'environ', 'clock_realtime', 'clock_monotonic',
+      // host_process
+      'pipe', 'dup', 'dup2', 'getpid', 'getppid', 'spawn_waitpid', 'kill',
+      // host_user
+      'getuid', 'getgid', 'geteuid', 'getegid', 'isatty',
+    ];
+    for (const name of expectedSyscalls) {
+      expect(wasm.stdout).toContain(`${name}: ok`);
+    }
+    expect(wasm.stdout).toContain('total: 0 failures');
   });
 
   // --- Tier 4: filesystem stress ---
