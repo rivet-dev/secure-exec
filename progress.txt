@@ -14,6 +14,7 @@ PRD: ralph/kernel-hardening (46 stories)
 - Docker containers on default bridge can reach each other by internal IP (docker inspect IPAddress), not by 127.0.0.1 host-mapped ports — use getContainerInternalIp() for cross-container tunnel destinations
 - process.exit() inside bridge callbacks (childProcessDispatch, timer refs) causes unhandled ProcessExitError — always await a Promise from the callback, then call process.exit() at the top-level await
 - Bridge process.stdout.write strips trailing newlines — NDJSON capture helpers must join with '\n' to restore event delimiters
+- Claude Code tool names are capitalized: Write (file_path, content), Read (file_path), Bash (command) — Claude Code tool_result content may be a string or array of text blocks; extractToolResults must handle both formats
 - Native binary sandbox test pattern: createTestNodeRuntime + createHostCommandExecutor, sandbox code calls require('child_process').spawn(), env vars serialize through bridge JSON to host executor
 - Overlay VFS pattern (InMemoryFileSystem + host FS fallback) for kernel tests that need both populateBin writes and host module resolution — writes go to memory, reads try memory first then fsPromises
 - TerminalHarness.waitFor() races with fast-exiting processes — use raw openShell + output collection for probes, not TerminalHarness
@@ -3031,3 +3032,15 @@ PRD: ralph/kernel-hardening (46 stories)
   - Pi's read tool uses fs.promises.open() for image MIME type detection — without this bridge method, the read tool fails even for text files
   - Mock LLM server getReceivedBodies() captures request bodies for verifying tool_result payloads flow back correctly
   - fs.promises.open() FileHandle needs read/write/close/stat methods — openSync/readSync/closeSync already existed in the bridge, FileHandle wraps them
+
+## 2026-03-20 - US-038
+- Implemented Claude Code tool use round-trip verification through sandbox child_process bridge
+- New test file: packages/secure-exec/tests/cli-tools/claude-tool-use.test.ts
+- 6 tests: Write tool (file creation + tool_result), Read tool (content in tool_result), Bash success (stdout in tool_result), Bash failure (exit code propagation), multi-tool write+read (3 LLM turns), clean exit after tool use
+- Uses extractToolResults() to parse tool_result blocks from mock LLM captured request bodies (getReceivedBodies())
+- **Learnings for future iterations:**
+  - Claude Code tool_result content can be a string or an array of text blocks — extractToolResults must handle both formats
+  - Claude Code tool names are capitalized: `Write` (file_path, content), `Read` (file_path), `Bash` (command)
+  - Claude Code's nested process scenario (claude binary → tool subprocess) works transparently through the child_process bridge — no special handling needed
+  - Multi-tool round-trips require 3+ mock LLM responses queued: tool_use(write), tool_use(read), text(final) — the mock server's sequential queue handles this automatically
+---
