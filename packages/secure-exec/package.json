@@ -16,16 +16,19 @@
   },
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "default": "./dist/index.js"
     },
     "./browser": {
+      "types": "./dist/browser-runtime.d.ts",
       "import": "./dist/browser-runtime.js",
-      "types": "./dist/browser-runtime.d.ts"
+      "default": "./dist/browser-runtime.js"
     },
     "./python": {
+      "types": "./dist/python-runtime.d.ts",
       "import": "./dist/python-runtime.js",
-      "types": "./dist/python-runtime.d.ts"
+      "default": "./dist/python-runtime.js"
     }
   },
   "scripts": {
