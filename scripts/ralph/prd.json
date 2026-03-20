@@ -1118,7 +1118,7 @@
         "Tests pass"
       ],
       "priority": 57,
-      "passes": false,
+      "passes": true,
       "notes": "Currently cwd is immutable after process creation. Shell cd works inside brush-shell but the kernel's getcwd(pid) returns the original cwd. Files: packages/kernel/src/process-table.ts (ProcessEntry), packages/kernel/src/kernel.ts (implement chdir), packages/kernel/src/types.ts (KernelInterface)."
     },
     {
@@ -1140,7 +1140,7 @@
         "Tests pass"
       ],
       "priority": 58,
-      "passes": false,
+      "passes": true,
       "notes": "Currently env is immutable after process creation. Env is copied to child as { ...parentEnv, ...overrides }. Files: packages/kernel/src/process-table.ts, packages/kernel/src/kernel.ts, packages/kernel/src/types.ts."
     },
     {
@@ -1158,7 +1158,7 @@
         "Tests pass"
       ],
       "priority": 59,
-      "passes": false,
+      "passes": true,
       "notes": "Critical POSIX gap. pipe-manager.ts line 87-88 throws EPIPE but never sends SIGPIPE. Without this, pipelines with early-exit readers (head, grep -m1) don't terminate the writer. PipeManager currently has no reference to ProcessTable — needs constructor injection or a callback."
     },
     {

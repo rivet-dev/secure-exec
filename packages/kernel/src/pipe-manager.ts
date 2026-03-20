@@ -35,6 +35,9 @@ export class PipeManager {
 	private nextPipeId = 1;
 	private nextDescId = 100_000; // High range to avoid FD table collisions
 
+	/** Called before EPIPE when a write hits a closed read end. Receives writer PID. */
+	onBrokenPipe: ((pid: number) => void) | null = null;
+
 	/**
 	 * Create a pipe. Returns two FileDescriptions:
 	 * one for reading and one for writing.
@@ -77,15 +80,21 @@ export class PipeManager {
 		};
 	}
 
-	/** Write data to a pipe's write end. */
-	write(descriptionId: number, data: Uint8Array): number {
+	/** Write data to a pipe's write end. Delivers SIGPIPE via onBrokenPipe when read end is closed. */
+	write(descriptionId: number, data: Uint8Array, writerPid?: number): number {
 		const ref = this.descToPipe.get(descriptionId);
 		if (!ref || ref.end !== "write") throw new KernelError("EBADF", "not a pipe write end");
 
 		const state = this.pipes.get(ref.pipeId);
 		if (!state) throw new KernelError("EBADF", "pipe not found");
 		if (state.closed.write) throw new KernelError("EPIPE", "write end closed");
-		if (state.closed.read) throw new KernelError("EPIPE", "read end closed");
+		if (state.closed.read) {
+			// Deliver SIGPIPE before EPIPE (POSIX: signal first, then errno)
+			if (writerPid !== undefined && this.onBrokenPipe) {
+				this.onBrokenPipe(writerPid);
+			}
+			throw new KernelError("EPIPE", "read end closed");
+		}
 
 		// If readers are waiting, deliver directly (no buffering)
 		if (state.readWaiters.length > 0) {

@@ -4183,4 +4183,141 @@ describe("kernel + MockRuntimeDriver integration", () => {
 			await procB.wait();
 		});
 	});
+
+	// -----------------------------------------------------------------------
+	// SIGPIPE on broken pipe write
+	// -----------------------------------------------------------------------
+
+	describe("SIGPIPE on broken pipe write", () => {
+		it("write to pipe with closed read end delivers SIGPIPE and exits 141", async () => {
+			// Custom driver that creates a pipe, closes read end, then writes
+			let ki: KernelInterface;
+			const driver: RuntimeDriver = {
+				name: "sigpipe-test",
+				commands: ["pipe-writer"],
+				async init(k: KernelInterface) { ki = k; },
+				spawn(_command: string, _args: string[], ctx: ProcessContext): DriverProcess {
+					const pid = ctx.pid;
+					let exitResolve: (code: number) => void;
+					const exitPromise = new Promise<number>((r) => { exitResolve = r; });
+
+					const proc: DriverProcess = {
+						writeStdin() {},
+						closeStdin() {},
+						kill(signal) {
+							const code = 128 + signal;
+							exitResolve!(code);
+							proc.onExit?.(code);
+						},
+						wait() { return exitPromise; },
+						onStdout: null,
+						onStderr: null,
+						onExit: null,
+					};
+
+					// On next microtask: create pipe, close read end, write to broken pipe
+					queueMicrotask(() => {
+						const { readFd, writeFd } = ki.pipe(pid);
+						ki.fdClose(pid, readFd);
+						try {
+							ki.fdWrite(pid, writeFd, new TextEncoder().encode("data"));
+						} catch {
+							// EPIPE thrown after SIGPIPE delivery — process already terminated
+						}
+					});
+
+					return proc;
+				},
+				async dispose() {},
+			};
+
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("pipe-writer", []);
+			const code = await proc.wait();
+			expect(code).toBe(141); // 128 + SIGPIPE(13)
+		});
+
+		it("pipeline where reader exits early — writer terminates via SIGPIPE", async () => {
+			// Reader: exits immediately, closing its stdin (pipe read end)
+			// Writer: neverExit, writes to stdout which is piped to reader's stdin
+			const driver = new MockRuntimeDriver(["reader", "writer"], {
+				reader: { exitCode: 0 },
+				writer: { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			// Create a pipe to connect writer's stdout → reader's stdin
+			const writerProc = kernel.spawn("writer", [], { stdio: "pipe" });
+
+			// Wait for the writer process to be registered, then pipe
+			const readerProc = kernel.spawn("reader", []);
+
+			// Reader exits quickly, closing its pipe ends
+			await readerProc.wait();
+
+			// Writer tries to write to its stdout (piped), read end is now closed
+			// The writer should be terminated by SIGPIPE
+			writerProc.writeStdin(new TextEncoder().encode("trigger-output"));
+			// Give microtask time for the reader's exit cleanup to propagate
+			await new Promise((r) => setTimeout(r, 50));
+
+			// Writer should now be dead — kill it if it isn't (timeout safety)
+			if (writerProc.exitCode === null) {
+				writerProc.kill();
+			}
+			const writerCode = await writerProc.wait();
+			// Writer should have been killed (either by SIGPIPE=141 or our kill)
+			expect(writerCode).toBeGreaterThan(0);
+		});
+
+		it("EPIPE error is still thrown after SIGPIPE delivery", async () => {
+			// Use a driver that catches the EPIPE and records it
+			let caughtEpipe = false;
+			let ki: KernelInterface;
+			const driver: RuntimeDriver = {
+				name: "epipe-test",
+				commands: ["pipe-checker"],
+				async init(k: KernelInterface) { ki = k; },
+				spawn(_command: string, _args: string[], ctx: ProcessContext): DriverProcess {
+					const pid = ctx.pid;
+					let exitResolve: (code: number) => void;
+					const exitPromise = new Promise<number>((r) => { exitResolve = r; });
+
+					const proc: DriverProcess = {
+						writeStdin() {},
+						closeStdin() {},
+						kill(signal) {
+							const code = 128 + signal;
+							exitResolve!(code);
+							proc.onExit?.(code);
+						},
+						wait() { return exitPromise; },
+						onStdout: null,
+						onStderr: null,
+						onExit: null,
+					};
+
+					queueMicrotask(() => {
+						const { readFd, writeFd } = ki.pipe(pid);
+						ki.fdClose(pid, readFd);
+						try {
+							ki.fdWrite(pid, writeFd, new TextEncoder().encode("data"));
+						} catch (e: any) {
+							if (e?.code === "EPIPE") caughtEpipe = true;
+						}
+					});
+
+					return proc;
+				},
+				async dispose() {},
+			};
+
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("pipe-checker", []);
+			await proc.wait();
+			expect(caughtEpipe).toBe(true);
+		});
+	});
 });

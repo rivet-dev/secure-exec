@@ -42,6 +42,7 @@ import {
 	SEEK_END,
 	O_APPEND,
 	SIGTERM,
+	SIGPIPE,
 	SIGWINCH,
 	KernelError,
 } from "./types.js";
@@ -99,6 +100,15 @@ class KernelImpl implements Kernel {
 		this.processTable.onProcessReap = (pid) => {
 			const entry = this.processTable.get(pid);
 			if (entry) this.driverPids.get(entry.driver)?.delete(pid);
+		};
+
+		// Deliver SIGPIPE default action: terminate writer with 128+SIGPIPE
+		this.pipeManager.onBrokenPipe = (pid) => {
+			try {
+				this.processTable.kill(pid, SIGPIPE);
+			} catch {
+				// Process may already be exited
+			}
 		};
 	}
 
@@ -481,7 +491,7 @@ class KernelImpl implements Kernel {
 		let stdoutCb: ((data: Uint8Array) => void) | undefined;
 		let stderrCb: ((data: Uint8Array) => void) | undefined;
 		if (stdoutPiped) {
-			stdoutCb = this.createPipedOutputCallback(table, 1);
+			stdoutCb = this.createPipedOutputCallback(table, 1, pid);
 		} else {
 			if (options?.onStdout) {
 				stdoutCb = options.onStdout;
@@ -494,7 +504,7 @@ class KernelImpl implements Kernel {
 			if (!stdoutCb) stdoutCb = (data) => stdoutBuf.push(data);
 		}
 		if (stderrPiped) {
-			stderrCb = this.createPipedOutputCallback(table, 2);
+			stderrCb = this.createPipedOutputCallback(table, 2, pid);
 		} else {
 			if (options?.onStderr) {
 				stderrCb = options.onStderr;
@@ -667,7 +677,7 @@ class KernelImpl implements Kernel {
 				if (!entry) throw new KernelError("EBADF", `bad file descriptor ${fd}`);
 
 				if (this.pipeManager.isPipe(entry.description.id)) {
-					return this.pipeManager.write(entry.description.id, data);
+					return this.pipeManager.write(entry.description.id, data, pid);
 				}
 
 				if (this.ptyManager.isPty(entry.description.id)) {
@@ -1082,6 +1092,7 @@ class KernelImpl implements Kernel {
 	private createPipedOutputCallback(
 		table: ProcessFDTable,
 		fd: number,
+		pid?: number,
 	): ((data: Uint8Array) => void) | undefined {
 		const entry = table.get(fd);
 		if (!entry) return undefined;
@@ -1089,7 +1100,7 @@ class KernelImpl implements Kernel {
 		const descId = entry.description.id;
 		if (this.pipeManager.isPipe(descId)) {
 			return (data) => {
-				try { this.pipeManager.write(descId, data); } catch { /* pipe closed */ }
+				try { this.pipeManager.write(descId, data, pid); } catch { /* pipe closed */ }
 			};
 		}
 		if (this.ptyManager.isPty(descId)) {

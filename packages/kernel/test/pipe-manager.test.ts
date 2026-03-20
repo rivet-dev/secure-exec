@@ -140,4 +140,50 @@ describe("PipeManager", () => {
 		const eof = await manager.read(read.description.id, 10);
 		expect(eof).toBeNull();
 	});
+
+	// -----------------------------------------------------------------------
+	// SIGPIPE on broken pipe
+	// -----------------------------------------------------------------------
+
+	it("onBrokenPipe callback fires with writerPid when writing to closed read end", () => {
+		const manager = new PipeManager();
+		const { read, write } = manager.createPipe();
+		const signaled: number[] = [];
+
+		manager.onBrokenPipe = (pid) => signaled.push(pid);
+		manager.close(read.description.id);
+
+		expect(() => {
+			manager.write(write.description.id, new TextEncoder().encode("data"), 42);
+		}).toThrow(expect.objectContaining({ code: "EPIPE" }));
+
+		expect(signaled).toEqual([42]);
+	});
+
+	it("EPIPE is still thrown after onBrokenPipe delivery", () => {
+		const manager = new PipeManager();
+		const { read, write } = manager.createPipe();
+
+		manager.onBrokenPipe = () => {}; // no-op handler
+		manager.close(read.description.id);
+
+		expect(() => {
+			manager.write(write.description.id, new TextEncoder().encode("data"), 1);
+		}).toThrow(expect.objectContaining({ code: "EPIPE" }));
+	});
+
+	it("onBrokenPipe not called when writerPid is omitted", () => {
+		const manager = new PipeManager();
+		const { read, write } = manager.createPipe();
+		let called = false;
+
+		manager.onBrokenPipe = () => { called = true; };
+		manager.close(read.description.id);
+
+		expect(() => {
+			manager.write(write.description.id, new TextEncoder().encode("data"));
+		}).toThrow(expect.objectContaining({ code: "EPIPE" }));
+
+		expect(called).toBe(false);
+	});
 });

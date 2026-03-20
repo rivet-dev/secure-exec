@@ -2977,3 +2977,54 @@ PRD: ralph/kernel-hardening (46 stories)
   - Test 2 (wait() with multiple children) validates that the childPids Set in kernel-worker.ts properly tracks and iterates when multiple children exist
   - The warmup piped spawn pattern (spawn+waitpid `true` first) is needed even for non-piped tests because the first spawn has quirks
 ---
+
+## 2026-03-20 - US-057
+- Implemented mutable working directory (chdir) for kernel processes
+- Added `chdir(pid, path): Promise<void>` to KernelInterface in types.ts
+- Implemented in kernel.ts createKernelInterface: validates path exists and is directory via VFS stat, updates ProcessEntry.cwd
+- Guard with ownership check via assertOwns
+- Files changed:
+  - packages/kernel/src/types.ts — added chdir to KernelInterface
+  - packages/kernel/src/kernel.ts — implemented chdir in createKernelInterface
+  - packages/kernel/test/kernel-integration.test.ts — 4 tests: chdir+getcwd, child inherits cwd, ENOENT on bad path, ENOTDIR on file
+- **Learnings for future iterations:**
+  - ProcessEntry.cwd was already mutable (not readonly) — no change needed to process-table.ts
+  - Child cwd inheritance works via drivers calling getcwd(ppid) and passing result to spawn ctx.cwd — chdir updates the process entry, getcwd reads it
+  - The `as unknown as KernelInterface` pattern in test mocks means adding new methods to KernelInterface won't break existing test mocks
+---
+
+## 2026-03-20 - US-058
+- Implemented mutable environment: setenv(pid, key, value) and unsetenv(pid, key) on KernelInterface
+- Added ownership check via assertOwns — cross-driver setenv/unsetenv throws EPERM
+- Changed child process spawn to inherit parent's env (via processTable entry) instead of kernel default env
+- unsetenv uses `delete` to fully remove the key (not set to empty string)
+- Files changed:
+  - packages/kernel/src/types.ts — added setenv/unsetenv to KernelInterface
+  - packages/kernel/src/kernel.ts — implemented setenv/unsetenv, changed spawnInternal to use parent env
+  - packages/kernel/test/kernel-integration.test.ts — 4 tests: setenv+getenv, setenv+spawn child, unsetenv, cross-driver EPERM
+- **Learnings for future iterations:**
+  - ProcessEntry.env was already mutable (Record<string, string>) — no change needed to process-table.ts
+  - Child env inheritance required changing spawnInternal to use parentEntry?.env instead of this.env as the base
+  - The cross-pid-auth.test.ts pattern uses SpyDriver with exposed KernelInterface for testing ownership checks
+  - Test classes inside describe blocks need properly imported types — inline `import("../src/types.js").RuntimeDriver` doesn't work with `implements`
+---
+
+## 2026-03-20 - US-059
+- Implemented SIGPIPE delivery on broken pipe write (POSIX compliance)
+- Added SIGPIPE = 13 constant to types.ts and exported from index.ts
+- Added onBrokenPipe callback and optional writerPid parameter to PipeManager.write()
+- Kernel wires onBrokenPipe to processTable.kill(pid, SIGPIPE) — driver terminates with 128+13=141
+- Updated kernel fdWrite and createPipedOutputCallback to pass pid to pipeManager.write()
+- Files changed:
+  - packages/kernel/src/types.ts — added SIGPIPE constant
+  - packages/kernel/src/index.ts — exported SIGPIPE
+  - packages/kernel/src/pipe-manager.ts — added onBrokenPipe callback, writerPid param to write()
+  - packages/kernel/src/kernel.ts — wired onBrokenPipe in constructor, passed pid in fdWrite and createPipedOutputCallback
+  - packages/kernel/test/pipe-manager.test.ts — 3 unit tests: onBrokenPipe fires, EPIPE still thrown, no callback without pid
+  - packages/kernel/test/kernel-integration.test.ts — 3 integration tests: SIGPIPE exits 141, pipeline early-exit reader, EPIPE after SIGPIPE
+- **Learnings for future iterations:**
+  - ManagedProcess.wait() delegates to driverProcess.wait() — must go through driverProcess.kill() (not markExited directly) to resolve the promise
+  - processTable.kill() sets termSignal AND calls driverProcess.kill() which resolves the exit promise — use this for kernel-initiated signal delivery
+  - PipeManager.write() is synchronous — onBrokenPipe fires synchronously before EPIPE throw, which means the process is killed mid-write
+  - Pre-existing typecheck error in resource-exhaustion.test.ts (TS18047) — not caused by this change
+---
