@@ -464,8 +464,8 @@
         "Typecheck passes"
       ],
       "priority": 26,
-      "passes": false,
-      "notes": "Local uses POSTGRES_HOST_AUTH_METHOD: trust (password bypassed), CI defaults to scram-sha-256. This means the SCRAM crypto path is only tested in CI and never locally. If a developer breaks crypto support needed for SCRAM, they won't catch it locally."
+      "passes": true,
+      "notes": "Fixed: Removed POSTGRES_HOST_AUTH_METHOD: trust from local Docker setup. Implemented subtle.deriveBits (PBKDF2) in both guest-side SandboxSubtle and host-side bridge dispatcher. Local and CI now both use scram-sha-256 authentication. All pg fixtures pass with SCRAM auth."
     },
     {
       "id": "US-027",

@@ -1051,6 +1051,23 @@
               });
             };
 
+            SandboxSubtle.deriveBits = function deriveBits(algorithm, baseKey, length) {
+              return Promise.resolve().then(function() {
+                var algo = normalizeAlgo(algorithm);
+                var reqAlgo = Object.assign({}, algo);
+                if (reqAlgo.hash) reqAlgo.hash = normalizeAlgo(reqAlgo.hash);
+                if (reqAlgo.salt) reqAlgo.salt = toBase64(reqAlgo.salt);
+                var result2 = JSON.parse(subtleCall({
+                  op: 'deriveBits',
+                  algorithm: reqAlgo,
+                  key: baseKey._keyData,
+                  length: length,
+                }));
+                var buf = Buffer.from(result2.data, 'base64');
+                return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+              });
+            };
+
             SandboxSubtle.sign = function sign(algorithm, key, data) {
               return Promise.resolve().then(function() {
                 var result2 = JSON.parse(subtleCall({

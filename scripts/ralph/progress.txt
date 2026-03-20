@@ -19,7 +19,7 @@ PRD: ralph/cli-tool-sandbox-tests (7 stories)
 - `createHostCommandExecutor()` wraps `node:child_process.spawn` as a `CommandExecutor` for sandbox bash tool tests
 - TCP socket bridge: guest calls `_netSocketConnectRaw.applySync()` → host creates real `net.Socket` → events dispatched back via `_netSocketDispatch` applySync callback
 - `wrapNetworkAdapter` in `permissions.ts` must forward ALL adapter methods — new methods added to NetworkAdapter interface need corresponding forwarding in the wrapper
-- pg library uses Web Crypto `subtle.deriveBits` for SCRAM-SHA-256 auth — this is NOT implemented in sandbox; use `POSTGRES_HOST_AUTH_METHOD: "trust"` to bypass
+- pg library uses Web Crypto `subtle.deriveBits` for SCRAM-SHA-256 auth — implemented in sandbox crypto.subtle bridge (guest: SandboxSubtle.deriveBits in require-setup.ts, host: deriveBits case in bridge-setup.ts using pbkdf2Sync)
 
 ---
 
@@ -60,7 +60,21 @@ PRD: ralph/cli-tool-sandbox-tests (7 stories)
   - CRITICAL: `wrapNetworkAdapter` in `permissions.ts` must forward ALL new adapter methods — this was the root cause of a silent failure where the adapter's `netSocketConnect` was never called
   - The net module was previously a "deferred core module" stub (Proxy that throws on any method call) — must remove from `_deferredCoreModules` set when implementing
   - `loadPolyfillRef` in `bridge-setup.ts` must also return null for `net` to prevent node-stdlib-browser's stub from being loaded
-  - Postgres 16 defaults to SCRAM-SHA-256 auth which needs `subtle.deriveBits` — not available in sandbox yet; `trust` auth is the workaround
+  - Postgres 16 defaults to SCRAM-SHA-256 auth which needs `subtle.deriveBits` — now implemented in sandbox crypto.subtle bridge
   - The adapter's socketId counter is reused from `nextUpgradeSocketId` — bridge-setup must use the adapter's returned socketId, not its own counter
+---
+
+## 2026-03-19T20:46 - US-026
+- Implemented `subtle.deriveBits` in sandbox crypto bridge to support SCRAM-SHA-256 Postgres authentication
+- Removed `POSTGRES_HOST_AUTH_METHOD: "trust"` from local Docker setup so local and CI both use scram-sha-256
+- Files changed:
+  - `packages/secure-exec-node/src/bridge-setup.ts` — added `deriveBits` case to host-side crypto.subtle dispatcher (uses Node's `pbkdf2Sync`)
+  - `packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts` — added `SandboxSubtle.deriveBits` guest-side implementation
+  - `packages/secure-exec/tests/e2e-docker.test.ts` — removed `POSTGRES_HOST_AUTH_METHOD: "trust"` from Postgres container env
+  - `scripts/ralph/progress.txt` — updated codebase patterns
+- **Learnings for future iterations:**
+  - `subtle.deriveBits` for PBKDF2 maps directly to Node's `pbkdf2Sync(password, salt, iterations, keylen, digest)` — the algorithm object carries salt/iterations/hash, the key carries the password in `_raw`
+  - Guest-side `SandboxSubtle` methods must serialize algorithm-specific fields (salt as base64, hash as normalized name) before crossing the bridge
+  - After adding a new subtle operation, the bridge/isolate-runtime must be rebuilt (`pnpm turbo build`) and fixture caches cleared to pick up the regenerated code
 ---
 

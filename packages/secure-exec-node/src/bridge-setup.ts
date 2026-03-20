@@ -889,6 +889,27 @@ export async function setupRequire(
 				}
 				throw new Error(`Unsupported decrypt algorithm: ${algoName}`);
 			}
+			case "deriveBits": {
+				const { algorithm, key, length } = req;
+				const algoName = algorithm.name;
+				if (algoName === "PBKDF2") {
+					const password = Buffer.from(key._raw, "base64");
+					const salt = Buffer.from(algorithm.salt, "base64");
+					const iterations = algorithm.iterations;
+					const hashAlgo = normalizeHash(algorithm.hash);
+					const keylen = length / 8;
+					return JSON.stringify({
+						data: pbkdf2Sync(
+							password,
+							salt,
+							iterations,
+							keylen,
+							hashAlgo,
+						).toString("base64"),
+					});
+				}
+				throw new Error(`Unsupported deriveBits algorithm: ${algoName}`);
+			}
 			case "sign": {
 				const { key, data } = req;
 				const dataBytes = Buffer.from(data, "base64");

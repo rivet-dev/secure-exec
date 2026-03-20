@@ -172,7 +172,6 @@ describe.skipIf(skipReason)("e2e-docker", () => {
 				POSTGRES_USER: "testuser",
 				POSTGRES_PASSWORD: "testpass",
 				POSTGRES_DB: "testdb",
-				POSTGRES_HOST_AUTH_METHOD: "trust",
 			},
 			healthCheck: ["pg_isready", "-U", "testuser", "-d", "testdb"],
 			healthCheckTimeout: 30_000,
