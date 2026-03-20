@@ -3586,3 +3586,23 @@ PRD: ralph/kernel-hardening (46 stories)
   - curl needs 'full' permission tier (network + file write with -o)
   - Tests skip cleanly when WASM binaries aren't built — CI builds binaries first
 ---
+
+## 2026-03-20 - US-088
+- Implemented curl HTTPS support and advanced test suite
+- Created custom WASI TLS backend for libcurl (wasi_tls.c/h) that delegates TLS to host_net WASM import
+- Updated curl_config.h: enabled USE_WASI_TLS, enabled MIME/FORM_API for multipart uploads
+- Updated curl_setup.h: added USE_WASI_TLS to USE_SSL condition
+- Updated vtls.c: registered wasi_tls backend in Curl_ssl pointer and available_backends
+- Updated curl_cli.c: added -k/--insecure, -u (Basic auth), -F (multipart form), --connect-timeout options
+- Updated kernel-worker.ts: net_tls_connect accepts optional flags param (0=verify, 1=insecure)
+- Updated driver.ts: netTlsConnect RPC passes rejectUnauthorized only when explicitly set to false
+- Added HTTPS test suite: 7 HTTPS tests (GET with --insecure, Basic auth, multipart upload, binary download, timeout, status code)
+- Added HTTP advanced tests: Basic auth, multipart form, binary download, connect-timeout, write-out format
+- Files changed: wasmvm/c/libs/curl/lib/vtls/wasi_tls.c (new), wasmvm/c/libs/curl/lib/vtls/wasi_tls.h (new), wasmvm/c/libs/curl/lib/curl_config.h, wasmvm/c/libs/curl/lib/curl_setup.h, wasmvm/c/libs/curl/lib/vtls/vtls.c, wasmvm/c/programs/curl_cli.c, wasmvm/c/Makefile, packages/runtime/wasmvm/src/driver.ts, packages/runtime/wasmvm/src/kernel-worker.ts, packages/runtime/wasmvm/test/curl.test.ts
+- **Learnings for future iterations:**
+  - Custom vtls backend pattern: connect_blocking calls host import, recv_plain/send_plain pass through to socket layer (host handles crypto transparently)
+  - WASM imports can accept extra params from C — JS function receives undefined for params not provided by Rust callers (different ABI signatures for same import name)
+  - driver.ts rejectUnauthorized must only be set when explicitly provided — omitting lets Node.js respect NODE_TLS_REJECT_UNAUTHORIZED env var (existing tests rely on this)
+  - CURL_DISABLE_MIME and CURL_DISABLE_FORM_API must be undefined (not 0) for multipart form (-F) support
+  - vtls.c glob wildcards already pick up new .c files in vtls/ — no Makefile changes needed for new backends
+---
