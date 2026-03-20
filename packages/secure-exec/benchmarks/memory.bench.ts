@@ -13,6 +13,8 @@ import {
 	MEMORY_ITERATIONS,
 	TRIVIAL_CODE,
 	createBenchRuntime,
+	initSharedV8,
+	shutdownSharedV8,
 	forceGC,
 	formatBytes,
 	getHardware,
@@ -114,6 +116,11 @@ async function main() {
 	console.error(`Iterations per batch: ${MEMORY_ITERATIONS}`);
 	console.error(`Batch sizes: ${BATCH_SIZES.join(", ")}`);
 
+	// Pre-spawn the shared V8 process so the bench loop only measures isolate overhead
+	console.error(`\nSpawning shared V8 process...`);
+	await initSharedV8();
+	console.error(`V8 process ready.\n`);
+
 	const results: MemoryEntry[] = [];
 
 	for (const batchSize of BATCH_SIZES) {
@@ -154,6 +161,8 @@ async function main() {
 
 	// JSON to stdout
 	console.log(JSON.stringify({ hardware, results }, null, 2));
+
+	await shutdownSharedV8();
 }
 
 main().catch((err) => {
