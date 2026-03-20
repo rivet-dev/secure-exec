@@ -376,7 +376,7 @@ fn main() {
                     let writer_stream = stream.try_clone().expect("failed to clone UDS stream");
                     set_cloexec(writer_stream.as_raw_fd())
                         .expect("failed to set CLOEXEC on cloned stream");
-                    let (ipc_tx, ipc_rx) = crossbeam_channel::unbounded::<Vec<u8>>();
+                    let (ipc_tx, ipc_rx) = crossbeam_channel::bounded::<Vec<u8>>(1024);
                     let call_id_router: CallIdRouter = Arc::new(Mutex::new(HashMap::new()));
 
                     // Spawn dedicated writer thread — only this thread writes to the socket

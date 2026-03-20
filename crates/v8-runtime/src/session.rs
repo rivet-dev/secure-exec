@@ -90,7 +90,7 @@ impl SessionManager {
             return Err(format!("session {} already exists", session_id));
         }
 
-        let (tx, rx) = crossbeam_channel::unbounded();
+        let (tx, rx) = crossbeam_channel::bounded(256);
         let slot_control = Arc::clone(&self.slot_control);
         let max = self.max_concurrency;
         let ipc_tx = self.ipc_tx.clone();
