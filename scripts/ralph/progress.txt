@@ -420,3 +420,15 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - Pre-existing test failures: runtime-driver/node tests all fail with "Identifier '__name' has already been declared" (unrelated to this story, pre-existing from console-formatter `__name` shim conflict)
   - V8 package tests (94/94) are the authoritative test for bridge code changes — they exercise the full IPC pipeline
 ---
+
+## 2026-03-19 - US-059
+- Verified getter-based delegation was already implemented in `setup-fs-facade.ts` (done in prior iteration alongside US-060)
+- All 19 fs bridge function names covered via `Object.defineProperties` with getters resolving `globalThis._fsXxx` at call time
+- Generated `isolate-runtime.ts` already contains the getter-based pattern
+- Verification: Typecheck passes (28/28), fs type tests pass (3/3)
+- No code changes needed — marked as complete
+- Files verified: `packages/secure-exec-core/isolate-runtime/src/inject/setup-fs-facade.ts`, `packages/secure-exec-core/src/generated/isolate-runtime.ts`
+- **Learnings for future iterations:**
+  - Check if prerequisite stories were already completed as part of dependent stories before implementing
+  - The generated `isolate-runtime.ts` is rebuilt by `build-isolate-runtime.mjs` and must match source
+---

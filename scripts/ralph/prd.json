@@ -1262,8 +1262,8 @@
         "Tests pass"
       ],
       "priority": 64,
-      "passes": false,
-      "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 1. Prerequisite for context snapshot."
+      "passes": true,
+      "notes": "Already implemented in prior iteration (getter-based Object.defineProperties in setup-fs-facade.ts and generated isolate-runtime.ts). All 19 fs functions covered. Typecheck passes (28/28), fs type tests pass (3/3)."
     },
     {
       "id": "US-060",
@@ -1427,6 +1427,26 @@
       "priority": 73,
       "passes": false,
       "notes": "Research story — no code changes required beyond documentation and profiling scripts."
+    },
+    {
+      "id": "US-085",
+      "title": "Fix V8 process cleanup hang on terminate/dispose",
+      "description": "As a developer, I need terminate() and dispose() on V8Runtime to cleanly shut down the Rust child process so the Node process can exit without hanging or requiring process.exit().",
+      "acceptanceCriteria": [
+        "After runtime.terminate(), the Rust child process exits within 5 seconds",
+        "After runtime.dispose(), no child process, socket, or file descriptor remains open",
+        "Node process exits cleanly after all runtimes are terminated — no hanging event loop",
+        "Remove process.exit(0) hacks from benchmarks/quick-bench.ts and benchmarks/coldstart.bench.ts",
+        "Investigate root cause: check for unclosed IPC socket, pending event listeners on child process, or unfinished async operations preventing Node exit",
+        "Add integration test: create runtime, run code, terminate, verify process exits cleanly without process.exit()",
+        "If SIGTERM is insufficient, add SIGKILL fallback after timeout",
+        "cargo test passes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 76,
+      "passes": false,
+      "notes": "Workaround: benchmarks use process.exit(0) after completion. Root cause likely unclosed socket or event listener keeping Node event loop alive after terminate(). Related to US-076 (shared lifecycle) but distinct issue."
     }
   ]
 }
