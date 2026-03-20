@@ -143,6 +143,78 @@ Priority order is:
   - Express fixture, Fastify fixture, pnpm/bun layout fixtures.
   - Files: `packages/secure-exec/tests/projects/`
 
+## V8 Runtime Performance
+
+See `docs-internal/specs/v8-perf-research.md` for detailed profiling data and analysis.
+
+- [x] Replace double MessagePack encoding with V8 native serialization for bridge args/results *(done — US-034 through US-040)*
+- [x] V8 startup snapshots for fast isolate creation *(done — US-052 through US-067, warm start 13.75ms → 2.4ms)*
+- [x] Remove JSON double-serialization in bridge handlers *(done — US-045)*
+
+### P1 — Quick Wins
+
+- [ ] Code-cache the post-restore script (save 0.1–0.3ms per execution)
+  - Post-restore script is compiled from source on every execution (~200 bytes, 0.1–0.4ms)
+  - Reuse `BridgeCodeCache` pattern: hash the script string, consume cached bytecode on match
+  - Files: `crates/v8-runtime/src/session.rs`, `crates/v8-runtime/src/execution.rs`
+
+- [ ] Merge InjectGlobals into Execute message (save 0.1–0.2ms per execution)
+  - Currently two IPC messages per execution: InjectGlobals + Execute
+  - Include globals payload in Execute frame to save one UDS round-trip
+  - Files: `crates/v8-runtime/src/ipc_binary.rs`, `crates/v8-runtime/src/session.rs`, `packages/secure-exec-v8/src/ipc-binary.ts`, `packages/secure-exec-v8/src/runtime.ts`
+
+### P2 — Medium Effort
+
+- [ ] Session context pooling (save 0.5–2.0ms per execution)
+  - Pre-create pool of ready-to-execute contexts (snapshot-cloned, bridge fns replaced)
+  - On execute(), pick a context from pool instead of creating one
+  - Risk: context reuse may leak state — must verify complete isolation
+  - Files: `crates/v8-runtime/src/session.rs`
+
+- [ ] Reduce snapshot blob size (save 0.1–0.6ms context clone time)
+  - Minimize bridge IIFE state footprint: lazy-init large data structures, compact representations
+  - Profile V8 heap snapshot contents to identify savings
+  - Files: `packages/secure-exec-core/isolate-runtime/`
+
+### P3 — When Needed
+
+- [ ] Per-session sockets (one UDS per session instead of shared)
+  - Only relevant for concurrent sessions with large payloads (head-of-line blocking)
+  - Files: `crates/v8-runtime/src/main.rs`, `packages/secure-exec-v8/src/runtime.ts`
+
+- [ ] V8 code caching for user code (save <0.2ms, only for repeated executions)
+  - User code compilation is already 0.02–0.08ms for typical scripts
+  - Only helps when same code is executed repeatedly within a session
+  - Files: `crates/v8-runtime/src/execution.rs`
+
+### Not Recommended
+
+- [x] ~~mmap/shared-memory IPC~~ — Evaluated and rejected. IPC latency saving (~8μs) is dwarfed by V8 context setup (~1.5ms). Complexity and security risk too high for marginal gain.
+
+### Other Performance Items
+
+- [ ] Cap and cache `package.json` parsing in resolver paths
+  - Prevent repeated large-file reads and large JSON parse overhead in package resolution
+  - Files: `packages/secure-exec-node/src/`, `packages/secure-exec-core/src/`
+
+- [ ] Module-access prefix indexing and canonicalization memoization
+  - Reduce per-lookup overhead in module-access checks
+  - Files: `packages/secure-exec-node/src/module-access.ts`
+
+- [ ] Offset-based fd read/write primitives (replace whole-file sync emulation)
+  - Current approach reads/writes entire file contents; offset-based ops reduce large-file pressure
+  - Files: `packages/secure-exec-core/src/bridge/fs.ts`
+
+## CI and Automation
+
+- [ ] Automated rusty_v8 version update PR
+  - CI job (weekly cron or manual trigger) checks for new `v8` crate releases on crates.io
+  - If a newer version exists, opens a PR that bumps the `v8` version in `crates/v8-runtime/Cargo.toml`, runs `cargo update -p v8`, and runs the full test suite
+  - PR title: `chore(deps): bump rusty_v8 to vX.Y.Z`
+  - PR body includes changelog link and diff of V8 engine version (e.g. V8 13.0 → 13.2)
+  - Job fails (no PR opened) if `cargo test` or TypeScript tests fail — prevents broken updates from being proposed
+  - Files: `.github/workflows/v8-update.yml`, `crates/v8-runtime/Cargo.toml`
+
 ## Spec-Hardening Cross-References (items 29-42)
 
 Items below are tracked in detail in `docs-internal/spec-hardening.md`. Kept here for backlog visibility.
