@@ -3191,3 +3191,29 @@ PRD: ralph/kernel-hardening (46 stories)
   - PTY signal echo (^C, ^\) goes through echoOutput which writes to output buffer (master reads) — not input buffer
   - vi.useFakeTimers() is needed for deterministic alarm tests since alarm uses setTimeout internally
 ---
+
+## 2026-03-20 - US-068
+- Implemented SIGTSTP/SIGCONT/SIGSTOP job control signals
+- Added SIGCONT (18) and SIGSTOP (19) signal constants to types.ts and kernel index exports
+- Added stop(pid) and cont(pid) methods to ProcessTable
+- Extracted deliverSignal() method in ProcessTable to handle signal-specific default actions:
+  - SIGTSTP/SIGSTOP: set status to 'stopped', forward to driver, don't set termSignal
+  - SIGCONT: set status back to 'running', forward to driver
+  - Other signals: set termSignal and forward to driver (unchanged behavior)
+- Updated kill() group targeting to include stopped processes (not just running)
+- Updated killGroupExcludeLeaders to use deliverSignal and include stopped processes
+- Updated terminateAll() to include stopped processes in cleanup
+- Added ^Z echo (0x5e, 0x5a, 0x0d, 0x0a) in pty.ts processInput for SIGTSTP
+- Files changed:
+  - packages/kernel/src/types.ts — added SIGCONT=18, SIGSTOP=19
+  - packages/kernel/src/index.ts — added SIGCONT, SIGSTOP exports
+  - packages/kernel/src/process-table.ts — stop(), cont(), deliverSignal(), updated kill/group methods
+  - packages/kernel/src/pty.ts — ^Z echo in processInput
+  - packages/kernel/test/process-table.test.ts — 7 new tests (SIGTSTP stops, SIGCONT resumes, SIGSTOP stops, SIGCONT no-op on running, direct stop/cont, group SIGTSTP)
+  - packages/kernel/test/shell-terminal.test.ts — 1 new test (^Z in PTY echoes ^Z)
+- **Learnings for future iterations:**
+  - Stop/cont signals (SIGTSTP, SIGSTOP, SIGCONT) must NOT set termSignal — they change status, not terminate
+  - Process group kills must target stopped processes too (status !== "exited"), not just running
+  - ProcessEntry.status already had "stopped" in the type union — was pre-declared but not implemented until now
+  - PTY signalForByte already mapped vsusp (0x1A) to SIGTSTP=20, but no echo was produced for ^Z
+---

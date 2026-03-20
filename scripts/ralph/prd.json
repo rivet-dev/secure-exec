@@ -1345,7 +1345,7 @@
         "Tests pass"
       ],
       "priority": 68,
-      "passes": false,
+      "passes": true,
       "notes": "For WasmVM: SIGTSTP is effectively tracked in kernel state (status='stopped') but the WASM Worker can't truly pause (synchronous execution). Shell job tracking (fg/bg/jobs builtins) depends on kernel state, not actual Worker suspension. Files: packages/kernel/src/process-table.ts, packages/kernel/src/pty.ts."
     },
     {
