@@ -3115,3 +3115,19 @@ PRD: ralph/kernel-hardening (46 stories)
   - F_DUPFD_CLOEXEC is 1030 (Linux value), not sequential with F_DUPFD (0)
   - dup/dup2/dupMinFd always clear cloexec on new FD — only F_DUPFD_CLOEXEC and O_CLOEXEC set it
 ---
+
+## 2026-03-20 - US-064
+- What was implemented: Advisory file locking (flock) for git index.lock and sqlite3 coordination
+- Files changed:
+  - packages/kernel/src/file-lock.ts — new FileLockManager class with LOCK_SH, LOCK_EX, LOCK_UN, LOCK_NB operations
+  - packages/kernel/src/types.ts — added flock(pid, fd, operation) to KernelInterface
+  - packages/kernel/src/kernel.ts — added FileLockManager field, wired flock into createKernelInterface, release locks in fdClose and cleanupProcessFDs
+  - packages/kernel/src/index.ts — exported FileLockManager and LOCK_* constants
+  - packages/kernel/test/file-lock.test.ts — 14 tests: unit tests for FileLockManager + kernel integration tests
+- **Learnings for future iterations:**
+  - Locks are per-path (inode proxy) since VFS has no real inode numbers — path acts as inode identity
+  - FDs sharing the same FileDescription (via dup) share the same lock — lock keyed on description.id
+  - EWOULDBLOCK == EAGAIN on Linux — use EAGAIN as the KernelErrorCode
+  - cleanupProcessFDs must collect lock-holding descriptions before fdTableManager.remove() since remove() clears all FD entries
+  - FileLockManager follows same pattern as PipeManager/PtyManager but is simpler — no async reads, no buffers, just state tracking
+---
