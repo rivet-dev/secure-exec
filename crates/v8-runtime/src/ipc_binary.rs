@@ -110,23 +110,32 @@ pub struct ExecutionErrorBin {
     pub code: String, // empty string = no code
 }
 
-/// Serialize a binary frame to a complete byte vector (length prefix + body).
-/// Used by per-session buffering to build the frame without holding any shared lock.
-pub fn frame_to_bytes(frame: &BinaryFrame) -> io::Result<Vec<u8>> {
-    let mut body = Vec::new();
-    encode_body(&mut body, frame);
+/// Encode a binary frame into a provided buffer (length prefix + body).
+/// The buffer is cleared first; capacity is preserved across calls.
+/// Used by per-session buffering to avoid per-call allocation.
+pub fn encode_frame_into(buf: &mut Vec<u8>, frame: &BinaryFrame) -> io::Result<()> {
+    buf.clear();
+    // Reserve 4 bytes for the length prefix (filled after body)
+    buf.extend_from_slice(&[0, 0, 0, 0]);
+    encode_body(buf, frame);
 
-    let total_len = body.len();
+    let total_len = buf.len() - 4;
     if total_len > MAX_FRAME_SIZE as usize {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             format!("frame size {total_len} exceeds maximum {MAX_FRAME_SIZE}"),
         ));
     }
-    let mut result = Vec::with_capacity(4 + total_len);
-    result.extend_from_slice(&(total_len as u32).to_be_bytes());
-    result.extend_from_slice(&body);
-    Ok(result)
+    buf[..4].copy_from_slice(&(total_len as u32).to_be_bytes());
+    Ok(())
+}
+
+/// Serialize a binary frame to a complete byte vector (length prefix + body).
+/// Used by per-session buffering to build the frame without holding any shared lock.
+pub fn frame_to_bytes(frame: &BinaryFrame) -> io::Result<Vec<u8>> {
+    let mut buf = Vec::new();
+    encode_frame_into(&mut buf, frame)?;
+    Ok(buf)
 }
 
 /// Write a binary frame to a writer.
@@ -1120,5 +1129,81 @@ mod tests {
         // Length prefix matches body
         let len = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
         assert_eq!(len, bytes.len() - 4);
+    }
+
+    #[test]
+    fn encode_frame_into_reuses_buffer_capacity() {
+        let mut buf = Vec::new();
+        let frame = BinaryFrame::BridgeCall {
+            session_id: "s1".into(),
+            call_id: 1,
+            method: "_fn".into(),
+            payload: vec![0xAA; 512],
+        };
+
+        // First encode grows the buffer
+        encode_frame_into(&mut buf, &frame).expect("encode");
+        let first_bytes = buf.clone();
+        let cap_after_first = buf.capacity();
+        assert!(cap_after_first >= buf.len());
+
+        // Second encode reuses capacity (no new allocation if same size)
+        let frame2 = BinaryFrame::BridgeCall {
+            session_id: "s1".into(),
+            call_id: 2,
+            method: "_fn".into(),
+            payload: vec![0xBB; 256],
+        };
+        encode_frame_into(&mut buf, &frame2).expect("encode");
+        assert!(buf.capacity() >= cap_after_first, "capacity should not shrink");
+
+        // Verify round-trip correctness
+        let decoded = read_frame(&mut std::io::Cursor::new(&first_bytes)).expect("decode");
+        assert_eq!(decoded, frame);
+        let decoded2 = read_frame(&mut std::io::Cursor::new(&buf)).expect("decode");
+        assert_eq!(decoded2, frame2);
+    }
+
+    #[test]
+    fn encode_frame_into_matches_frame_to_bytes() {
+        let frame = BinaryFrame::ExecutionResult {
+            session_id: "sess-1".into(),
+            exit_code: 0,
+            exports: Some(vec![0x01, 0x02]),
+            error: None,
+        };
+        let expected = frame_to_bytes(&frame).expect("frame_to_bytes");
+        let mut buf = Vec::new();
+        encode_frame_into(&mut buf, &frame).expect("encode_frame_into");
+        assert_eq!(buf, expected);
+    }
+
+    #[test]
+    fn encode_frame_into_grows_to_high_water_mark() {
+        let mut buf = Vec::new();
+
+        // Small frame
+        let small = BinaryFrame::Log {
+            session_id: "s".into(),
+            channel: 0,
+            message: "hi".into(),
+        };
+        encode_frame_into(&mut buf, &small).expect("encode");
+        let small_cap = buf.capacity();
+
+        // Large frame grows buffer
+        let large = BinaryFrame::BridgeCall {
+            session_id: "s".into(),
+            call_id: 1,
+            method: "_fn".into(),
+            payload: vec![0xFF; 4096],
+        };
+        encode_frame_into(&mut buf, &large).expect("encode");
+        let large_cap = buf.capacity();
+        assert!(large_cap > small_cap);
+
+        // Small frame again — capacity stays at high-water mark
+        encode_frame_into(&mut buf, &small).expect("encode");
+        assert_eq!(buf.capacity(), large_cap, "capacity should stay at high-water mark");
     }
 }

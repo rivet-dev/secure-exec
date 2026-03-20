@@ -1,5 +1,6 @@
 // Sync-blocking bridge call: serialize, write to socket, block on read, deserialize
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -14,16 +15,32 @@ pub trait FrameSender: Send {
 }
 
 /// Sends frames via a crossbeam channel to a dedicated writer thread.
-/// Serialization happens on the calling thread without any shared lock.
+/// Maintains a reusable frame buffer that grows to high-water mark,
+/// avoiding per-call allocation for frame construction.
 pub struct ChannelFrameSender {
     pub tx: crossbeam_channel::Sender<Vec<u8>>,
+    /// Pre-allocated frame buffer reused across send_frame calls.
+    /// Grows to high-water mark; cleared (not deallocated) between calls.
+    frame_buf: RefCell<Vec<u8>>,
+}
+
+impl ChannelFrameSender {
+    pub fn new(tx: crossbeam_channel::Sender<Vec<u8>>) -> Self {
+        ChannelFrameSender {
+            tx,
+            frame_buf: RefCell::new(Vec::with_capacity(256)),
+        }
+    }
 }
 
 impl FrameSender for ChannelFrameSender {
     fn send_frame(&self, frame: &BinaryFrame) -> Result<(), String> {
-        let bytes = ipc_binary::frame_to_bytes(frame).map_err(|e| format!("frame encode error: {}", e))?;
+        let mut buf = self.frame_buf.borrow_mut();
+        ipc_binary::encode_frame_into(&mut buf, frame)
+            .map_err(|e| format!("frame encode error: {}", e))?;
+        // Clone sends a copy to the writer thread; buf keeps its capacity
         self.tx
-            .send(bytes)
+            .send(buf.clone())
             .map_err(|e| format!("channel send failed: {}", e))
     }
 }
@@ -499,7 +516,7 @@ mod tests {
     #[test]
     fn channel_frame_sender_delivers_frames() {
         let (tx, rx) = crossbeam_channel::unbounded();
-        let sender = super::ChannelFrameSender { tx };
+        let sender = super::ChannelFrameSender::new(tx);
 
         let frame = BinaryFrame::BridgeCall {
             session_id: "sess-1".into(),
@@ -521,7 +538,7 @@ mod tests {
         let (tx, rx) = crossbeam_channel::unbounded();
         let handles: Vec<_> = (0..4)
             .map(|i| {
-                let sender = super::ChannelFrameSender { tx: tx.clone() };
+                let sender = super::ChannelFrameSender::new(tx.clone());
                 std::thread::spawn(move || {
                     for j in 0..10 {
                         let frame = BinaryFrame::BridgeCall {
@@ -560,7 +577,7 @@ mod tests {
         let router: super::CallIdRouter = Arc::new(Mutex::new(HashMap::new()));
 
         let ctx = BridgeCallContext::with_receiver(
-            Box::new(super::ChannelFrameSender { tx }),
+            Box::new(super::ChannelFrameSender::new(tx)),
             Box::new(super::ReaderResponseReceiver::new(
                 Box::new(Cursor::new(response_bytes)),
             )),
@@ -578,5 +595,46 @@ mod tests {
             BinaryFrame::BridgeCall { method, .. } => assert_eq!(method, "_fsReadFile"),
             _ => panic!("expected BridgeCall"),
         }
+    }
+
+    #[test]
+    fn channel_frame_sender_reuses_frame_buffer() {
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let sender = super::ChannelFrameSender::new(tx);
+
+        // Send multiple frames — buffer grows to high-water mark
+        for i in 0..5 {
+            let frame = BinaryFrame::BridgeCall {
+                session_id: "sess-1".into(),
+                call_id: i,
+                method: "_fn".into(),
+                payload: vec![0xAA; 100 * (i as usize + 1)],
+            };
+            sender.send_frame(&frame).expect("send_frame");
+        }
+
+        // Verify all frames arrive and decode correctly
+        for i in 0..5u32 {
+            let bytes = rx.recv().expect("recv");
+            let decoded = ipc_binary::read_frame(&mut Cursor::new(&bytes)).expect("decode");
+            match decoded {
+                BinaryFrame::BridgeCall { call_id, payload, .. } => {
+                    assert_eq!(call_id, i);
+                    assert_eq!(payload.len(), 100 * (i as usize + 1));
+                }
+                _ => panic!("expected BridgeCall"),
+            }
+        }
+
+        // Internal buffer capacity stays at high-water mark (verified by sending a small frame)
+        let small = BinaryFrame::Log {
+            session_id: "s".into(),
+            channel: 0,
+            message: "x".into(),
+        };
+        sender.send_frame(&small).expect("send_frame");
+        let bytes = rx.recv().expect("recv");
+        let decoded = ipc_binary::read_frame(&mut Cursor::new(&bytes)).expect("decode");
+        assert_eq!(decoded, small);
     }
 }

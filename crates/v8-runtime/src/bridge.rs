@@ -47,6 +47,22 @@ pub fn serialize_v8_value(
     Ok(serializer.release())
 }
 
+/// Serialize a V8 value into a pre-allocated buffer.
+///
+/// The buffer is cleared (not deallocated) before use, preserving capacity.
+/// V8's serializer allocates internally; the result is copied into the buffer
+/// so the buffer grows to high-water mark across calls.
+pub fn serialize_v8_value_into(
+    scope: &mut v8::HandleScope,
+    value: v8::Local<v8::Value>,
+    buf: &mut Vec<u8>,
+) -> Result<(), String> {
+    let released = serialize_v8_value(scope, value)?;
+    buf.clear();
+    buf.extend_from_slice(&released);
+    Ok(())
+}
+
 /// Deserialize bytes back to a V8 value using V8's built-in ValueDeserializer.
 /// The bytes must have been produced by serialize_v8_value() or node:v8.serialize().
 pub fn deserialize_v8_value<'s>(
@@ -67,10 +83,26 @@ pub fn deserialize_v8_value<'s>(
         .ok_or_else(|| "V8 ValueDeserializer: failed to deserialize value".to_string())
 }
 
+/// Pre-allocated serialization buffers reused across bridge calls within a session.
+/// Grows to high-water mark; cleared (not deallocated) between calls via buf.clear().
+pub struct SessionBuffers {
+    /// Buffer for V8 ValueSerializer output (args serialization)
+    pub ser_buf: Vec<u8>,
+}
+
+impl SessionBuffers {
+    pub fn new() -> Self {
+        SessionBuffers {
+            ser_buf: Vec::with_capacity(256),
+        }
+    }
+}
+
 /// Data attached to each sync bridge function via v8::External.
 /// BridgeFnStore keeps these heap allocations alive for the session.
 struct SyncBridgeFnData {
     ctx: *const BridgeCallContext,
+    buffers: *const RefCell<SessionBuffers>,
     method: String,
 }
 
@@ -84,6 +116,7 @@ pub struct BridgeFnStore {
 struct AsyncBridgeFnData {
     ctx: *const BridgeCallContext,
     pending: *const PendingPromises,
+    buffers: *const RefCell<SessionBuffers>,
     method: String,
 }
 
@@ -135,6 +168,7 @@ impl PendingPromises {
 pub fn register_sync_bridge_fns(
     scope: &mut v8::HandleScope,
     ctx: *const BridgeCallContext,
+    buffers: *const RefCell<SessionBuffers>,
     methods: &[&str],
 ) -> BridgeFnStore {
     let context = scope.get_current_context();
@@ -144,6 +178,7 @@ pub fn register_sync_bridge_fns(
     for &method_name in methods {
         let boxed = Box::new(SyncBridgeFnData {
             ctx,
+            buffers,
             method: method_name.to_string(),
         });
         // Pointer to heap allocation — stable while Box exists in data vec
@@ -183,15 +218,19 @@ fn sync_bridge_callback(
     // SAFETY: pointer is valid while BridgeFnStore is alive (same session lifetime)
     let data = unsafe { &*(external.value() as *const SyncBridgeFnData) };
     let ctx = unsafe { &*data.ctx };
+    let buffers = unsafe { &*data.buffers };
 
-    // Serialize V8 arguments as V8 Array via ValueSerializer
-    let encoded_args = match serialize_v8_args(scope, &args) {
-        Ok(bytes) => bytes,
-        Err(err) => {
-            let msg = v8::String::new(scope, &format!("bridge serialization error: {}", err)).unwrap();
-            let exc = v8::Exception::error(scope, msg);
-            scope.throw_exception(exc);
-            return;
+    // Serialize V8 arguments into reusable buffer (avoids per-call allocation)
+    let encoded_args = {
+        let mut bufs = buffers.borrow_mut();
+        match serialize_v8_args_into(scope, &args, &mut bufs.ser_buf) {
+            Ok(()) => bufs.ser_buf.clone(),
+            Err(err) => {
+                let msg = v8::String::new(scope, &format!("bridge serialization error: {}", err)).unwrap();
+                let exc = v8::Exception::error(scope, msg);
+                scope.throw_exception(exc);
+                return;
+            }
         }
     };
 
@@ -250,6 +289,7 @@ pub fn register_async_bridge_fns(
     scope: &mut v8::HandleScope,
     ctx: *const BridgeCallContext,
     pending: *const PendingPromises,
+    buffers: *const RefCell<SessionBuffers>,
     methods: &[&str],
 ) -> AsyncBridgeFnStore {
     let context = scope.get_current_context();
@@ -260,6 +300,7 @@ pub fn register_async_bridge_fns(
         let boxed = Box::new(AsyncBridgeFnData {
             ctx,
             pending,
+            buffers,
             method: method_name.to_string(),
         });
         // Pointer to heap allocation — stable while Box exists in data vec
@@ -301,6 +342,7 @@ fn async_bridge_callback(
     let data = unsafe { &*(external.value() as *const AsyncBridgeFnData) };
     let ctx = unsafe { &*data.ctx };
     let pending = unsafe { &*data.pending };
+    let buffers = unsafe { &*data.buffers };
 
     // Create PromiseResolver
     let resolver = match v8::PromiseResolver::new(scope) {
@@ -316,14 +358,17 @@ fn async_bridge_callback(
     // Get the promise to return to V8
     let promise = resolver.get_promise(scope);
 
-    // Serialize V8 arguments as V8 Array via ValueSerializer
-    let encoded_args = match serialize_v8_args(scope, &args) {
-        Ok(bytes) => bytes,
-        Err(err) => {
-            let msg = v8::String::new(scope, &format!("bridge serialization error: {}", err)).unwrap();
-            let exc = v8::Exception::error(scope, msg);
-            scope.throw_exception(exc);
-            return;
+    // Serialize V8 arguments into reusable buffer (avoids per-call allocation)
+    let encoded_args = {
+        let mut bufs = buffers.borrow_mut();
+        match serialize_v8_args_into(scope, &args, &mut bufs.ser_buf) {
+            Ok(()) => bufs.ser_buf.clone(),
+            Err(err) => {
+                let msg = v8::String::new(scope, &format!("bridge serialization error: {}", err)).unwrap();
+                let exc = v8::Exception::error(scope, msg);
+                scope.throw_exception(exc);
+                return;
+            }
         }
     };
 
@@ -354,6 +399,17 @@ fn serialize_v8_args(scope: &mut v8::HandleScope, args: &v8::FunctionCallbackArg
         array.set_index(scope, i as u32, args.get(i));
     }
     serialize_v8_value(scope, array.into())
+}
+
+/// Serialize V8 function arguments into a pre-allocated buffer.
+/// The buffer is cleared and reused across calls (grows to high-water mark).
+fn serialize_v8_args_into(scope: &mut v8::HandleScope, args: &v8::FunctionCallbackArguments, buf: &mut Vec<u8>) -> Result<(), String> {
+    let count = args.length();
+    let array = v8::Array::new(scope, count);
+    for i in 0..count {
+        array.set_index(scope, i as u32, args.get(i));
+    }
+    serialize_v8_value_into(scope, array.into(), buf)
 }
 
 /// Resolve or reject a pending async bridge promise by call_id.

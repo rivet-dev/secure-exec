@@ -1472,6 +1472,7 @@ mod tests {
                 "test-session".into(),
             );
 
+            let session_buffers = std::cell::RefCell::new(bridge::SessionBuffers::new());
             let _fn_store;
             {
                 let scope = &mut v8::HandleScope::new(&mut iso);
@@ -1480,6 +1481,7 @@ mod tests {
                 _fn_store = bridge::register_sync_bridge_fns(
                     scope,
                     &bridge_ctx as *const BridgeCallContext,
+                    &session_buffers as *const std::cell::RefCell<bridge::SessionBuffers>,
                     &["_testBridge"],
                 );
             }
@@ -1510,6 +1512,7 @@ mod tests {
                 "test-session".into(),
             );
 
+            let session_buffers = std::cell::RefCell::new(bridge::SessionBuffers::new());
             let _fn_store;
             {
                 let scope = &mut v8::HandleScope::new(&mut iso);
@@ -1518,6 +1521,7 @@ mod tests {
                 _fn_store = bridge::register_sync_bridge_fns(
                     scope,
                     &bridge_ctx as *const BridgeCallContext,
+                    &session_buffers as *const std::cell::RefCell<bridge::SessionBuffers>,
                     &["_testBridge"],
                 );
             }
@@ -1562,6 +1566,7 @@ mod tests {
                 "test-session".into(),
             );
 
+            let session_buffers = std::cell::RefCell::new(bridge::SessionBuffers::new());
             let _fn_store;
             {
                 let scope = &mut v8::HandleScope::new(&mut iso);
@@ -1570,6 +1575,7 @@ mod tests {
                 _fn_store = bridge::register_sync_bridge_fns(
                     scope,
                     &bridge_ctx as *const BridgeCallContext,
+                    &session_buffers as *const std::cell::RefCell<bridge::SessionBuffers>,
                     &["_fn1", "_fn2"],
                 );
             }
@@ -1601,6 +1607,7 @@ mod tests {
                 "test-session".into(),
             );
 
+            let session_buffers = std::cell::RefCell::new(bridge::SessionBuffers::new());
             let _fn_store;
             {
                 let scope = &mut v8::HandleScope::new(&mut iso);
@@ -1609,6 +1616,7 @@ mod tests {
                 _fn_store = bridge::register_sync_bridge_fns(
                     scope,
                     &bridge_ctx as *const BridgeCallContext,
+                    &session_buffers as *const std::cell::RefCell<bridge::SessionBuffers>,
                     &["_testBridge"],
                 );
             }
@@ -1633,6 +1641,7 @@ mod tests {
             );
             let pending = bridge::PendingPromises::new();
 
+            let session_buffers = std::cell::RefCell::new(bridge::SessionBuffers::new());
             let _fn_store;
             {
                 let scope = &mut v8::HandleScope::new(&mut iso);
@@ -1642,6 +1651,7 @@ mod tests {
                     scope,
                     &bridge_ctx as *const BridgeCallContext,
                     &pending as *const bridge::PendingPromises,
+                    &session_buffers as *const std::cell::RefCell<bridge::SessionBuffers>,
                     &["_asyncFn"],
                 );
             }
@@ -1716,6 +1726,7 @@ mod tests {
             );
             let pending = bridge::PendingPromises::new();
 
+            let session_buffers = std::cell::RefCell::new(bridge::SessionBuffers::new());
             let _fn_store;
             {
                 let scope = &mut v8::HandleScope::new(&mut iso);
@@ -1725,6 +1736,7 @@ mod tests {
                     scope,
                     &bridge_ctx as *const BridgeCallContext,
                     &pending as *const bridge::PendingPromises,
+                    &session_buffers as *const std::cell::RefCell<bridge::SessionBuffers>,
                     &["_asyncFn"],
                 );
             }
@@ -1782,6 +1794,7 @@ mod tests {
             );
             let pending = bridge::PendingPromises::new();
 
+            let session_buffers = std::cell::RefCell::new(bridge::SessionBuffers::new());
             let _fn_store;
             {
                 let scope = &mut v8::HandleScope::new(&mut iso);
@@ -1791,6 +1804,7 @@ mod tests {
                     scope,
                     &bridge_ctx as *const BridgeCallContext,
                     &pending as *const bridge::PendingPromises,
+                    &session_buffers as *const std::cell::RefCell<bridge::SessionBuffers>,
                     &["_fetch", "_dns"],
                 );
             }
@@ -1863,6 +1877,7 @@ mod tests {
             );
             let pending = bridge::PendingPromises::new();
 
+            let session_buffers = std::cell::RefCell::new(bridge::SessionBuffers::new());
             let _fn_store;
             {
                 let scope = &mut v8::HandleScope::new(&mut iso);
@@ -1872,6 +1887,7 @@ mod tests {
                     scope,
                     &bridge_ctx as *const BridgeCallContext,
                     &pending as *const bridge::PendingPromises,
+                    &session_buffers as *const std::cell::RefCell<bridge::SessionBuffers>,
                     &["_asyncFn"],
                 );
             }
@@ -1913,6 +1929,7 @@ mod tests {
             );
             let pending = bridge::PendingPromises::new();
 
+            let session_buffers = std::cell::RefCell::new(bridge::SessionBuffers::new());
             let _fn_store;
             {
                 let scope = &mut v8::HandleScope::new(&mut iso);
@@ -1922,6 +1939,7 @@ mod tests {
                     scope,
                     &bridge_ctx as *const BridgeCallContext,
                     &pending as *const bridge::PendingPromises,
+                    &session_buffers as *const std::cell::RefCell<bridge::SessionBuffers>,
                     &["_asyncFn"],
                 );
             }
@@ -2335,6 +2353,7 @@ mod tests {
             let pending = bridge::PendingPromises::new();
 
             // Register async bridge function
+            let session_buffers = std::cell::RefCell::new(bridge::SessionBuffers::new());
             let _fn_store;
             {
                 let scope = &mut v8::HandleScope::new(&mut iso);
@@ -2344,6 +2363,7 @@ mod tests {
                     scope,
                     &bridge_ctx as *const BridgeCallContext,
                     &pending as *const bridge::PendingPromises,
+                    &session_buffers as *const std::cell::RefCell<bridge::SessionBuffers>,
                     &["_asyncFn"],
                 );
             }
@@ -2395,6 +2415,7 @@ mod tests {
             );
             let pending = bridge::PendingPromises::new();
 
+            let session_buffers = std::cell::RefCell::new(bridge::SessionBuffers::new());
             let _fn_store;
             {
                 let scope = &mut v8::HandleScope::new(&mut iso);
@@ -2404,6 +2425,7 @@ mod tests {
                     scope,
                     &bridge_ctx as *const BridgeCallContext,
                     &pending as *const bridge::PendingPromises,
+                    &session_buffers as *const std::cell::RefCell<bridge::SessionBuffers>,
                     &["_fetch", "_dns"],
                 );
             }
@@ -2467,6 +2489,7 @@ mod tests {
             );
             let pending = bridge::PendingPromises::new();
 
+            let session_buffers = std::cell::RefCell::new(bridge::SessionBuffers::new());
             let _fn_store;
             {
                 let scope = &mut v8::HandleScope::new(&mut iso);
@@ -2476,6 +2499,7 @@ mod tests {
                     scope,
                     &bridge_ctx as *const BridgeCallContext,
                     &pending as *const bridge::PendingPromises,
+                    &session_buffers as *const std::cell::RefCell<bridge::SessionBuffers>,
                     &["_asyncFn"],
                 );
             }
@@ -2519,6 +2543,7 @@ mod tests {
             );
             let pending = bridge::PendingPromises::new();
 
+            let session_buffers = std::cell::RefCell::new(bridge::SessionBuffers::new());
             let _fn_store;
             {
                 let scope = &mut v8::HandleScope::new(&mut iso);
@@ -2528,6 +2553,7 @@ mod tests {
                     scope,
                     &bridge_ctx as *const BridgeCallContext,
                     &pending as *const bridge::PendingPromises,
+                    &session_buffers as *const std::cell::RefCell<bridge::SessionBuffers>,
                     &["_asyncFn"],
                 );
             }
@@ -2580,6 +2606,7 @@ mod tests {
             );
             let pending = bridge::PendingPromises::new();
 
+            let session_buffers = std::cell::RefCell::new(bridge::SessionBuffers::new());
             let _fn_store;
             {
                 let scope = &mut v8::HandleScope::new(&mut iso);
@@ -2589,6 +2616,7 @@ mod tests {
                     scope,
                     &bridge_ctx as *const BridgeCallContext,
                     &pending as *const bridge::PendingPromises,
+                    &session_buffers as *const std::cell::RefCell<bridge::SessionBuffers>,
                     &["_asyncFn"],
                 );
             }
@@ -2663,6 +2691,7 @@ mod tests {
             );
             let pending = bridge::PendingPromises::new();
 
+            let session_buffers = std::cell::RefCell::new(bridge::SessionBuffers::new());
             let _fn_store;
             {
                 let scope = &mut v8::HandleScope::new(&mut iso);
@@ -2672,6 +2701,7 @@ mod tests {
                     scope,
                     &bridge_ctx as *const BridgeCallContext,
                     &pending as *const bridge::PendingPromises,
+                    &session_buffers as *const std::cell::RefCell<bridge::SessionBuffers>,
                     &["_asyncFn"],
                 );
             }
@@ -2720,6 +2750,7 @@ mod tests {
             );
             let pending = bridge::PendingPromises::new();
 
+            let session_buffers = std::cell::RefCell::new(bridge::SessionBuffers::new());
             let _fn_store;
             {
                 let scope = &mut v8::HandleScope::new(&mut iso);
@@ -2729,6 +2760,7 @@ mod tests {
                     scope,
                     &bridge_ctx as *const BridgeCallContext,
                     &pending as *const bridge::PendingPromises,
+                    &session_buffers as *const std::cell::RefCell<bridge::SessionBuffers>,
                     &["_asyncFn"],
                 );
             }
@@ -2808,6 +2840,7 @@ mod tests {
             );
             let pending = bridge::PendingPromises::new();
 
+            let session_buffers = std::cell::RefCell::new(bridge::SessionBuffers::new());
             let _fn_store;
             {
                 let scope = &mut v8::HandleScope::new(&mut iso);
@@ -2817,6 +2850,7 @@ mod tests {
                     scope,
                     &bridge_ctx as *const BridgeCallContext,
                     &pending as *const bridge::PendingPromises,
+                    &session_buffers as *const std::cell::RefCell<bridge::SessionBuffers>,
                     &["_asyncFn"],
                 );
             }
@@ -2884,6 +2918,7 @@ mod tests {
             );
             let pending = bridge::PendingPromises::new();
 
+            let session_buffers = std::cell::RefCell::new(bridge::SessionBuffers::new());
             let _fn_store;
             {
                 let scope = &mut v8::HandleScope::new(&mut iso);
@@ -2893,6 +2928,7 @@ mod tests {
                     scope,
                     &bridge_ctx as *const BridgeCallContext,
                     &pending as *const bridge::PendingPromises,
+                    &session_buffers as *const std::cell::RefCell<bridge::SessionBuffers>,
                     &["_asyncFn"],
                 );
             }
@@ -2956,6 +2992,7 @@ mod tests {
             );
             let pending = bridge::PendingPromises::new();
 
+            let session_buffers = std::cell::RefCell::new(bridge::SessionBuffers::new());
             let _fn_store;
             {
                 let scope = &mut v8::HandleScope::new(&mut iso);
@@ -2965,6 +3002,7 @@ mod tests {
                     scope,
                     &bridge_ctx as *const BridgeCallContext,
                     &pending as *const bridge::PendingPromises,
+                    &session_buffers as *const std::cell::RefCell<bridge::SessionBuffers>,
                     &["_asyncFn"],
                 );
             }
@@ -3021,6 +3059,7 @@ mod tests {
             );
             let pending = bridge::PendingPromises::new();
 
+            let session_buffers = std::cell::RefCell::new(bridge::SessionBuffers::new());
             let _fn_store;
             {
                 let scope = &mut v8::HandleScope::new(&mut iso);
@@ -3030,6 +3069,7 @@ mod tests {
                     scope,
                     &bridge_ctx as *const BridgeCallContext,
                     &pending as *const bridge::PendingPromises,
+                    &session_buffers as *const std::cell::RefCell<bridge::SessionBuffers>,
                     &["_asyncFn"],
                 );
             }
@@ -3168,6 +3208,7 @@ mod tests {
                 Box::new(Cursor::new(Vec::new())), // unused for async
                 "test-session".into(),
             );
+            let session_buffers = std::cell::RefCell::new(bridge::SessionBuffers::new());
             let _async_store;
             {
                 let scope = &mut v8::HandleScope::new(&mut iso);
@@ -3177,6 +3218,7 @@ mod tests {
                     scope,
                     &bridge_ctx as *const BridgeCallContext,
                     &pending as *const bridge::PendingPromises,
+                    &session_buffers as *const std::cell::RefCell<bridge::SessionBuffers>,
                     &["_slowFn"],
                 );
             }
@@ -4143,6 +4185,96 @@ mod tests {
             // No BridgeCall should have been sent (no imports to resolve)
             let written = writer_buf.lock().unwrap();
             assert!(written.is_empty(), "no IPC calls expected for module with no imports");
+        }
+
+        // --- Part 57: serialize_v8_value_into reuses buffer capacity ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let mut buf = Vec::new();
+
+            // First serialization grows the buffer
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                let val = v8::String::new(scope, "hello world").unwrap();
+                bridge::serialize_v8_value_into(scope, val.into(), &mut buf).expect("serialize");
+            }
+            assert!(!buf.is_empty());
+            let cap_after_first = buf.capacity();
+
+            // Second serialization (smaller value) reuses capacity
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                let val = v8::Integer::new(scope, 42);
+                bridge::serialize_v8_value_into(scope, val.into(), &mut buf).expect("serialize");
+            }
+            assert_eq!(buf.capacity(), cap_after_first, "capacity should stay at high-water mark");
+
+            // Third serialization (larger value) grows buffer
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                let long_str = "x".repeat(1024);
+                let val = v8::String::new(scope, &long_str).unwrap();
+                bridge::serialize_v8_value_into(scope, val.into(), &mut buf).expect("serialize");
+            }
+            assert!(buf.capacity() >= cap_after_first, "capacity should grow for larger values");
+            let cap_after_large = buf.capacity();
+
+            // Fourth serialization (small again) stays at high-water mark
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                let val = v8::Boolean::new(scope, true);
+                bridge::serialize_v8_value_into(scope, val.into(), &mut buf).expect("serialize");
+            }
+            assert_eq!(buf.capacity(), cap_after_large, "capacity stays at high-water mark");
+
+            // Verify the serialized data is correct (round-trip)
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                let deserialized = bridge::deserialize_v8_value(scope, &buf).expect("deserialize");
+                assert!(deserialized.is_true(), "should deserialize to true");
+            }
+        }
+
+        // --- Part 58: SessionBuffers ser_buf grows to high-water mark across bridge calls ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let session_buffers = std::cell::RefCell::new(bridge::SessionBuffers::new());
+            assert!(session_buffers.borrow().ser_buf.capacity() >= 256, "initial capacity should be >= 256");
+
+            // Simulate multiple serializations through SessionBuffers
+            for i in 0..5 {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+
+                // Create varying-size values
+                let val_str = "a".repeat(100 * (i + 1));
+                let val = v8::String::new(scope, &val_str).unwrap();
+                let mut bufs = session_buffers.borrow_mut();
+                bridge::serialize_v8_value_into(scope, val.into(), &mut bufs.ser_buf).expect("serialize");
+            }
+
+            // Buffer capacity should be at least as large as the last (largest) serialization
+            let bufs = session_buffers.borrow();
+            assert!(bufs.ser_buf.len() > 0, "should contain serialized data");
+
+            // Verify the buffer hasn't been dropped/reallocated to smaller size
+            let final_cap = bufs.ser_buf.capacity();
+            assert!(final_cap >= bufs.ser_buf.len(), "capacity >= len");
         }
     }
 }

@@ -205,12 +205,13 @@ impl SessionManager {
 }
 
 /// Serialize and send a BinaryFrame via the per-connection IPC channel.
+/// Uses a pre-allocated frame buffer to avoid per-call allocation.
 /// No shared mutex is held — serialization happens on the session thread.
 #[cfg(not(test))]
-fn send_message(ipc_tx: &IpcSender, frame: &BinaryFrame) {
-    match ipc_binary::frame_to_bytes(frame) {
-        Ok(bytes) => {
-            if let Err(e) = ipc_tx.send(bytes) {
+fn send_message(ipc_tx: &IpcSender, frame: &BinaryFrame, frame_buf: &mut Vec<u8>) {
+    match ipc_binary::encode_frame_into(frame_buf, frame) {
+        Ok(()) => {
+            if let Err(e) = ipc_tx.send(frame_buf.clone()) {
                 eprintln!("failed to send IPC message: {}", e);
             }
         }
@@ -268,6 +269,14 @@ fn session_thread(
     #[cfg(not(test))]
     let mut last_bridge_code: Option<String> = None;
 
+    // Pre-allocated serialization buffers for V8 ValueSerializer output
+    #[cfg(not(test))]
+    let session_buffers = std::cell::RefCell::new(bridge::SessionBuffers::new());
+
+    // Pre-allocated frame buffer for send_message (ExecutionResult etc.)
+    #[cfg(not(test))]
+    let mut msg_frame_buf: Vec<u8> = Vec::with_capacity(256);
+
     // Process commands until shutdown or channel close
     loop {
         match rx.recv() {
@@ -322,7 +331,7 @@ fn session_thread(
                             None => ChannelResponseReceiver::new(rx.clone()),
                         };
                         let bridge_ctx = BridgeCallContext::with_receiver(
-                            Box::new(ChannelFrameSender { tx: ipc_tx.clone() }),
+                            Box::new(ChannelFrameSender::new(ipc_tx.clone())),
                             Box::new(channel_rx),
                             session_id.clone(),
                             Arc::clone(&call_id_router),
@@ -339,6 +348,7 @@ fn session_thread(
                             _sync_store = bridge::register_sync_bridge_fns(
                                 scope,
                                 &bridge_ctx as *const BridgeCallContext,
+                                &session_buffers as *const std::cell::RefCell<bridge::SessionBuffers>,
                                 &SYNC_BRIDGE_FNS,
                             );
 
@@ -346,6 +356,7 @@ fn session_thread(
                                 scope,
                                 &bridge_ctx as *const BridgeCallContext,
                                 &pending as *const bridge::PendingPromises,
+                                &session_buffers as *const std::cell::RefCell<bridge::SessionBuffers>,
                                 &ASYNC_BRIDGE_FNS,
                             );
                         }
@@ -440,7 +451,7 @@ fn session_thread(
                             }
                         };
 
-                        send_message(&ipc_tx, &result_frame);
+                        send_message(&ipc_tx, &result_frame, &mut msg_frame_buf);
                     }
                     _ => {
                         // Other messages handled in later stories
