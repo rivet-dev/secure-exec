@@ -2921,3 +2921,35 @@ PRD: ralph/kernel-hardening (46 stories)
   - Pre-existing test failures unchanged: crash-isolation (3), resource-limits (3), test-suite (1)
   - 28/28 typecheck tasks pass; 22/22 tests pass (lifecycle + snapshot)
 ---
+
+## 2026-03-20 - US-083
+- Added lint job to .github/workflows/rust.yml with cargo clippy and cargo fmt checks
+- Lint job runs on ubuntu-latest before build matrix (needs: lint) for fail-fast on lint errors
+- Fixed 18 clippy warnings across 8 Rust source files:
+  - Dead code: added #[cfg(test)] to test-only functions (inject_globals, build_process_config, build_os_config, run_init_script); #[allow(dead_code)] for pub API methods used externally (snapshot_cache, session_count, all_sessions, active_slot_count, with_abort, stub, new, is_call_pending, pending_count, StubFrameSender, StubResponseReceiver, WriterFrameSender, ReaderResponseReceiver)
+  - vec_box: allowed with comment (Box needed for stable pointer address with v8::External)
+  - map_or(false, ...) → is_some_and(...) in execution.rs and session.rs
+  - thread_local const initializer in execution.rs
+  - too_many_arguments on session_thread (allowed — 8 params needed for session setup)
+  - format! iterator → fold with write! in main.rs random_hex_128
+  - approx_constant: changed 3.14 to 3.125 in test
+  - len_zero: .len() > 0 → !is_empty()
+  - useless_vec: vec![...] → array literal in test
+  - Unused import: removed `stream` from session.rs (used via crate:: prefix), removed `super::*` from timeout.rs tests
+- Applied cargo fmt to all files
+- Files changed: .github/workflows/rust.yml, crates/v8-runtime/src/{bridge,execution,host_call,ipc_binary,main,session,snapshot,stream,timeout}.rs
+- **Learnings for future iterations:**
+  - cargo fmt should be run after any Rust code changes — many manual edits don't match rustfmt style
+  - clippy dead_code warnings for pub API items used only externally (e.g. by tests, snapshot code, or future consumers): use #[allow(dead_code)] since removing them would break the API
+  - #[cfg(test)] is cleaner than #[allow(dead_code)] for functions only called from test code
+  - V8 snapshot tests SIGSEGV during process teardown (after all 82 tests pass) is a known pre-existing issue — not a regression
+---
+
+## 2026-03-20 - US-084
+- Added experimental warning callout to docs/process-isolation.mdx noting V8 runtime and process isolation API are new
+- Added FD table limit (1024 open file descriptors per isolate, EMFILE on excess) to Resource Limits section of docs/security-model.mdx
+- Files changed: docs/process-isolation.mdx, docs/security-model.mdx
+- **Learnings for future iterations:**
+  - Docs callout pattern uses `<Warning>` JSX tag (not `:::warning` or other Markdown syntax)
+  - Existing experimental pages use consistent text: "This page documents experimental functionality. APIs, behavior, and docs may change without notice."
+---
