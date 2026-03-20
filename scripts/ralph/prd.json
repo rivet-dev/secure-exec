@@ -1217,8 +1217,8 @@
         "Tests pass"
       ],
       "priority": 82,
-      "passes": false,
-      "notes": "PR review finding: CPU timeout recovery is tested but memory limit recovery is not."
+      "passes": true,
+      "notes": "Added recovery test + V8Runtime.isAlive property + NodeExecutionDriver session recovery on crash. getSharedV8Runtime() recycles dead runtimes. resetV8Session() clears cached session after ERR_V8_PROCESS_CRASH."
     },
     {
       "id": "US-083",

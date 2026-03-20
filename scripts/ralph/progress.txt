@@ -57,6 +57,8 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
 - V8 serialization handles circular references, Date, Map, Set, RegExp natively — Error objects become plain objects (lose constructor name)
 - `Context::new()` on a snapshot-restored isolate clones the snapshot's default context with all state — use this instead of `get_current_context()` for fresh context per execution
 - Snapshot defaults: use `READ_ONLY` only (no `DONT_DELETE`) so `inject_globals_from_payload` can redefine per-session; `DONT_DELETE` makes non-configurable
+- V8 OOM kills the entire Rust child process (not just the isolate); recovery requires `getSharedV8Runtime()` to detect dead runtime via `isAlive` and spawn a new one
+- `V8Runtime.isAlive` must check `processAlive && !disposed && ipcClient !== null` — `ipcClient = null` fires before `processAlive = false` on crash
 ---
 
 ## 2026-03-18 - US-001
@@ -667,4 +669,22 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - ESM import resolution for npm packages also fails (e.g. `import { Hono } from "hono"` → "does not provide an export named 'Hono'")
   - Request/Response/Headers/URL globals ARE available in exec() mode (from network bridge polyfill)
   - Use runtime probe pattern (exec a test snippet, check result) for graceful test skipping instead of describe.skip
+---
+
+## 2026-03-20 - US-082
+- Added memoryLimit recovery test in `resource-limits.test.ts`: after OOM execution (memoryLimit: 32), a subsequent exec() on the same runtime succeeds with exit code 0
+- Added `isAlive` property to `V8Runtime` interface and implementation — checks `processAlive && !disposed && ipcClient !== null`
+- Added session recovery logic in `NodeExecutionDriver`:
+  - `resetV8Session()` clears cached v8Session and v8InitPromise so next call re-initializes
+  - `executeInternal` calls `resetV8Session()` on `ERR_V8_PROCESS_CRASH` result and in catch block
+  - `ensureV8()` catches init failures and resets for retry
+- `getSharedV8Runtime()` checks `isAlive` before returning cached runtime; recycles dead runtimes automatically
+- Added `{ timeout: 60_000 }` to describe block — OOM + process restart takes ~21s per test
+- Files changed: `packages/secure-exec-v8/src/runtime.ts`, `packages/secure-exec-node/src/execution-driver.ts`, `packages/secure-exec/tests/runtime-driver/node/resource-limits.test.ts`
+- **Learnings for future iterations:**
+  - After V8 OOM, the Rust child process dies entirely (V8 fatal error handler aborts). Recovery requires spawning a new V8 process.
+  - `processAlive` is set asynchronously via `child.on('exit')` but `ipcClient = null` happens synchronously in the IPC `onClose` handler — there's a timing gap where processAlive is true but ipcClient is null. `isAlive` must check both.
+  - `getSharedV8Runtime()` must check `isAlive` on the cached runtime, not just whether `sharedV8Runtime !== null`
+  - OOM tests are inherently slow (~10-20s per test): V8 allocates until crash, then Node needs to spawn+connect a new Rust process
+  - The `catch` handler in `ensureV8` must reset `v8InitPromise` to allow retry on next call
 ---
