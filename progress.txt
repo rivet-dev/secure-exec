@@ -7,6 +7,7 @@ PRD: ralph/kernel-hardening (46 stories)
 - V8Runtime (Rust process) is heavyweight — use shared singleton (getSharedV8Runtime) across all NodeExecutionDrivers; each driver creates its own V8Session
 - Bridge code composition order: ivm-compat shim → config injections → globalExposureHelpers → initialBridgeGlobals → consoleSetup → setupFsFacade → bridgeBundle → bridgeAttach → timingMitigation → requireSetup
 - Rust SYNC_BRIDGE_FNS/ASYNC_BRIDGE_FNS in session.rs must match HOST_BRIDGE_GLOBAL_KEYS from bridge-contract.ts — update both when adding new bridge functions
+- v8::External data in FunctionTemplates causes SIGSEGV during snapshot serialization — for snapshot stubs, use FunctionTemplate::builder(callback).build() without .data()
 - Bridge handler args are spread by host routing (runtime.ts): to pass a single array arg, serialize as [[array]] so handler(...args) gives handler(array)
 - V8 Module::get_module_requests() returns FixedArray — cast elements via data.cast::<v8::ModuleRequest>(), then get_specifier() for import specifier string
 - IPC writes use per-session ChannelFrameSender (crossbeam channel) + one writer thread per connection — never use shared mutex for socket writes; serialize via frame_to_bytes() first
@@ -2831,4 +2832,21 @@ PRD: ralph/kernel-hardening (46 stories)
   - Wire format changes (u32→u64) require rebuilding the Rust binary (cargo build --release) before integration tests pass
   - BinaryFrame::BridgeCall/BridgeResponse call_id field type change propagates automatically through destructuring patterns in session.rs and main.rs
   - TS BigInt↔Number conversion via Number(buf.readBigUInt64BE()) and BigInt(frame.callId) works cleanly for counters within Number.MAX_SAFE_INTEGER
+---
+
+## 2026-03-19 - US-062
+- Implemented BridgeCallContext::stub() in host_call.rs — no-op context that panics if sync_call or async_send is called
+- Implemented register_stub_bridge_fns() in bridge.rs — registers FunctionTemplates with same sync_bridge_callback/async_bridge_callback but WITHOUT v8::External data (snapshot-safe)
+- Made SYNC_BRIDGE_FNS and ASYNC_BRIDGE_FNS pub(crate) in session.rs (removed #[cfg(not(test))])
+- Added tests: stub panic tests in host_call.rs, stub registration on V8 global, bridge IIFE execution + snapshot creation in snapshot.rs
+- Files changed:
+  - crates/v8-runtime/src/host_call.rs — StubFrameSender, StubResponseReceiver, BridgeCallContext::stub(), 2 panic tests
+  - crates/v8-runtime/src/bridge.rs — register_stub_bridge_fns()
+  - crates/v8-runtime/src/session.rs — pub(crate) SYNC_BRIDGE_FNS/ASYNC_BRIDGE_FNS
+  - crates/v8-runtime/src/snapshot.rs — Part 13 (stub registration) and Part 14 (IIFE + snapshot creation) tests
+- **Learnings for future iterations:**
+  - v8::External data (raw pointers) in FunctionTemplates causes SIGSEGV during V8 snapshot serialization — for snapshot stubs, omit .data() from FunctionTemplate::builder
+  - When stubs have no External data, callback's args.data() returns undefined → try_from::<v8::External> fails → throws V8 exception, which is correct behavior for stubs
+  - Pre-existing SIGSEGV on process teardown after running full cargo test suite (V8 global state cleanup) — not a regression
+  - SYNC_BRIDGE_FNS (31) + ASYNC_BRIDGE_FNS (7) = 38 total bridge functions
 ---

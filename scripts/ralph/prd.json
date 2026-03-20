@@ -1314,8 +1314,8 @@
         "Typecheck passes"
       ],
       "priority": 67,
-      "passes": false,
-      "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 4."
+      "passes": true,
+      "notes": "BridgeCallContext::stub() panics on sync_call/async_send. register_stub_bridge_fns() registers FunctionTemplates with same callbacks but no External data (avoids SIGSEGV during snapshot serialization). After restore, stubs are replaced with real functions. SYNC_BRIDGE_FNS/ASYNC_BRIDGE_FNS made pub(crate). Tests: stub panic tests in host_call.rs, stub registration + snapshot creation in snapshot.rs."
     },
     {
       "id": "US-063",
