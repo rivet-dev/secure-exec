@@ -14,7 +14,7 @@ mod snapshot;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Read, Write};
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::DirBuilderExt;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
@@ -90,12 +90,13 @@ fn random_hex_128() -> io::Result<String> {
     Ok(buf.iter().map(|b| format!("{:02x}", b)).collect())
 }
 
-/// Create a secure tmpdir with 0700 permissions and return the socket path inside it
+/// Create a secure tmpdir with 0700 permissions and return the socket path inside it.
+/// Uses DirBuilder::mode() to set permissions atomically via mkdir(2), avoiding
+/// a TOCTOU race between create_dir and set_permissions.
 fn create_socket_dir() -> io::Result<(PathBuf, PathBuf)> {
     let suffix = random_hex_128()?;
     let tmpdir = std::env::temp_dir().join(format!("secure-exec-{}", suffix));
-    fs::create_dir(&tmpdir)?;
-    fs::set_permissions(&tmpdir, fs::Permissions::from_mode(0o700))?;
+    fs::DirBuilder::new().mode(0o700).create(&tmpdir)?;
     let socket_path = tmpdir.join("secure-exec.sock");
     Ok((tmpdir, socket_path))
 }
@@ -106,13 +107,26 @@ fn cleanup(socket_path: &PathBuf, tmpdir: &PathBuf) {
     let _ = fs::remove_dir(tmpdir);
 }
 
+/// Constant-time byte comparison to prevent timing oracle on auth token.
+/// Returns true if both slices have equal length and identical contents.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 /// Authenticate a new connection by reading the first message as an Authenticate token.
 /// Returns true if authentication succeeds, false otherwise.
 fn authenticate_connection(stream: &mut UnixStream, expected_token: &str) -> bool {
     // Connection is blocking — read the first message
     match ipc_binary::read_frame(stream) {
         Ok(BinaryFrame::Authenticate { token }) => {
-            if token == expected_token {
+            if constant_time_eq(token.as_bytes(), expected_token.as_bytes()) {
                 true
             } else {
                 eprintln!("auth failed: invalid token");
@@ -425,6 +439,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
     use std::os::unix::io::AsRawFd;
     use std::os::unix::net::UnixStream;
 
@@ -656,6 +671,37 @@ mod tests {
         let (_, _) = listener.accept().expect("accept after poll");
         let _client = handle.join().expect("client thread");
 
+        cleanup(&socket_path, &tmpdir);
+    }
+
+    #[test]
+    fn constant_time_eq_matches_equal_strings() {
+        assert!(constant_time_eq(b"hello", b"hello"));
+        assert!(constant_time_eq(b"", b""));
+        assert!(constant_time_eq(b"abc123xyz", b"abc123xyz"));
+    }
+
+    #[test]
+    fn constant_time_eq_rejects_different_strings() {
+        assert!(!constant_time_eq(b"hello", b"world"));
+        assert!(!constant_time_eq(b"hello", b"hellx"));
+        // Single-bit difference
+        assert!(!constant_time_eq(b"\x00", b"\x01"));
+    }
+
+    #[test]
+    fn constant_time_eq_rejects_different_lengths() {
+        assert!(!constant_time_eq(b"hello", b"hell"));
+        assert!(!constant_time_eq(b"", b"x"));
+        assert!(!constant_time_eq(b"abc", b"abcd"));
+    }
+
+    #[test]
+    fn socket_dir_has_0700_permissions() {
+        let (tmpdir, socket_path) = create_socket_dir().expect("create socket dir");
+        let meta = fs::metadata(&tmpdir).expect("stat tmpdir");
+        let mode = meta.permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700, "socket dir should have 0700 permissions, got {:o}", mode);
         cleanup(&socket_path, &tmpdir);
     }
 
