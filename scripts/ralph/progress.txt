@@ -368,3 +368,16 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - Error objects are serialized as plain objects with `message` property (constructor name/type info is lost)
   - Pre-existing test failure: SharedArrayBuffer removal test (Part 5 at line 990) panics before reaching new tests — unrelated to this story
 ---
+
+## 2026-03-19 - US-049
+- Added optional `v8Runtime: V8Runtime` field to `NodeRuntimeDriverFactoryOptions` in `driver.ts`
+- Added optional `v8Runtime: V8Runtime` field to `NodeExecutionDriverOptions` in `isolate-bootstrap.ts`
+- `createNodeRuntimeDriverFactory` passes `v8Runtime` through to `NodeExecutionDriver` constructor
+- `NodeExecutionDriver` stores `v8RuntimeOverride` and uses it in new `getV8Runtime()` method
+- `initV8()` calls `getV8Runtime()` which returns override if provided, otherwise falls back to `getSharedV8Runtime()`
+- Files changed: `packages/secure-exec-node/src/driver.ts`, `packages/secure-exec-node/src/execution-driver.ts`, `packages/secure-exec-node/src/isolate-bootstrap.ts`
+- **Learnings for future iterations:**
+  - `NodeRuntimeDriverFactoryOptions` lives in `driver.ts`, `NodeExecutionDriverOptions` lives in `isolate-bootstrap.ts` — both need the new field for the plumbing chain
+  - Use `import("@secure-exec/v8").V8Runtime` inline type import to avoid adding a top-level import dependency in interfaces
+  - Pre-existing OOM test timeout in `crash-isolation.test.ts` — unrelated to this story
+---

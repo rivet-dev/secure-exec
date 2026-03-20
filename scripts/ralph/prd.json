@@ -811,6 +811,165 @@
       "priority": 48,
       "passes": true,
       "notes": "Added SessionBuffers with pre-allocated ser_buf (Vec<u8>) per session for V8 ValueSerializer output. serialize_v8_value_into() copies V8 output into reusable buffer that grows to high-water mark. encode_frame_into() writes length-prefixed frames into provided buffer, eliminating intermediate body+result double-allocation in frame_to_bytes. ChannelFrameSender now holds a reusable frame_buf (RefCell<Vec<u8>>) for frame construction. send_message in session.rs uses per-session msg_frame_buf. 5 new tests for buffer reuse, high-water mark, and correctness."
+    },
+    {
+      "id": "US-049",
+      "title": "Add v8Runtime option to createNodeRuntimeDriverFactory",
+      "description": "As a developer, I need createNodeRuntimeDriverFactory to accept an optional v8Runtime parameter so callers can pass a specific V8Runtime process handle instead of always using the global singleton.",
+      "acceptanceCriteria": [
+        "NodeRuntimeDriverFactoryOptions interface adds optional v8Runtime: V8Runtime field",
+        "createNodeRuntimeDriverFactory passes v8Runtime through to NodeExecutionDriver constructor via options",
+        "NodeExecutionDriver stores v8Runtime override and uses it in getV8Runtime() when provided",
+        "When v8Runtime is omitted, getSharedV8Runtime() is used (existing behavior unchanged)",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 49,
+      "passes": true,
+      "notes": "Spec: docs-internal/specs/v8-process-isolation.md"
+    },
+    {
+      "id": "US-050",
+      "title": "Add process isolation integration tests",
+      "description": "As a developer, I need integration tests proving that two separate V8Runtime instances are process-isolated: a crash in one does not affect the other.",
+      "acceptanceCriteria": [
+        "Test creates two V8Runtime instances via createV8Runtime()",
+        "Each runtime creates a session and starts execution",
+        "One runtime's session triggers OOM (small heap limit + allocate loop)",
+        "The other runtime's session completes successfully despite the first crashing",
+        "Test verifies the crashed runtime reports ERR_V8_PROCESS_CRASH while the healthy runtime returns exit code 0",
+        "Test verifies that runtimes using the same v8Runtime handle share crash fate",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 50,
+      "passes": false,
+      "notes": "Spec: docs-internal/specs/v8-process-isolation.md"
+    },
+    {
+      "id": "US-051",
+      "title": "Add process isolation documentation page",
+      "description": "As a developer, I need a new docs/process-isolation.mdx page documenting the configurable V8 process topology: shared (default), per-tenant, and per-runtime isolation.",
+      "acceptanceCriteria": [
+        "New docs/process-isolation.mdx page exists with title 'Process Isolation'",
+        "Documents what process isolation means (separate OS process, memory space, FD table, crash domain)",
+        "Documents when to use it (multi-tenant hosting, untrusted code from different security domains, high OOM risk workloads)",
+        "Shows code examples for all three topology options: shared (default), per-tenant (two runtimes share a createV8Runtime handle), per-runtime (one process each)",
+        "Documents trade-offs (memory cost per process vs crash blast radius)",
+        "Documents resource limits (maxSessions is per-process) with examples",
+        "Documents crash behavior (only sessions in the crashed process are affected)",
+        "Page is added to docs navigation in docs/docs.json under the appropriate section (not experimental)",
+        "docs/runtimes/node.mdx is updated to cross-reference the process isolation page",
+        "Typecheck passes"
+      ],
+      "priority": 51,
+      "passes": false,
+      "notes": "Spec: docs-internal/specs/v8-process-isolation.md"
+    },
+    {
+      "id": "US-052",
+      "title": "Add ExternalReferences and snapshot creation/restore functions",
+      "description": "As a developer, I need the foundational Rust functions for V8 startup snapshots: a static ExternalReferences array for bridge callbacks, a function to create a snapshot from bridge code, and a function to restore an isolate from a snapshot blob.",
+      "acceptanceCriteria": [
+        "bridge.rs exports external_refs() returning &'static ExternalReferences via OnceLock, containing sync_bridge_callback and async_bridge_callback",
+        "New snapshot.rs with create_snapshot(bridge_code) that creates a snapshot_creator isolate, compiles and runs bridge code, calls set_default_context and create_blob(FunctionCodeHandling::Keep), returns StartupData",
+        "snapshot.rs has create_isolate_from_snapshot(blob, heap_limit_mb) that creates an isolate via CreateParams with snapshot_blob and external_references",
+        "create_snapshot rejects blobs larger than 50MB",
+        "Unit tests: snapshot creation returns non-empty StartupData, restored isolate can execute JS that accesses bridge-compiled globals, restored isolate respects heap_limit_mb",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 52,
+      "passes": false,
+      "notes": "Spec: docs-internal/specs/v8-startup-snapshot.md. ExternalReferences must be 'static (OnceLock). create_blob() consumes the isolate. Use v8::Isolate::snapshot_creator(Some(&EXTERNAL_REFS), None) not SnapshotCreator::new()."
+    },
+    {
+      "id": "US-053",
+      "title": "Add thread-safe SnapshotCache with LRU eviction",
+      "description": "As a developer, I need a thread-safe cache that stores snapshot blobs keyed by bridge code hash, with mutex-guarded get_or_create and LRU eviction.",
+      "acceptanceCriteria": [
+        "SnapshotCache struct in snapshot.rs with Mutex-guarded inner Vec of CacheEntry (bridge_hash u64, blob Arc<StartupData>)",
+        "get_or_create(bridge_code) locks mutex, hashes bridge code with SipHash (std DefaultHasher), returns cached Arc on hit, creates snapshot on miss",
+        "LRU eviction when cache exceeds max_entries (default 4): removes oldest entry",
+        "Arc<StartupData> is Send+Sync for safe sharing across session threads",
+        "Unit tests: cache hit returns same Arc, cache miss creates snapshot, LRU eviction removes oldest, concurrent get_or_create with same bridge code creates only one snapshot",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 53,
+      "passes": false,
+      "notes": "Spec: docs-internal/specs/v8-startup-snapshot.md. Mutex hold time during snapshot creation (~20ms) is acceptable — happens once per variant."
+    },
+    {
+      "id": "US-054",
+      "title": "Add WarmSnapshot IPC message type",
+      "description": "As a developer, I need a WarmSnapshot message type in the IPC protocol so the host can pre-warm the snapshot cache before any session is created.",
+      "acceptanceCriteria": [
+        "BinaryFrame::WarmSnapshot { bridge_code: String } variant added to Rust ipc_binary.rs with a new message type byte",
+        "Encode/decode implemented in Rust: wire format is [msg_type][u32 bridge_code_len][bridge_code bytes]",
+        "TypeScript ipc-binary.ts encodeFrame/decodeFrame handle WarmSnapshot message type",
+        "Round-trip tests verify Rust encode/decode and TypeScript encode/decode produce identical wire format",
+        "cargo test passes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 54,
+      "passes": false,
+      "notes": "Spec: docs-internal/specs/v8-startup-snapshot.md. Fire-and-forget message — no response from Rust side."
+    },
+    {
+      "id": "US-055",
+      "title": "Wire SnapshotCache into session thread and connection handler",
+      "description": "As a developer, I need the session thread to use snapshots for isolate creation, and the connection handler to process WarmSnapshot messages.",
+      "acceptanceCriteria": [
+        "SessionManager owns a SnapshotCache (Arc, shared with connection handler)",
+        "Session thread receives Arc<SnapshotCache> and uses get_or_create(bridge_code) on first Execute to create the isolate from snapshot",
+        "disable_wasm() is called on every restored isolate before any code execution",
+        "main.rs connection handler processes WarmSnapshot by calling snapshot_cache.get_or_create(bridge_code) — no response sent",
+        "Fallback: if snapshot creation fails, falls back to isolate::create_isolate() with a warning log",
+        "cargo test passes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 55,
+      "passes": false,
+      "notes": "Spec: docs-internal/specs/v8-startup-snapshot.md. Isolate creation moves from session startup to first Execute (deferred until bridge code is known)."
+    },
+    {
+      "id": "US-056",
+      "title": "Add eager snapshot warm-up on module load",
+      "description": "As a developer, I need the host to send a WarmSnapshot message with the default bridge code immediately after connecting to the Rust process, so the snapshot is ready before any session.",
+      "acceptanceCriteria": [
+        "New composeBridgeCodeForWarmup() function in execution-driver.ts produces the default (non-freeze, default budgets) bridge code",
+        "runtime.ts sends WarmSnapshot message with the default bridge code after authenticate(), before returning the V8Runtime handle",
+        "SECURE_EXEC_NO_SNAPSHOT_WARMUP=1 env var skips sending WarmSnapshot",
+        "First session Execute with matching bridge code is a cache hit (no snapshot creation latency)",
+        "Sessions with different bridge code (freeze mode, different budgets) still work via lazy snapshot creation",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 56,
+      "passes": false,
+      "notes": "Spec: docs-internal/specs/v8-startup-snapshot.md. composeBridgeCodeForWarmup uses timingMitigation='none' and default maxTimers/maxHandles/cwd/payloadLimit. Fire-and-forget — host does not wait for response."
+    },
+    {
+      "id": "US-057",
+      "title": "Add snapshot security and integration tests",
+      "description": "As a developer, I need integration tests proving snapshot security properties: WASM stays disabled, sessions are isolated, external references work, and warm-up eliminates cold-start.",
+      "acceptanceCriteria": [
+        "Test: WASM compilation throws after snapshot restore + disable_wasm()",
+        "Test: session A's snapshot does not leak state to session B (fresh context per session)",
+        "Test: FunctionTemplates registered on restored isolate correctly dispatch to Rust bridge callbacks (sync and async)",
+        "Test: WarmSnapshot followed by Execute with same bridge code is a cache hit",
+        "Test: SECURE_EXEC_NO_SNAPSHOT_WARMUP=1 skips warm-up; first Execute creates snapshot lazily",
+        "Test: different bridge code variants get separate snapshot entries",
+        "cargo test passes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 57,
+      "passes": false,
+      "notes": "Spec: docs-internal/specs/v8-startup-snapshot.md. Security tests verify hardening survives snapshot round-trip."
     }
   ]
 }
