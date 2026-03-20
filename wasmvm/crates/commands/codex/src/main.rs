@@ -1,22 +1,48 @@
 /// Codex CLI for secure-exec WasmVM.
 ///
-/// This is the WASI build skeleton for the OpenAI Codex agent. The full
-/// implementation depends on codex-exec from the rivet-dev/codex fork
-/// (wasi-support branch), which has cfg(target_os = "wasi") gates on
-/// platform-specific subsystems:
+/// Uses wasi-spawn for process spawning via host_process FFI, replacing
+/// tokio::process::Command which is unavailable on wasm32-wasip1.
 ///
-/// - portable-pty (codex-utils-pty)
-/// - codex-network-proxy
-/// - codex-linux-sandbox / codex-windows-sandbox
-/// - tokio process/signal/rt-multi-thread
+/// The full implementation depends on codex-exec from the rivet-dev/codex
+/// fork (wasi-support branch). When the vendoring blocker is resolved,
+/// codex-core will use WasiChild from wasi-spawn for:
+///   - spawn_child_async → wasi_spawn::spawn_child
+///   - consume_output → WasiChild::consume_output
+///   - process kill → WasiChild::kill
 ///
-/// Subsequent stories (US-100 through US-108) will progressively replace
-/// these gated subsystems with host_process WASI FFI implementations,
-/// enabling codex to spawn processes, manage PTYs, handle stdin/stdout,
-/// and make HTTP requests within the WASI sandbox.
+/// Currently demonstrates spawn capability as a validation tool.
 fn main() {
-    eprintln!("codex: WASI runtime support is under development");
-    eprintln!("  fork: github.com/rivet-dev/codex (branch: wasi-support)");
-    eprintln!("  see US-100..US-108 for implementation roadmap");
-    std::process::exit(1);
+    let args: Vec<String> = std::env::args().collect();
+
+    if args.len() < 2 {
+        eprintln!("codex: WASI runtime support is under development");
+        eprintln!("  fork: github.com/rivet-dev/codex (branch: wasi-support)");
+        eprintln!("  usage: codex <command> [args...]");
+        eprintln!("  spawns a child process via host_process FFI");
+        std::process::exit(1);
+    }
+
+    // Build argv for child: command + args
+    let child_argv: Vec<&str> = args[1..].iter().map(|s| s.as_str()).collect();
+
+    let mut child = match wasi_spawn::spawn_child(&child_argv, &[], "/") {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("codex: spawn failed: {}", e);
+            std::process::exit(127);
+        }
+    };
+
+    match child.consume_output() {
+        Ok(output) => {
+            use std::io::Write;
+            let _ = std::io::stdout().write_all(&output.stdout);
+            let _ = std::io::stderr().write_all(&output.stderr);
+            std::process::exit(output.exit_code);
+        }
+        Err(e) => {
+            eprintln!("codex: output error: {}", e);
+            std::process::exit(1);
+        }
+    }
 }

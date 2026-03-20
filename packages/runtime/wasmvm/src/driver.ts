@@ -101,6 +101,10 @@ export const WASMVM_COMMANDS: readonly string[] = [
   'mkfifo', 'mknod',
   'pinky', 'who', 'users', 'uptime',
   'stty',
+  // Codex CLI (host_process spawn via wasi-spawn)
+  'codex',
+  // Internal test: WasiChild host_process spawn validation
+  'spawn-test-host',
 ] as const;
 Object.freeze(WASMVM_COMMANDS);
 
@@ -121,6 +125,10 @@ export const DEFAULT_FIRST_PARTY_TIERS: Readonly<Record<string, PermissionTier>>
   'stdbuf': 'full',
   // Build tools — spawns child processes to run recipes
   'make': 'full',
+  // Codex CLI — spawns child processes via wasi-spawn
+  'codex': 'full',
+  // Internal test — exercises WasiChild host_process spawn
+  'spawn-test-host': 'full',
   // Version control — reads/writes .git objects, remote operations use network
   'git': 'full',
   'git-remote-http': 'full',

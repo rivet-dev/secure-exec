@@ -712,6 +712,9 @@ dependencies = [
 [[package]]
 name = "cmd-codex"
 version = "0.1.0"
+dependencies = [
+ "secureexec-wasi-spawn",
+]
 
 [[package]]
 name = "cmd-column"
@@ -1159,6 +1162,13 @@ name = "cmd-sort"
 version = "0.1.0"
 dependencies = [
  "uu_sort",
+]
+
+[[package]]
+name = "cmd-spawn-test-host"
+version = "0.1.0"
+dependencies = [
+ "secureexec-wasi-spawn",
 ]
 
 [[package]]
@@ -3711,6 +3721,13 @@ dependencies = [
 [[package]]
 name = "secureexec-tree"
 version = "0.1.0"
+
+[[package]]
+name = "secureexec-wasi-spawn"
+version = "0.1.0"
+dependencies = [
+ "wasi-ext",
+]
 
 [[package]]
 name = "secureexec-yq"
