@@ -410,6 +410,43 @@ fn async_bridge_callback(
     rv.set(promise.into());
 }
 
+/// Register stub bridge functions on the V8 global for snapshot creation.
+///
+/// Uses the same sync_bridge_callback / async_bridge_callback as real
+/// functions (required for ExternalReferences in snapshot serialization)
+/// but WITHOUT v8::External data. If a stub is accidentally called during
+/// snapshot creation, the callback gracefully throws a V8 exception
+/// (args.data() is not External -> "missing bridge function data" error).
+///
+/// After snapshot restore, these stubs are replaced with real functions
+/// that have proper External data pointing to a session-local BridgeCallContext.
+pub fn register_stub_bridge_fns(
+    scope: &mut v8::HandleScope,
+    sync_fns: &[&str],
+    async_fns: &[&str],
+) {
+    let context = scope.get_current_context();
+    let global = context.global(scope);
+
+    // Register sync bridge functions as stubs (no External data)
+    for &method_name in sync_fns {
+        let template = v8::FunctionTemplate::builder(sync_bridge_callback)
+            .build(scope);
+        let func = template.get_function(scope).unwrap();
+        let key = v8::String::new(scope, method_name).unwrap();
+        global.set(scope, key.into(), func.into());
+    }
+
+    // Register async bridge functions as stubs (no External data)
+    for &method_name in async_fns {
+        let template = v8::FunctionTemplate::builder(async_bridge_callback)
+            .build(scope);
+        let func = template.get_function(scope).unwrap();
+        let key = v8::String::new(scope, method_name).unwrap();
+        global.set(scope, key.into(), func.into());
+    }
+}
+
 /// Serialize V8 function arguments into a pre-allocated buffer.
 /// The buffer is cleared and reused across calls (grows to high-water mark).
 fn serialize_v8_args_into(scope: &mut v8::HandleScope, args: &v8::FunctionCallbackArguments, buf: &mut Vec<u8>) -> Result<(), String> {

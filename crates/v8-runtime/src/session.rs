@@ -515,8 +515,7 @@ fn session_thread(
 ///
 /// Sync functions block V8 while the host processes the call (applySync/applySyncPromise).
 /// Async functions return a Promise to V8, resolved when the host responds (apply).
-#[cfg(not(test))]
-const SYNC_BRIDGE_FNS: [&str; 31] = [
+pub(crate) const SYNC_BRIDGE_FNS: [&str; 31] = [
     // Console
     "_log",
     "_error",
@@ -555,8 +554,7 @@ const SYNC_BRIDGE_FNS: [&str; 31] = [
     "_childProcessSpawnSync",
 ];
 
-#[cfg(not(test))]
-const ASYNC_BRIDGE_FNS: [&str; 7] = [
+pub(crate) const ASYNC_BRIDGE_FNS: [&str; 7] = [
     // Module loading (async)
     "_dynamicImport",
     // Timer

@@ -111,7 +111,41 @@ pub struct BridgeCallContext {
     call_id_router: Option<CallIdRouter>,
 }
 
+/// No-op FrameSender for snapshot stub functions.
+/// Panics if called — stubs must never be invoked during snapshot creation.
+struct StubFrameSender;
+
+impl FrameSender for StubFrameSender {
+    fn send_frame(&self, _frame: &BinaryFrame) -> Result<(), String> {
+        panic!("stub bridge function called during snapshot creation — bridge IIFE must not call bridge functions at setup time")
+    }
+}
+
+/// No-op ResponseReceiver for snapshot stub functions.
+/// Panics if called — stubs must never be invoked during snapshot creation.
+struct StubResponseReceiver;
+
+impl ResponseReceiver for StubResponseReceiver {
+    fn recv_response(&self) -> Result<BinaryFrame, String> {
+        panic!("stub bridge function called during snapshot creation — bridge IIFE must not call bridge functions at setup time")
+    }
+}
+
 impl BridgeCallContext {
+    /// Create a no-op BridgeCallContext for snapshot stub functions.
+    /// Panics if sync_call or async_send is called — stubs exist only for
+    /// the bridge IIFE to reference (not call) during snapshot creation.
+    pub fn stub() -> Self {
+        BridgeCallContext {
+            sender: Box::new(StubFrameSender),
+            response_rx: Mutex::new(Box::new(StubResponseReceiver)),
+            session_id: "stub".into(),
+            next_call_id: AtomicU64::new(1),
+            pending_calls: Mutex::new(HashSet::new()),
+            call_id_router: None,
+        }
+    }
+
     /// Create a BridgeCallContext with a byte writer and reader (wraps in WriterFrameSender
     /// and ReaderResponseReceiver). Convenient for tests that pre-serialize BridgeResponse bytes.
     pub fn new(
@@ -636,5 +670,23 @@ mod tests {
         let bytes = rx.recv().expect("recv");
         let decoded = ipc_binary::read_frame(&mut Cursor::new(&bytes)).expect("decode");
         assert_eq!(decoded, small);
+    }
+
+    #[test]
+    fn stub_context_panics_on_sync_call() {
+        let ctx = BridgeCallContext::stub();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = ctx.sync_call("_fsReadFile", vec![]);
+        }));
+        assert!(result.is_err(), "stub sync_call should panic");
+    }
+
+    #[test]
+    fn stub_context_panics_on_async_send() {
+        let ctx = BridgeCallContext::stub();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = ctx.async_send("_asyncFn", vec![]);
+        }));
+        assert!(result.is_err(), "stub async_send should panic");
     }
 }

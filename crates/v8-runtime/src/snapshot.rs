@@ -470,5 +470,140 @@ mod tests {
                 "_testAsync should be a function on restored isolate"
             );
         }
+
+        // --- Part 13: Register stub bridge functions on V8 global ---
+        // Verifies that register_stub_bridge_fns places functions on the global
+        // and that they have the correct typeof without calling them.
+        {
+            use crate::bridge::register_stub_bridge_fns;
+
+            // Use a snapshot-based isolate (consistent with other parts)
+            let bridge_code = "/* stub test */";
+            let blob = create_snapshot(bridge_code).expect("snapshot creation");
+            let mut isolate = create_isolate_from_snapshot(blob, None);
+
+            let scope = &mut v8::HandleScope::new(&mut isolate);
+            let context = v8::Context::new(scope, Default::default());
+            let scope = &mut v8::ContextScope::new(scope, context);
+
+            register_stub_bridge_fns(
+                scope,
+                &["_log", "_error", "_fsReadFile", "_loadPolyfill"],
+                &["_scheduleTimer", "_dynamicImport"],
+            );
+
+            let check = v8::String::new(scope, r#"
+                (function() {
+                    var names = ['_log', '_error', '_fsReadFile', '_loadPolyfill',
+                                 '_scheduleTimer', '_dynamicImport'];
+                    for (var i = 0; i < names.length; i++) {
+                        if (typeof globalThis[names[i]] !== 'function') {
+                            return 'FAIL: ' + names[i] + ' is ' + typeof globalThis[names[i]];
+                        }
+                    }
+                    return 'OK';
+                })()
+            "#).unwrap();
+            let script = v8::Script::compile(scope, check, None).unwrap();
+            let result = script.run(scope).unwrap();
+            assert_eq!(
+                result.to_rust_string_lossy(scope),
+                "OK",
+                "all stub bridge functions should be registered as functions"
+            );
+        }
+
+        // --- Part 14: Bridge IIFE executes against stubs + snapshot creation ---
+        // Verifies that setup-time code can reference stub functions (typeof,
+        // closure wrapping, getter facade) without calling them, and that the
+        // resulting context can be snapshotted.
+        {
+            use crate::bridge::register_stub_bridge_fns;
+            use crate::session::{SYNC_BRIDGE_FNS, ASYNC_BRIDGE_FNS};
+
+            let mut snapshot_isolate = v8::Isolate::snapshot_creator(Some(external_refs()), None);
+            {
+                let scope = &mut v8::HandleScope::new(&mut snapshot_isolate);
+                let context = v8::Context::new(scope, Default::default());
+                let scope = &mut v8::ContextScope::new(scope, context);
+
+                // Register all 38 bridge functions as stubs (no External data)
+                register_stub_bridge_fns(
+                    scope,
+                    &SYNC_BRIDGE_FNS,
+                    &ASYNC_BRIDGE_FNS,
+                );
+
+                // Simulate bridge IIFE: reference all bridge functions, set up
+                // closures and getter facade, but never call any bridge function
+                let iife_code = r#"
+                    (function() {
+                        // Verify bridge functions exist (like ivm-compat shim)
+                        var syncKeys = ['_log', '_error', '_resolveModule', '_loadFile',
+                            '_cryptoRandomFill', '_fsReadFile', '_fsWriteFile',
+                            '_childProcessSpawnStart', '_childProcessSpawnSync'];
+                        var asyncKeys = ['_dynamicImport', '_scheduleTimer',
+                            '_networkFetchRaw', '_networkHttpServerListenRaw'];
+
+                        for (var i = 0; i < syncKeys.length; i++) {
+                            if (typeof globalThis[syncKeys[i]] !== 'function') {
+                                throw new Error('Missing sync: ' + syncKeys[i]);
+                            }
+                        }
+                        for (var i = 0; i < asyncKeys.length; i++) {
+                            if (typeof globalThis[asyncKeys[i]] !== 'function') {
+                                throw new Error('Missing async: ' + asyncKeys[i]);
+                            }
+                        }
+
+                        // Simulate getter-based fs facade (setup only, no calls)
+                        var _fs = {};
+                        Object.defineProperties(_fs, {
+                            readFile:  { get: function() { return globalThis._fsReadFile; },  enumerable: true },
+                            writeFile: { get: function() { return globalThis._fsWriteFile; }, enumerable: true },
+                        });
+                        globalThis._fs = _fs;
+
+                        // Verify getter returns function reference without calling it
+                        if (typeof _fs.readFile !== 'function') {
+                            throw new Error('Getter should return function, got ' + typeof _fs.readFile);
+                        }
+
+                        // Simulate closure wrapping (setup only, no calls)
+                        globalThis.__wrappedLog = function() {
+                            return globalThis._log.apply(null, arguments);
+                        };
+
+                        globalThis.__bridge_setup_complete = true;
+                    })();
+                "#;
+                let source = v8::String::new(scope, iife_code).unwrap();
+                let script = v8::Script::compile(scope, source, None).unwrap();
+                let result = script.run(scope);
+                assert!(
+                    result.is_some(),
+                    "bridge IIFE should execute without error against stub functions"
+                );
+
+                // Verify setup completed
+                let check = v8::String::new(scope, "String(globalThis.__bridge_setup_complete)").unwrap();
+                let script = v8::Script::compile(scope, check, None).unwrap();
+                let val = script.run(scope).unwrap();
+                assert_eq!(
+                    val.to_rust_string_lossy(scope),
+                    "true",
+                    "bridge setup should complete with stub functions"
+                );
+
+                scope.set_default_context(context);
+            }
+
+            let blob = snapshot_isolate.create_blob(v8::FunctionCodeHandling::Keep);
+            assert!(
+                blob.is_some(),
+                "snapshot creation should succeed with stub bridge functions"
+            );
+            assert!(blob.unwrap().len() > 0, "snapshot blob should be non-empty");
+        }
     }
 }
