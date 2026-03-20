@@ -1233,8 +1233,8 @@
         "Typecheck passes"
       ],
       "priority": 83,
-      "passes": false,
-      "notes": "PR review finding: No lint or format checks in Rust CI."
+      "passes": true,
+      "notes": "Added lint job to .github/workflows/rust.yml with clippy --all-targets -D warnings and cargo fmt --all --check. Fixed 18 clippy warnings: dead_code (cfg(test) guards, #[allow(dead_code)] for pub API), vec_box (intentional for pointer stability), map_or→is_some_and, thread_local const, too_many_arguments, format! iterator, approx_constant, len_zero, useless_vec. Lint job runs before build matrix (needs: lint)."
     },
     {
       "id": "US-084",
