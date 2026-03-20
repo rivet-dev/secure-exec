@@ -17,6 +17,8 @@ import type { ResolutionCache } from "@secure-exec/core";
 
 export interface NodeExecutionDriverOptions extends RuntimeDriverOptions {
 	createIsolate?(memoryLimit: number): unknown;
+	/** V8 runtime process override. If omitted, uses the global shared process. */
+	v8Runtime?: import("@secure-exec/v8").V8Runtime;
 }
 
 export interface BudgetState {

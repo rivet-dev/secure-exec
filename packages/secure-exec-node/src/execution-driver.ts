@@ -49,11 +49,13 @@ export class NodeExecutionDriver implements RuntimeDriver {
 	// V8 session state (lazy-initialized; runtime is shared across all drivers)
 	private v8Session: V8Session | null = null;
 	private v8InitPromise: Promise<void> | null = null;
+	private v8RuntimeOverride: V8Runtime | null;
 
 	// Cached bridge code (same across executions)
 	private bridgeCodeCache: string | null = null;
 
 	constructor(options: NodeExecutionDriverOptions) {
+		this.v8RuntimeOverride = options.v8Runtime ?? null;
 		this.memoryLimit = options.memoryLimit ?? 128;
 		const system = options.system;
 		const permissions = system.permissions;
@@ -159,8 +161,12 @@ export class NodeExecutionDriver implements RuntimeDriver {
 		return this.v8Session!;
 	}
 
+	private async getV8Runtime(): Promise<V8Runtime> {
+		return this.v8RuntimeOverride ?? getSharedV8Runtime();
+	}
+
 	private async initV8(): Promise<void> {
-		const runtime = await getSharedV8Runtime();
+		const runtime = await this.getV8Runtime();
 		this.v8Session = await runtime.createSession({
 			heapLimitMb: this.memoryLimit,
 			cpuTimeLimitMs: this.deps.cpuTimeLimitMs,
