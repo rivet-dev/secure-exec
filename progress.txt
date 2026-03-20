@@ -3668,3 +3668,28 @@ PRD: ralph/kernel-hardening (46 stories)
   - git add . collects files recursively, skipping .git/ — uses collect_files helper with PathList
   - Native binary is 266KB — will be well under 10MB WASM limit
 ---
+
+## 2026-03-20 - US-092
+- What was implemented: Comprehensive git local test suite verifying filesystem operations
+- Created packages/runtime/wasmvm/test/git.test.ts with 10 tests covering all acceptance criteria:
+  - git init creates .git/ with objects/, refs/, HEAD
+  - git init in existing repo is safe (reinitializes without data loss)
+  - git add file.txt stages file, git status shows new file
+  - git add . stages all files in directory
+  - git commit -m creates commit, git log shows it
+  - git commit with no staged changes fails with error
+  - git status with no changes shows clean working tree
+  - git diff shows unstaged changes with +/- lines
+  - git log --oneline shows abbreviated format
+  - multiple commits show in reverse chronological order
+- All tests use SimpleVFS, GIT_AUTHOR_NAME/EMAIL set via env
+- Tests guarded with skipIf for missing WASM/git binaries
+- Files changed:
+  - packages/runtime/wasmvm/test/git.test.ts — new file
+  - scripts/ralph/prd.json — US-092 passes: true
+- **Learnings for future iterations:**
+  - Git tests follow same pattern as make.test.ts — SimpleVFS, kernel.exec() with cd /work && git <cmd>
+  - Git binary lives in C_BUILD_DIR (wasmvm/c/build/) not just COMMANDS_DIR — test checks both dirs
+  - Git env vars (GIT_AUTHOR_NAME/EMAIL, GIT_COMMITTER_NAME/EMAIL) must be set to avoid interactive prompts
+  - kernel.exec() wraps in sh -c, so `cd /work && git init` works for setting cwd
+---
