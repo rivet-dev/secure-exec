@@ -539,3 +539,19 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - Pre-existing test-suite failure: CJS `module.exports` in `run()` returns undefined (1/6 failing in test-suite/node.test.ts)
   - Pre-existing runtime-driver/node failures: ~100/116 tests fail due to require/module being undefined
 ---
+
+## 2026-03-19 - US-067
+- Ran quick-bench.ts 5 iterations (2 runs each = 10 warm samples, 10 cold samples)
+- Saved results to `packages/secure-exec/benchmarks/results/context_snapshot_after.json`
+- Created `packages/secure-exec/benchmarks/results/context_snapshot_comparison.md` with before/after table
+- Results:
+  - Warm start (per-session cost): mean=2.7ms, p50=2.5ms (target was <6ms) — **80% improvement** from 13.75ms baseline
+  - Cold start (steady state): mean=22.0ms, p50=21.9ms — **54% improvement** from 48.2ms baseline
+  - Cold start (process cold): mean=66.2ms — **34% improvement** from 99.9ms baseline
+- All 28 typecheck tasks pass
+- Files created: `packages/secure-exec/benchmarks/results/context_snapshot_after.json`, `packages/secure-exec/benchmarks/results/context_snapshot_comparison.md`
+- **Learnings for future iterations:**
+  - Context snapshot eliminated ~11ms of bridge IIFE compilation+execution per session
+  - Cold steady-state improvement (48ms → 22ms) is a bonus — snapshot cache hit on second run avoids snapshot creation
+  - `timeout 60` wrapper still needed for quick-bench.ts due to V8 process cleanup hang (see US-085)
+---
