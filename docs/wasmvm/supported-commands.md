@@ -127,6 +127,7 @@
 | arch | — | done | `uu_arch` | — |
 | date | yes | done | `uu_date` | — |
 | env | yes | shim | `shims::env` | — |
+| envsubst | — | done | C program (`getenv`, stdin filter, US-078) | — |
 | export | yes | shell | shell builtin | Rust shell |
 | hostname | yes | stub | returns "wasm-host" | — (adequate) |
 | hostid | — | stub | returns "00000000" | — (adequate) |
@@ -244,7 +245,7 @@
 | Checksums & Encoding | 12 | 0 | 0 | 0 | 0 | 0 | 0 |
 | Navigation & Path | 4 | 0 | 0 | 0 | 0 | 1 | 0 |
 | Disk & Filesystem | 1 | 0 | 0 | 0 | 1 | 0 | 0 |
-| System & Environment | 9 | 0 | 0 | 0 | 2 | 1 | 0 |
+| System & Environment | 10 | 0 | 0 | 0 | 2 | 1 | 0 |
 | Process & Execution | 9 | 2 | 0 | 0 | 0 | 0 | 0 |
 | Search | 0 | 0 | 1 | 0 | 0 | 0 | 0 |
 | Formatting | 1 | 0 | 0 | 0 | 0 | 0 | 0 |
@@ -252,7 +253,7 @@
 | Shell Builtins | 0 | 0 | 0 | 0 | 0 | 11 | 0 |
 | Data Processing | 2 | 0 | 0 | 2 | 0 | 0 | 2 |
 | Network | 0 | 0 | 0 | 2 | 0 | 0 | 0 |
-| **Total** | **98** | **1** | **1** | **4** | **4** | **13** | **2** |
+| **Total** | **99** | **1** | **1** | **4** | **4** | **13** | **2** |
 
 ---
 

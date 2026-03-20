@@ -64,7 +64,7 @@ export const WASMVM_COMMANDS: readonly string[] = [
   // Compression & Archiving
   'gzip', 'gunzip', 'zcat', 'tar', 'zip', 'unzip',
   // Shim commands
-  'env', 'nice', 'nohup', 'stdbuf', 'timeout', 'xargs',
+  'env', 'envsubst', 'nice', 'nohup', 'stdbuf', 'timeout', 'xargs',
   // uutils: text/encoding
   'base32', 'base64', 'basenc', 'basename', 'comm', 'cut',
   'dircolors', 'dirname', 'echo', 'expand', 'factor', 'false',
@@ -149,6 +149,7 @@ export const DEFAULT_FIRST_PARTY_TIERS: Readonly<Record<string, PermissionTier>>
   'readlink': 'read-only',
   'pwd': 'read-only',
   'echo': 'read-only',
+  'envsubst': 'read-only',
   'printf': 'read-only',
   'true': 'read-only',
   'false': 'read-only',
