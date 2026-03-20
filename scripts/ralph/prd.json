@@ -1,7 +1,7 @@
 {
   "project": "secure-exec",
   "branchName": "ralph/cli-tool-sandbox-tests",
-  "description": "Fix E2E Docker fixtures and CLI tool tests — Run Docker fixtures against real containers and fix net bridge issues until parity passes. Rewrite all 6 cli-tools tests to run through the sandbox instead of bypassing it on the host.",
+  "description": "Fix E2E Docker fixtures, verify each coding agent works end-to-end inside secure-exec (SDK \u2192 headless \u2192 TTY), verify agent tool use through the sandbox, and test real-world agentic workflows (multi-turn, npm install, dev servers).",
   "userStories": [
     {
       "id": "US-001",
@@ -11,10 +11,10 @@
         "Start a real Postgres container (postgres:16-alpine) with testuser/testpass/testdb",
         "Run the pg-connect fixture inside the sandbox via createTestNodeRuntime + proc.exec()",
         "Fix any net bridge issues (net.Socket, net.connect, etc.) that prevent the pg library from connecting",
-        "Fixture creates table, inserts, queries, drops — all through the sandbox's network bridge to real Postgres",
+        "Fixture creates table, inserts, queries, drops \u2014 all through the sandbox's network bridge to real Postgres",
         "Update fixture.json expectation from 'fail' to 'pass' once parity is achieved",
         "Host Node.js and sandbox produce identical normalized stdout/stderr/exit code",
-        "No mocking of Postgres — must use a real Docker container",
+        "No mocking of Postgres \u2014 must use a real Docker container",
         "Typecheck passes",
         "Tests pass"
       ],
@@ -30,10 +30,10 @@
         "Start a real MySQL container (mysql:8.0) with testuser/testpass/testdb",
         "Run the mysql2-connect fixture inside the sandbox via createTestNodeRuntime + proc.exec()",
         "Fix any net bridge issues that prevent mysql2 from connecting",
-        "Fixture creates table, inserts, queries, drops — all through the sandbox to real MySQL",
+        "Fixture creates table, inserts, queries, drops \u2014 all through the sandbox to real MySQL",
         "Update fixture.json expectation from 'fail' to 'pass' once parity is achieved",
         "Host Node.js and sandbox produce identical normalized stdout/stderr/exit code",
-        "No mocking of MySQL — must use a real Docker container",
+        "No mocking of MySQL \u2014 must use a real Docker container",
         "Typecheck passes",
         "Tests pass"
       ],
@@ -49,10 +49,10 @@
         "Start a real Redis container (redis:7-alpine)",
         "Run the ioredis-connect fixture inside the sandbox via createTestNodeRuntime + proc.exec()",
         "Fix any net bridge issues that prevent ioredis from connecting",
-        "Fixture does set/get, pipeline operations, cleanup — all through the sandbox to real Redis",
+        "Fixture does set/get, pipeline operations, cleanup \u2014 all through the sandbox to real Redis",
         "Update fixture.json expectation from 'fail' to 'pass' once parity is achieved",
         "Host Node.js and sandbox produce identical normalized stdout/stderr/exit code",
-        "No mocking of Redis — must use a real Docker container",
+        "No mocking of Redis \u2014 must use a real Docker container",
         "Typecheck passes",
         "Tests pass"
       ],
@@ -68,10 +68,10 @@
         "Start a real SSH container (custom Alpine sshd image) with testuser/testpass",
         "Run the ssh2-connect fixture inside the sandbox via createTestNodeRuntime + proc.exec()",
         "Fix any net bridge issues that prevent ssh2 from connecting",
-        "Fixture connects via SSH, executes remote command, captures stdout/stderr — all through the sandbox",
+        "Fixture connects via SSH, executes remote command, captures stdout/stderr \u2014 all through the sandbox",
         "Update fixture.json expectation from 'fail' to 'pass' once parity is achieved",
         "Host Node.js and sandbox produce identical normalized stdout/stderr/exit code",
-        "No mocking of SSH — must use a real Docker container",
+        "No mocking of SSH \u2014 must use a real Docker container",
         "Typecheck passes",
         "Tests pass"
       ],
@@ -87,10 +87,10 @@
         "Start a real SSH container (custom Alpine sshd image) with testuser/testpass",
         "Run the ssh2-sftp-transfer fixture inside the sandbox via createTestNodeRuntime + proc.exec()",
         "Fix any issues that prevent SFTP write/read/stat/unlink from working through the sandbox",
-        "Fixture writes file, reads it back, stats it, unlinks it — all through the sandbox to real SFTP",
+        "Fixture writes file, reads it back, stats it, unlinks it \u2014 all through the sandbox to real SFTP",
         "Update fixture.json expectation from 'fail' to 'pass' once parity is achieved",
         "Host Node.js and sandbox produce identical normalized stdout/stderr/exit code",
-        "No mocking of SFTP — must use a real Docker container",
+        "No mocking of SFTP \u2014 must use a real Docker container",
         "Typecheck passes",
         "Tests pass"
       ],
@@ -146,7 +146,7 @@
         "Stdout/stderr from the binary flow back through the bridge to sandbox code",
         "Exit code propagation is tested through the bridge",
         "SIGINT delivery to the spawned binary goes through the bridge's signal forwarding",
-        "Remove Strategy B (SDK client) — test the real binary only, not the SDK",
+        "Remove Strategy B (SDK client) \u2014 test the real binary only, not the SDK",
         "No direct use of node:child_process.spawn from the test harness to run opencode",
         "Tests skip with clear reason if opencode binary is not on PATH",
         "Typecheck passes",
@@ -154,7 +154,7 @@
       ],
       "priority": 8,
       "passes": true,
-      "notes": "Rewritten: sandbox JS code calls child_process.spawn('opencode', ...) through the bridge. Removed Strategy B (SDK client). All 9 test scenarios preserved: boot, output (canary), text format, JSON format, env forwarding, file read, file write, SIGINT via bridge kill(), error handling. process.exit() must be at top-level await, not inside bridge callbacks (causes unhandled ProcessExitError). Bridge process.stdout.write strips trailing newlines — use newline-join in capture for NDJSON parsing."
+      "notes": "Rewritten: sandbox JS code calls child_process.spawn('opencode', ...) through the bridge. Removed Strategy B (SDK client). All 9 test scenarios preserved: boot, output (canary), text format, JSON format, env forwarding, file read, file write, SIGINT via bridge kill(), error handling. process.exit() must be at top-level await, not inside bridge callbacks (causes unhandled ProcessExitError). Bridge process.stdout.write strips trailing newlines \u2014 use newline-join in capture for NDJSON parsing."
     },
     {
       "id": "US-009",
@@ -172,7 +172,7 @@
       ],
       "priority": 9,
       "passes": true,
-      "notes": "Rewritten: replaced PtyHarness (host script -qefc) with kernel.openShell() + TerminalHarness. Uses overlay VFS (InMemoryFileSystem for populateBin, host FS fallback for module resolution). HostBinaryDriver (inline RuntimeDriver) handles 'opencode' and 'script' commands through the kernel. Probes detect: (1) openShell + node works, (2) child_process bridge spawns opencode through kernel, (3) streaming stdin from PTY. Currently skips on probe 3: NodeRuntimeDriver batches stdin for exec() instead of streaming — interactive PTY requires process.stdin events from PTY. All 5 test scenarios preserved and ready for when streaming stdin bridge is implemented."
+      "notes": "Rewritten: replaced PtyHarness (host script -qefc) with kernel.openShell() + TerminalHarness. Uses overlay VFS (InMemoryFileSystem for populateBin, host FS fallback for module resolution). HostBinaryDriver (inline RuntimeDriver) handles 'opencode' and 'script' commands through the kernel. Probes detect: (1) openShell + node works, (2) child_process bridge spawns opencode through kernel, (3) streaming stdin from PTY. Currently skips on probe 3: NodeRuntimeDriver batches stdin for exec() instead of streaming \u2014 interactive PTY requires process.stdin events from PTY. All 5 test scenarios preserved and ready for when streaming stdin bridge is implemented."
     },
     {
       "id": "US-010",
@@ -190,7 +190,7 @@
       ],
       "priority": 10,
       "passes": true,
-      "notes": "Rewritten: sandbox JS code calls child_process.spawn('claude', ...) through the bridge. All 10 test scenarios preserved: boot, text output (canary), JSON output, stream-json NDJSON, file read (Read tool), file write (Write tool), bash tool, SIGINT via bridge kill(), bad API key exit code, good prompt exit 0. Claude natively supports ANTHROPIC_BASE_URL — no fetch interceptor needed. stream-json requires --verbose flag."
+      "notes": "Rewritten: sandbox JS code calls child_process.spawn('claude', ...) through the bridge. All 10 test scenarios preserved: boot, text output (canary), JSON output, stream-json NDJSON, file read (Read tool), file write (Write tool), bash tool, SIGINT via bridge kill(), bad API key exit code, good prompt exit 0. Claude natively supports ANTHROPIC_BASE_URL \u2014 no fetch interceptor needed. stream-json requires --verbose flag."
     },
     {
       "id": "US-011",
@@ -208,7 +208,7 @@
       ],
       "priority": 11,
       "passes": true,
-      "notes": "Rewritten: replaced PtyHarness (host script -qefc) with kernel.openShell() + TerminalHarness. Uses overlay VFS (InMemoryFileSystem for populateBin, host FS fallback for module resolution). HostBinaryDriver (inline RuntimeDriver) handles 'claude' and 'script' commands through the kernel. Probes detect: (1) openShell + node works, (2) child_process bridge spawns claude through kernel, (3) streaming stdin from PTY. Currently skips on probe 3: NodeRuntimeDriver batches stdin for exec() instead of streaming — interactive PTY requires process.stdin events from PTY. All 6 test scenarios preserved and ready for when streaming stdin bridge is implemented."
+      "notes": "Rewritten: replaced PtyHarness (host script -qefc) with kernel.openShell() + TerminalHarness. Uses overlay VFS (InMemoryFileSystem for populateBin, host FS fallback for module resolution). HostBinaryDriver (inline RuntimeDriver) handles 'claude' and 'script' commands through the kernel. Probes detect: (1) openShell + node works, (2) child_process bridge spawns claude through kernel, (3) streaming stdin from PTY. Currently skips on probe 3: NodeRuntimeDriver batches stdin for exec() instead of streaming \u2014 interactive PTY requires process.stdin events from PTY. All 6 test scenarios preserved and ready for when streaming stdin bridge is implemented."
     },
     {
       "id": "US-012",
@@ -217,7 +217,7 @@
       "acceptanceCriteria": [
         "Update docs-internal/specs/cli-tool-e2e.md to document: Pi is pure JS and runs inside the VM; Claude Code and OpenCode are native binaries that must be spawned via the child_process bridge",
         "Remove or update the 'Binary-as-child-process mode' section to clarify this applies to Claude Code too, not just OpenCode",
-        "Document that OpenCode ships as a compiled Bun ELF binary with no JS source — it cannot be loaded in the VM",
+        "Document that OpenCode ships as a compiled Bun ELF binary with no JS source \u2014 it cannot be loaded in the VM",
         "Document that Claude Code's SDK always spawns cli.js as a subprocess and has native .node dependencies",
         "Remove the OpenCode SDK Strategy B from the spec (per user direction: test the real binary, not the SDK)",
         "Update the 'Two sandbox strategies' section to accurately reflect: in-VM (Pi only) and bridge-spawn (Claude Code, OpenCode)",
@@ -250,7 +250,7 @@
       "description": "As a developer, I need an example showing how to implement a VirtualFileSystem backed by SQLite so I can store sandbox files in a database.",
       "acceptanceCriteria": [
         "SQLiteFileSystem class implements full VirtualFileSystem interface",
-        "Uses sql.js (WASM) — no native compilation required",
+        "Uses sql.js (WASM) \u2014 no native compilation required",
         "Supports symlinks, hard links, chmod, utimes, truncate",
         "Supports snapshot/restore via export()/create(bytes)",
         "Example creates NodeRuntime with SQLite filesystem, writes/reads files from sandbox, verifies via VFS API",
@@ -260,7 +260,7 @@
       ],
       "priority": 14,
       "passes": true,
-      "notes": "Completed. Example at examples/virtual-file-system-sqlite/. Uses sql.js (WASM SQLite). All entries stored in single 'entries' table. Tested e2e — no external services needed."
+      "notes": "Completed. Example at examples/virtual-file-system-sqlite/. Uses sql.js (WASM SQLite). All entries stored in single 'entries' table. Tested e2e \u2014 no external services needed."
     },
     {
       "id": "US-015",
@@ -340,7 +340,7 @@
       ],
       "priority": 19,
       "passes": true,
-      "notes": "Completed. ssh2-auth-fail connects with wrong password, verifies error level and message match host. ssh2-connect-refused connects to non-listening port 1, verifies ECONNREFUSED error message matches host. Both fixtures have expectation pass. Note: bridge _onError does not propagate err.code/err.errno (only message) — a future bridge improvement."
+      "notes": "Completed. ssh2-auth-fail connects with wrong password, verifies error level and message match host. ssh2-connect-refused connects to non-listening port 1, verifies ECONNREFUSED error message matches host. Both fixtures have expectation pass. Note: bridge _onError does not propagate err.code/err.errno (only message) \u2014 a future bridge improvement."
     },
     {
       "id": "US-020",
@@ -419,10 +419,10 @@
       "description": "As a developer, I need a Postgres fixture that tests error handling so we validate the sandbox propagates Postgres errors correctly.",
       "acceptanceCriteria": [
         "New fixture pg-errors in tests/e2e-docker/ that tests multiple error scenarios",
-        "Test 1: syntax error (bad SQL) — verify error message and code match host",
-        "Test 2: query nonexistent table — verify ENOENT-style error matches host",
-        "Test 3: unique constraint violation (INSERT duplicate) — verify error matches host",
-        "Test 4: connection to wrong port — verify connection error matches host",
+        "Test 1: syntax error (bad SQL) \u2014 verify error message and code match host",
+        "Test 2: query nonexistent table \u2014 verify ENOENT-style error matches host",
+        "Test 3: unique constraint violation (INSERT duplicate) \u2014 verify error matches host",
+        "Test 4: connection to wrong port \u2014 verify connection error matches host",
         "All errors are caught and their properties (message, code, detail) are printed as JSON for parity comparison",
         "fixture.json expectation is 'pass'",
         "Host and sandbox produce identical normalized output",
@@ -457,7 +457,7 @@
       "description": "As a developer, I need local and CI Postgres containers to use the same authentication method so we don't silently test different code paths.",
       "acceptanceCriteria": [
         "Remove POSTGRES_HOST_AUTH_METHOD: trust from local Docker setup in e2e-docker.test.ts",
-        "Or add the same trust setting to CI — both environments must match",
+        "Or add the same trust setting to CI \u2014 both environments must match",
         "If removing trust: verify SCRAM-SHA-256 auth works through the sandbox locally",
         "If keeping trust: document why and add a separate fixture that tests SCRAM auth explicitly",
         "Tests pass both locally and in CI",
@@ -490,9 +490,9 @@
       "description": "As a developer, I need tests that verify the sandbox correctly handles TLS error cases like expired certs, hostname mismatches, and self-signed certs with rejectUnauthorized:true.",
       "acceptanceCriteria": [
         "New test cases in tests/runtime-driver/node/ that test HTTPS error scenarios through the sandbox",
-        "Test 1: fetch() to HTTPS server with expired cert — verify error matches host",
-        "Test 2: fetch() to HTTPS server with hostname mismatch — verify error matches host",
-        "Test 3: fetch() with rejectUnauthorized:true to self-signed cert — verify rejection matches host",
+        "Test 1: fetch() to HTTPS server with expired cert \u2014 verify error matches host",
+        "Test 2: fetch() to HTTPS server with hostname mismatch \u2014 verify error matches host",
+        "Test 3: fetch() with rejectUnauthorized:true to self-signed cert \u2014 verify rejection matches host",
         "All errors caught and compared for parity with host Node.js behavior",
         "Typecheck passes",
         "Tests pass"
@@ -500,6 +500,294 @@
       "priority": 28,
       "passes": true,
       "notes": "Completed. Three TLS error scenarios tested with parity: expired cert (CERT_HAS_EXPIRED), hostname mismatch (ERR_TLS_CERT_ALTNAME_MISMATCH), self-signed cert with rejectUnauthorized:true (SELF_SIGNED_CERT_IN_CHAIN). Each test generates certs via openssl, starts HTTPS servers, and compares host vs sandbox error messages. TLS errors propagate correctly through the httpRequest bridge."
+    },
+    {
+      "id": "US-029",
+      "title": "Verify Pi works via createAgentSession() SDK inside the sandbox",
+      "description": "As a developer, I need to verify that Pi's programmatic SDK (createAgentSession) works end-to-end when loaded and executed inside the secure-exec sandbox VM.",
+      "acceptanceCriteria": [
+        "Test creates a NodeRuntime with network bridge enabled",
+        "Pi's createAgentSession() from @mariozechner/pi-coding-agent is called inside the sandbox VM",
+        "Mock LLM server runs on host; sandbox reaches it via ANTHROPIC_BASE_URL through network bridge",
+        "Session boots, sends a prompt, receives a response, and completes without error",
+        "Pi's built-in tools (bash, read, write) work through the sandbox's child_process and fs bridges",
+        "Verify file write tool creates a file readable via the sandbox's fs bridge",
+        "Verify bash tool executes a command via the sandbox's child_process bridge",
+        "Skip with clear reason if @mariozechner/pi-coding-agent is not installed",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 29,
+      "passes": false,
+      "notes": "Pi is pure JS with createAgentSession() API. This is the SDK-level verification \u2014 prove the programmatic API works inside the sandbox before testing binary/TTY modes. The existing pi-headless.test.ts has partial work toward this but still spawns host processes."
+    },
+    {
+      "id": "US-030",
+      "title": "Verify Pi headless binary mode inside the sandbox",
+      "description": "As a developer, I need to verify that Pi's CLI binary (node dist/cli.js -p '...') works when spawned via the sandbox's child_process bridge in headless mode.",
+      "acceptanceCriteria": [
+        "Test creates a NodeRuntime and runs JS that calls child_process.spawn('node', ['path/to/pi/dist/cli.js', '-p', '...'])",
+        "The child_process bridge spawns the real Pi CLI on the host",
+        "Mock LLM server runs on host; Pi reaches it via ANTHROPIC_BASE_URL env var forwarded through the bridge",
+        "Pi boots, processes the prompt, produces text output on stdout, and exits with code 0",
+        "Stdout from the binary flows back through the bridge correctly",
+        "Exit code propagation works through the bridge",
+        "Skip if @mariozechner/pi-coding-agent is not installed",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 30,
+      "passes": false,
+      "notes": "This tests the child_process bridge path for Pi's CLI. Different from US-006 which runs Pi's JS directly in the VM. Here we verify the binary execution path works."
+    },
+    {
+      "id": "US-031",
+      "title": "Verify Pi full TTY mode inside the sandbox",
+      "description": "As a developer, I need to verify that Pi's interactive TUI works when launched through kernel.openShell() with a PTY.",
+      "acceptanceCriteria": [
+        "Pi is launched inside the sandbox PTY via kernel.openShell()",
+        "Connect @xterm/headless to the sandbox's terminal output",
+        "Pi's TUI renders correctly \u2014 prompt area visible, input works",
+        "Text input appears in the prompt area",
+        "Submitting a prompt produces output from the mock LLM",
+        "Ctrl+C interrupts the current operation",
+        "Skip if @mariozechner/pi-coding-agent is not installed or kernel PTY is not ready",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 31,
+      "passes": false,
+      "notes": "This is the full interactive verification. Depends on kernel.openShell() and isTTY bridge working. If the PTY infrastructure isn't ready, this should skip with a clear reason."
+    },
+    {
+      "id": "US-032",
+      "title": "Verify Claude Code works via @anthropic-ai/claude-code SDK inside the sandbox",
+      "description": "As a developer, I need to verify that the Claude Code SDK works when its ProcessTransport spawns cli.js through the sandbox's child_process bridge.",
+      "acceptanceCriteria": [
+        "Test creates a NodeRuntime and runs JS that imports @anthropic-ai/claude-code SDK",
+        "SDK's ProcessTransport spawns claude cli.js via the sandbox's child_process bridge",
+        "Mock LLM server runs on host; Claude Code reaches it via ANTHROPIC_BASE_URL forwarded through the bridge",
+        "SDK sends a prompt and receives a text response",
+        "Verify the SDK can handle streaming responses through the bridge",
+        "Skip if @anthropic-ai/claude-code or claude binary is not available",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 32,
+      "passes": false,
+      "notes": "Claude Code SDK always spawns cli.js as a subprocess via ProcessTransport. The SDK itself runs as JS in the VM, but the underlying binary is spawned through the child_process bridge. This verifies the full SDK\u2192bridge\u2192binary pipeline."
+    },
+    {
+      "id": "US-033",
+      "title": "Verify Claude Code headless binary mode inside the sandbox",
+      "description": "As a developer, I need to verify that the claude binary works in headless -p mode when spawned via the sandbox's child_process bridge.",
+      "acceptanceCriteria": [
+        "Test creates a NodeRuntime and runs JS that calls child_process.spawn('claude', ['-p', '...', '--output-format', 'text'])",
+        "The child_process bridge spawns the real claude binary on the host",
+        "Mock LLM server runs on host; Claude Code reaches it via ANTHROPIC_BASE_URL",
+        "Claude boots, processes the prompt, produces text output on stdout, exits with code 0",
+        "Test also verifies JSON output format (--output-format json)",
+        "Test also verifies stream-json output format (--output-format stream-json)",
+        "Exit code propagation works through the bridge",
+        "Skip if claude binary is not on PATH",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 33,
+      "passes": false,
+      "notes": "This tests the raw binary spawn path without the SDK layer. Verifies stdio piping, env forwarding, and exit code propagation through the child_process bridge for Claude Code specifically."
+    },
+    {
+      "id": "US-034",
+      "title": "Verify Claude Code full TTY mode inside the sandbox",
+      "description": "As a developer, I need to verify that Claude Code's interactive TUI (Ink-based) works when launched through kernel.openShell() with a PTY.",
+      "acceptanceCriteria": [
+        "Claude is launched inside the sandbox PTY via kernel.openShell()",
+        "Connect @xterm/headless to the sandbox's terminal output",
+        "Claude's TUI renders correctly \u2014 Ink UI visible, input area works",
+        "Text input appears in the prompt area",
+        "Submitting a prompt produces output from the mock LLM",
+        "Ctrl+C interrupts the current operation",
+        "/exit or Ctrl+D exits the session cleanly",
+        "Skip if claude binary is not on PATH or kernel PTY is not ready",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 34,
+      "passes": false,
+      "notes": "Claude Code uses Ink for its TUI rendering. This is the hardest verification \u2014 requires PTY, isTTY, signal delivery, and Ink's terminal management all working through the sandbox."
+    },
+    {
+      "id": "US-035",
+      "title": "Verify OpenCode headless binary mode inside the sandbox",
+      "description": "As a developer, I need to verify that the opencode binary works in headless 'run' mode when spawned via the sandbox's child_process bridge.",
+      "acceptanceCriteria": [
+        "Test creates a NodeRuntime and runs JS that calls child_process.spawn('opencode', ['run', '...'])",
+        "The child_process bridge spawns the real opencode binary on the host",
+        "Mock LLM server runs on host; OpenCode reaches it via configured env vars",
+        "OpenCode boots, processes the prompt, produces output on stdout, exits cleanly",
+        "Stdout/stderr flow back through the bridge correctly",
+        "Exit code propagation works through the bridge",
+        "SIGINT delivery to the spawned binary works through the bridge",
+        "Skip if opencode binary is not on PATH",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 35,
+      "passes": false,
+      "notes": "OpenCode is a compiled Bun binary (ELF) \u2014 no SDK, no JS source. The only way to run it is via child_process.spawn through the bridge. This is the headless verification."
+    },
+    {
+      "id": "US-036",
+      "title": "Verify OpenCode full TTY mode inside the sandbox",
+      "description": "As a developer, I need to verify that OpenCode's interactive TUI works when launched through kernel.openShell() with a PTY.",
+      "acceptanceCriteria": [
+        "OpenCode is launched inside the sandbox PTY via kernel.openShell()",
+        "Connect @xterm/headless to the sandbox's terminal output",
+        "OpenCode's TUI renders correctly \u2014 UI visible, input area works",
+        "Text input appears in the input area",
+        "Submitting a prompt produces output from the mock LLM",
+        "Ctrl+C interrupts the current operation",
+        "Skip if opencode binary is not on PATH or kernel PTY is not ready",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 36,
+      "passes": false,
+      "notes": "OpenCode is a native binary. This tests the full PTY path through kernel.openShell() for a non-Node binary."
+    },
+    {
+      "id": "US-037",
+      "title": "Verify agent tool use round-trips through the sandbox for Pi",
+      "description": "As a developer, I need to verify that Pi's tools (file read, file write, bash exec) work correctly through the sandbox bridges during a real multi-tool conversation.",
+      "acceptanceCriteria": [
+        "Test runs Pi via createAgentSession() inside the sandbox with mock LLM configured to request tool calls",
+        "Mock LLM requests a file_write tool call \u2014 verify the file is created in the sandbox's VFS",
+        "Mock LLM requests a file_read tool call \u2014 verify the file content is returned correctly through the fs bridge",
+        "Mock LLM requests a bash tool call (e.g. 'echo hello') \u2014 verify stdout is captured through the child_process bridge",
+        "Mock LLM requests a bash tool call that fails (e.g. 'exit 1') \u2014 verify the error/exit code propagates back",
+        "Tool results are sent back to the mock LLM correctly for the next turn",
+        "Skip if @mariozechner/pi-coding-agent is not installed",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 37,
+      "passes": false,
+      "notes": "This specifically tests tool execution round-trips, not just prompt\u2192response. The mock LLM must be configured to return tool_use responses that trigger Pi's built-in tools."
+    },
+    {
+      "id": "US-038",
+      "title": "Verify agent tool use round-trips through the sandbox for Claude Code",
+      "description": "As a developer, I need to verify that Claude Code's tools (file read, file write, bash exec) work correctly through the sandbox's child_process bridge during a real conversation.",
+      "acceptanceCriteria": [
+        "Test spawns claude via child_process bridge in headless -p mode with mock LLM",
+        "Mock LLM requests a write_to_file tool call \u2014 verify the file is created on the host (via the bridge)",
+        "Mock LLM requests a read_file tool call \u2014 verify the file content is returned correctly",
+        "Mock LLM requests a bash tool call \u2014 verify the command executes and stdout is captured",
+        "Mock LLM requests a bash tool call that fails \u2014 verify the error propagates back correctly",
+        "Claude completes the conversation and exits cleanly after tool use",
+        "Skip if claude binary is not on PATH",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 38,
+      "passes": false,
+      "notes": "Claude Code's tools execute as subprocesses of the claude process, which is itself spawned through the child_process bridge. This is a nested process scenario. The mock LLM must return tool_use blocks."
+    },
+    {
+      "id": "US-039",
+      "title": "Verify multi-turn agentic loop works through the sandbox for Pi",
+      "description": "As a developer, I need to verify that a multi-turn conversation with Pi works inside the sandbox \u2014 the agent reads a file, modifies it, runs a test, and fixes an error across multiple turns.",
+      "acceptanceCriteria": [
+        "Test runs Pi via createAgentSession() inside the sandbox with mock LLM",
+        "Set up a simple JS project in the sandbox VFS (package.json + index.js + index.test.js with a failing test)",
+        "Turn 1: Mock LLM tells Pi to read the test file \u2014 Pi reads it via file_read tool through fs bridge",
+        "Turn 2: Mock LLM tells Pi to read the source file \u2014 Pi reads it",
+        "Turn 3: Mock LLM tells Pi to write a fixed version \u2014 Pi writes via file_write tool through fs bridge",
+        "Turn 4: Mock LLM tells Pi to run the test \u2014 Pi runs 'node index.test.js' via bash tool through child_process bridge",
+        "Verify the test output shows success",
+        "All 4 turns complete without error, state persists across turns within the same session",
+        "Skip if @mariozechner/pi-coding-agent is not installed",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 39,
+      "passes": false,
+      "notes": "This tests the full agentic loop: read \u2192 understand \u2192 modify \u2192 verify. Each turn uses different bridges (fs, child_process) and state must persist across turns. The mock LLM drives the conversation with pre-scripted responses."
+    },
+    {
+      "id": "US-040",
+      "title": "Verify npm install works inside the sandbox via child_process bridge",
+      "description": "As a developer, I need to verify that npm install works when executed through the sandbox's child_process bridge, since coding agents frequently install packages.",
+      "acceptanceCriteria": [
+        "Test creates a NodeRuntime with child_process and network bridges enabled",
+        "Write a package.json with a small dependency (e.g. 'is-odd') to the sandbox VFS",
+        "Execute 'npm install' via child_process.spawn through the bridge",
+        "npm downloads the package from the real npm registry through the network bridge",
+        "node_modules directory is created with the installed package",
+        "Verify the installed package can be require()'d in a subsequent exec() call",
+        "Exit code is 0",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 40,
+      "passes": false,
+      "notes": "npm install exercises child_process bridge (spawns npm), network bridge (downloads from registry), and filesystem (writes node_modules). This is one of the most common agent operations and a major integration test."
+    },
+    {
+      "id": "US-041",
+      "title": "Verify npx works inside the sandbox via child_process bridge",
+      "description": "As a developer, I need to verify that npx can download and execute a package through the sandbox, since agents use npx for one-off tool execution.",
+      "acceptanceCriteria": [
+        "Test creates a NodeRuntime with child_process and network bridges enabled",
+        "Execute 'npx cowsay hello' or similar lightweight npx command via child_process.spawn through the bridge",
+        "npx downloads the package, executes it, and produces output on stdout",
+        "Output flows back through the child_process bridge correctly",
+        "Exit code is 0",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 41,
+      "passes": false,
+      "notes": "npx is a common agent operation. It combines package download (network), temp installation (fs), and execution (child_process) in one command."
+    },
+    {
+      "id": "US-042",
+      "title": "Verify dev server lifecycle inside the sandbox (start, verify, kill)",
+      "description": "As a developer, I need to verify that a long-running dev server can be started, verified, and killed through the sandbox, since agents frequently start servers to test their work.",
+      "acceptanceCriteria": [
+        "Test creates a NodeRuntime with child_process and network bridges enabled",
+        "Write a simple HTTP server script to the sandbox VFS (e.g. http.createServer listening on a random port)",
+        "Spawn the server via child_process.spawn through the bridge",
+        "Verify the server is listening by making an HTTP request through the network bridge",
+        "The HTTP response comes back correctly through the network bridge",
+        "Send SIGTERM to the server process via the child_process bridge's kill()",
+        "Verify the process exits within 5 seconds",
+        "No zombie processes remain after cleanup",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 42,
+      "passes": false,
+      "notes": "This tests the full dev server lifecycle that agents commonly use: start a server, verify it works, then tear it down. Exercises long-running process management, port binding through the net bridge, and signal delivery."
+    },
+    {
+      "id": "US-043",
+      "title": "Update cli-tool-e2e spec to reflect verification levels and agentic workflow tests",
+      "description": "As a developer, I need the spec to document the three verification levels (SDK, headless binary, full TTY), tool use verification, and agentic workflow tests.",
+      "acceptanceCriteria": [
+        "Update docs-internal/specs/cli-tool-e2e.md to document the three verification levels: SDK, headless binary, full TTY",
+        "Document: Pi supports all 3 levels (SDK via createAgentSession, headless via cli.js, TTY)",
+        "Document: Claude Code supports all 3 levels (SDK via @anthropic-ai/claude-code, headless via claude -p, TTY)",
+        "Document: OpenCode supports 2 levels (headless binary, TTY) \u2014 no SDK available, compiled Bun ELF",
+        "Document the tool use verification approach (mock LLM with tool_use responses)",
+        "Document the agentic workflow tests (multi-turn, npm install, dev server lifecycle)",
+        "Remove the OpenCode SDK Strategy B from the spec",
+        "Typecheck passes"
+      ],
+      "priority": 43,
+      "passes": false,
+      "notes": "The spec needs to reflect the full verification matrix and document the agentic workflow test approach."
     }
   ]
 }
