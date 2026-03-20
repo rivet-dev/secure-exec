@@ -62,6 +62,14 @@ function runNative(
   });
 }
 
+// Strip kernel-level diagnostic WARN lines from WASM stderr (not program output)
+function normalizeStderr(stderr: string): string {
+  return stderr
+    .split('\n')
+    .filter((l) => !l.includes('WARN') || !l.includes('could not retrieve pid'))
+    .join('\n');
+}
+
 // Normalize argv[0] line since native path differs from WASM command name
 function normalizeArgsOutput(output: string): string {
   return output.replace(/^(argv\[0\]=).+$/m, '$1<program>');
@@ -292,18 +300,26 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
 
     expect(wasm.exitCode).toBe(native.exitCode);
     expect(wasm.stdout).toBe(native.stdout);
+    expect(normalizeStderr(wasm.stderr)).toBe(normalizeStderr(native.stderr));
   });
 
-  it.skipIf(tier2Skip)('getpid_test: PID is valid and not hardcoded 42', async () => {
+  it.skipIf(tier2Skip)('getpid_test: PID is valid, not hardcoded 42, and consistent', async () => {
     const native = await runNative('getpid_test');
     const wasm = await kernel.exec('getpid_test');
 
     expect(wasm.exitCode).toBe(native.exitCode);
+    expect(normalizeStderr(wasm.stderr)).toBe(normalizeStderr(native.stderr));
     // PIDs differ between native and WASM, but both should be valid
     expect(wasm.stdout).toContain('pid_positive=yes');
     expect(wasm.stdout).toContain('pid_not_42=yes');
+    expect(wasm.stdout).toContain('pid_consistent=yes');
     expect(native.stdout).toContain('pid_positive=yes');
     expect(native.stdout).toContain('pid_not_42=yes');
+    expect(native.stdout).toContain('pid_consistent=yes');
+    // Verify actual PID value is > 0
+    const wasmPid = parseInt(wasm.stdout.match(/^pid=(\d+)/m)?.[1] ?? '0', 10);
+    expect(wasmPid).toBeGreaterThan(0);
+    expect(wasmPid).not.toBe(42);
   });
 
   it.skipIf(tier2Skip)('getppid_test: parent PID is valid and positive', async () => {
@@ -311,19 +327,26 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
     const wasm = await kernel.exec('getppid_test');
 
     expect(wasm.exitCode).toBe(native.exitCode);
+    expect(normalizeStderr(wasm.stderr)).toBe(normalizeStderr(native.stderr));
     expect(wasm.stdout).toContain('ppid_positive=yes');
     expect(native.stdout).toContain('ppid_positive=yes');
   });
 
-  it.skipIf(tier2Skip)('userinfo: uid/gid/euid/egid format matches', async () => {
+  it.skipIf(tier2Skip)('userinfo: uid/gid/euid/egid values are specific', async () => {
     const native = await runNative('userinfo');
     const wasm = await kernel.exec('userinfo');
 
     expect(wasm.exitCode).toBe(native.exitCode);
-    // Values may differ (native user vs WASM kernel), verify format
+    expect(normalizeStderr(wasm.stderr)).toBe(normalizeStderr(native.stderr));
+    // Verify format for both
     const format = /^uid=\d+\ngid=\d+\neuid=\d+\negid=\d+\n$/;
     expect(wasm.stdout).toMatch(format);
     expect(native.stdout).toMatch(format);
+    // WASM kernel returns uid/gid = 1000 (sandbox user)
+    expect(wasm.stdout).toContain('uid=1000');
+    expect(wasm.stdout).toContain('gid=1000');
+    expect(wasm.stdout).toContain('euid=1000');
+    expect(wasm.stdout).toContain('egid=1000');
   });
 
   it.skipIf(tier2Skip)('pipe_test: write through pipe and read back matches', async () => {
@@ -332,6 +355,7 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
 
     expect(wasm.exitCode).toBe(native.exitCode);
     expect(wasm.stdout).toBe(native.stdout);
+    expect(normalizeStderr(wasm.stderr)).toBe(normalizeStderr(native.stderr));
   });
 
   it.skipIf(tier2Skip)('dup_test: write through duplicated fds matches', async () => {
@@ -340,13 +364,15 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
 
     expect(wasm.exitCode).toBe(native.exitCode);
     expect(wasm.stdout).toBe(native.stdout);
+    expect(normalizeStderr(wasm.stderr)).toBe(normalizeStderr(native.stderr));
   });
 
-  it.skipIf(tier2Skip)('sleep_test: nanosleep completes successfully', async () => {
+  it('sleep_test: nanosleep completes successfully', async () => {
     const native = await runNative('sleep_test', ['50']);
     const wasm = await kernel.exec('sleep_test 50');
 
     expect(wasm.exitCode).toBe(native.exitCode);
+    expect(normalizeStderr(wasm.stderr)).toBe(normalizeStderr(native.stderr));
     // Both should report successful sleep with >= 80% of requested time
     expect(wasm.stdout).toContain('requested=50ms');
     expect(wasm.stdout).toContain('ok=yes');
@@ -368,6 +394,7 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
     expect(wasm.exitCode).toBe(native.exitCode);
     expect(wasm.exitCode).toBe(0);
     expect(wasm.stdout).toBe(native.stdout);
+    expect(normalizeStderr(wasm.stderr)).toBe(normalizeStderr(native.stderr));
     expect(wasm.stdout).toContain('child_stdout: hello');
     expect(wasm.stdout).toContain('child_exit: 0');
   });
@@ -379,6 +406,7 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
     expect(wasm.exitCode).toBe(native.exitCode);
     expect(wasm.exitCode).toBe(0);
     expect(wasm.stdout).toBe(native.stdout);
+    expect(normalizeStderr(wasm.stderr)).toBe(normalizeStderr(native.stderr));
     expect(wasm.stdout).toContain('child_exit_code: 7');
     expect(wasm.stdout).toContain('match: yes');
   });
@@ -390,6 +418,7 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
     expect(wasm.exitCode).toBe(native.exitCode);
     expect(wasm.exitCode).toBe(0);
     expect(wasm.stdout).toBe(native.stdout);
+    expect(normalizeStderr(wasm.stderr)).toBe(normalizeStderr(native.stderr));
     expect(wasm.stdout).toContain('pipeline_output: hello');
     expect(wasm.stdout).toContain('echo_exit: 0');
     expect(wasm.stdout).toContain('cat_exit: 0');
@@ -401,11 +430,17 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
 
     expect(wasm.exitCode).toBe(native.exitCode);
     expect(wasm.exitCode).toBe(0);
+    expect(normalizeStderr(wasm.stderr)).toBe(normalizeStderr(native.stderr));
     // Both should complete the spawn/kill/wait cycle successfully
-    expect(wasm.stdout).toBe(native.stdout);
     expect(wasm.stdout).toContain('spawned: yes');
     expect(wasm.stdout).toContain('kill: ok');
     expect(wasm.stdout).toContain('terminated: yes');
+    // Verify child was killed by signal (WIFSIGNALED)
+    expect(wasm.stdout).toContain('signaled=yes');
+    expect(native.stdout).toContain('signaled=yes');
+    // SIGTERM = 15
+    expect(wasm.stdout).toContain('termsig=15');
+    expect(native.stdout).toContain('termsig=15');
   });
 
   it.skipIf(tier3Skip)('waitpid_return: waitpid returns correct child PID', async () => {
@@ -414,6 +449,7 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
 
     expect(wasm.exitCode).toBe(native.exitCode);
     expect(wasm.exitCode).toBe(0);
+    expect(normalizeStderr(wasm.stderr)).toBe(normalizeStderr(native.stderr));
     // waitpid with specific PID returns that PID
     expect(wasm.stdout).toContain('test1_match: yes');
     expect(wasm.stdout).toContain('test1_exit: 0');
@@ -463,6 +499,7 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
       expect(wasm.exitCode).toBe(native.exitCode);
       expect(wasm.exitCode).toBe(0);
       expect(wasm.stdout).toBe(native.stdout);
+      expect(normalizeStderr(wasm.stderr)).toBe(normalizeStderr(native.stderr));
       // Verify expected entries
       expect(wasm.stdout).toContain('alpha.txt');
       expect(wasm.stdout).toContain('subdir');
@@ -479,6 +516,7 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
 
       expect(wasm.exitCode).toBe(native.exitCode);
       expect(wasm.exitCode).toBe(0);
+      expect(normalizeStderr(wasm.stderr)).toBe(normalizeStderr(native.stderr));
       // Root path (first line) differs — normalize it
       const normalizeRoot = (out: string) => out.replace(/^.+\n/, 'ROOT\n');
       expect(normalizeRoot(wasm.stdout)).toBe(normalizeRoot(native.stdout));
@@ -499,6 +537,7 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
 
       expect(wasm.exitCode).toBe(native.exitCode);
       expect(wasm.exitCode).toBe(0);
+      expect(normalizeStderr(wasm.stderr)).toBe(normalizeStderr(native.stderr));
       // Paths have different roots — strip root prefix, compare relative paths
       const relPaths = (out: string, root: string) =>
         out.split('\n').filter(Boolean).map((l) => l.replace(root, '')).sort().join('\n');
@@ -529,6 +568,7 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
 
       expect(wasm.exitCode).toBe(native.exitCode);
       expect(wasm.exitCode).toBe(0);
+      expect(normalizeStderr(wasm.stderr)).toBe(normalizeStderr(native.stderr));
       expect(wasmCopied).toBe(nativeCopied);
       expect(wasmCopied).toBe(srcContent);
       // Stdout message paths differ — just verify both report success
@@ -560,6 +600,7 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
     expect(wasm.exitCode).toBe(native.exitCode);
     expect(wasm.exitCode).toBe(0);
     expect(wasm.stdout).toBe(native.stdout);
+    expect(normalizeStderr(wasm.stderr)).toBe(normalizeStderr(native.stderr));
     // Verify key structural elements
     expect(wasm.stdout).toContain('db: open');
     expect(wasm.stdout).toContain('table: created');
@@ -587,6 +628,7 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
     expect(wasm.exitCode).toBe(native.exitCode);
     expect(wasm.exitCode).toBe(0);
     expect(wasm.stdout).toBe(native.stdout);
+    expect(normalizeStderr(wasm.stderr)).toBe(normalizeStderr(native.stderr));
     // Verify key structural elements are present
     expect(wasm.stdout).toContain('"name": "secure-exec"');
     expect(wasm.stdout).toContain('"enabled": true');

@@ -14,6 +14,8 @@ int posix_spawnp(pid_t *restrict, const char *restrict,
 pid_t waitpid(pid_t, int *, int);
 int kill(pid_t, int);
 #define SIGTERM 15
+#define WIFSIGNALED(s) (((s) & 0x7f) != 0 && ((s) & 0x7f) != 0x7f)
+#define WTERMSIG(s)    ((s) & 0x7f)
 #else
 #include <spawn.h>
 #include <sys/wait.h>
@@ -52,6 +54,10 @@ int main(void) {
         return 1;
     }
     printf("terminated: yes\n");
+    printf("signaled=%s\n", WIFSIGNALED(status) ? "yes" : "no");
+    if (WIFSIGNALED(status)) {
+        printf("termsig=%d\n", WTERMSIG(status));
+    }
 
     return 0;
 }
