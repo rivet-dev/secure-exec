@@ -4,25 +4,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#ifdef __wasi__
-typedef struct { int __pad0[2]; void *__actions; int __pad[16]; } posix_spawn_file_actions_t;
-typedef struct { int __dummy; } posix_spawnattr_t;
-int posix_spawnp(pid_t *restrict, const char *restrict,
-    const posix_spawn_file_actions_t *,
-    const posix_spawnattr_t *restrict,
-    char *const[restrict], char *const[restrict]);
-int posix_spawn_file_actions_init(posix_spawn_file_actions_t *);
-int posix_spawn_file_actions_destroy(posix_spawn_file_actions_t *);
-int posix_spawn_file_actions_adddup2(posix_spawn_file_actions_t *, int, int);
-int posix_spawn_file_actions_addclose(posix_spawn_file_actions_t *, int);
-pid_t waitpid(pid_t, int *, int);
-pid_t wait(int *);
-#define WEXITSTATUS(s) (((s) & 0xff00) >> 8)
-#define WIFEXITED(s)   (!((s) & 0x7f))
-#else
-#include <spawn.h>
-#include <sys/wait.h>
-#endif
+#include "posix_spawn_compat.h"
 
 extern char **environ;
 

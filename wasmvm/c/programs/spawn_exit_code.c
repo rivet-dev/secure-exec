@@ -3,20 +3,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#ifdef __wasi__
-typedef struct { int __pad0[2]; void *__actions; int __pad[16]; } posix_spawn_file_actions_t;
-typedef struct { int __dummy; } posix_spawnattr_t;
-int posix_spawnp(pid_t *restrict, const char *restrict,
-    const posix_spawn_file_actions_t *,
-    const posix_spawnattr_t *restrict,
-    char *const[restrict], char *const[restrict]);
-pid_t waitpid(pid_t, int *, int);
-#define WEXITSTATUS(s) (((s) & 0xff00) >> 8)
-#define WIFEXITED(s)   (!((s) & 0x7f))
-#else
-#include <spawn.h>
-#include <sys/wait.h>
-#endif
+#include "posix_spawn_compat.h"
 
 extern char **environ;
 

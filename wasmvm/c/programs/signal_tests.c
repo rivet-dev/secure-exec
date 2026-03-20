@@ -5,25 +5,7 @@
 #include <errno.h>
 #include <time.h>
 
-#ifdef __wasi__
-typedef struct { int __pad0[2]; void *__actions; int __pad[16]; } posix_spawn_file_actions_t;
-typedef struct { int __dummy; } posix_spawnattr_t;
-int posix_spawnp(pid_t *restrict, const char *restrict,
-    const posix_spawn_file_actions_t *,
-    const posix_spawnattr_t *restrict,
-    char *const[restrict], char *const[restrict]);
-pid_t waitpid(pid_t, int *, int);
-int kill(pid_t, int);
-#define SIGKILL 9
-#define WIFSIGNALED(s) (((s) & 0x7f) != 0 && ((s) & 0x7f) != 0x7f)
-#define WTERMSIG(s)    ((s) & 0x7f)
-#define WIFEXITED(s)   (!((s) & 0x7f))
-#define WEXITSTATUS(s) (((s) & 0xff00) >> 8)
-#else
-#include <spawn.h>
-#include <sys/wait.h>
-#include <signal.h>
-#endif
+#include "posix_spawn_compat.h"
 
 extern char **environ;
 

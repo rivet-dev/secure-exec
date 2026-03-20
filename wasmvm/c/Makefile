@@ -56,8 +56,8 @@ else
 endif
 
 # Compile flags
-WASM_CFLAGS  := --target=wasm32-wasip1 --sysroot=$(SYSROOT) -O2 -flto
-NATIVE_CFLAGS := -O0 -g
+WASM_CFLAGS  := --target=wasm32-wasip1 --sysroot=$(SYSROOT) -O2 -flto -I include/
+NATIVE_CFLAGS := -O0 -g -I include/
 
 # COMMANDS_DIR for install target (configurable, matches Rust binary output)
 COMMANDS_DIR ?= ../target/wasm32-wasip1/release/commands
