@@ -89,6 +89,10 @@ function isNativeAddonPath(pathValue: string): boolean {
  * symlink targets to build the full set of allowed host paths. This prevents
  * symlink-based escapes from the overlay projection.
  */
+// Expensive: readdirSync + realpathSync on every symlink in node_modules
+// (~20ms in a large pnpm monorepo with ~700 entries). Called once per
+// ModuleAccessFileSystem — reuse the createNodeDriver() instance to avoid
+// paying this cost repeatedly.
 function collectOverlayAllowedRoots(hostNodeModulesRoot: string): string[] {
 	const roots = new Set<string>([hostNodeModulesRoot]);
 	const symlinkScanRoots = [hostNodeModulesRoot, path.join(hostNodeModulesRoot, ".pnpm", "node_modules")];
