@@ -163,6 +163,7 @@ PRD: ralph/kernel-hardening (46 stories)
 - UpgradeSocket.emit must use .call(this) — libraries like ws use `this[Symbol(...)]` in event callbacks requiring proper `this` binding
 - Server-side HTTP upgrade relay: driver.ts adds server.on('upgrade') → applySync dispatches to sandbox → sandbox Server._emit('upgrade') → ws handles handshake → UpgradeSocket relays data bidirectionally through bridge
 - SQLite WASM binaries require -Os (not -O2/-O3), no wasm-opt, --initial-memory=16777216, and _Exit() instead of return — optimization corrupts WASM indirect function table
+- WASM stack is very limited (~64KB) — large stack-allocated arrays cause "memory access out of bounds"; split heavy functions into separate functions to isolate stack usage
 - C programs with build artifact names different from command names need install mapping in Makefile (e.g., sqlite3_cli → sqlite3)
 
 ---
@@ -3692,4 +3693,35 @@ PRD: ralph/kernel-hardening (46 stories)
   - Git binary lives in C_BUILD_DIR (wasmvm/c/build/) not just COMMANDS_DIR — test checks both dirs
   - Git env vars (GIT_AUTHOR_NAME/EMAIL, GIT_COMMITTER_NAME/EMAIL) must be set to avoid interactive prompts
   - kernel.exec() wraps in sh -c, so `cd /work && git init` works for setting cwd
+---
+
+## 2026-03-20 - US-093
+- What was implemented: git branch, checkout, merge, tag commands + comprehensive test suite
+- New commands in git.c:
+  - branch: create/list/delete branches (refs/heads/ management)
+  - checkout: switch branches with working tree restoration, -b for create+switch
+  - merge: fast-forward and three-way merge with conflict markers
+  - tag: lightweight and annotated tags (refs/tags/ management)
+- Updated cmd_log with --all (BFS from all refs) and --graph (* prefix) support
+- Added git_read_commit_parents() to git-objects for multi-parent commit traversal
+- Fixed git_read_commit to capture first parent only (for correct log walking after merges)
+- Added log_print_commit helper and cmd_log_all separate function
+- 8 new tests in git.test.ts covering all acceptance criteria
+- Files changed:
+  - wasmvm/c/programs/git.c — branch, checkout, merge, tag, updated log/usage/dispatcher
+  - wasmvm/c/libs/git/git-objects.h — git_read_commit_parents declaration
+  - wasmvm/c/libs/git/git-objects.c — first-parent fix, git_read_commit_parents impl
+  - packages/runtime/wasmvm/test/git.test.ts — 8 new branching tests
+  - scripts/ralph/prd.json — US-093 passes: true
+- **Learnings for future iterations:**
+  - WASM stack is very limited (~64KB) — large stack-allocated arrays cause "memory access out of bounds" trap
+  - cmd_log_all must be a separate function from cmd_log so its stack arrays don't bloat the normal log path
+  - Use small fixed-size arrays (LOG_MAX 64, LOG_QMAX 128) for WASM-safe BFS; avoid malloc for small allocations too
+  - git_read_commit captures FIRST parent only (after fix); use git_read_commit_parents for ALL parents (merge commits)
+  - Three-way merge: collect flat trees from base/ours/theirs, compare per-file hashes, write conflict markers for divergent changes
+  - checkout must clean_tracked_files (from old index) then restore_tree (from new branch's commit tree) then write new index
+  - restore_tree recursively walks tree objects, reads blobs, writes files to working dir — handles nested directories via mkdirp
+  - find_merge_base uses BFS from both commits with ancestor set intersection
+  - Merge commits need manual commit object construction (two "parent" lines) since git_write_commit only supports one parent
+  - US-092 old tests have pre-existing failures (VFS.exists for .git dirs, git log empty output) unrelated to US-093 changes
 ---
