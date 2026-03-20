@@ -3862,3 +3862,26 @@ PRD: ralph/kernel-hardening (46 stories)
   - Pipe close-after-fork: must close write ends in parent immediately after spawn, otherwise child pipe reads never get EOF
   - When no permissions config is set, _resolvePermissionTier defaults to 'full' — test setups without explicit permissions get unrestricted access
 ---
+
+## 2026-03-20 - US-101
+- Implemented WASI PTY-based process management to replace portable-pty for WASI unified exec
+- Added `pty_open` host import to wasi-ext (Rust FFI + safe wrapper)
+- Added `pty_open` RPC handler in kernel-worker.ts and driver.ts syscall dispatcher
+- Created `wasi-pty` library crate (secureexec-wasi-pty) with WasiPtyChild and WasiSpawnedPty
+- Added 4 kernel integration tests for PTY-based spawn pattern (interactive session)
+- Files changed:
+  - wasmvm/crates/wasi-ext/src/lib.rs (pty_open extern + openpty() wrapper)
+  - wasmvm/crates/libs/wasi-pty/Cargo.toml (new)
+  - wasmvm/crates/libs/wasi-pty/src/lib.rs (new — WasiPtyChild, WasiSpawnedPty, spawn_session, open_pty)
+  - wasmvm/Cargo.toml (workspace member)
+  - packages/runtime/wasmvm/src/kernel-worker.ts (pty_open host_process handler)
+  - packages/runtime/wasmvm/src/driver.ts (openpty RPC case)
+  - packages/kernel/test/kernel-integration.test.ts (PTY-based spawn tests)
+- **Learnings for future iterations:**
+  - Kernel openpty(pid) returns { masterFd, slaveFd, path } — same pattern as pipe(pid) but for PTY pairs
+  - PTY FDs pack into intResult same way as pipes: low 16 bits = masterFd, high 16 bits = slaveFd
+  - ManagedProcess.kill() sends SIGTERM (15) by default, not SIGKILL (9) — exit code is 128+15=143
+  - PTY slave as all three stdio FDs (stdin/stdout/stderr) in spawn creates a fully interactive session
+  - isatty returns true for slave FDs — child processes see their stdio as terminals
+  - Pre-existing failures: resource-exhaustion.test.ts (1 test), example-ai-sdk typecheck (missing node_modules)
+---

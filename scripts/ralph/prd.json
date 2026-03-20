@@ -2040,7 +2040,7 @@
         "Tests pass"
       ],
       "priority": 101,
-      "passes": false,
+      "passes": true,
       "notes": "codex-utils-pty provides ExecCommandSession and SpawnedPty which wrap portable-pty. On WASI, we need equivalent structs that use host_process spawn (with PTY allocation) instead. The key is that unified_exec/process.rs uses ExecCommandSession to manage interactive processes. Our kernel already supports PTY allocation for WasmVM processes. The WASI side needs: (1) spawn with PTY, (2) read master fd, (3) write master fd, (4) waitpid, (5) kill."
     },
     {
