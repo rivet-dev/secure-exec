@@ -3,6 +3,11 @@ Started: 2026-03-17
 PRD: ralph/kernel-hardening (46 stories)
 
 ## Codebase Patterns
+- WASM errno values differ from POSIX (EPIPE=64 vs 32, EAGAIN=6 vs 11) — parity tests must compare structured "ok"/"FAIL" output, not raw errno values
+- WasmVM driver kill() must call resolveExit() + proc.onExit() — otherwise waitpid hangs forever after kill()
+- driverPids must persist until zombie reap (onProcessReap), not on process exit — removing on exit breaks waitpid for killed processes
+- waitpid status uses bash 128+signal convention (not pure POSIX) — Rust ExitStatus interprets raw value, C shim converts to POSIX encoding
+- patch-wasi-libc.sh skips "already applied" patches — edit vendored source directly OR reverse/re-apply when modifying patch content
 - First piped spawn in a WASM process has a pipe-capture quirk — do a warmup piped spawn of `true` first, then subsequent piped spawns capture output correctly
 - C parity tests that spawn other test binaries via posix_spawnp need PATH set in runNative: `{ env: { ...process.env, PATH: \`${NATIVE_DIR}:${process.env.PATH}\` } }`
 - Headers omitted from wasi sysroot (pwd.h, spawn.h, etc.) are listed in scripts/install-include-headers.sh MUSL_OMIT_HEADERS — patch the install script to un-omit them; don't define types inline in libc-bottom-half/sources/ files
@@ -2899,4 +2904,76 @@ PRD: ralph/kernel-hardening (46 stories)
   - All C test binaries that need to spawn other C test binaries via posix_spawnp require the native build dir on PATH — pass env with PATH including NATIVE_DIR in the runNative call
   - posix_spawnp in native uses argv[0]'s full path if it contains '/' — useful for self-spawning, but spawning by name requires PATH setup
   - The while-loop read pattern `while ((n = read(...)) > 0) total += n;` is essential for pipe capture — a single read() may return 0 if the child hasn't started writing yet
+---
+
+## 2026-03-20 - US-052
+- Implemented signal_tests.c with 3 test scenarios: SIGKILL, kill exited PID, kill invalid PID
+- Fixed pre-existing bug: driver kill handler didn't resolve exit promise or call onExit, causing waitpid to hang forever after kill()
+- Fixed pre-existing bug: driverPids cleanup in onProcessExit removed PID before waitpid could access it — moved to onProcessReap
+- Added termSignal field to ProcessEntry for tracking signal kills
+- Updated waitpid to return termSignal alongside status, enabling proper POSIX status encoding
+- Driver waitpid handler encodes 128+signal for signal kills (bash convention)
+- C waitpid shim decodes 128+signal into POSIX signal encoding (signal in low 7 bits)
+- Updated wasi-libc patch and vendored source for the new waitpid encoding
+- Files changed: wasmvm/c/programs/signal_tests.c (new), wasmvm/c/Makefile, packages/runtime/wasmvm/test/c-parity.test.ts, packages/runtime/wasmvm/src/driver.ts, packages/kernel/src/kernel.ts, packages/kernel/src/process-table.ts, packages/kernel/src/types.ts, wasmvm/patches/wasi-libc/0002-spawn-wait.patch
+- **Learnings for future iterations:**
+  - WasmVM driver kill() must call resolveExit() and proc.onExit() — without this, waitpid hangs forever since the exit promise never resolves
+  - driverPids must persist until zombie reap, not process exit — removing on exit breaks waitpid for killed processes (ESRCH)
+  - waitpid status encoding is consumed by BOTH C (via sysroot patch) and Rust (via std patch) — can't use pure POSIX encoding since Rust ExitStatus interprets raw value; use bash 128+signal convention instead
+  - Rebuilding patched sysroot requires `make sysroot` AND force-rebuilding programs (delete old binaries, then `make programs`) — make doesn't track sysroot as a dependency for individual programs
+  - patch-wasi-libc.sh skips "already applied" patches — must edit vendored source directly or reverse/re-apply when modifying patches
+---
+
+## 2026-03-20 - US-053
+- Implemented pipe edge case tests covering 4 scenarios: large writes (128KB > 64KB buffer), broken pipe (EPIPE), EOF semantics, and close-both-ends
+- Created wasmvm/c/programs/pipe_edge.c with single-process chunked write/read approach for large writes (avoids posix_spawn dependency)
+- Added pipe_edge to PATCHED_PROGRAMS in wasmvm/c/Makefile
+- Added parity test in packages/runtime/wasmvm/test/c-parity.test.ts under tier3Skip
+- All 4 subtests pass on both native and WASM
+- Files changed: wasmvm/c/programs/pipe_edge.c (new), wasmvm/c/Makefile, packages/runtime/wasmvm/test/c-parity.test.ts
+- **Learnings for future iterations:**
+  - WASM errno values differ from POSIX (e.g., EPIPE=64 in WASI vs 32 in POSIX) — parity tests should compare "ok" outputs not raw errno values
+  - Single-process large pipe transfer works by alternating write/read in 32KB chunks (fits in 64KB buffer), avoiding the need for concurrent reader process via posix_spawn
+  - posix_spawn + pipe tests (pipeline, spawn_child) have pre-existing failures in WASM — design pipe tests to work without spawning when possible
+  - signal(SIGPIPE, SIG_IGN) is needed on native to test EPIPE (default SIGPIPE kills process); WASM kernel doesn't send SIGPIPE so no ignore needed
+---
+
+## 2026-03-20 - US-054
+- Created wasmvm/c/include/posix_spawn_compat.h shared header with all posix_spawn types, file_actions API, waitpid/wait, wait status macros, kill, and signal constants
+- Updated 8 C programs (spawn_child.c, kill_child.c, waitpid_return.c, pipeline.c, spawn_exit_code.c, syscall_coverage.c, signal_tests.c, getppid_verify.c) to #include "posix_spawn_compat.h" instead of inline typedefs
+- Updated wasmvm/c/Makefile to add -I include/ to both WASM_CFLAGS and NATIVE_CFLAGS
+- All 33 native programs compile successfully; c-parity test results unchanged (same pre-existing failures)
+- Files changed: wasmvm/c/include/posix_spawn_compat.h (new), wasmvm/c/Makefile, 8 C program files
+- **Learnings for future iterations:**
+  - There are 8 files with duplicated posix_spawn typedefs (not 6 as noted in PRD) — signal_tests.c and getppid_verify.c also had them
+  - The shared header uses #ifdef __wasi__ / #else with system headers, so -I include/ is safe for both WASM and native builds
+  - Double-inclusion of <unistd.h> (in program + header) is harmless due to include guards
+  - Pre-existing c-parity test failures (7 total: fread, dup_test, spawn_child, pipeline, syscall_coverage, c-cp, sqlite3_mem) are unrelated to posix_spawn refactoring
+---
+
+## 2026-03-20 - US-055
+- Fixed populateBinEntry async race in kernel spawnInternal by tracking pending promises and flushing them before shell PATH lookups
+- Added `pendingBinEntries: Promise<void>[]` field to KernelImpl to store fire-and-forget populateBinEntry promises
+- Added `flushPendingBinEntries()` method to Kernel interface and implementation — called at start of `exec()` to ensure VFS consistency before shell PATH lookup
+- Updated existing test to use `flushPendingBinEntries()` instead of `setTimeout(r, 0)` hack
+- Added test: on-demand discovery creates /bin stub before subsequent PATH-based spawn
+- Added test: rapid consecutive spawns of a newly-discovered command both succeed (no race)
+- Files changed: packages/kernel/src/kernel.ts, packages/kernel/src/types.ts, packages/kernel/test/kernel-integration.test.ts
+- **Learnings for future iterations:**
+  - Making spawn() async would cascade to 200+ call sites including synchronous bridge-setup.ts code — use pending promise tracking + flush pattern instead
+  - MockRuntimeDriver.spawn receives the FULL command string (e.g., "/bin/discover-cmd"), so test configs must include path-based keys too
+  - KernelInterface.spawn is called synchronously from bridge-setup.ts via CommandExecutor — cannot be made async without breaking the V8 isolate bridge
+  - Pre-existing test failures: resource-exhaustion.test.ts PTY timing test, dynamic-module-integration.test.ts module cache size
+---
+
+## 2026-03-20 - US-056
+- Implemented waitpid edge case tests covering concurrent children and invalid PID
+- Files changed:
+  - wasmvm/c/programs/waitpid_edge.c (new) — 3 test cases: concurrent children with different exit codes, wait() with multiple children, waitpid with never-spawned PID
+  - wasmvm/c/Makefile — added waitpid_edge to PATCHED_PROGRAMS
+  - packages/runtime/wasmvm/test/c-parity.test.ts — added parity test for waitpid_edge
+- **Learnings for future iterations:**
+  - waitpid for a never-spawned PID: POSIX returns ECHILD, our WASM implementation returns ESRCH from kernel assertOwns — both set errno and return -1, so parity tests should check structured ok/FAIL output, not raw errno values
+  - Test 2 (wait() with multiple children) validates that the childPids Set in kernel-worker.ts properly tracks and iterates when multiple children exist
+  - The warmup piped spawn pattern (spawn+waitpid `true` first) is needed even for non-piped tests because the first spawn has quirks
 ---

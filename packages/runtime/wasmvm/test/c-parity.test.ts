@@ -530,6 +530,32 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
     expect(wasm.stdout).toContain('test3_ret2_positive: yes');
   });
 
+  it.skipIf(tier3Skip)('waitpid_edge: concurrent children and invalid PID', async () => {
+    const native = await runNative('waitpid_edge');
+    const wasm = await kernel.exec('waitpid_edge');
+
+    expect(wasm.exitCode).toBe(native.exitCode);
+    expect(wasm.exitCode).toBe(0);
+    expect(normalizeStderr(wasm.stderr)).toBe(normalizeStderr(native.stderr));
+    // Test 1: 3 concurrent children with correct exit codes
+    expect(wasm.stdout).toContain('test1_c1_exit: 1');
+    expect(wasm.stdout).toContain('test1_c2_exit: 2');
+    expect(wasm.stdout).toContain('test1_c3_exit: 3');
+    expect(wasm.stdout).toContain('test1: ok');
+    expect(native.stdout).toContain('test1: ok');
+    // Test 2: wait() reaps both children with distinct valid PIDs
+    expect(wasm.stdout).toContain('test2_r1_valid: yes');
+    expect(wasm.stdout).toContain('test2_r2_valid: yes');
+    expect(wasm.stdout).toContain('test2_distinct: yes');
+    expect(wasm.stdout).toContain('test2: ok');
+    expect(native.stdout).toContain('test2: ok');
+    // Test 3: waitpid with never-spawned PID returns -1 with error
+    expect(wasm.stdout).toContain('test3_ret: -1');
+    expect(wasm.stdout).toContain('test3_failed: yes');
+    expect(wasm.stdout).toContain('test3: ok');
+    expect(native.stdout).toContain('test3: ok');
+  });
+
   it.skipIf(tier3Skip)('pipe_edge: large write, broken pipe, EOF, close-both', async () => {
     const native = await runNative('pipe_edge');
     const wasm = await kernel.exec('pipe_edge');
