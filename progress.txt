@@ -4042,3 +4042,16 @@ PRD: ralph/kernel-hardening (46 stories)
   - TUI welcome text "Welcome to Codex on WasmVM!" is a reliable anchor for waitFor assertions
   - 'q' on empty input and Ctrl+C (\x03) both exit the TUI cleanly per handle_key_event in codex main.rs
 ---
+
+## 2026-03-20 - US-108
+- Updated docs/wasmvm/supported-commands.md with new AI Tools section containing codex and codex-exec
+- Documented codex (TUI mode) and codex-exec (headless mode), OPENAI_API_KEY requirement, host_net dependency
+- Updated summary table: added AI Tools row (2 done), total from 111 to 113
+- Added codex as Tier 3 (full fork) entry in wasmvm/CLAUDE.md Key Decisions section
+- Files changed:
+  - `docs/wasmvm/supported-commands.md`
+  - `wasmvm/CLAUDE.md`
+- **Learnings for future iterations:**
+  - wasmvm/CLAUDE.md already had a Codex section — Key Decisions just needed a one-liner reference
+  - Pre-existing typecheck failures in examples/ai-sdk and examples/code-mode (missing node_modules) — not related to doc changes
+---
