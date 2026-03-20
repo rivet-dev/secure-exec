@@ -1095,5 +1095,74 @@ describe('WasmVM RuntimeDriver', () => {
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain('hello');
     });
+
+    it('isolated command cannot stat paths outside cwd', async () => {
+      const vfs = new SimpleVFS();
+      // Populate a path outside the default cwd (/home/user)
+      await vfs.writeFile('/etc/passwd', 'root:x:0:0');
+      kernel = createKernel({ filesystem: vfs as any });
+      await kernel.mount(createWasmVmRuntime({
+        commandDirs: [COMMANDS_DIR],
+        permissions: { '*': 'isolated' },
+      }));
+
+      // ls /etc tries to stat/readdir outside cwd — should fail
+      const result = await kernel.exec('ls /etc');
+      expect(result.exitCode).not.toBe(0);
+    });
+
+    it('isolated command cannot readdir root', async () => {
+      const vfs = new SimpleVFS();
+      kernel = createKernel({ filesystem: vfs as any });
+      await kernel.mount(createWasmVmRuntime({
+        commandDirs: [COMMANDS_DIR],
+        permissions: { '*': 'isolated' },
+      }));
+
+      // ls / tries to readdir root — outside /home/user cwd
+      const result = await kernel.exec('ls /');
+      expect(result.exitCode).not.toBe(0);
+    });
+
+    it('isolated command can read files within cwd', async () => {
+      const vfs = new SimpleVFS();
+      await vfs.writeFile('/home/user/test.txt', 'cwd-content');
+      kernel = createKernel({ filesystem: vfs as any });
+      await kernel.mount(createWasmVmRuntime({
+        commandDirs: [COMMANDS_DIR],
+        permissions: { '*': 'isolated' },
+      }));
+
+      // cat a file within the default cwd (/home/user) — should succeed
+      const result = await kernel.exec('cat /home/user/test.txt');
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('cwd-content');
+    });
+
+    it('isolated command cannot write files', async () => {
+      const vfs = new SimpleVFS();
+      kernel = createKernel({ filesystem: vfs as any });
+      await kernel.mount(createWasmVmRuntime({
+        commandDirs: [COMMANDS_DIR],
+        permissions: { '*': 'isolated' },
+      }));
+
+      // tee tries to write — isWriteBlocked returns true for isolated
+      const result = await kernel.exec('tee /home/user/out', { stdin: 'hello' });
+      expect(result.exitCode).not.toBe(0);
+    });
+
+    it('isolated command cannot spawn subprocesses', async () => {
+      const vfs = new SimpleVFS();
+      kernel = createKernel({ filesystem: vfs as any });
+      await kernel.mount(createWasmVmRuntime({
+        commandDirs: [COMMANDS_DIR],
+        permissions: { '*': 'isolated' },
+      }));
+
+      // sh -c tries to spawn ls — isSpawnBlocked returns true for isolated
+      const result = await kernel.exec('sh -c "ls"');
+      expect(result.exitCode).not.toBe(0);
+    });
   });
 });

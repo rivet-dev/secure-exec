@@ -286,6 +286,7 @@ function createKernelVfs(): WasiVFS {
   const populatedDirs = new Set<number>();
 
   function resolveIno(path: string): number | null {
+    if (permissionTier === 'isolated' && !isPathInCwd(path)) return null;
     const cached = pathToIno.get(path);
     if (cached !== undefined) return cached;
 
@@ -328,6 +329,9 @@ function createKernelVfs(): WasiVFS {
     const path = inoToPath.get(ino);
     if (!path) return;
 
+    // Isolated tier: skip populating directories outside cwd
+    if (permissionTier === 'isolated' && !isPathInCwd(path)) return;
+
     const res = rpcCall('vfsReaddir', { path });
     if (res.errno !== 0) return;
 
@@ -343,6 +347,7 @@ function createKernelVfs(): WasiVFS {
 
   return {
     exists(path: string): boolean {
+      if (permissionTier === 'isolated' && !isPathInCwd(path)) return false;
       const res = rpcCall('vfsExists', { path });
       return res.errno === 0 && res.intResult === 1;
     },
@@ -417,6 +422,9 @@ function createKernelVfs(): WasiVFS {
       if (res.errno !== 0) throw new VfsError('EEXIST', linkPath);
     },
     readlink(path: string): string {
+      if (permissionTier === 'isolated' && !isPathInCwd(path)) {
+        throw new VfsError('EACCES', path);
+      }
       const res = rpcCall('vfsReadlink', { path });
       if (res.errno !== 0) throw new VfsError('EINVAL', path);
       return decoder.decode(res.data);
