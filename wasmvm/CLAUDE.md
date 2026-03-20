@@ -43,6 +43,7 @@ Standalone WebAssembly binaries providing a comprehensive Unix userland, paired 
 - **grep:** `ripgrep` (confirmed WASM-compilable, build without PCRE2)
 - **jq:** `jaq` (confirmed WASM-compilable, pure Rust)
 - **find:** Custom POSIX implementation (fd-find has incompatible CLI)
+- **codex:** `rivet-dev/codex` fork (Tier 3: full fork) — WASI feature gates, host_process integration, PTY replacement, HTTP client replacement
 - Do NOT use `sd`, `frawk`, or `zawk`
 - No dependency on WASIX, Wasmer, Emscripten, Wasmtime, or any proprietary runtime
 

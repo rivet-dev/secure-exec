@@ -223,6 +223,18 @@
 | git-remote-http | — | done | Symlink → git (HTTP transport for clone/fetch/push) | — |
 | git-remote-https | — | done | Symlink → git (HTTPS transport for clone/fetch/push) | — |
 
+## AI Tools
+
+| Command | just-bash | Status | Implementation | Target |
+|---------|-----------|--------|----------------|--------|
+| codex | — | done | Rust binary (`rivet-dev/codex` fork, TUI mode via ratatui/crossterm, `host_net` + `host_process`) | — |
+| codex-exec | — | done | Rust binary (`rivet-dev/codex` fork, headless mode, `host_net` + `host_process`) | — |
+
+- **codex** is the TUI (interactive terminal UI) mode — requires a PTY for rendering
+- **codex-exec** is the headless mode — accepts a prompt via CLI args, prints result to stdout
+- Both require `OPENAI_API_KEY` environment variable for API access
+- Both require network access (`host_net`) for OpenAI API calls
+
 ## Package Management (Node Runtime)
 
 | Command | just-bash | Status | Implementation | Target |
@@ -270,8 +282,9 @@
 | Data Processing | 3 | 0 | 0 | 1 | 0 | 0 | 2 |
 | Network | 2 | 0 | 0 | 0 | 0 | 0 | 0 |
 | Version Control | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
+| AI Tools | 2 | 0 | 0 | 0 | 0 | 0 | 0 |
 | Package Management | 2 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | **111** | **3** | **1** | **1** | **4** | **13** | **2** |
+| **Total** | **113** | **3** | **1** | **1** | **4** | **13** | **2** |
 
 ---
 
