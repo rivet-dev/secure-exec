@@ -275,3 +275,219 @@ describe.skipIf(!hasWasmBinaries)('make command', () => {
     expect(result.stdout).toContain('custom makefile');
   });
 });
+
+/**
+ * Advanced make tests covering:
+ *   - Pattern rules (%.o: %.c)
+ *   - Include directive
+ *   - Conditionals (ifeq/ifneq/ifdef/ifndef)
+ *   - $(shell ...) function
+ *   - $(wildcard ...) function
+ *   - Multi-line recipes
+ *   - Recursive make (make -C subdir)
+ *   - Silent recipes (@echo)
+ */
+describe.skipIf(!hasWasmBinaries)('make advanced features', () => {
+  let kernel: Kernel;
+
+  afterEach(async () => {
+    await kernel?.dispose();
+  });
+
+  it('supports pattern rules (%.o: %.c)', async () => {
+    const vfs = new SimpleVFS();
+    // Create a source file so the pattern rule prerequisite is satisfied
+    await vfs.writeFile('/work/main.c', 'int main() { return 0; }\n');
+    await vfs.writeFile('/work/Makefile', [
+      'all: main.o',
+      '',
+      '%.o: %.c',
+      '\techo "compiling $< to $@"',
+      '',
+    ].join('\n'));
+    kernel = createKernel({ filesystem: vfs as any });
+    await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
+
+    const result = await kernel.exec('make -C /work');
+    expect(result.stdout).toContain('compiling main.c to main.o');
+  });
+
+  it('supports include directive', async () => {
+    const vfs = new SimpleVFS();
+    await vfs.writeFile('/work/config.mk', [
+      'MSG = from included file',
+      '',
+    ].join('\n'));
+    await vfs.writeFile('/work/Makefile', [
+      'include config.mk',
+      '',
+      'all:',
+      '\techo "$(MSG)"',
+      '',
+    ].join('\n'));
+    kernel = createKernel({ filesystem: vfs as any });
+    await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
+
+    const result = await kernel.exec('make -C /work');
+    expect(result.stdout).toContain('from included file');
+  });
+
+  it('supports ifeq conditional', async () => {
+    const vfs = new SimpleVFS();
+    await vfs.writeFile('/work/Makefile', [
+      'MODE = debug',
+      '',
+      'all:',
+      'ifeq ($(MODE),debug)',
+      '\techo "debug mode"',
+      'else',
+      '\techo "release mode"',
+      'endif',
+      '',
+    ].join('\n'));
+    kernel = createKernel({ filesystem: vfs as any });
+    await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
+
+    const result = await kernel.exec('make -C /work');
+    expect(result.stdout).toContain('debug mode');
+    expect(result.stdout).not.toContain('release mode');
+  });
+
+  it('supports ifneq conditional', async () => {
+    const vfs = new SimpleVFS();
+    await vfs.writeFile('/work/Makefile', [
+      'MODE = release',
+      '',
+      'all:',
+      'ifneq ($(MODE),debug)',
+      '\techo "not debug"',
+      'else',
+      '\techo "is debug"',
+      'endif',
+      '',
+    ].join('\n'));
+    kernel = createKernel({ filesystem: vfs as any });
+    await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
+
+    const result = await kernel.exec('make -C /work');
+    expect(result.stdout).toContain('not debug');
+    expect(result.stdout).not.toContain('is debug');
+  });
+
+  it('supports ifdef/ifndef conditionals', async () => {
+    const vfs = new SimpleVFS();
+    await vfs.writeFile('/work/Makefile', [
+      'DEFINED_VAR = yes',
+      '',
+      'all:',
+      'ifdef DEFINED_VAR',
+      '\techo "var is defined"',
+      'endif',
+      'ifndef UNDEFINED_VAR',
+      '\techo "var is not defined"',
+      'endif',
+      '',
+    ].join('\n'));
+    kernel = createKernel({ filesystem: vfs as any });
+    await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
+
+    const result = await kernel.exec('make -C /work');
+    expect(result.stdout).toContain('var is defined');
+    expect(result.stdout).toContain('var is not defined');
+  });
+
+  it('supports $(shell ...) function', async () => {
+    const vfs = new SimpleVFS();
+    await vfs.writeFile('/work/Makefile', [
+      'GREETING = $(shell echo hello-from-shell)',
+      '',
+      'all:',
+      '\techo "$(GREETING)"',
+      '',
+    ].join('\n'));
+    kernel = createKernel({ filesystem: vfs as any });
+    await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
+
+    const result = await kernel.exec('make -C /work');
+    expect(result.stdout).toContain('hello-from-shell');
+  });
+
+  it('supports $(wildcard ...) function', async () => {
+    const vfs = new SimpleVFS();
+    await vfs.writeFile('/work/foo.c', 'int foo() {}\n');
+    await vfs.writeFile('/work/bar.c', 'int bar() {}\n');
+    await vfs.writeFile('/work/Makefile', [
+      'SRCS = $(wildcard *.c)',
+      '',
+      'all:',
+      '\techo "sources: $(SRCS)"',
+      '',
+    ].join('\n'));
+    kernel = createKernel({ filesystem: vfs as any });
+    await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
+
+    const result = await kernel.exec('make -C /work');
+    // Both .c files should appear (order may vary)
+    expect(result.stdout).toContain('foo.c');
+    expect(result.stdout).toContain('bar.c');
+  });
+
+  it('executes multi-line recipes', async () => {
+    const vfs = new SimpleVFS();
+    await vfs.writeFile('/work/Makefile', [
+      'all:',
+      '\techo "line one"',
+      '\techo "line two"',
+      '\techo "line three"',
+      '',
+    ].join('\n'));
+    kernel = createKernel({ filesystem: vfs as any });
+    await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
+
+    const result = await kernel.exec('make -C /work');
+    expect(result.stdout).toContain('line one');
+    expect(result.stdout).toContain('line two');
+    expect(result.stdout).toContain('line three');
+  });
+
+  it('supports recursive make (make -C subdir)', async () => {
+    const vfs = new SimpleVFS();
+    await vfs.mkdir('/work/subdir');
+    await vfs.writeFile('/work/subdir/Makefile', [
+      'all:',
+      '\techo "built in subdir"',
+      '',
+    ].join('\n'));
+    await vfs.writeFile('/work/Makefile', [
+      'all:',
+      '\t$(MAKE) -C subdir',
+      '',
+    ].join('\n'));
+    kernel = createKernel({ filesystem: vfs as any });
+    await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
+
+    const result = await kernel.exec('make -C /work');
+    expect(result.stdout).toContain('built in subdir');
+  });
+
+  it('suppresses command echo with @ prefix', async () => {
+    const vfs = new SimpleVFS();
+    await vfs.writeFile('/work/Makefile', [
+      'all:',
+      '\t@echo "silent output"',
+      '',
+    ].join('\n'));
+    kernel = createKernel({ filesystem: vfs as any });
+    await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
+
+    const result = await kernel.exec('make -C /work');
+    // With @, make should NOT echo the command itself, only the output
+    expect(result.stdout).toContain('silent output');
+    // The recipe command 'echo "silent output"' should not be printed by make
+    // (without @, make prints both the command and its output)
+    const lines = result.stdout.split('\n').filter(l => l.includes('silent output'));
+    // Only one line should contain "silent output" (the actual echo output)
+    // If @ works, make won't print the command line itself
+    expect(lines.length).toBe(1);
+  });
+});
