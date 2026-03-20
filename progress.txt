@@ -3083,3 +3083,20 @@ PRD: ralph/kernel-hardening (46 stories)
   - Not all npm packages have CLI binaries — is-odd has no bin entry so `npx is-odd 3` fails; use packages known to have CLI binaries (cowsay, semver) for npx tests
   - Same sandbox runtime factory pattern as npm-install works for npx — NodeFileSystem() with host temp dir as cwd, createHostCommandExecutor for child_process bridge
 ---
+
+## 2026-03-20 - US-042
+- What was implemented: Dev server lifecycle test verifying the full start → HTTP verify → kill flow through sandbox bridges
+- Files changed:
+  - packages/secure-exec/tests/cli-tools/dev-server-lifecycle.test.ts (new)
+- 5 tests pass:
+  1. Full lifecycle: start server, verify health + root HTTP responses, SIGTERM, clean exit (code 0)
+  2. Multiple HTTP requests: 3 sequential requests through network bridge before kill
+  3. SIGTERM exit timing: server exits within 5 seconds, well under 20s total
+  4. SIGKILL fallback: unresponsive server (ignores SIGTERM) killed by SIGKILL after 2s timeout
+  5. Server stdout flows: LISTENING message from server's console.log through child.stdout → sandbox → bridge
+- **Learnings for future iterations:**
+  - SSRF protection blocks 127.0.0.1 by default — must use `createDefaultNetworkAdapter({ initialExemptPorts: new Set([port]) })` for loopback requests to host-spawned servers
+  - Dynamic port allocation: find free port on host first (bind port 0, read, close), then pass to both server script and initialExemptPorts — avoids race between port discovery and SSRF exemption
+  - Server scripts must share the same route handlers when reused with generic lifecycle code — the unresponsive server needs /health returning JSON too, otherwise resp.json() fails
+  - "Isolated is disposed" unhandled rejection can occur when child_process bridge's proc.wait() fires after runtime.dispose() — the sandbox code must ensure all child processes exit before exec() returns
+---

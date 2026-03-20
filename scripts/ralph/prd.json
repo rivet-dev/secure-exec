@@ -768,8 +768,8 @@
         "Tests pass"
       ],
       "priority": 42,
-      "passes": false,
-      "notes": "This tests the full dev server lifecycle that agents commonly use: start a server, verify it works, then tear it down. Exercises long-running process management, port binding through the net bridge, and signal delivery."
+      "passes": true,
+      "notes": "Completed. Test file dev-server-lifecycle.test.ts verifies full dev server lifecycle through sandbox child_process + network bridges: start server via spawn, verify HTTP responses via fetch (health JSON + root text), multiple sequential requests, SIGTERM clean exit (code 0), SIGKILL fallback for unresponsive server, server stdout flows through bridge. Port pre-allocated on host and exempted via initialExemptPorts to bypass SSRF protection. 5 tests pass."
     },
     {
       "id": "US-043",
