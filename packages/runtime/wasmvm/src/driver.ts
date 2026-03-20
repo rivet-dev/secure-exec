@@ -62,7 +62,7 @@ export const WASMVM_COMMANDS: readonly string[] = [
   'sleep', 'sort', 'split', 'stat', 'strings', 'tac', 'tail', 'test',
   '[', 'touch', 'tree', 'tsort', 'whoami',
   // Compression & Archiving
-  'gzip', 'gunzip', 'zcat', 'tar',
+  'gzip', 'gunzip', 'zcat', 'tar', 'zip',
   // Shim commands
   'env', 'nice', 'nohup', 'stdbuf', 'timeout', 'xargs',
   // uutils: text/encoding

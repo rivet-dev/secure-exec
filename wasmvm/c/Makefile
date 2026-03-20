@@ -62,8 +62,8 @@ NATIVE_CFLAGS := -O0 -g -I include/
 # COMMANDS_DIR for install target (configurable, matches Rust binary output)
 COMMANDS_DIR ?= ../target/wasm32-wasip1/release/commands
 
-# Real commands to install (initially empty — add command names as they are opted in)
-COMMANDS :=
+# Real commands to install (add command names as they are opted in)
+COMMANDS := zip
 
 # Programs requiring patched sysroot (Tier 2+ custom host imports)
 PATCHED_PROGRAMS := isatty_test getpid_test getppid_test getppid_verify userinfo pipe_test dup_test spawn_child spawn_exit_code pipeline kill_child waitpid_return waitpid_edge syscall_coverage getpwuid_test signal_tests pipe_edge tcp_echo http_get dns_lookup
@@ -176,6 +176,23 @@ $(NATIVE_DIR)/sqlite3_mem: programs/sqlite3_mem.c libs/sqlite3/sqlite3.c
 	@mkdir -p $(NATIVE_DIR)
 	$(NATIVE_CC) $(NATIVE_CFLAGS) $(SQLITE_NATIVE) -Ilibs/sqlite3 -o $@ \
 	    programs/sqlite3_mem.c libs/sqlite3/sqlite3.c -lm -lpthread
+
+# zip: links zlib + minizip
+ZLIB_SRCS   := libs/zlib/adler32.c libs/zlib/compress.c libs/zlib/crc32.c libs/zlib/deflate.c \
+               libs/zlib/infback.c libs/zlib/inffast.c libs/zlib/inflate.c libs/zlib/inftrees.c \
+               libs/zlib/trees.c libs/zlib/uncompr.c libs/zlib/zutil.c
+MINIZIP_SRCS := libs/minizip/ioapi.c libs/minizip/zip.c
+ZIP_INCLUDES := -Ilibs/zlib -Ilibs/minizip
+
+$(BUILD_DIR)/zip: programs/zip.c $(ZLIB_SRCS) $(MINIZIP_SRCS) $(WASI_SDK_DIR)/bin/clang
+	@mkdir -p $(BUILD_DIR)
+	$(CC) $(WASM_CFLAGS) $(ZIP_INCLUDES) -o $@.wasm programs/zip.c $(ZLIB_SRCS) $(MINIZIP_SRCS)
+	wasm-opt -O3 --strip-debug $@.wasm -o $@
+	@rm -f $@.wasm
+
+$(NATIVE_DIR)/zip: programs/zip.c $(ZLIB_SRCS) $(MINIZIP_SRCS)
+	@mkdir -p $(NATIVE_DIR)
+	$(NATIVE_CC) $(NATIVE_CFLAGS) $(ZIP_INCLUDES) -o $@ programs/zip.c $(ZLIB_SRCS) $(MINIZIP_SRCS) -lz
 
 # --- Compile all C programs to native binaries (for parity testing) ---
 

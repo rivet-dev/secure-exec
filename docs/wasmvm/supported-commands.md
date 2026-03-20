@@ -175,6 +175,7 @@
 | gunzip | yes | done | `gzip.rs` custom builtin (`flate2` crate, US-016) | — |
 | zcat | yes | done | `gzip.rs` custom builtin (`flate2` crate, US-016) | — |
 | tar | yes | done | `tar_cmd.rs` custom builtin (`tar` + `flate2` crates, US-017) | — |
+| zip | — | done | C program (`zlib` + `minizip`, US-076) | — |
 
 ## Shell Builtins
 
@@ -246,11 +247,11 @@
 | Process & Execution | 9 | 2 | 0 | 0 | 0 | 0 | 0 |
 | Search | 0 | 0 | 1 | 0 | 0 | 0 | 0 |
 | Formatting | 1 | 0 | 0 | 0 | 0 | 0 | 0 |
-| Compression | 4 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Compression | 5 | 0 | 0 | 0 | 0 | 0 | 0 |
 | Shell Builtins | 0 | 0 | 0 | 0 | 0 | 11 | 0 |
 | Data Processing | 2 | 0 | 0 | 2 | 0 | 0 | 2 |
 | Network | 0 | 0 | 0 | 2 | 0 | 0 | 0 |
-| **Total** | **96** | **1** | **1** | **4** | **4** | **13** | **2** |
+| **Total** | **97** | **1** | **1** | **4** | **4** | **13** | **2** |
 
 ---
 
