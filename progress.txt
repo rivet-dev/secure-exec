@@ -20,6 +20,7 @@ PRD: ralph/kernel-hardening (46 stories)
 - filterEnv returns {} when permissions.env is undefined — use { ...allowAllChildProcess, ...allowAllEnv } in createNodeRuntime() for sandbox tests that need process.env.PATH
 - HostBinaryDriver pattern: inline RuntimeDriver that spawns real host binaries; must handle child 'error' event (ENOENT) and use exitResolved guard to prevent double-resolve
 - HostBinaryDriver with kernel PTY: must (1) use host-accessible cwd (not virtual /root), (2) merge process.env with ctx.env, (3) set kernel PTY to raw mode via ptySetDiscipline, (4) pump stdin from kernel PTY slave fd 0 to child.stdin, (5) reverse ICRNL (NL→CR) in pump
+- OpenCode exits immediately on ^C with empty input — PTY exit tests must use shell.write() (not harness.type()) and check for fast exit before sending second ^C to avoid EBADF
 - Claude Code interactive mode requires OAuth credentials (~/.claude/.credentials.json), not just ANTHROPIC_API_KEY — onboarding skip needs ~/.claude.json with hasCompletedOnboarding=true at HOME root
 - Buffer polyfill (feross/buffer@5.7.1) lacks V8 internal methods (latin1Slice, base64Slice, utf8Write, etc.) — must patch on BOTH globalThis.Buffer.prototype (in process.ts) AND require('buffer').Buffer.prototype (in _patchPolyfill)
 - NetSocket._readableState must include ALL fields libraries check — ssh2 checks `.ended`, not just `.endEmitted`; ws checks `.endEmitted`
@@ -2993,3 +2994,20 @@ PRD: ralph/kernel-hardening (46 stories)
   - OpenCode mock redirect probe is necessary: some versions hang during plugin init when ANTHROPIC_BASE_URL is set
   - XDG_DATA_HOME isolation prevents test pollution of real opencode config
   - OpenCode needs 3 mock responses for some requests (title, response, response) vs Claude's 1
+---
+
+## 2026-03-20 - US-036
+- Rewrote opencode-interactive.test.ts to use direct HostBinaryDriver + kernel.openShell() pattern (same as claude-interactive.test.ts from US-034)
+- Replaced the intermediate node process approach (sandbox JS → child_process.spawn) with direct kernel command dispatch to HostBinaryDriver
+- HostBinaryDriver wraps opencode in `script -qefc` for host-side PTY, pumps stdin from kernel PTY slave fd 0 → child stdin, sets kernel PTY to raw mode
+- 5 test cases: TUI renders ("Ask anything"), input area works, submit shows response (via kitty Enter), ^C interrupts (stays alive), exit cleanly via ^C
+- Boot probe detects "Ask anything" or "ctrl+" in TUI output to verify readiness
+- All 5 tests pass; typecheck passes
+- Files changed:
+  - packages/secure-exec/tests/cli-tools/opencode-interactive.test.ts (rewritten)
+  - scripts/ralph/prd.json (US-036 passes: true)
+- **Learnings for future iterations:**
+  - OpenCode exits immediately on ^C with empty input (no double-^C needed) — exit test must use shell.write() directly and check for fast exit before sending second ^C to avoid EBADF
+  - Direct HostBinaryDriver approach (kernel.openShell dispatches to driver) is cleaner than intermediate node process approach (openShell runs node -e which spawns via child_process)
+  - OpenCode uses kitty keyboard protocol — `\x1b[13u` for Enter key, not raw `\r`
+  - XDG_DATA_HOME isolation prevents test pollution of real opencode config
