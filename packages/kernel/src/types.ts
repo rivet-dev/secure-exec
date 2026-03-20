@@ -267,7 +267,7 @@ export interface KernelInterface {
 	waitpid(
 		pid: number,
 		options?: number,
-	): Promise<{ pid: number; status: number; termSignal: number }>;
+	): Promise<{ pid: number; status: number; termSignal: number } | null>;
 	kill(pid: number, signal: number): void;
 	getpid(pid: number): number;
 	getppid(pid: number): number;
@@ -502,6 +502,9 @@ export const SIGQUIT = 3;
 export const SIGPIPE = 13;
 export const SIGTSTP = 20;
 export const SIGWINCH = 28;
+
+// waitpid options (POSIX bitmask)
+export const WNOHANG = 1;
 
 // ---------------------------------------------------------------------------
 // Pipe types

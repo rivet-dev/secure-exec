@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { ProcessTable } from "../src/process-table.js";
 import { WIFEXITED, WEXITSTATUS, WIFSIGNALED, WTERMSIG } from "../src/wstatus.js";
+import { WNOHANG } from "../src/types.js";
 import type { DriverProcess, ProcessContext } from "../src/types.js";
 
 function createMockDriverProcess(exitAfterMs?: number): DriverProcess {
@@ -63,8 +64,9 @@ describe("ProcessTable", () => {
 		table.register(table.allocatePid(), "wasmvm", "echo", ["hello"], createCtx(), proc);
 
 		const result = await table.waitpid(1);
-		expect(result.pid).toBe(1);
-		expect(result.status).toBe(0);
+		expect(result).not.toBeNull();
+		expect(result!.pid).toBe(1);
+		expect(result!.status).toBe(0);
 	});
 
 	it("waitpid resolves immediately for already-exited process", async () => {
@@ -76,9 +78,10 @@ describe("ProcessTable", () => {
 		table.markExited(1, 42);
 
 		const result = await table.waitpid(1);
+		expect(result).not.toBeNull();
 		// POSIX wstatus: normal exit = (exitCode << 8)
-		expect(WIFEXITED(result.status)).toBe(true);
-		expect(WEXITSTATUS(result.status)).toBe(42);
+		expect(WIFEXITED(result!.status)).toBe(true);
+		expect(WEXITSTATUS(result!.status)).toBe(42);
 	});
 
 	it("kill routes to driver process", () => {
@@ -144,9 +147,10 @@ describe("ProcessTable", () => {
 		table.markExited(1, 42);
 
 		const result = await table.waitpid(1);
-		expect(WIFEXITED(result.status)).toBe(true);
-		expect(WEXITSTATUS(result.status)).toBe(42);
-		expect(WIFSIGNALED(result.status)).toBe(false);
+		expect(result).not.toBeNull();
+		expect(WIFEXITED(result!.status)).toBe(true);
+		expect(WEXITSTATUS(result!.status)).toBe(42);
+		expect(WIFSIGNALED(result!.status)).toBe(false);
 
 		// Verify exitReason on entry
 		const entry = table.get(1)!;
@@ -167,9 +171,10 @@ describe("ProcessTable", () => {
 		proc.onExit!(128 + 9);
 
 		const result = await waitPromise;
-		expect(WIFSIGNALED(result.status)).toBe(true);
-		expect(WTERMSIG(result.status)).toBe(9);
-		expect(WIFEXITED(result.status)).toBe(false);
+		expect(result).not.toBeNull();
+		expect(WIFSIGNALED(result!.status)).toBe(true);
+		expect(WTERMSIG(result!.status)).toBe(9);
+		expect(WIFEXITED(result!.status)).toBe(false);
 
 		const entry = table.get(1)!;
 		expect(entry.exitReason).toBe("signal");
@@ -190,9 +195,10 @@ describe("ProcessTable", () => {
 		proc.onExit!(128 + 15);
 
 		const result = await waitPromise;
-		expect(WIFSIGNALED(result.status)).toBe(true);
-		expect(WTERMSIG(result.status)).toBe(15);
-		expect(WIFEXITED(result.status)).toBe(false);
+		expect(result).not.toBeNull();
+		expect(WIFSIGNALED(result!.status)).toBe(true);
+		expect(WTERMSIG(result!.status)).toBe(15);
+		expect(WIFEXITED(result!.status)).toBe(false);
 
 		const entry = table.get(1)!;
 		expect(entry.exitReason).toBe("signal");
@@ -206,10 +212,11 @@ describe("ProcessTable", () => {
 		table.markExited(1, 0);
 
 		const result = await table.waitpid(1);
-		expect(WIFEXITED(result.status)).toBe(true);
-		expect(WEXITSTATUS(result.status)).toBe(0);
-		expect(WIFSIGNALED(result.status)).toBe(false);
-		expect(result.status).toBe(0); // (0 << 8) == 0
+		expect(result).not.toBeNull();
+		expect(WIFEXITED(result!.status)).toBe(true);
+		expect(WEXITSTATUS(result!.status)).toBe(0);
+		expect(WIFSIGNALED(result!.status)).toBe(false);
+		expect(result!.status).toBe(0); // (0 << 8) == 0
 	});
 
 	it("listProcesses returns read-only view", () => {
@@ -221,5 +228,64 @@ describe("ProcessTable", () => {
 		expect(list.size).toBe(2);
 		expect(list.get(1)!.command).toBe("ls");
 		expect(list.get(2)!.command).toBe("node");
+	});
+
+	// WNOHANG tests
+	it("waitpid with WNOHANG returns null for running process", async () => {
+		const table = new ProcessTable();
+		const proc = createMockDriverProcess();
+		table.register(table.allocatePid(), "wasmvm", "sleep", ["100"], createCtx(), proc);
+
+		const result = await table.waitpid(1, WNOHANG);
+		expect(result).toBeNull();
+	});
+
+	it("waitpid with WNOHANG returns result for exited process", async () => {
+		const table = new ProcessTable();
+		const proc = createMockDriverProcess();
+		table.register(table.allocatePid(), "wasmvm", "true", [], createCtx(), proc);
+		table.markExited(1, 0);
+
+		const result = await table.waitpid(1, WNOHANG);
+		expect(result).not.toBeNull();
+		expect(result!.pid).toBe(1);
+		expect(WIFEXITED(result!.status)).toBe(true);
+		expect(WEXITSTATUS(result!.status)).toBe(0);
+	});
+
+	it("waitpid without WNOHANG still blocks until exit", async () => {
+		const table = new ProcessTable();
+		const proc = createMockDriverProcess(20);
+		table.register(table.allocatePid(), "wasmvm", "echo", ["hi"], createCtx(), proc);
+
+		// Should block and resolve after the mock exits
+		const result = await table.waitpid(1);
+		expect(result).not.toBeNull();
+		expect(result!.pid).toBe(1);
+		expect(result!.status).toBe(0);
+	});
+
+	it("WNOHANG then normal wait — non-blocking check followed by blocking wait", async () => {
+		const table = new ProcessTable();
+		const proc = createMockDriverProcess();
+		table.register(table.allocatePid(), "wasmvm", "sleep", ["100"], createCtx(), proc);
+
+		// WNOHANG returns null while running
+		const nohangResult = await table.waitpid(1, WNOHANG);
+		expect(nohangResult).toBeNull();
+
+		// Normal wait blocks until exit
+		const waitPromise = table.waitpid(1);
+		proc.onExit!(0);
+		const result = await waitPromise;
+		expect(result).not.toBeNull();
+		expect(result!.pid).toBe(1);
+		expect(WIFEXITED(result!.status)).toBe(true);
+		expect(WEXITSTATUS(result!.status)).toBe(0);
+	});
+
+	it("waitpid with WNOHANG rejects with ESRCH for non-existent PID", async () => {
+		const table = new ProcessTable();
+		await expect(table.waitpid(9999, WNOHANG)).rejects.toThrow(/ESRCH/);
 	});
 });

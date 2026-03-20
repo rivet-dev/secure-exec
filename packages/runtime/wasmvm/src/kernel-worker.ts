@@ -595,7 +595,7 @@ function createHostProcessImports(getMemory: () => WebAssembly.Memory | null) {
      * options: 0 = blocking, 1 = WNOHANG
      * ret_pid: writes the actual waited-for PID (relevant for pid=-1)
      */
-    proc_waitpid(pid: number, _options: number, ret_status_ptr: number, ret_pid_ptr: number): number {
+    proc_waitpid(pid: number, options: number, ret_status_ptr: number, ret_pid_ptr: number): number {
       const mem = getMemory();
       if (!mem) return ERRNO_EINVAL;
 
@@ -607,8 +607,16 @@ function createHostProcessImports(getMemory: () => WebAssembly.Memory | null) {
         targetPid = first.value;
       }
 
-      const res = rpcCall('waitpid', { pid: targetPid });
+      const res = rpcCall('waitpid', { pid: targetPid, options: options || undefined });
       if (res.errno !== 0) return res.errno;
+
+      // WNOHANG returns intResult=-1 when process is still running
+      if (res.intResult === -1) {
+        const view = new DataView(mem.buffer);
+        view.setUint32(ret_status_ptr, 0, true);
+        view.setUint32(ret_pid_ptr, 0, true);
+        return ERRNO_SUCCESS;
+      }
 
       const view = new DataView(mem.buffer);
       view.setUint32(ret_status_ptr, res.intResult, true);

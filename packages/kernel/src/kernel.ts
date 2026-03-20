@@ -806,9 +806,9 @@ class KernelImpl implements Kernel {
 					stderrFd: ctx.stderrFd,
 				}, ctx.ppid);
 			},
-			waitpid: (pid) => {
+			waitpid: (pid, options) => {
 				try { assertOwns(pid); } catch (e) { return Promise.reject(e); }
-				return this.processTable.waitpid(pid);
+				return this.processTable.waitpid(pid, options);
 			},
 			kill: (pid, signal) => {
 				// Negative PID = process group kill, handled by kernel directly

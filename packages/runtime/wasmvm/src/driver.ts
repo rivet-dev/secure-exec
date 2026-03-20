@@ -676,9 +676,9 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
           break;
         }
         case 'waitpid': {
-          const result = await kernel.waitpid(msg.args.pid as number);
-          // waitpid returns POSIX-encoded wstatus — pass through directly
-          intResult = result.status;
+          const result = await kernel.waitpid(msg.args.pid as number, msg.args.options as number | undefined);
+          // WNOHANG returns null if process is still running (encode as -1 for WASM side)
+          intResult = result ? result.status : -1;
           break;
         }
         case 'kill': {

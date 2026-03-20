@@ -7,7 +7,7 @@
  */
 
 import type { DriverProcess, ProcessContext, ProcessEntry, ProcessInfo } from "./types.js";
-import { KernelError } from "./types.js";
+import { KernelError, WNOHANG } from "./types.js";
 import { encodeExitStatus, encodeSignalStatus } from "./wstatus.js";
 
 const ZOMBIE_TTL_MS = 60_000;
@@ -127,8 +127,9 @@ export class ProcessTable {
 	/**
 	 * Wait for a process to exit.
 	 * If already exited, resolves immediately. Otherwise blocks until exit.
+	 * With WNOHANG option, returns null immediately if process is still running.
 	 */
-	waitpid(pid: number): Promise<{ pid: number; status: number; termSignal: number }> {
+	waitpid(pid: number, options?: number): Promise<{ pid: number; status: number; termSignal: number } | null> {
 		const entry = this.entries.get(pid);
 		if (!entry) {
 			return Promise.reject(new Error(`ESRCH: no such process ${pid}`));
@@ -139,6 +140,11 @@ export class ProcessTable {
 				? encodeSignalStatus(entry.termSignal)
 				: encodeExitStatus(entry.exitCode!);
 			return Promise.resolve({ pid, status: wstatus, termSignal: entry.termSignal });
+		}
+
+		// WNOHANG: return null immediately if process is still running
+		if (options && (options & WNOHANG)) {
+			return Promise.resolve(null);
 		}
 
 		return new Promise((resolve) => {
