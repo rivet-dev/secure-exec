@@ -17,6 +17,8 @@ import { spawn } from 'node:child_process';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
+import { createServer as createTcpServer } from 'node:net';
+import { createServer as createHttpServer } from 'node:http';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const COMMANDS_DIR = resolve(__dirname, '../../../../wasmvm/target/wasm32-wasip1/release/commands');
@@ -835,5 +837,71 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
     expect(wasm.stdout).toContain('"ratio": 3.14');
     expect(wasm.stdout).toContain('[]');
     expect(wasm.stdout).toContain('{}');
+  });
+
+  // --- Tier 6: networking (patched sysroot + host_net) ---
+
+  const hasCNetBinaries = existsSync(join(C_BUILD_DIR, 'tcp_echo'));
+  const hasNativeNetBinaries = existsSync(join(NATIVE_DIR, 'tcp_echo'));
+  const netSkip = (!hasCNetBinaries || !hasNativeNetBinaries)
+    ? 'C networking binaries not built (need patched sysroot: make -C wasmvm/c sysroot && make -C wasmvm/c programs && make -C wasmvm/c native)'
+    : false;
+
+  it.skipIf(netSkip)('tcp_echo: connect to TCP echo server, send and receive', async () => {
+    // Start a local TCP echo server
+    const server = createTcpServer((conn) => {
+      conn.on('data', (data) => { conn.write(data); conn.end(); });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as import('node:net').AddressInfo).port;
+
+    try {
+      const native = await runNative('tcp_echo', [String(port)]);
+      const wasm = await kernel.exec(`tcp_echo ${port}`);
+
+      expect(wasm.exitCode).toBe(native.exitCode);
+      expect(wasm.exitCode).toBe(0);
+      expect(wasm.stdout).toBe(native.stdout);
+      expect(normalizeStderr(wasm.stderr)).toBe(normalizeStderr(native.stderr));
+      expect(wasm.stdout).toContain('sent: 5');
+      expect(wasm.stdout).toContain('received: hello');
+    } finally {
+      server.close();
+    }
+  });
+
+  it.skipIf(netSkip)('http_get: connect to HTTP server, receive response body', async () => {
+    // Start a local HTTP server
+    const server = createHttpServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('hello from http');
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as import('node:net').AddressInfo).port;
+
+    try {
+      const native = await runNative('http_get', [String(port)]);
+      const wasm = await kernel.exec(`http_get ${port}`);
+
+      expect(wasm.exitCode).toBe(native.exitCode);
+      expect(wasm.exitCode).toBe(0);
+      expect(wasm.stdout).toBe(native.stdout);
+      expect(normalizeStderr(wasm.stderr)).toBe(normalizeStderr(native.stderr));
+      expect(wasm.stdout).toContain('body: hello from http');
+    } finally {
+      server.close();
+    }
+  });
+
+  it.skipIf(netSkip)('dns_lookup: resolve localhost to 127.0.0.1', async () => {
+    const native = await runNative('dns_lookup', ['localhost']);
+    const wasm = await kernel.exec('dns_lookup localhost');
+
+    expect(wasm.exitCode).toBe(native.exitCode);
+    expect(wasm.exitCode).toBe(0);
+    expect(wasm.stdout).toBe(native.stdout);
+    expect(normalizeStderr(wasm.stderr)).toBe(normalizeStderr(native.stderr));
+    expect(wasm.stdout).toContain('host: localhost');
+    expect(wasm.stdout).toContain('ip: 127.0.0.1');
   });
 });
