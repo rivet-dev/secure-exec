@@ -307,8 +307,8 @@
         "Tests pass"
       ],
       "priority": 17,
-      "passes": false,
-      "notes": "SSH tunneling (forwardOut/forwardIn) is commonly used for database access through bastion hosts. This exercises nested TCP streams through the sandbox's net bridge — a very different path than direct connections."
+      "passes": true,
+      "notes": "Completed. Fixture tunnels through SSH to Redis using forwardOut(). Test infra discovers container internal IPs on the Docker bridge via docker inspect. Sends raw Redis PING through the tunnel, verifies +PONG response. Host and sandbox produce identical output."
     },
     {
       "id": "US-018",

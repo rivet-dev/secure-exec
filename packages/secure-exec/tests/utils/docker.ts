@@ -78,6 +78,17 @@ export interface Container {
 /**
  * Build a Docker image from a Dockerfile and tag it.
  */
+/**
+ * Return a container's internal IP on the Docker bridge network.
+ */
+export function getContainerInternalIp(containerId: string): string {
+	return execFileSync(
+		"docker",
+		["inspect", containerId, "-f", "{{.NetworkSettings.IPAddress}}"],
+		{ encoding: "utf-8", timeout: 5_000 },
+	).trim();
+}
+
 export function buildImage(dockerfilePath: string, tag: string): void {
 	if (!isDockerAvailable()) {
 		throw new Error("Docker is not available on this host");

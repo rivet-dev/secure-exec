@@ -24,6 +24,7 @@ import {
 import { createTestNodeRuntime } from "./test-utils.js";
 import {
 	buildImage,
+	getContainerInternalIp,
 	skipUnlessDocker,
 	startContainer,
 	type Container,
@@ -111,6 +112,9 @@ const skipReason = isCI ? false : skipUnlessDocker();
 
 const activeContainers: Container[] = [];
 let services: ServiceConnections = {};
+let internalAddresses: Partial<
+	Record<ServiceName, { host: string; port: number }>
+> = {};
 
 /* ------------------------------------------------------------------ */
 /*  Fixture discovery (runs at module load)                            */
@@ -142,6 +146,12 @@ describe.skipIf(skipReason)("e2e-docker", () => {
 				ssh: {
 					host: process.env.SSH_HOST ?? "127.0.0.1",
 					port: Number(process.env.SSH_PORT ?? 2222),
+				},
+			};
+			internalAddresses = {
+				redis: {
+					host: process.env.REDIS_INTERNAL_HOST ?? "127.0.0.1",
+					port: Number(process.env.REDIS_INTERNAL_PORT ?? 6379),
 				},
 			};
 			return;
@@ -211,6 +221,15 @@ describe.skipIf(skipReason)("e2e-docker", () => {
 			mysql: { host: mysql.host, port: mysql.port },
 			redis: { host: redis.host, port: redis.port },
 			ssh: { host: ssh.host, port: ssh.port },
+		};
+
+		// Internal Docker bridge IPs for tunnel tests (SSH container can reach
+		// other containers on the same bridge by their internal IP)
+		internalAddresses = {
+			redis: {
+				host: getContainerInternalIp(redis.containerId),
+				port: 6379,
+			},
 		};
 	}, 180_000);
 
@@ -289,10 +308,16 @@ function getServiceEnvVars(
 				env.MYSQL_HOST = conn.host;
 				env.MYSQL_PORT = String(conn.port);
 				break;
-			case "redis":
+			case "redis": {
 				env.REDIS_HOST = conn.host;
 				env.REDIS_PORT = String(conn.port);
+				const internal = internalAddresses.redis;
+				if (internal) {
+					env.REDIS_INTERNAL_HOST = internal.host;
+					env.REDIS_INTERNAL_PORT = String(internal.port);
+				}
 				break;
+			}
 			case "ssh":
 				env.SSH_HOST = conn.host;
 				env.SSH_PORT = String(conn.port);

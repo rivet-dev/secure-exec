@@ -3,6 +3,7 @@ Started: 2026-03-17
 PRD: ralph/kernel-hardening (46 stories)
 
 ## Codebase Patterns
+- Docker containers on default bridge can reach each other by internal IP (docker inspect IPAddress), not by 127.0.0.1 host-mapped ports — use getContainerInternalIp() for cross-container tunnel destinations
 - process.exit() inside bridge callbacks (childProcessDispatch, timer refs) causes unhandled ProcessExitError — always await a Promise from the callback, then call process.exit() at the top-level await
 - Bridge process.stdout.write strips trailing newlines — NDJSON capture helpers must join with '\n' to restore event delimiters
 - Native binary sandbox test pattern: createTestNodeRuntime + createHostCommandExecutor, sandbox code calls require('child_process').spawn(), env vars serialize through bridge JSON to host executor
@@ -2657,4 +2658,41 @@ PRD: ralph/kernel-hardening (46 stories)
   - The spec was originally written assuming Claude Code could run in-VM — always verify runtime constraints before planning sandbox strategies
   - Claude Code's SDK (sdk.mjs) is not a standalone runner; it always spawns cli.js as a subprocess with native .node dependencies
   - OpenCode is a compiled Bun ELF binary — no JS source to extract
+---
+
+## 2026-03-19 - US-016
+- Added SSH key-based authentication e2e-docker fixture
+- Generated test RSA keypair (test_rsa/test_rsa.pub) embedded in fixture and Dockerfile
+- Updated sshd.Dockerfile: enabled PubkeyAuthentication, COPY test_rsa.pub to authorized_keys
+- New fixture ssh2-key-auth connects with privateKey instead of password, runs conn.exec(), verifies parity
+- Files changed:
+  - packages/secure-exec/tests/e2e-docker/dockerfiles/sshd.Dockerfile (added pubkey auth + COPY)
+  - packages/secure-exec/tests/e2e-docker/dockerfiles/test_rsa.pub (new)
+  - packages/secure-exec/tests/e2e-docker/ssh2-key-auth/fixture.json (new)
+  - packages/secure-exec/tests/e2e-docker/ssh2-key-auth/package.json (new)
+  - packages/secure-exec/tests/e2e-docker/ssh2-key-auth/src/index.js (new)
+  - packages/secure-exec/tests/e2e-docker/ssh2-key-auth/keys/test_rsa (new)
+  - packages/secure-exec/tests/e2e-docker/ssh2-key-auth/keys/test_rsa.pub (new)
+- **Learnings for future iterations:**
+  - buildImage() uses path.dirname(dockerfilePath) as build context — public keys for COPY must be in the dockerfiles/ directory
+  - RSA key-based auth works through the sandbox crypto bridge without any additional fixes — sign()/createSign() already handle RSA key parsing
+  - Fixture pattern for key auth: read privateKey via fs.readFileSync, pass as Buffer to conn.connect({ privateKey })
+---
+
+## 2026-03-19 - US-017
+- Added SSH port forwarding / tunneling e2e-docker fixture
+- Fixture connects via SSH, uses conn.forwardOut() to tunnel to Redis container, sends raw PING, verifies +PONG response
+- Test infra discovers container internal IPs on Docker bridge via `docker inspect` for cross-container tunnel destinations
+- Files changed:
+  - packages/secure-exec/tests/e2e-docker/ssh2-tunnel/fixture.json (new)
+  - packages/secure-exec/tests/e2e-docker/ssh2-tunnel/package.json (new)
+  - packages/secure-exec/tests/e2e-docker/ssh2-tunnel/src/index.js (new)
+  - packages/secure-exec/tests/utils/docker.ts (added getContainerInternalIp helper)
+  - packages/secure-exec/tests/e2e-docker.test.ts (added internalAddresses, REDIS_INTERNAL_HOST/PORT env injection)
+- **Learnings for future iterations:**
+  - SSH forwardOut() works through the sandbox net bridge without any additional fixes — it uses the same TCP stream as the SSH connection (direct-tcpip channel over existing SSH protocol)
+  - Docker containers on the default bridge network can reach each other by internal IP (from `docker inspect`), not by 127.0.0.1 host-mapped ports
+  - getContainerInternalIp() in docker.ts resolves a container's bridge IP via `docker inspect -f '{{.NetworkSettings.IPAddress}}'`
+  - Raw Redis PING protocol: send "PING\r\n" (inline format), response is "+PONG\r\n"
+  - For tunnel fixtures, use REDIS_INTERNAL_HOST/PORT (container bridge IP + internal port), not REDIS_HOST/PORT (host-mapped)
 ---
