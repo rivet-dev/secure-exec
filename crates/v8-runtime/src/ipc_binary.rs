@@ -121,7 +121,7 @@ pub fn encode_frame_into(buf: &mut Vec<u8>, frame: &BinaryFrame) -> io::Result<(
     buf.clear();
     // Reserve 4 bytes for the length prefix (filled after body)
     buf.extend_from_slice(&[0, 0, 0, 0]);
-    encode_body(buf, frame);
+    encode_body(buf, frame)?;
 
     let total_len = buf.len() - 4;
     if total_len > MAX_FRAME_SIZE as usize {
@@ -192,7 +192,7 @@ pub fn extract_session_id(raw: &[u8]) -> io::Result<Option<&str>> {
 
 // -- Internal encode/decode --
 
-fn encode_body(buf: &mut Vec<u8>, frame: &BinaryFrame) {
+fn encode_body(buf: &mut Vec<u8>, frame: &BinaryFrame) -> io::Result<()> {
     match frame {
         BinaryFrame::Authenticate { token } => {
             buf.push(MSG_AUTHENTICATE);
@@ -206,17 +206,17 @@ fn encode_body(buf: &mut Vec<u8>, frame: &BinaryFrame) {
             cpu_time_limit_ms,
         } => {
             buf.push(MSG_CREATE_SESSION);
-            write_session_id(buf, session_id);
+            write_session_id(buf, session_id)?;
             buf.extend_from_slice(&heap_limit_mb.to_be_bytes());
             buf.extend_from_slice(&cpu_time_limit_ms.to_be_bytes());
         }
         BinaryFrame::DestroySession { session_id } => {
             buf.push(MSG_DESTROY_SESSION);
-            write_session_id(buf, session_id);
+            write_session_id(buf, session_id)?;
         }
         BinaryFrame::InjectGlobals { session_id, payload } => {
             buf.push(MSG_INJECT_GLOBALS);
-            write_session_id(buf, session_id);
+            write_session_id(buf, session_id)?;
             buf.extend_from_slice(payload);
         }
         BinaryFrame::Execute {
@@ -227,12 +227,10 @@ fn encode_body(buf: &mut Vec<u8>, frame: &BinaryFrame) {
             user_code,
         } => {
             buf.push(MSG_EXECUTE);
-            write_session_id(buf, session_id);
+            write_session_id(buf, session_id)?;
             buf.push(*mode);
             // file_path length (u16 BE)
-            let fp_bytes = file_path.as_bytes();
-            buf.extend_from_slice(&(fp_bytes.len() as u16).to_be_bytes());
-            buf.extend_from_slice(fp_bytes);
+            write_len_prefixed_u16(buf, file_path)?;
             // bridge_code length (u32 BE)
             let bc_bytes = bridge_code.as_bytes();
             buf.extend_from_slice(&(bc_bytes.len() as u32).to_be_bytes());
@@ -247,7 +245,7 @@ fn encode_body(buf: &mut Vec<u8>, frame: &BinaryFrame) {
             payload,
         } => {
             buf.push(MSG_BRIDGE_RESPONSE);
-            write_session_id(buf, session_id);
+            write_session_id(buf, session_id)?;
             buf.extend_from_slice(&call_id.to_be_bytes());
             buf.push(*status);
             buf.extend_from_slice(payload);
@@ -258,15 +256,13 @@ fn encode_body(buf: &mut Vec<u8>, frame: &BinaryFrame) {
             payload,
         } => {
             buf.push(MSG_STREAM_EVENT);
-            write_session_id(buf, session_id);
-            let et_bytes = event_type.as_bytes();
-            buf.extend_from_slice(&(et_bytes.len() as u16).to_be_bytes());
-            buf.extend_from_slice(et_bytes);
+            write_session_id(buf, session_id)?;
+            write_len_prefixed_u16(buf, event_type)?;
             buf.extend_from_slice(payload);
         }
         BinaryFrame::TerminateExecution { session_id } => {
             buf.push(MSG_TERMINATE_EXECUTION);
-            write_session_id(buf, session_id);
+            write_session_id(buf, session_id)?;
         }
         BinaryFrame::WarmSnapshot { bridge_code } => {
             buf.push(MSG_WARM_SNAPSHOT);
@@ -282,11 +278,9 @@ fn encode_body(buf: &mut Vec<u8>, frame: &BinaryFrame) {
             payload,
         } => {
             buf.push(MSG_BRIDGE_CALL);
-            write_session_id(buf, session_id);
+            write_session_id(buf, session_id)?;
             buf.extend_from_slice(&call_id.to_be_bytes());
-            let m_bytes = method.as_bytes();
-            buf.extend_from_slice(&(m_bytes.len() as u16).to_be_bytes());
-            buf.extend_from_slice(m_bytes);
+            write_len_prefixed_u16(buf, method)?;
             buf.extend_from_slice(payload);
         }
         BinaryFrame::ExecutionResult {
@@ -296,7 +290,7 @@ fn encode_body(buf: &mut Vec<u8>, frame: &BinaryFrame) {
             error,
         } => {
             buf.push(MSG_EXECUTION_RESULT);
-            write_session_id(buf, session_id);
+            write_session_id(buf, session_id)?;
             buf.extend_from_slice(&exit_code.to_be_bytes());
             let mut flags: u8 = 0;
             if exports.is_some() {
@@ -311,10 +305,10 @@ fn encode_body(buf: &mut Vec<u8>, frame: &BinaryFrame) {
                 buf.extend_from_slice(exp);
             }
             if let Some(err) = error {
-                write_len_prefixed_u16(buf, &err.error_type);
-                write_len_prefixed_u16(buf, &err.message);
-                write_len_prefixed_u16(buf, &err.stack);
-                write_len_prefixed_u16(buf, &err.code);
+                write_len_prefixed_u16(buf, &err.error_type)?;
+                write_len_prefixed_u16(buf, &err.message)?;
+                write_len_prefixed_u16(buf, &err.stack)?;
+                write_len_prefixed_u16(buf, &err.code)?;
             }
         }
         BinaryFrame::Log {
@@ -323,7 +317,7 @@ fn encode_body(buf: &mut Vec<u8>, frame: &BinaryFrame) {
             message,
         } => {
             buf.push(MSG_LOG);
-            write_session_id(buf, session_id);
+            write_session_id(buf, session_id)?;
             buf.push(*channel);
             buf.extend_from_slice(message.as_bytes());
         }
@@ -333,13 +327,12 @@ fn encode_body(buf: &mut Vec<u8>, frame: &BinaryFrame) {
             payload,
         } => {
             buf.push(MSG_STREAM_CALLBACK);
-            write_session_id(buf, session_id);
-            let ct_bytes = callback_type.as_bytes();
-            buf.extend_from_slice(&(ct_bytes.len() as u16).to_be_bytes());
-            buf.extend_from_slice(ct_bytes);
+            write_session_id(buf, session_id)?;
+            write_len_prefixed_u16(buf, callback_type)?;
             buf.extend_from_slice(payload);
         }
     }
+    Ok(())
 }
 
 fn decode_body(buf: &[u8]) -> io::Result<BinaryFrame> {
@@ -493,16 +486,30 @@ fn decode_body(buf: &[u8]) -> io::Result<BinaryFrame> {
 
 // -- Primitive read/write helpers --
 
-fn write_session_id(buf: &mut Vec<u8>, sid: &str) {
+fn write_session_id(buf: &mut Vec<u8>, sid: &str) -> io::Result<()> {
     let bytes = sid.as_bytes();
+    if bytes.len() > 255 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("session ID byte length {} exceeds u8 max 255", bytes.len()),
+        ));
+    }
     buf.push(bytes.len() as u8);
     buf.extend_from_slice(bytes);
+    Ok(())
 }
 
-fn write_len_prefixed_u16(buf: &mut Vec<u8>, s: &str) {
+fn write_len_prefixed_u16(buf: &mut Vec<u8>, s: &str) -> io::Result<()> {
     let bytes = s.as_bytes();
+    if bytes.len() > 0xFFFF {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("string byte length {} exceeds u16 max 65535", bytes.len()),
+        ));
+    }
     buf.extend_from_slice(&(bytes.len() as u16).to_be_bytes());
     buf.extend_from_slice(bytes);
+    Ok(())
 }
 
 fn read_u8(buf: &[u8], pos: &mut usize) -> io::Result<u8> {
@@ -1262,5 +1269,85 @@ mod tests {
         // Small frame again — capacity stays at high-water mark
         encode_frame_into(&mut buf, &small).expect("encode");
         assert_eq!(buf.capacity(), large_cap, "capacity should stay at high-water mark");
+    }
+
+    // -- Overflow guard tests --
+
+    #[test]
+    fn write_session_id_rejects_oversized() {
+        // Session ID > 255 bytes must be rejected
+        let long_sid = "x".repeat(256);
+        let frame = BinaryFrame::DestroySession {
+            session_id: long_sid,
+        };
+        let result = frame_to_bytes(&frame);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+        assert!(err.to_string().contains("session ID byte length"));
+        assert!(err.to_string().contains("255"));
+    }
+
+    #[test]
+    fn write_session_id_accepts_max() {
+        // Session ID of exactly 255 bytes must succeed
+        let max_sid = "a".repeat(255);
+        let frame = BinaryFrame::DestroySession {
+            session_id: max_sid.clone(),
+        };
+        let bytes = frame_to_bytes(&frame).expect("should accept 255-byte session ID");
+        let decoded = read_frame(&mut std::io::Cursor::new(&bytes)).expect("decode");
+        assert_eq!(decoded, frame);
+    }
+
+    #[test]
+    fn write_len_prefixed_u16_rejects_oversized() {
+        // String > 65535 bytes in a u16-prefixed field must be rejected
+        let long_method = "m".repeat(65536);
+        let frame = BinaryFrame::BridgeCall {
+            session_id: "s".into(),
+            call_id: 1,
+            method: long_method,
+            payload: vec![],
+        };
+        let result = frame_to_bytes(&frame);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+        assert!(err.to_string().contains("string byte length"));
+        assert!(err.to_string().contains("65535"));
+    }
+
+    #[test]
+    fn write_len_prefixed_u16_accepts_max() {
+        // String of exactly 65535 bytes in a u16-prefixed field must succeed
+        let max_method = "m".repeat(65535);
+        let frame = BinaryFrame::BridgeCall {
+            session_id: "s".into(),
+            call_id: 1,
+            method: max_method.clone(),
+            payload: vec![],
+        };
+        let bytes = frame_to_bytes(&frame).expect("should accept 65535-byte method");
+        let decoded = read_frame(&mut std::io::Cursor::new(&bytes)).expect("decode");
+        assert_eq!(decoded, frame);
+    }
+
+    #[test]
+    fn execute_file_path_rejects_oversized() {
+        // file_path > 65535 bytes must be rejected (encoded as u16)
+        let long_path = "/".repeat(65536);
+        let frame = BinaryFrame::Execute {
+            session_id: "s".into(),
+            mode: 0,
+            file_path: long_path,
+            bridge_code: "".into(),
+            user_code: "".into(),
+        };
+        let result = frame_to_bytes(&frame);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+        assert!(err.to_string().contains("65535"));
     }
 }

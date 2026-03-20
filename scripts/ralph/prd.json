@@ -1005,8 +1005,8 @@
         "Tests pass"
       ],
       "priority": 59,
-      "passes": false,
-      "notes": "PR review finding: Critical correctness bugs. readLenPrefixedU16 diverges on malformed UTF-8. fnv1aHash mismatch can cause stale bridge code on Rust side."
+      "passes": true,
+      "notes": "Fixed: readLenPrefixedU16 returns bytesRead from wire length instead of re-encoded string length; encodeSessionId throws on >255 bytes; writeLenPrefixedU16 throws on >65535 bytes; fnv1aHash hashes over UTF-8 bytes via Buffer.from()."
     },
     {
       "id": "US-070",
@@ -1023,8 +1023,8 @@
         "Typecheck passes"
       ],
       "priority": 60,
-      "passes": false,
-      "notes": "PR review finding: Silent truncation via 'as u8'/'as u16' casts corrupts frames."
+      "passes": true,
+      "notes": "Fixed: write_session_id returns error on >255 bytes; write_len_prefixed_u16 returns error on >65535 bytes; encode_body propagates errors; Execute file_path uses write_len_prefixed_u16; removed dead serialize_v8_args."
     },
     {
       "id": "US-071",

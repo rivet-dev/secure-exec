@@ -410,16 +410,6 @@ fn async_bridge_callback(
     rv.set(promise.into());
 }
 
-/// Serialize V8 function arguments as a V8 Array via ValueSerializer.
-fn serialize_v8_args(scope: &mut v8::HandleScope, args: &v8::FunctionCallbackArguments) -> Result<Vec<u8>, String> {
-    let count = args.length();
-    let array = v8::Array::new(scope, count);
-    for i in 0..count {
-        array.set_index(scope, i as u32, args.get(i));
-    }
-    serialize_v8_value(scope, array.into())
-}
-
 /// Serialize V8 function arguments into a pre-allocated buffer.
 /// The buffer is cleared and reused across calls (grows to high-water mark).
 fn serialize_v8_args_into(scope: &mut v8::HandleScope, args: &v8::FunctionCallbackArguments, buf: &mut Vec<u8>) -> Result<(), String> {
