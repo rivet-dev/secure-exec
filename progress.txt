@@ -3044,3 +3044,18 @@ PRD: ralph/kernel-hardening (46 stories)
   - Claude Code's nested process scenario (claude binary → tool subprocess) works transparently through the child_process bridge — no special handling needed
   - Multi-tool round-trips require 3+ mock LLM responses queued: tool_use(write), tool_use(read), text(final) — the mock server's sequential queue handles this automatically
 ---
+
+## 2026-03-20 - US-039
+- Implemented multi-turn agentic loop test for Pi inside sandbox VM
+- Files changed:
+  - packages/secure-exec/tests/cli-tools/pi-multi-turn.test.ts (new)
+  - scripts/ralph/prd.json (US-039 passes: true)
+- 3 tests:
+  1. Full agentic loop: read test → read source → write fix → run test (4 tool-use turns + final text)
+  2. State persistence: file written in turn 1 readable via bash cat in turn 2
+  3. Error recovery: bash failure in turn 1 doesn't break subsequent write+cat turns
+- **Learnings for future iterations:**
+  - extractToolResults() finds tool_result blocks across ALL captured request bodies — Anthropic's API accumulates conversation history, so earlier tool_results appear in later requests; use `toBeGreaterThanOrEqual` for count assertions, not strict equality
+  - The mock LLM sequential queue naturally handles multi-turn conversations: each POST advances the index by 1, so N tool-use turns + 1 final text = N+1 responses in the queue
+  - Host filesystem state persists across Pi session turns (within same createAgentSession) — no additional wiring needed
+---
