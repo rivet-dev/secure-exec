@@ -213,6 +213,7 @@
 | Command | just-bash | Status | Implementation | Target |
 |---------|-----------|--------|----------------|--------|
 | curl | yes | done | `curl_cli.c` (libcurl HTTP-only, C program via `host_net`) | — |
+| wget | yes | done | `wget.c` (libcurl-based, C program via `host_net`) | — |
 
 ## Deferred
 
@@ -252,8 +253,8 @@
 | Compression | 6 | 0 | 0 | 0 | 0 | 0 | 0 |
 | Shell Builtins | 0 | 0 | 0 | 0 | 0 | 11 | 0 |
 | Data Processing | 3 | 0 | 0 | 1 | 0 | 0 | 2 |
-| Network | 1 | 0 | 0 | 1 | 0 | 0 | 0 |
-| **Total** | **103** | **1** | **1** | **2** | **4** | **13** | **2** |
+| Network | 2 | 0 | 0 | 0 | 0 | 0 | 0 |
+| **Total** | **104** | **1** | **1** | **1** | **4** | **13** | **2** |
 
 ---
 

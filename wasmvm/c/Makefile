@@ -63,10 +63,10 @@ NATIVE_CFLAGS := -O0 -g -I include/
 COMMANDS_DIR ?= ../target/wasm32-wasip1/release/commands
 
 # Real commands to install (add command names as they are opted in)
-COMMANDS := zip unzip envsubst sqlite3 make curl
+COMMANDS := zip unzip envsubst sqlite3 make curl wget
 
 # Programs requiring patched sysroot (Tier 2+ custom host imports)
-PATCHED_PROGRAMS := isatty_test getpid_test getppid_test getppid_verify userinfo pipe_test dup_test spawn_child spawn_exit_code pipeline kill_child waitpid_return waitpid_edge syscall_coverage getpwuid_test signal_tests pipe_edge tcp_echo http_get dns_lookup sqlite3_cli make curl_test curl_cli
+PATCHED_PROGRAMS := isatty_test getpid_test getppid_test getppid_verify userinfo pipe_test dup_test spawn_child spawn_exit_code pipeline kill_child waitpid_return waitpid_edge syscall_coverage getpwuid_test signal_tests pipe_edge tcp_echo http_get dns_lookup sqlite3_cli make curl_test curl_cli wget
 
 # Discover all .c source files in programs/
 ALL_SOURCES := $(wildcard programs/*.c)
@@ -253,6 +253,19 @@ $(BUILD_DIR)/curl_cli: programs/curl_cli.c $(CURL_SRCS) $(WASI_SDK_DIR)/bin/clan
 $(NATIVE_DIR)/curl_cli: programs/curl_cli.c
 	@mkdir -p $(NATIVE_DIR)
 	$(NATIVE_CC) $(NATIVE_CFLAGS) -o $@ programs/curl_cli.c -lcurl
+
+# wget: minimal wget built on libcurl
+$(BUILD_DIR)/wget: programs/wget.c $(CURL_SRCS) $(WASI_SDK_DIR)/bin/clang
+	@mkdir -p $(BUILD_DIR)
+	$(CC) $(WASM_CFLAGS) $(CURL_DEFS) $(CURL_INCLUDES) \
+	    -lwasi-emulated-signal \
+	    -o $@.wasm programs/wget.c $(CURL_SRCS)
+	wasm-opt -O3 --strip-debug --all-features $@.wasm -o $@
+	@rm -f $@.wasm
+
+$(NATIVE_DIR)/wget: programs/wget.c
+	@mkdir -p $(NATIVE_DIR)
+	$(NATIVE_CC) $(NATIVE_CFLAGS) -o $@ programs/wget.c -lcurl
 
 # --- Compile all C programs to native binaries (for parity testing) ---
 

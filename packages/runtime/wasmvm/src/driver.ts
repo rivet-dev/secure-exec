@@ -66,7 +66,7 @@ export const WASMVM_COMMANDS: readonly string[] = [
   // Data Processing (C programs)
   'sqlite3',
   // Network (C programs)
-  'curl',
+  'curl', 'wget',
   // Build tools (C programs)
   'make',
   // Shim commands
@@ -179,8 +179,9 @@ export const DEFAULT_FIRST_PARTY_TIERS: Readonly<Record<string, PermissionTier>>
   'sha256sum': 'read-only',
   'tac': 'read-only',
   'tsort': 'read-only',
-  // Network — needs socket access for HTTP, can write with -o
+  // Network — needs socket access for HTTP, can write with -o/-O
   'curl': 'full',
+  'wget': 'full',
   // Data processing — need write for file-based databases
   'sqlite3': 'read-write',
 };
