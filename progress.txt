@@ -2922,3 +2922,18 @@ PRD: ralph/kernel-hardening (46 stories)
   - undici requires util/types which isn't bridged — this blocks Pi CLI interactive mode in the sandbox (Pi SDK headless mode works fine)
   - ProcessContext.isTTY carries TTY info from kernel to RuntimeDriver; ptyManager.isSlave() checks if FD is a PTY slave
 ---
+
+## 2026-03-20 - US-032
+- What was implemented: Claude Code SDK (ProcessTransport pattern) test inside sandbox
+- Files changed:
+  - packages/secure-exec/tests/cli-tools/claude-sdk.test.ts (NEW) — 6 E2E tests verifying SDK query pattern through sandbox child_process bridge
+  - packages/secure-exec/package.json — added @anthropic-ai/claude-code as devDependency
+  - pnpm-lock.yaml — lockfile update for new dependency
+- **Learnings for future iterations:**
+  - @anthropic-ai/claude-code v2.1.80 is a CLI-only package with no programmatic query() export — cli.js is minified and exports nothing when imported
+  - The SDK pattern (ProcessTransport) is: spawn `claude -p ... --output-format <format>` via child_process, collect stdout, parse response
+  - To test the SDK pipeline without a native SDK API, implement the ProcessTransport pattern manually in sandbox code — this exercises the exact same child_process bridge path
+  - Claude Code natively supports ANTHROPIC_BASE_URL env var — no fetch interceptor needed for mock LLM server
+  - stream-json output requires --verbose flag to produce NDJSON events
+  - Bridge strips trailing newlines from process.stdout.write() — use newline-join when reconstructing NDJSON
+---
