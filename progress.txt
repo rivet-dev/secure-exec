@@ -150,6 +150,9 @@ PRD: ralph/kernel-hardening (46 stories)
 - wrapNetworkAdapter creates a new object — any new NetworkAdapter methods MUST be explicitly forwarded through wrapNetworkAdapter or they'll be undefined at bridge-setup
 - UpgradeSocket.emit must use .call(this) — libraries like ws use `this[Symbol(...)]` in event callbacks requiring proper `this` binding
 - Server-side HTTP upgrade relay: driver.ts adds server.on('upgrade') → applySync dispatches to sandbox → sandbox Server._emit('upgrade') → ws handles handshake → UpgradeSocket relays data bidirectionally through bridge
+- Net bridge Socket follows child_process dispatch pattern: host→sandbox via applySync with try/catch for post-disposal safety
+- Moving a module from DEFERRED to BRIDGE requires 10+ file changes: module-resolver.ts, require-setup.ts, bridge-contract.ts, global-exposure.ts, permissions.ts, types.ts, bridge-setup.ts, driver.ts, plus new bridge/*.ts file
+- crypto.subtle.deriveBits (PBKDF2/HKDF) needed for pg SCRAM-SHA-256 auth — implement both in SandboxSubtle (require-setup.ts) and host dispatcher (bridge-setup.ts)
 
 ---
 
@@ -2828,4 +2831,27 @@ PRD: ralph/kernel-hardening (46 stories)
   - openssl days=0 generates a cert that expires at issuance — a 2s delay in beforeAll ensures the cert is actually expired when tests run
   - Self-signed cert (no CA in trust chain) with default rejectUnauthorized=true triggers SELF_SIGNED_CERT_IN_CHAIN
   - Hostname mismatch cert (SAN=wrong.example.com, connecting to 127.0.0.1) triggers ERR_TLS_CERT_ALTNAME_MISMATCH
+
+## 2026-03-19 - US-001 (cli-tool-sandbox-tests PRD)
+- What was implemented: TCP net bridge for sandbox, enabling pg library to connect through the sandbox to real Postgres
+- Also implemented: crypto.subtle.deriveBits (PBKDF2, HKDF) and deriveKey for SCRAM-SHA-256 authentication
+- Files changed:
+  - packages/secure-exec-core/src/bridge/net.ts — NEW: TCP Socket class with EventEmitter interface, host dispatch handler, isIP/isIPv4/isIPv6 utilities
+  - packages/secure-exec-core/src/bridge/index.ts — import and export net bridge
+  - packages/secure-exec-core/src/module-resolver.ts — moved net from DEFERRED to BRIDGE, added BUILTIN_NAMED_EXPORTS
+  - packages/secure-exec-core/src/shared/bridge-contract.ts — added host/runtime bridge globals for TCP socket
+  - packages/secure-exec-core/src/shared/global-exposure.ts — added custom global inventory entries
+  - packages/secure-exec-core/src/shared/permissions.ts — added TCP socket forwarding in wrapNetworkAdapter, connect op in stub
+  - packages/secure-exec-core/src/types.ts — added NetworkAdapter TCP methods, "connect" to NetworkAccessRequest.op
+  - packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts — removed net from deferred set, added bridge require handler, added SandboxSubtle.deriveBits/deriveKey
+  - packages/secure-exec-node/src/bridge-setup.ts — wired TCP socket bridge globals, lazy dispatch ref with try/catch for post-disposal events, added deriveBits/deriveKey to cryptoSubtle dispatcher
+  - packages/secure-exec-node/src/driver.ts — implemented real TCP socket management in createDefaultNetworkAdapter
+  - packages/secure-exec/tests/e2e-docker/pg-connect/fixture.json — changed expectation from fail to pass
+- **Learnings for future iterations:**
+  - Net bridge follows child_process dispatch pattern: host pushes events (data/connect/end/close/error) via applySync to sandbox dispatch function
+  - Socket events (end/close) can fire after isolate disposal — wrap dispatch callbacks in try/catch to silently drop late events
+  - pg uses crypto.subtle.deriveBits with PBKDF2 for SCRAM-SHA-256 auth — must implement both bridge-side (SandboxSubtle) and host-side (cryptoSubtleRef dispatcher)
+  - HKDF implementation requires manual HKDF-Extract (HMAC(salt, ikm)) then HKDF-Expand (iterated HMAC with counter byte)
+  - Moving a module from DEFERRED to BRIDGE requires changes in: module-resolver.ts (BRIDGE_MODULES, DEFERRED_CORE_MODULES, BUILTIN_NAMED_EXPORTS), require-setup.ts (deferred set, bridge require handler), bridge-contract.ts, global-exposure.ts, permissions.ts, types.ts, bridge-setup.ts, driver.ts
+  - createDefaultNetworkAdapter tracks TCP sockets in a Map<number, net.Socket> keyed by sandbox socketId
 ---
