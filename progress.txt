@@ -2706,3 +2706,18 @@ PRD: ralph/kernel-hardening (46 stories)
   - extract_session_id must be updated whenever a new connection-level message type is added
   - WarmSnapshot is fire-and-forget — host sends it and continues without waiting for response
 ---
+
+## 2026-03-19 - US-055
+- Wired SnapshotCache into session thread and connection handler
+- SessionManager now owns Arc<SnapshotCache> (shared across connections)
+- Session thread defers isolate creation from startup to first Execute (when bridge code is known for snapshot cache lookup)
+- On first Execute: snapshot_cache.get_or_create(bridge_code) → create_isolate_from_snapshot() with fallback to create_isolate() on failure
+- disable_wasm() called on every restored isolate (not captured in snapshot)
+- Connection handler processes WarmSnapshot messages via snapshot_cache.get_or_create() (fire-and-forget, no response)
+- main.rs creates global Arc<SnapshotCache>(max_entries=4) shared across all connections
+- Files changed: crates/v8-runtime/src/session.rs, crates/v8-runtime/src/main.rs
+- **Learnings for future iterations:**
+  - Deferred isolate creation (Option<OwnedIsolate>) requires updating all &mut v8_isolate references to use the unwrapped borrow (iso = v8_isolate.as_mut().unwrap())
+  - Drop cleanup for Option<OwnedIsolate> needs .take() instead of direct drop
+  - Pre-existing SIGSEGV on V8 teardown when multiple V8 test suites (snapshot, execution, bridge) run in same process — individual test suites all pass
+---

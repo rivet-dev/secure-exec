@@ -932,8 +932,8 @@
         "Tests pass"
       ],
       "priority": 55,
-      "passes": false,
-      "notes": "Spec: docs-internal/specs/v8-startup-snapshot.md. Isolate creation moves from session startup to first Execute (deferred until bridge code is known)."
+      "passes": true,
+      "notes": "Spec: docs-internal/specs/v8-startup-snapshot.md. Isolate creation deferred from session startup to first Execute. SessionManager owns Arc<SnapshotCache> shared with connection handler. Session thread uses snapshot_cache.get_or_create(bridge_code) on first Execute, falls back to create_isolate() on failure. disable_wasm() called on every restored isolate. WarmSnapshot handled in connection handler as fire-and-forget. All 87 V8 TS tests pass, all Rust tests pass (SIGSEGV on V8 teardown is pre-existing)."
     },
     {
       "id": "US-056",
