@@ -530,6 +530,35 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
     expect(wasm.stdout).toContain('test3_ret2_positive: yes');
   });
 
+  it.skipIf(tier3Skip)('pipe_edge: large write, broken pipe, EOF, close-both', async () => {
+    const native = await runNative('pipe_edge');
+    const wasm = await kernel.exec('pipe_edge');
+
+    expect(wasm.exitCode).toBe(native.exitCode);
+    expect(wasm.exitCode).toBe(0);
+    expect(normalizeStderr(wasm.stderr)).toBe(normalizeStderr(native.stderr));
+
+    // Test 1: large write (128KB > 64KB pipe buffer)
+    expect(wasm.stdout).toContain('large_write: ok');
+    expect(native.stdout).toContain('large_write: ok');
+    expect(wasm.stdout).toContain('large_write_bytes=131072');
+    expect(native.stdout).toContain('large_write_bytes=131072');
+
+    // Test 2: broken pipe — write to pipe with closed read end
+    expect(wasm.stdout).toContain('broken_pipe: ok');
+    expect(native.stdout).toContain('broken_pipe: ok');
+
+    // Test 3: EOF — read from pipe with closed write end
+    expect(wasm.stdout).toContain('eof_read: ok');
+    expect(native.stdout).toContain('eof_read: ok');
+    expect(wasm.stdout).toContain('eof_read_result=0');
+    expect(native.stdout).toContain('eof_read_result=0');
+
+    // Test 4: close both ends — no crash or leak
+    expect(wasm.stdout).toContain('close_both: ok');
+    expect(native.stdout).toContain('close_both: ok');
+  });
+
   // --- Capstone: syscall coverage (all tiers, patched sysroot) ---
 
   const hasSyscallCoverage = existsSync(join(C_BUILD_DIR, 'syscall_coverage'));
