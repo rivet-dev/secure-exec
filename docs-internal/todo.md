@@ -54,6 +54,17 @@ Priority order is:
 
 ## Priority 1: Compatibility and API Coverage
 
+- [ ] Add Node.js test suite and get it passing.
+  - Run the official Node.js test suite (or a curated subset) against secure-exec to systematically find compatibility gaps.
+  - Prioritize `test/parallel/` tests for core modules already bridged (fs, path, crypto, http, net, child_process, stream, buffer, events, url, util).
+  - Track pass/fail rates per module and use failures to drive bridge fixes.
+
+- [ ] Add support for forking and snapshotting.
+  - Enable isolate snapshots so a warm VM state (loaded modules, initialized globals) can be captured and restored without re-executing boot code.
+  - Investigate V8 snapshot support in isolated-vm and/or custom serialization of module cache + global state.
+  - Fork support: create a new execution context from an existing snapshot with copy-on-write semantics for the module cache.
+  - Key use cases: fast cold-start for serverless, checkpoint/restore for long-running agent sessions, parallel execution from a shared base state.
+
 - [ ] Fix `v8.serialize` and `v8.deserialize` to use V8 structured serialization semantics.
   - The current JSON-based behavior is observably wrong for `Map`, `Set`, `RegExp`, circular references, and other structured-clone cases.
   - Files: `packages/secure-exec/isolate-runtime/src/inject/bridge-initial-globals.ts`
