@@ -165,6 +165,8 @@ export async function createV8Runtime(
 		string,
 		(frame: BinaryFrame) => void
 	>();
+	// Per-session reject functions for rejecting in-flight execute() promises
+	const sessionRejects = new Map<string, (err: Error) => void>();
 
 	ipcClient = new IpcClient({
 		socketPath,
@@ -177,6 +179,12 @@ export async function createV8Runtime(
 		},
 		onClose: () => {
 			ipcClient = null;
+			// Reject all pending executions — the Rust process may have
+			// deadlocked without exiting, so we can't rely on the 'exit'
+			// event alone.
+			rejectPendingSessions(
+				new Error("IPC connection closed"),
+			);
 		},
 		onError: (err) => {
 			// Surface IPC errors as exit errors if process is still alive
@@ -220,7 +228,7 @@ export async function createV8Runtime(
 		}
 	}
 
-	/** Resolve all pending executions with a crash/exit error. */
+	/** Resolve all pending execute() promises with a crash/close error result. */
 	function rejectPendingSessions(error: Error): void {
 		const handlers = [...sessionHandlers.entries()];
 		for (const [sid, handler] of handlers) {
@@ -237,6 +245,15 @@ export async function createV8Runtime(
 				},
 			});
 		}
+		// Fallback: reject any sessions that weren't resolved by
+		// the synthetic ExecutionResult (e.g. handler not yet registered)
+		const rejects = [...sessionRejects.entries()];
+		for (const [sid, reject] of rejects) {
+			sessionHandlers.delete(sid);
+			sessionRejects.delete(sid);
+			reject(error);
+		}
+		updateSocketRef();
 	}
 
 	/** Ensure the process is alive, throw if crashed. */
@@ -300,7 +317,11 @@ export async function createV8Runtime(
 					});
 
 					// Set up result promise
-					return new Promise((resolve, _reject) => {
+					return new Promise((resolve, reject) => {
+						// Store reject so rejectPendingSessions can
+						// reject this promise on IPC close or process crash
+						sessionRejects.set(sessionId, reject);
+
 						// Register session message handler
 						sessionHandlers.set(sessionId, (frame) => {
 							switch (frame.type) {
@@ -369,8 +390,9 @@ export async function createV8Runtime(
 									break;
 								}
 								case "ExecutionResult": {
-									// Clean up handler and resolve
+									// Clean up handler and reject entry, then resolve
 									sessionHandlers.delete(sessionId);
+									sessionRejects.delete(sessionId);
 									updateSocketRef();
 									resolve({
 										code: frame.exitCode,
@@ -424,6 +446,7 @@ export async function createV8Runtime(
 
 				async destroy(): Promise<void> {
 					sessionHandlers.delete(sessionId);
+					sessionRejects.delete(sessionId);
 					updateSocketRef();
 					if (client.isConnected) {
 						client.send({

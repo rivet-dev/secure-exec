@@ -612,4 +612,40 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 
 		client.send({ type: "DestroySession", sessionId });
 	});
+
+	// --- Socket close rejects pending executions ---
+
+	it("closing IPC socket while execute() is in-flight rejects the promise", async () => {
+		runtime = await createV8Runtime({ binaryPath: BINARY_PATH! });
+		const session = await runtime.createSession();
+
+		// Start execution with a sync bridge call that will block
+		const execPromise = session.execute(
+			defaultExecOptions({
+				userCode: '_log("waiting");',
+				bridgeHandlers: {
+					_log: () => {
+						// Don't respond — leave the execution blocked
+						return new Promise(() => {});
+					},
+				},
+			}),
+		);
+
+		// Give the execution time to start and send the BridgeCall
+		await new Promise((r) => setTimeout(r, 300));
+
+		// Kill the Rust process to trigger IPC socket close
+		await runtime.dispose();
+
+		// The execute() promise should complete (not hang forever).
+		// It resolves with an error result when the process crashes/exits.
+		const result = await execPromise;
+		expect(result.code).toBe(1);
+		expect(result.error).toBeTruthy();
+		expect(result.error!.message).toMatch(/process|connection/i);
+
+		// Prevent afterEach from double-disposing
+		runtime = null;
+	});
 });
