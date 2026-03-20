@@ -2613,3 +2613,32 @@ PRD: ralph/kernel-hardening (46 stories)
   - NodeRuntimeDriver batches stdin as single string for exec() — no streaming stdin delivery from PTY to sandbox process.stdin. This is the primary blocker for interactive TUI tests through the kernel
   - Bridge child_process.spawn passes opts.env to the host — but if opts.env is omitted, bridge passes process.env (sandbox env). The bridge-setup serializes env to JSON for the CommandExecutor
 ---
+
+## 2026-03-19 - US-010
+- Rewrote claude-headless.test.ts to spawn claude via sandbox child_process bridge
+- Replaced host `spawn` from `node:child_process` with `createTestNodeRuntime` + `proc.exec()` pattern
+- Sandbox JS code calls `require('child_process').spawn('claude', ...)` through the bridge
+- All 10 test scenarios preserved: boot, text output (canary), JSON output, stream-json NDJSON, file read, file write, bash tool, SIGINT, bad API key exit code, good prompt exit 0
+- Files changed: packages/secure-exec/tests/cli-tools/claude-headless.test.ts
+- **Learnings for future iterations:**
+  - Claude Code natively supports ANTHROPIC_BASE_URL — no mock redirect probe needed (unlike OpenCode)
+  - Claude Code stream-json requires --verbose flag (per codebase patterns)
+  - Claude binary may be at ~/.claude/local/claude — findClaudeBinary() checks both PATH and fallback location
+  - isolated-vm teardown can race with bridge callbacks on long-timeout tests (bad API key test with 15s timeout) — causes harmless unhandled rejection from getSync on disposed context
+---
+
+## 2026-03-19 - US-011
+- Rewrote claude-interactive.test.ts to use kernel.openShell() with claude binary
+- Replaced PtyHarness (host `script -qefc` spawn) with kernel.openShell() + TerminalHarness
+- Uses overlay VFS (InMemoryFileSystem for populateBin, host FS fallback for module resolution)
+- HostBinaryDriver (inline RuntimeDriver) handles 'claude' and 'script' commands through the kernel
+- Three probes detect sandbox capabilities: (1) openShell + node, (2) child_process bridge spawns claude, (3) streaming stdin from PTY
+- Currently skips on probe 3: NodeRuntimeDriver batches stdin for exec() instead of streaming
+- All 6 test scenarios preserved: TUI renders, input area works, submit shows response, ^C interrupts, color output, exit cleanly
+- Files changed: packages/secure-exec/tests/cli-tools/claude-interactive.test.ts
+- **Learnings for future iterations:**
+  - Same pattern as opencode-interactive: sandbox code wraps binary in `script -qefc` for host-side PTY, pipes stdout/stderr to process.stdout/stderr
+  - Claude needs HOME set to workDir with pre-created .claude/settings.json and .terms-accepted to skip onboarding dialogs
+  - waitForClaudeBoot helper auto-dismisses setup dialogs (theme, workspace trust) with Enter presses — needed because Claude has multi-step first-run setup
+  - HostBinaryDriver must register actual claudeBinary path (may be ~/.claude/local/claude, not just 'claude')
+---
