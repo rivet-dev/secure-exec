@@ -949,8 +949,8 @@
         "Tests pass"
       ],
       "priority": 56,
-      "passes": false,
-      "notes": "Spec: docs-internal/specs/v8-startup-snapshot.md. composeBridgeCodeForWarmup uses timingMitigation='none' and default maxTimers/maxHandles/cwd/payloadLimit. Fire-and-forget — host does not wait for response."
+      "passes": true,
+      "notes": "Spec: docs-internal/specs/v8-startup-snapshot.md. composeBridgeCodeForWarmup uses timingMitigation='none' and default maxTimers/maxHandles/cwd/payloadLimit. Fire-and-forget — host does not wait for response. warmupBridgeCode passed via V8RuntimeOptions; runtime.ts sends WarmSnapshot after authenticate() unless SECURE_EXEC_NO_SNAPSHOT_WARMUP=1."
     },
     {
       "id": "US-057",
