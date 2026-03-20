@@ -316,16 +316,21 @@ static void test_host_process(void) {
 /* ========== host_user imports ========== */
 
 static void test_host_user(void) {
-    /* These calls verify the host imports exist and don't trap.
-     * uid_t/gid_t are unsigned — always >= 0. The real test is that
-     * the WASM binary links and runs without WebAssembly.LinkError. */
-    (void)getuid();  OK("getuid");
-    (void)getgid();  OK("getgid");
-    (void)geteuid(); OK("geteuid");
-    (void)getegid(); OK("getegid");
+    /* Validate actual return values, not just linkage */
+    uid_t u = getuid();
+    TEST("getuid", u > 0, "expected positive uid");
+
+    gid_t g = getgid();
+    TEST("getgid", g > 0, "expected positive gid");
+
+    uid_t eu = geteuid();
+    TEST("geteuid", eu > 0, "expected positive euid");
+
+    gid_t eg = getegid();
+    TEST("getegid", eg > 0, "expected positive egid");
 
     /* When piped (not PTY), isatty returns 0 */
-    TEST("isatty", isatty(STDIN_FILENO) == 0, "stdin reported as tty when piped");
+    TEST("isatty_stdin", isatty(STDIN_FILENO) == 0, "stdin should not be tty when piped");
 
     /* getpwuid — verify passwd entry for uid 1000 */
     struct passwd *pw = getpwuid(1000);

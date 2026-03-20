@@ -519,8 +519,11 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
     expect(native.exitCode).toBe(0);
     expect(wasm.exitCode).toBe(0);
 
-    // Compare structured output line by line
-    expect(wasm.stdout).toBe(native.stdout);
+    // Compare structured output — normalize host_user lines whose values
+    // differ between native (real OS uid) and WASM (always 1000)
+    const normalizeSyscallCoverage = (out: string) =>
+      out.replace(/^(getuid|getgid|geteuid|getegid): ok$/gm, '$1: ok');
+    expect(normalizeSyscallCoverage(wasm.stdout)).toBe(normalizeSyscallCoverage(native.stdout));
     expect(normalizeStderr(wasm.stderr)).toBe(normalizeStderr(native.stderr));
 
     // Verify all expected syscalls are tested
@@ -535,7 +538,7 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
       // host_process
       'pipe', 'dup', 'dup2', 'getpid', 'getppid', 'spawn_waitpid', 'kill',
       // host_user
-      'getuid', 'getgid', 'geteuid', 'getegid', 'isatty', 'getpwuid',
+      'getuid', 'getgid', 'geteuid', 'getegid', 'isatty_stdin', 'getpwuid',
     ];
     for (const name of expectedSyscalls) {
       expect(wasm.stdout).toContain(`${name}: ok`);
