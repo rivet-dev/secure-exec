@@ -100,11 +100,10 @@ type ServiceConnection = { host: string; port: number };
 type ServiceConnections = Partial<Record<ServiceName, ServiceConnection>>;
 
 /* ------------------------------------------------------------------ */
-/*  CI mode and skip logic                                             */
+/*  Skip logic                                                         */
 /* ------------------------------------------------------------------ */
 
-const isCI = process.env.E2E_DOCKER_CI === "true";
-const skipReason = isCI ? false : skipUnlessDocker();
+const skipReason = skipUnlessDocker();
 
 /* ------------------------------------------------------------------ */
 /*  Container lifecycle state                                          */
@@ -128,35 +127,6 @@ const discoveredFixtures = await discoverFixtures();
 
 describe.skipIf(skipReason)("e2e-docker", () => {
 	beforeAll(async () => {
-		if (isCI) {
-			// CI manages containers via GitHub Actions services
-			services = {
-				postgres: {
-					host: process.env.PG_HOST ?? "127.0.0.1",
-					port: Number(process.env.PG_PORT ?? 5432),
-				},
-				mysql: {
-					host: process.env.MYSQL_HOST ?? "127.0.0.1",
-					port: Number(process.env.MYSQL_PORT ?? 3306),
-				},
-				redis: {
-					host: process.env.REDIS_HOST ?? "127.0.0.1",
-					port: Number(process.env.REDIS_PORT ?? 6379),
-				},
-				ssh: {
-					host: process.env.SSH_HOST ?? "127.0.0.1",
-					port: Number(process.env.SSH_PORT ?? 2222),
-				},
-			};
-			internalAddresses = {
-				redis: {
-					host: process.env.REDIS_INTERNAL_HOST ?? "127.0.0.1",
-					port: Number(process.env.REDIS_INTERNAL_PORT ?? 6379),
-				},
-			};
-			return;
-		}
-
 		// Build custom images
 		const sshdDockerfile = path.join(
 			FIXTURES_ROOT,
@@ -246,7 +216,6 @@ describe.skipIf(skipReason)("e2e-docker", () => {
 	}, 180_000);
 
 	afterAll(() => {
-		if (isCI) return;
 		for (const container of activeContainers) {
 			container.stop();
 		}
