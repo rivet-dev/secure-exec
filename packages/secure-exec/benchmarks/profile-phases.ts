@@ -7,7 +7,7 @@ import {
 	createNodeDriver,
 	createNodeRuntimeDriverFactory,
 	createNodeV8Runtime,
-} from "@secure-exec/node";
+} from "../src/index.js";
 
 const TRIVIAL_CODE = `export const x = 1;`;
 const RUNS = 30;
