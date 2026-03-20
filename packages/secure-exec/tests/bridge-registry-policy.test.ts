@@ -44,12 +44,15 @@ describe("bridge registry policy", () => {
 			"src/execution-driver.ts",
 			"src/bridge-setup.ts",
 			"src/esm-compiler.ts",
+			"src/bridge-handlers.ts",
 		];
 		const source = nodeModulePaths.map(readNodeSource).join("\n");
-		expect(source).toContain("HOST_BRIDGE_GLOBAL_KEYS.dynamicImport");
-		expect(source).toContain("HOST_BRIDGE_GLOBAL_KEYS.networkFetchRaw");
-		expect(source).toContain("HOST_BRIDGE_GLOBAL_KEYS.childProcessSpawnStart");
-		expect(source).toContain("HOST_BRIDGE_GLOBAL_KEYS.processConfig");
+		// Verify HOST_BRIDGE_GLOBAL_KEYS is imported and used (may be aliased as K)
+		expect(source).toContain("HOST_BRIDGE_GLOBAL_KEYS");
+		expect(source).toMatch(/(?:HOST_BRIDGE_GLOBAL_KEYS|K)\.dynamicImport/);
+		expect(source).toMatch(/(?:HOST_BRIDGE_GLOBAL_KEYS|K)\.networkFetchRaw/);
+		expect(source).toMatch(/(?:HOST_BRIDGE_GLOBAL_KEYS|K)\.childProcessSpawnStart/);
+		expect(source).toMatch(/(?:HOST_BRIDGE_GLOBAL_KEYS|K)\.processConfig/);
 
 		for (const key of HOST_BRIDGE_GLOBAL_KEY_LIST) {
 			expect(source).not.toContain(`jail.set(\"${key}\"`);

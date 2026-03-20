@@ -1,0 +1,189 @@
+---
+title: Process Isolation
+description: Configure V8 process topology to control crash blast radius and resource partitioning.
+---
+
+By default, all `NodeRuntime` instances share a single V8 child process. Every `exec()` or `run()` call creates a session (separate V8 isolate on a separate OS thread), but all sessions live in the same OS process.
+
+This is efficient — one process, one UDS connection, shared startup cost — but it means a V8 OOM or crash in **any** session kills **all** sessions across **all** runtimes.
+
+Process isolation lets you control the blast radius by placing runtimes in separate V8 processes.
+
+## What process isolation means
+
+Each V8 process has its own:
+
+- **Memory space** — a crash or heap corruption in one process cannot affect another.
+- **File descriptor table** — no FD leakage between processes.
+- **Signal handlers** — `SIGSEGV` in one process doesn't reach another.
+- **Crash domain** — if the process dies, only its sessions are affected.
+
+## When to use it
+
+- **Multi-tenant hosting** — isolate Tenant A's executions from Tenant B's at the process level so a crash from one tenant cannot disrupt another.
+- **Untrusted code from different security domains** — code from different sources should not share crash fate.
+- **High OOM risk workloads** — workloads that frequently hit memory limits benefit from a smaller blast radius.
+
+For single-tenant or low-risk workloads, the default shared process is simpler and more memory-efficient.
+
+## Topology options
+
+### Shared (default)
+
+All runtimes use the global shared V8 process. No configuration needed.
+
+```
+NodeRuntime A ─┐
+NodeRuntime B ─┤── Global V8 Process (sessions: A1, B1, C1)
+NodeRuntime C ─┘
+```
+
+```ts
+import {
+  NodeRuntime,
+  createNodeDriver,
+  createNodeRuntimeDriverFactory,
+} from "@secure-exec/node";
+
+const rt = new NodeRuntime({
+  systemDriver: createNodeDriver(),
+  runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+});
+```
+
+### Per-tenant
+
+Multiple runtimes share a dedicated V8 process. Crash in this process affects only the runtimes attached to it.
+
+```
+NodeRuntime A ─┐── Tenant 1 Process (sessions: A1, B1)
+NodeRuntime B ─┘
+NodeRuntime C ──── Tenant 2 Process (sessions: C1)
+```
+
+```ts
+import { createV8Runtime } from "@secure-exec/v8";
+import {
+  NodeRuntime,
+  createNodeDriver,
+  createNodeRuntimeDriverFactory,
+} from "@secure-exec/node";
+
+// Create a dedicated process for this tenant
+const tenantProcess = await createV8Runtime({ maxSessions: 10 });
+
+const rt1 = new NodeRuntime({
+  systemDriver: createNodeDriver(),
+  runtimeDriverFactory: createNodeRuntimeDriverFactory({ v8Runtime: tenantProcess }),
+});
+
+const rt2 = new NodeRuntime({
+  systemDriver: createNodeDriver(),
+  runtimeDriverFactory: createNodeRuntimeDriverFactory({ v8Runtime: tenantProcess }),
+});
+
+// rt1 and rt2 share tenantProcess, isolated from the global process
+```
+
+### Per-runtime
+
+Each runtime gets its own V8 process. Maximum isolation — a crash affects only one runtime.
+
+```
+NodeRuntime A ──── Process A (session: A1)
+NodeRuntime B ──── Process B (session: B1)
+```
+
+```ts
+import { createV8Runtime } from "@secure-exec/v8";
+import {
+  NodeRuntime,
+  createNodeDriver,
+  createNodeRuntimeDriverFactory,
+} from "@secure-exec/node";
+
+const processA = await createV8Runtime();
+const processB = await createV8Runtime();
+
+const rtA = new NodeRuntime({
+  systemDriver: createNodeDriver(),
+  runtimeDriverFactory: createNodeRuntimeDriverFactory({ v8Runtime: processA }),
+});
+
+const rtB = new NodeRuntime({
+  systemDriver: createNodeDriver(),
+  runtimeDriverFactory: createNodeRuntimeDriverFactory({ v8Runtime: processB }),
+});
+```
+
+## Trade-offs
+
+| Topology | Memory cost | Crash blast radius | Startup cost |
+|---|---|---|---|
+| Shared (default) | ~30-50 MB total | All sessions | One-time |
+| Per-tenant | ~30-50 MB per tenant | One tenant's sessions | Per tenant |
+| Per-runtime | ~30-50 MB per runtime | One runtime's sessions | Per runtime |
+
+Choose based on your isolation requirements. The shared topology is the most memory-efficient. Per-tenant balances isolation with resource usage. Per-runtime provides the strongest isolation at the highest cost.
+
+## Resource limits
+
+`maxSessions` controls the maximum number of concurrent sessions (isolates) within a single V8 process. It applies per-process, not globally.
+
+```ts
+// This process allows up to 5 concurrent sessions
+const process = await createV8Runtime({ maxSessions: 5 });
+
+// Both runtimes share the 5-session budget
+const rt1 = new NodeRuntime({
+  systemDriver: createNodeDriver(),
+  runtimeDriverFactory: createNodeRuntimeDriverFactory({ v8Runtime: process }),
+});
+
+const rt2 = new NodeRuntime({
+  systemDriver: createNodeDriver(),
+  runtimeDriverFactory: createNodeRuntimeDriverFactory({ v8Runtime: process }),
+});
+```
+
+Per-execution resource limits (`memoryLimit`, `cpuTimeLimitMs`) still apply per-session regardless of topology. See [Resource Limits](/features/resource-limits) for details.
+
+## Crash behavior
+
+When a V8 process crashes (OOM, segfault, panic):
+
+1. **Only sessions in that process are affected.** Sessions in other processes continue running.
+2. **Affected sessions receive an `ERR_V8_PROCESS_CRASH` error.** The host process remains alive.
+3. **New sessions cannot be created on the crashed process.** Create a new `V8Runtime` to recover.
+
+```ts
+const process = await createV8Runtime();
+const factory = createNodeRuntimeDriverFactory({ v8Runtime: process });
+
+const rt = new NodeRuntime({
+  systemDriver: createNodeDriver(),
+  runtimeDriverFactory: factory,
+  memoryLimit: 8, // small heap to trigger OOM
+});
+
+const result = await rt.exec("const a = []; while(true) a.push(new Array(1e6))");
+// result.errorMessage includes ERR_V8_PROCESS_CRASH
+// Host process is still alive
+```
+
+Runtimes using the default shared process share crash fate — if the global process dies, all runtimes are affected. Use explicit `createV8Runtime()` handles to control which runtimes share a crash domain.
+
+## Lifecycle
+
+The caller owns the `V8Runtime` handle and is responsible for disposing it when done.
+
+```ts
+const process = await createV8Runtime();
+
+// ... use process ...
+
+// Clean up — sends SIGTERM to the child process
+await process.dispose();
+```
+
+The global shared runtime is disposed automatically on process exit. Disposing a `V8Runtime` while sessions are active causes those sessions to receive `ERR_V8_PROCESS_CRASH` errors.

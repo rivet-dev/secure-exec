@@ -116,6 +116,17 @@ declare global {
 	var __runtimeCommonJsFileConfig: RuntimeCommonJsFileConfig | undefined;
 	var __runtimeTimingMitigationConfig: RuntimeTimingMitigationConfig | undefined;
 	var __runtimeCustomGlobalPolicy: RuntimeCustomGlobalPolicy | undefined;
+	var __runtimeJsonPayloadLimitBytes: number | undefined;
+	var __runtimePayloadLimitErrorCode: string | undefined;
+	var __runtimeApplyConfig:
+		| ((config: {
+				timingMitigation?: string;
+				frozenTimeMs?: number;
+				payloadLimitBytes?: number;
+				payloadLimitErrorCode?: string;
+		  }) => void)
+		| undefined;
+	var __runtimeResetProcessState: (() => void) | undefined;
 	var __runtimeProcessCwdOverride: unknown;
 	var __runtimeProcessEnvOverride: unknown;
 	var __runtimeStdinData: unknown;

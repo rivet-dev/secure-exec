@@ -1289,26 +1289,7 @@
       declare const _loadFileSync: { applySync(recv: undefined, args: [string]): string | null } | undefined;
 
       function _resolveFrom(moduleName, fromDir) {
-        const cacheKey = fromDir + '\0' + moduleName;
-        if (cacheKey in _resolveCache) {
-          const cached = _resolveCache[cacheKey];
-          if (cached === null) {
-            const err = new Error("Cannot find module '" + moduleName + "'");
-            err.code = 'MODULE_NOT_FOUND';
-            throw err;
-          }
-          return cached;
-        }
-        // Use synchronous resolution when available (always works, even inside
-        // applySync contexts like net socket data callbacks). Fall back to
-        // applySyncPromise for environments without the sync bridge.
-        let resolved;
-        if (typeof _resolveModuleSync !== 'undefined') {
-          resolved = _resolveModuleSync.applySync(undefined, [moduleName, fromDir]);
-        } else {
-          resolved = _resolveModule.applySyncPromise(undefined, [moduleName, fromDir]);
-        }
-        _resolveCache[cacheKey] = resolved;
+        const resolved = _resolveModule(moduleName, fromDir);
         if (resolved === null) {
           const err = new Error("Cannot find module '" + moduleName + "'");
           err.code = 'MODULE_NOT_FOUND';
@@ -1672,10 +1653,7 @@
         }
 
         // Try to load polyfill first (for built-in modules like path, events, etc.)
-        // Skip for relative/absolute paths — they're never polyfills and the
-        // applySyncPromise call can't run inside applySync contexts.
-        const isPath = name[0] === '.' || name[0] === '/';
-        const polyfillCode = isPath ? null : _loadPolyfill.applySyncPromise(undefined, [name]);
+        const polyfillCode = _loadPolyfill(name);
         if (polyfillCode !== null) {
           if (__internalModuleCache[name]) return __internalModuleCache[name];
 
@@ -1726,14 +1704,8 @@
           return _pendingModules[cacheKey].exports;
         }
 
-        // Load file content. Use synchronous loading when available (works
-        // inside applySync contexts). Fall back to applySyncPromise otherwise.
-        let source;
-        if (typeof _loadFileSync !== 'undefined') {
-          source = _loadFileSync.applySync(undefined, [resolved]);
-        } else {
-          source = _loadFile.applySyncPromise(undefined, [resolved]);
-        }
+        // Load file content
+        const source = _loadFile(resolved);
         if (source === null) {
           const err = new Error("Cannot find module '" + resolved + "'");
           err.code = 'MODULE_NOT_FOUND';

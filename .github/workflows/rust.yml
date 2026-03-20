@@ -1,0 +1,100 @@
+name: Rust
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "crates/v8-runtime/**"
+      - ".github/workflows/rust.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "crates/v8-runtime/**"
+      - ".github/workflows/rust.yml"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            npm-dir: linux-x64-gnu
+            binary: secure-exec-v8
+            test: true
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            npm-dir: linux-arm64-gnu
+            binary: secure-exec-v8
+            cross: true
+          - target: x86_64-apple-darwin
+            os: macos-13
+            npm-dir: darwin-x64
+            binary: secure-exec-v8
+            test: true
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            npm-dir: darwin-arm64
+            binary: secure-exec-v8
+            test: true
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            npm-dir: win32-x64
+            binary: secure-exec-v8.exe
+            test: true
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.85.0"
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            crates/v8-runtime/target
+          key: rust-${{ matrix.target }}-${{ hashFiles('crates/v8-runtime/Cargo.lock') }}
+          restore-keys: |
+            rust-${{ matrix.target }}-
+
+      # Cross-compilation toolchain for linux-arm64
+      - name: Install cross-compilation tools
+        if: matrix.cross
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+      - name: Configure cross-compilation linker
+        if: matrix.cross
+        working-directory: crates/v8-runtime
+        run: |
+          mkdir -p .cargo
+          cat > .cargo/config.toml <<'EOF'
+          [target.aarch64-unknown-linux-gnu]
+          linker = "aarch64-linux-gnu-gcc"
+          EOF
+
+      - name: Build
+        working-directory: crates/v8-runtime
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Run tests
+        if: matrix.test
+        working-directory: crates/v8-runtime
+        run: cargo test --release --target ${{ matrix.target }}
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: v8-${{ matrix.npm-dir }}
+          path: crates/v8-runtime/target/${{ matrix.target }}/release/${{ matrix.binary }}

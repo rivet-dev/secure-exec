@@ -1,0 +1,551 @@
+{
+  "project": "secure-exec",
+  "branchName": "ralph/v8-runtime",
+  "description": "Replace isolated-vm with a Rust binary (rusty_v8) running as a separate process, communicating over Unix domain socket with length-prefixed MessagePack IPC",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Scaffold Rust crate with dependencies and module stubs",
+      "description": "As a developer, I need the crates/v8-runtime/ directory with Cargo.toml, dependency declarations (rusty_v8, rmp-serde, serde, crossbeam-channel), and empty module files matching the crate structure from the spec.",
+      "acceptanceCriteria": [
+        "crates/v8-runtime/Cargo.toml exists with v8, rmp-serde, serde (derive), crossbeam-channel dependencies",
+        "Empty src/ files exist: main.rs, ipc.rs, isolate.rs, execution.rs, bridge.rs, host_call.rs, timeout.rs, stream.rs",
+        "cargo check succeeds with no errors",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "Define IPC message types as Rust structs with serde",
+      "description": "As a developer, I need all Host→Rust and Rust→Host message types defined as Rust enums/structs with serde Serialize/Deserialize so they can be used throughout the crate.",
+      "acceptanceCriteria": [
+        "ipc.rs defines enums for HostMessage (CreateSession, DestroySession, Execute, InjectGlobals, BridgeResponse, StreamEvent, TerminateExecution) and RustMessage (BridgeCall, ExecutionResult, Log, StreamCallback)",
+        "All fields match the spec (session_id, call_id, method, args, etc.)",
+        "ExecutionResult error field is a structured object (type, message, stack, code), not a plain string",
+        "Unit tests verify round-trip MessagePack serialize/deserialize for each message type",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "Implement length-prefixed MessagePack framing",
+      "description": "As a developer, I need read/write functions for length-prefixed MessagePack framing (4-byte u32 big-endian length prefix + payload) with a 64MB message size limit.",
+      "acceptanceCriteria": [
+        "ipc.rs has write_message() and read_message() functions operating on Read/Write traits",
+        "Messages are framed as [4-byte u32 BE length][N-byte MessagePack payload]",
+        "read_message() rejects any length prefix above 64MB and returns an error",
+        "Unit tests verify framing round-trip and size limit rejection",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "Implement V8 platform init and isolate lifecycle",
+      "description": "As a developer, I need V8 platform initialization (single shared platform) and isolate lifecycle management: create isolate with optional heap limit, create context, and destroy.",
+      "acceptanceCriteria": [
+        "isolate.rs initializes V8 platform once (lazy_static or OnceCell)",
+        "create_isolate() creates a v8::Isolate with optional heap_limit_mb via set_heap_limit()",
+        "create_context() creates a v8::Context on the isolate",
+        "destroy cleans up isolate and context properly",
+        "Unit test creates and destroys 3 isolates sequentially without crash",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-005",
+      "title": "Implement UDS listener with socket path security",
+      "description": "As a developer, I need main.rs to create a Unix domain socket in a mkdtemp directory with 0700 permissions, accept connections, and clean up on exit.",
+      "acceptanceCriteria": [
+        "main.rs creates tmpdir with mkdtemp and 128-bit random suffix for socket path",
+        "Socket directory has 0700 permissions set via fchmod after bind, before listen",
+        "Socket path is printed to stdout so the host process can read it",
+        "Graceful shutdown on SIGTERM closes the listener and removes the socket file",
+        "cargo build succeeds",
+        "Typecheck passes"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "Implement connection authentication handshake",
+      "description": "As a developer, I need the Rust process to read a one-time auth token from an environment variable and require the first message on any connection to present this token, rejecting unauthenticated connections.",
+      "acceptanceCriteria": [
+        "Auth token is read from SECURE_EXEC_V8_TOKEN environment variable on startup",
+        "First message on each connection must be an Authenticate message containing the token",
+        "Connections that fail authentication are closed immediately",
+        "Authenticated connections proceed to normal message handling",
+        "Unit test verifies rejection of bad token",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "Implement session management (create/destroy)",
+      "description": "As a developer, I need the main listener to handle CreateSession and DestroySession messages: spawning a dedicated thread per session with its own isolate, and tracking sessions by 128-bit nonce bound to the connection that created them.",
+      "acceptanceCriteria": [
+        "CreateSession spawns a new OS thread with a V8 isolate for the session",
+        "Session IDs are 128-bit nonces (u128), not sequential",
+        "Sessions are bound to the connection that created them; other connections cannot interact with them",
+        "DestroySession terminates the session thread and destroys the isolate",
+        "Max concurrency is configurable (default: num_cpus), excess sessions are queued",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "Implement InjectGlobals and V8 context hardening",
+      "description": "As a developer, I need InjectGlobals to set _processConfig and _osConfig as frozen, non-writable, non-configurable properties on the V8 global, and harden the context by removing SharedArrayBuffer (when timing_mitigation is freeze) and disabling WASM.",
+      "acceptanceCriteria": [
+        "_processConfig (cwd, env, timing_mitigation, frozen_time_ms) is set as frozen global property",
+        "_osConfig (homedir, tmpdir, platform, arch) is set as frozen global property",
+        "SharedArrayBuffer is removed from global when timing_mitigation is 'freeze'",
+        "WASM compilation is disabled via SetAllowWasmCodeGenerationCallback returning false",
+        "Properties are non-writable and non-configurable (Object.defineProperty with writable:false, configurable:false)",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "Implement sync-blocking bridge call host functions",
+      "description": "As a developer, I need bridge host functions (registered via v8::FunctionTemplate) that serialize a BridgeCall to IPC, block on socket.read() for the BridgeResponse, deserialize, and return the result to V8 synchronously.",
+      "acceptanceCriteria": [
+        "bridge.rs registers host functions via v8::FunctionTemplate::New()",
+        "host_call.rs implements sync-blocking: serialize BridgeCall, write to socket, block on read(), deserialize BridgeResponse",
+        "Return value from BridgeResponse is converted back to a V8 value and returned",
+        "Error responses throw a V8 exception",
+        "call_id is tracked in a pending-call map; duplicates are rejected",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-010",
+      "title": "Implement async promise-returning bridge calls",
+      "description": "As a developer, I need bridge host functions that return a Promise: create a PromiseResolver, store it with the call_id, send BridgeCall non-blocking, and resolve/reject when BridgeResponse arrives.",
+      "acceptanceCriteria": [
+        "Async host function creates v8::PromiseResolver, stores resolver + call_id in pending-promises map",
+        "BridgeCall is sent over IPC via non-blocking write",
+        "Function returns resolver.get_promise() to V8",
+        "When BridgeResponse arrives, the correct resolver is found by call_id and resolved/rejected",
+        "Microtasks are flushed after resolution",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-011",
+      "title": "Implement CJS script compilation and execution",
+      "description": "As a developer, I need the Execute handler to compile and run user code as a CJS script (when mode is 'exec') using v8::Script, with the bridge bundle IIFE executed first.",
+      "acceptanceCriteria": [
+        "Execute message with mode='exec' compiles bridge_code as IIFE and runs it first",
+        "user_code is compiled and executed via v8::Script::Compile() and script.Run()",
+        "Compilation errors (SyntaxError) are caught and returned as ExecutionResult with structured error",
+        "Runtime errors are caught via v8::TryCatch and returned as ExecutionResult",
+        "Successful execution returns exit code 0",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-012",
+      "title": "Implement ESM module loading with ResolveModuleCallback",
+      "description": "As a developer, I need Execute with mode='run' to use V8's v8::Module API with a synchronous ResolveModuleCallback that blocks on IPC to resolve and load module sources.",
+      "acceptanceCriteria": [
+        "Execute with mode='run' treats user_code as an ES module",
+        "v8::Module API is used to compile the root module",
+        "ResolveModuleCallback sends sync-blocking IPC calls to resolve import specifiers and load source",
+        "Resolved modules are compiled as v8::Module and instantiated",
+        "Module evaluation result (exports) is serialized and returned in ExecutionResult",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-013",
+      "title": "Implement session event loop",
+      "description": "As a developer, I need the session event loop that runs when V8 is suspended on a promise: polls the socket for incoming messages, dispatches BridgeResponse/StreamEvent/TerminateExecution, and runs microtasks.",
+      "acceptanceCriteria": [
+        "Session thread runs an event loop when V8 is awaiting a promise",
+        "BridgeResponse messages resolve the corresponding pending promise",
+        "StreamEvent messages dispatch to the registered V8 callback function",
+        "TerminateExecution calls isolate.terminate_execution() and breaks the loop",
+        "Microtasks are flushed after each dispatch",
+        "Loop exits when execution completes (no pending promises or handles)",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-014",
+      "title": "Implement streaming event dispatch (child process, HTTP)",
+      "description": "As a developer, I need StreamEvent messages from the host to be dispatched into V8 by calling registered dispatch functions (_childProcessDispatch, _httpServerDispatch).",
+      "acceptanceCriteria": [
+        "StreamEvent with event_type 'child_stdout', 'child_stderr', 'child_exit' calls _childProcessDispatch in V8",
+        "StreamEvent with event_type 'http_request' calls _httpServerDispatch in V8",
+        "Payload is deserialized and passed as arguments to the V8 function",
+        "Microtasks are flushed after each dispatch",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-015",
+      "title": "Implement timeout enforcement with timer thread",
+      "description": "As a developer, I need a per-session timeout thread that calls v8::Isolate::terminate_execution() AND closes the session socket to unblock any sync-blocking bridge call when cpu_time_limit_ms is exceeded.",
+      "acceptanceCriteria": [
+        "Timer thread is spawned when Execute is received, if cpu_time_limit_ms is set",
+        "After timeout, terminate_execution() is called on the isolate",
+        "Session socket is also closed to unblock any blocking socket.read() in host_call",
+        "Timer thread is joined on normal execution completion (cancelled if execution finishes first)",
+        "ExecutionResult reports a timeout error when termination occurs",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 15,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-016",
+      "title": "Implement structured error serialization from TryCatch",
+      "description": "As a developer, I need errors caught by v8::TryCatch to be serialized as structured objects with type, message, stack, and optional code fields, including ProcessExitError detection via sentinel property.",
+      "acceptanceCriteria": [
+        "Error type is extracted from exception constructor name (TypeError, SyntaxError, etc.)",
+        "Error message is extracted via exception->ToDetailString()",
+        "Stack trace is extracted via v8::Exception::GetStackTrace()",
+        "Optional error code (e.g. ERR_MODULE_NOT_FOUND) is extracted if present",
+        "ProcessExitError is detected by _isProcessExit:true sentinel property, not regex",
+        "ExecutionResult error field matches the spec schema",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 16,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-017",
+      "title": "Implement FD hygiene in Rust process",
+      "description": "As a developer, I need the Rust process to close all inherited file descriptors except stdin/stdout/stderr and the IPC socket on startup, and set CLOEXEC on all new FDs.",
+      "acceptanceCriteria": [
+        "On startup, all FDs > 2 (except the IPC listener FD) are closed",
+        "All new FDs opened by the process have CLOEXEC flag set",
+        "Socket FDs created for connections have CLOEXEC set",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 17,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-018",
+      "title": "Scaffold @secure-exec/v8 npm package",
+      "description": "As a developer, I need the packages/secure-exec-v8/ directory with package.json (@secure-exec/v8), tsconfig, and src/index.ts exporting the public API types.",
+      "acceptanceCriteria": [
+        "packages/secure-exec-v8/package.json exists with name @secure-exec/v8",
+        "tsconfig.json extends the workspace base config",
+        "src/index.ts exports: createV8Runtime, V8Runtime, V8Session types/interfaces",
+        "Package builds with tsc without errors",
+        "Typecheck passes"
+      ],
+      "priority": 18,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-019",
+      "title": "Implement JS-side IPC client with MessagePack framing",
+      "description": "As a developer, I need a TypeScript IPC client that connects to the Rust process over UDS, sends/receives length-prefixed MessagePack messages, and handles the auth handshake.",
+      "acceptanceCriteria": [
+        "IpcClient class connects to a UDS path using net.createConnection()",
+        "send() writes length-prefixed MessagePack messages using @msgpack/msgpack",
+        "Incoming data is parsed with length-prefix framing and dispatched via event emitter or callbacks",
+        "Auth handshake sends the token as the first message on connection",
+        "Message size limit of 64MB is enforced on send",
+        "@msgpack/msgpack is added as a dependency",
+        "Typecheck passes"
+      ],
+      "priority": 19,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-020",
+      "title": "Implement JS-side process spawning and lifecycle",
+      "description": "As a developer, I need createV8Runtime() to spawn the Rust binary as a child process, read the socket path from stdout, connect, and provide dispose() to kill the child.",
+      "acceptanceCriteria": [
+        "createV8Runtime() spawns the Rust binary via child_process.spawn()",
+        "Auth token is generated (128-bit random) and passed via SECURE_EXEC_V8_TOKEN env var",
+        "Socket path is read from the child's stdout",
+        "IPC connection is established after reading the socket path",
+        "dispose() sends SIGTERM to the child process and cleans up",
+        "Child process crash is detected and surfaced as an error",
+        "Typecheck passes"
+      ],
+      "priority": 20,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-021",
+      "title": "Implement JS-side session abstraction",
+      "description": "As a developer, I need V8Runtime.createSession() and V8Session.execute()/destroy() that map to CreateSession/Execute/DestroySession IPC messages with bridge handler callback routing.",
+      "acceptanceCriteria": [
+        "createSession(options) sends CreateSession with 128-bit session_id nonce and optional resource budgets",
+        "execute(code, bridgeHandlers) sends InjectGlobals + Execute and routes incoming BridgeCall messages to the matching handler function",
+        "BridgeResponse is sent back after handler completes (sync or async)",
+        "StreamEvent messages from the host are sent when streaming operations dispatch callbacks",
+        "destroy() sends DestroySession and cleans up",
+        "execute() returns a Promise<ExecutionResult> that resolves when ExecutionResult arrives",
+        "Typecheck passes"
+      ],
+      "priority": 21,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-022",
+      "title": "Update NodeExecutionDriver to use @secure-exec/v8",
+      "description": "As a developer, I need NodeExecutionDriver to create sessions via @secure-exec/v8 instead of isolated-vm, mapping all existing bridge handlers to the new execute() callback interface.",
+      "acceptanceCriteria": [
+        "NodeExecutionDriver imports from @secure-exec/v8 instead of isolated-vm",
+        "All bridge handler functions (_fsReadFile, _childProcessSpawnStart, _log, etc.) are passed to session.execute()",
+        "Resource budgets (memoryLimit, timeout) are passed to createSession()",
+        "Session lifecycle (create, execute, destroy) matches the new API",
+        "Existing unit tests for NodeExecutionDriver still pass",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 22,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-023",
+      "title": "Update bridge-contract.ts to remove ivm.Reference types",
+      "description": "As a developer, I need bridge-contract.ts updated to replace all ivm.Reference type annotations (BridgeApplySyncPromiseRef, etc.) with plain function types.",
+      "acceptanceCriteria": [
+        "All BridgeApplySyncPromiseRef<> types are replaced with plain function signatures",
+        "All BridgeApplySyncRef<> types are replaced with plain function signatures",
+        "All ivm.Reference imports are removed",
+        "Bridge global names remain unchanged (_fsReadFile, _childProcessSpawnStart, etc.)",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 23,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-024",
+      "title": "Update bridge bundle to use direct function calls",
+      "description": "As a developer, I need the bridge bundle code to replace all .applySync()/.applySyncPromise()/.apply() calls on ivm.Reference with direct function calls, since the Rust side injects real JS functions.",
+      "acceptanceCriteria": [
+        "_ref.applySync(undefined, [args]) calls are replaced with direct fn(args) calls",
+        "_ref.applySyncPromise(undefined, [args]) calls are replaced with direct fn(args) calls",
+        "_ref.apply(undefined, [args], { result: { promise: true } }) calls are replaced with direct fn(args) calls returning Promises",
+        "No ivm.Reference usage remains in bridge code",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 24,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-025",
+      "title": "Remove base64 encoding for binary transfers",
+      "description": "As a developer, I need binary data transfers (file reads/writes) to use MessagePack's native binary format instead of base64 encoding, eliminating the ~33% overhead.",
+      "acceptanceCriteria": [
+        "File read results are sent as MessagePack bin format, not base64 strings",
+        "File write payloads are sent as MessagePack bin format, not base64 strings",
+        "cryptoRandomFill results use binary format",
+        "All base64 encode/decode calls for binary transfers are removed from bridge code",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 25,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-026",
+      "title": "Set up platform-specific npm packages for prebuilt binaries",
+      "description": "As a developer, I need platform-specific npm packages (@secure-exec/v8-linux-x64-gnu, etc.) that each contain the prebuilt Rust binary, with the main package using optionalDependencies to auto-install the right one.",
+      "acceptanceCriteria": [
+        "npm/ directory under crates/v8-runtime/ has subdirs for linux-x64-gnu, linux-arm64-gnu, darwin-x64, darwin-arm64, win32-x64",
+        "Each platform dir has a package.json with the correct platform/arch fields",
+        "Main @secure-exec/v8 package.json lists all platform packages as optionalDependencies",
+        "JS loader in main package detects platform and resolves the correct binary path",
+        "postinstall.js falls back to download if platform package not present",
+        "Typecheck passes"
+      ],
+      "priority": 26,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-027",
+      "title": "Add Rust build to CI matrix",
+      "description": "As a developer, I need CI to build the Rust binary for all target platforms (linux x64/arm64, macOS x64/arm64, windows x64) and run cargo test.",
+      "acceptanceCriteria": [
+        "CI workflow builds crates/v8-runtime for all 5 target triples",
+        "cargo test runs on native platforms (linux-x64, macos-arm64)",
+        "Cross-compilation is set up for linux-arm64 (cross-compile on ubuntu-latest)",
+        "Built binaries are uploaded as artifacts",
+        "Rust toolchain is pinned to a specific version",
+        "Typecheck passes"
+      ],
+      "priority": 27,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-028",
+      "title": "Remove isolated-vm dependency",
+      "description": "As a developer, I need isolated-vm removed from all package.json files and all remaining import/require references cleaned up.",
+      "acceptanceCriteria": [
+        "isolated-vm is removed from all package.json dependencies",
+        "No import or require of 'isolated-vm' remains in the codebase",
+        "No ivm type references remain in TypeScript files",
+        "pnpm install succeeds without isolated-vm",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 28,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-029",
+      "title": "Add integration tests for full IPC round-trip",
+      "description": "As a developer, I need integration tests that exercise the full lifecycle: spawn Rust process, authenticate, create session, inject globals, execute code with sync and async bridge calls, and destroy.",
+      "acceptanceCriteria": [
+        "Test spawns the Rust binary and connects over UDS",
+        "Test authenticates successfully",
+        "Test creates a session, injects globals, executes simple code, verifies output",
+        "Test exercises a sync-blocking bridge call (e.g. mock _fsReadFile) and verifies result",
+        "Test exercises an async bridge call (e.g. mock _networkFetchRaw) and verifies result",
+        "Test destroys session and verifies cleanup",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 29,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-030",
+      "title": "Add crash isolation tests",
+      "description": "As a developer, I need tests proving that V8 OOM in the sandbox kills only the child process (not the host), and that a hung isolate can be killed via SIGKILL.",
+      "acceptanceCriteria": [
+        "Test creates a session with small heap limit (e.g. 8MB) and runs code that allocates until OOM",
+        "Host process remains alive after OOM crash in sandbox",
+        "Error is surfaced to the caller as an ExecutionResult error, not a host crash",
+        "Test runs an infinite loop, verifies timeout termination works",
+        "Test verifies SIGKILL on the child process succeeds when terminate_execution is insufficient",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 30,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-031",
+      "title": "Add IPC security tests",
+      "description": "As a developer, I need tests covering IPC security: bad auth token rejection, cross-session access prevention, oversized message rejection, and call_id integrity.",
+      "acceptanceCriteria": [
+        "Test connecting with wrong auth token is rejected",
+        "Test connecting without auth token is rejected",
+        "Test that connection A cannot send messages to connection B's sessions",
+        "Test that messages exceeding 64MB size limit are rejected",
+        "Test that duplicate BridgeResponse call_ids are rejected",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 31,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-032",
+      "title": "Update security model documentation",
+      "description": "As a developer, I need docs/security-model.mdx updated to document process isolation as a trust boundary, what it protects against, what it doesn't, and the IPC channel trust model.",
+      "acceptanceCriteria": [
+        "Process isolation section explains separate FD table, memory space, signal handlers",
+        "Documents what process isolation protects against: V8 OOM, heap corruption, FD leakage, signal interference",
+        "Documents what process isolation does NOT protect against: IPC-level attacks require mitigations",
+        "IPC channel trust model section covers: authenticated, session-bound, size-limited, not encrypted (same-host)",
+        "Typecheck passes"
+      ],
+      "priority": 32,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-033",
+      "title": "Run existing test suite against new V8 runtime",
+      "description": "As a developer, I need all existing secure-exec tests to pass with the new V8 runtime backend to confirm behavioral parity with isolated-vm.",
+      "acceptanceCriteria": [
+        "All tests in packages/secure-exec/tests/ pass with the new V8 runtime",
+        "All tests in tests/test-suite/ pass with the new V8 runtime",
+        "All compatibility project-matrix fixtures pass (host Node vs secure-exec parity)",
+        "No test modifications are needed beyond the driver swap (behavioral parity)",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 33,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}

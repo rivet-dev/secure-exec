@@ -1,4 +1,5 @@
 import { getRuntimeExposeMutableGlobal } from "../common/global-exposure";
+import { setGlobalValue } from "../common/global-access";
 
 const __runtimeExposeMutableGlobal = getRuntimeExposeMutableGlobal();
 
@@ -8,12 +9,15 @@ const __initialCwd =
 	typeof __bridgeSetupConfig.initialCwd === "string"
 		? __bridgeSetupConfig.initialCwd
 		: "/";
-const __jsonPayloadLimitBytes =
+
+// Set payload limit defaults on globalThis — read at call time by v8.deserialize,
+// overridable via __runtimeApplyConfig for context snapshot restore
+globalThis.__runtimeJsonPayloadLimitBytes =
 	typeof __bridgeSetupConfig.jsonPayloadLimitBytes === "number" &&
 	Number.isFinite(__bridgeSetupConfig.jsonPayloadLimitBytes)
 		? Math.max(0, Math.floor(__bridgeSetupConfig.jsonPayloadLimitBytes))
 		: 4 * 1024 * 1024;
-const __payloadLimitErrorCode =
+globalThis.__runtimePayloadLimitErrorCode =
 	typeof __bridgeSetupConfig.payloadLimitErrorCode === "string" &&
 	__bridgeSetupConfig.payloadLimitErrorCode.length > 0
 		? __bridgeSetupConfig.payloadLimitErrorCode
@@ -237,12 +241,15 @@ if (__moduleCache) {
 			);
 		},
 		deserialize: function (buffer: Buffer) {
+			// Read limits from globals at call time (not captured at setup) for snapshot compatibility
+			const limit = globalThis.__runtimeJsonPayloadLimitBytes ?? 4 * 1024 * 1024;
+			const errorCode = globalThis.__runtimePayloadLimitErrorCode ?? "ERR_SANDBOX_PAYLOAD_TOO_LARGE";
 			// Check raw buffer size BEFORE allocating the decoded string
-			if (buffer.length > __jsonPayloadLimitBytes) {
+			if (buffer.length > limit) {
 				throw new Error(
-					__payloadLimitErrorCode +
+					errorCode +
 						": v8.deserialize exceeds " +
-						String(__jsonPayloadLimitBytes) +
+						String(limit) +
 						" bytes",
 				);
 			}
@@ -269,3 +276,176 @@ if (__moduleCache) {
 
 __runtimeExposeMutableGlobal("_pendingModules", {});
 __runtimeExposeMutableGlobal("_currentModule", { dirname: __initialCwd });
+
+// Post-restore config application — called after bridge IIFE to apply
+// per-session config (timing mitigation, payload limits). Enables context
+// snapshot reuse: the IIFE runs once at snapshot creation, this function
+// applies session-specific config after restore.
+globalThis.__runtimeApplyConfig = function (config: {
+	timingMitigation?: string;
+	frozenTimeMs?: number;
+	payloadLimitBytes?: number;
+	payloadLimitErrorCode?: string;
+}) {
+	// Apply payload limits
+	if (
+		typeof config.payloadLimitBytes === "number" &&
+		Number.isFinite(config.payloadLimitBytes)
+	) {
+		globalThis.__runtimeJsonPayloadLimitBytes = Math.max(
+			0,
+			Math.floor(config.payloadLimitBytes),
+		);
+	}
+	if (
+		typeof config.payloadLimitErrorCode === "string" &&
+		config.payloadLimitErrorCode.length > 0
+	) {
+		globalThis.__runtimePayloadLimitErrorCode =
+			config.payloadLimitErrorCode;
+	}
+
+	// Apply timing mitigation freeze
+	if (config.timingMitigation === "freeze") {
+		const frozenTimeMs =
+			typeof config.frozenTimeMs === "number" &&
+			Number.isFinite(config.frozenTimeMs)
+				? config.frozenTimeMs
+				: Date.now();
+		const frozenDateNow = () => frozenTimeMs;
+
+		// Freeze Date.now
+		try {
+			Object.defineProperty(Date, "now", {
+				value: frozenDateNow,
+				configurable: false,
+				writable: false,
+			});
+		} catch {
+			Date.now = frozenDateNow;
+		}
+
+		// Patch Date constructor so new Date().getTime() returns degraded time
+		const OrigDate = Date;
+		const FrozenDate = function Date(
+			this: InstanceType<DateConstructor>,
+			...args: unknown[]
+		) {
+			if (new.target) {
+				if (args.length === 0) {
+					return new OrigDate(frozenTimeMs);
+				}
+				// @ts-expect-error — spread forwarding to variadic Date constructor
+				return new OrigDate(...args);
+			}
+			return OrigDate();
+		} as unknown as DateConstructor;
+		Object.defineProperty(FrozenDate, "prototype", {
+			value: OrigDate.prototype,
+			writable: false,
+			configurable: false,
+		});
+		FrozenDate.now = frozenDateNow;
+		FrozenDate.parse = OrigDate.parse;
+		FrozenDate.UTC = OrigDate.UTC;
+		Object.defineProperty(FrozenDate, "now", {
+			value: frozenDateNow,
+			configurable: false,
+			writable: false,
+		});
+		try {
+			Object.defineProperty(globalThis, "Date", {
+				value: FrozenDate,
+				configurable: false,
+				writable: false,
+			});
+		} catch {
+			(globalThis as Record<string, unknown>).Date = FrozenDate;
+		}
+
+		// Freeze performance.now
+		const frozenPerformanceNow = () => 0;
+		const origPerf = globalThis.performance;
+		const frozenPerf = Object.create(null) as Record<string, unknown>;
+		if (typeof origPerf !== "undefined" && origPerf !== null) {
+			const src = origPerf as unknown as Record<string, unknown>;
+			for (const key of Object.getOwnPropertyNames(
+				Object.getPrototypeOf(origPerf) ?? origPerf,
+			)) {
+				if (key !== "now") {
+					try {
+						const val = src[key];
+						if (typeof val === "function") {
+							frozenPerf[key] = val.bind(origPerf);
+						} else {
+							frozenPerf[key] = val;
+						}
+					} catch {
+						/* skip inaccessible properties */
+					}
+				}
+			}
+		}
+		Object.defineProperty(frozenPerf, "now", {
+			value: frozenPerformanceNow,
+			configurable: false,
+			writable: false,
+		});
+		Object.freeze(frozenPerf);
+		try {
+			Object.defineProperty(globalThis, "performance", {
+				value: frozenPerf,
+				configurable: false,
+				writable: false,
+			});
+		} catch {
+			(globalThis as Record<string, unknown>).performance = frozenPerf;
+		}
+
+		// Harden SharedArrayBuffer removal
+		const OrigSAB = globalThis.SharedArrayBuffer;
+		if (typeof OrigSAB === "function") {
+			try {
+				const proto = OrigSAB.prototype;
+				if (proto) {
+					for (const key of [
+						"byteLength",
+						"slice",
+						"grow",
+						"maxByteLength",
+						"growable",
+					]) {
+						try {
+							Object.defineProperty(proto, key, {
+								get() {
+									throw new TypeError(
+										"SharedArrayBuffer is not available in sandbox",
+									);
+								},
+								configurable: false,
+							});
+						} catch {
+							/* property may not exist or be non-configurable */
+						}
+					}
+				}
+			} catch {
+				/* best-effort prototype neutering */
+			}
+		}
+		try {
+			Object.defineProperty(globalThis, "SharedArrayBuffer", {
+				value: undefined,
+				configurable: false,
+				writable: false,
+				enumerable: false,
+			});
+		} catch {
+			Reflect.deleteProperty(globalThis, "SharedArrayBuffer");
+			setGlobalValue("SharedArrayBuffer", undefined);
+		}
+	}
+
+	// Clean up — one-shot function
+	delete globalThis.__runtimeApplyConfig;
+};

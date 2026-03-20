@@ -1,0 +1,63 @@
+{
+  "description": "Benchmark results AFTER context snapshot optimization (bridge IIFE + config snapshot)",
+  "date": "2026-03-19",
+  "commit": "e999710dc94131a3f8acdcad1db169be651b8ed9",
+  "hardware": {
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+    "cores": 20,
+    "ram": "62 GB",
+    "node": "v24.13.0",
+    "os": "Linux 6.1.0-41-amd64",
+    "arch": "x64"
+  },
+  "benchmark": "quick-bench.ts (2 sequential create+run cycles per iteration)",
+  "iterations": 5,
+  "runs": [
+    {
+      "iteration": 1,
+      "cold_ms": [65.8, 21.6],
+      "warm_ms": [2.8, 2.3]
+    },
+    {
+      "iteration": 2,
+      "cold_ms": [69.4, 21.9],
+      "warm_ms": [3.4, 2.5]
+    },
+    {
+      "iteration": 3,
+      "cold_ms": [67.0, 22.7],
+      "warm_ms": [2.9, 2.5]
+    },
+    {
+      "iteration": 4,
+      "cold_ms": [64.1, 21.8],
+      "warm_ms": [2.7, 2.4]
+    },
+    {
+      "iteration": 5,
+      "cold_ms": [64.5, 22.0],
+      "warm_ms": [3.0, 2.5]
+    }
+  ],
+  "summary": {
+    "warm": {
+      "mean_ms": 2.7,
+      "p50_ms": 2.5,
+      "min_ms": 2.3,
+      "max_ms": 3.4,
+      "all_samples": [2.8, 2.3, 3.4, 2.5, 2.9, 2.5, 2.7, 2.4, 3.0, 2.5]
+    },
+    "cold_process_start": {
+      "mean_ms": 66.16,
+      "samples": [65.8, 69.4, 67.0, 64.1, 64.5]
+    },
+    "cold_steady_state": {
+      "mean_ms": 22.0,
+      "p50_ms": 21.9,
+      "min_ms": 21.6,
+      "max_ms": 22.7,
+      "all_samples": [21.6, 21.9, 22.7, 21.8, 22.0]
+    }
+  },
+  "notes": "Warm start improved from ~13.75ms to ~2.7ms (80% reduction). Cold steady-state improved from ~48.2ms to ~22.0ms (54% reduction). Context snapshot eliminates bridge IIFE recompilation and re-execution per session. Process cold start improved from ~99.9ms to ~66.2ms (34% reduction)."
+}

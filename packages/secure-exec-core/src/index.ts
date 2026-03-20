@@ -107,9 +107,6 @@ export {
 
 // Bridge contract.
 export type {
-	BridgeApplyRef,
-	BridgeApplySyncPromiseRef,
-	BridgeApplySyncRef,
 	BridgeGlobalKey,
 	ChildProcessKillBridgeRef,
 	ChildProcessSpawnStartBridgeRef,

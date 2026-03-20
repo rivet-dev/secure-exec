@@ -1,7 +1,7 @@
 #!/usr/bin/env npx tsx
 
 import { execSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
@@ -59,8 +59,9 @@ function npmTag(version: string): "latest" | "rc" {
   return version.includes("-") ? "rc" : "latest";
 }
 
-function parseArgs(): { version: string; tag: "latest" | "rc" } {
+function parseArgs(): { version: string; tag: "latest" | "rc"; noGitChecks: boolean } {
   const args = process.argv.slice(2);
+  const noGitChecks = args.includes("--no-git-checks");
 
   // Exact version: --version 0.1.0 or --version 0.2.0-rc.1
   if (args.includes("--version")) {
@@ -72,7 +73,7 @@ function parseArgs(): { version: string; tag: "latest" | "rc" } {
     if (!/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(ver)) {
       fatal(`Invalid version format: "${ver}"`);
     }
-    return { version: ver, tag: npmTag(ver) };
+    return { version: ver, tag: npmTag(ver), noGitChecks };
   }
 
   // Semver bump
@@ -81,7 +82,7 @@ function parseArgs(): { version: string; tag: "latest" | "rc" } {
 
   for (const type of ["patch", "minor", "major"] as const) {
     if (args.includes(`--${type}`)) {
-      return { version: bumpVersion(current, type), tag: "latest" };
+      return { version: bumpVersion(current, type), tag: "latest", noGitChecks };
     }
   }
 
@@ -93,9 +94,24 @@ function parseArgs(): { version: string; tag: "latest" | "rc" } {
 function getPublishablePackages(): string[] {
   const output = run("pnpm -r ls --json --depth -1");
   const packages = JSON.parse(output) as Array<{ name: string; path: string; private?: boolean }>;
-  return packages
+  const paths = packages
     .filter((p) => !p.private && p.path !== ROOT)
     .map((p) => p.path);
+
+  // Include v8 platform packages (not in pnpm workspace)
+  const platformDir = join(ROOT, "crates/v8-runtime/npm");
+  if (existsSync(platformDir)) {
+    for (const entry of readdirSync(platformDir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        const pkgJsonPath = join(platformDir, entry.name, "package.json");
+        if (existsSync(pkgJsonPath)) {
+          paths.push(join(platformDir, entry.name));
+        }
+      }
+    }
+  }
+
+  return paths;
 }
 
 // ── Update version in a package.json ──
@@ -105,6 +121,16 @@ function setVersion(pkgPath: string, version: string) {
   const content = readFileSync(file, "utf-8");
   const pkg = JSON.parse(content);
   pkg.version = version;
+
+  // Sync optionalDependencies versions for platform packages
+  if (pkg.optionalDependencies) {
+    for (const dep of Object.keys(pkg.optionalDependencies)) {
+      if (dep.startsWith("@secure-exec/v8-")) {
+        pkg.optionalDependencies[dep] = version;
+      }
+    }
+  }
+
   // Preserve original formatting (indent detection)
   const indent = content.match(/^(\s+)"/m)?.[1] ?? "  ";
   writeFileSync(file, JSON.stringify(pkg, null, indent) + "\n");
@@ -113,24 +139,28 @@ function setVersion(pkgPath: string, version: string) {
 // ── Main ──
 
 async function main() {
-  const { version, tag } = parseArgs();
-
-  // Git checks
+  const { version, tag, noGitChecks } = parseArgs();
   const branch = run("git branch --show-current");
-  if (branch !== "main") {
-    fatal(`Must be on main branch (currently on "${branch}")`);
-  }
 
-  run("git fetch origin main");
-  const local = run("git rev-parse HEAD");
-  const remote = run("git rev-parse origin/main");
-  if (local !== remote) {
-    fatal("Local main is not even with origin/main. Pull or push first.");
-  }
+  if (!noGitChecks) {
+    // Git checks
+    if (branch !== "main") {
+      fatal(`Must be on main branch (currently on "${branch}")`);
+    }
 
-  const status = run("git status --porcelain");
-  if (status) {
-    fatal("Working tree is not clean. Commit or stash changes first.");
+    run("git fetch origin main");
+    const local = run("git rev-parse HEAD");
+    const remote = run("git rev-parse origin/main");
+    if (local !== remote) {
+      fatal("Local main is not even with origin/main. Pull or push first.");
+    }
+
+    const status = run("git status --porcelain");
+    if (status) {
+      fatal("Working tree is not clean. Commit or stash changes first.");
+    }
+  } else {
+    console.log("\x1b[33m⚠ Skipping git checks (--no-git-checks)\x1b[0m");
   }
 
   // Find packages
@@ -165,16 +195,13 @@ async function main() {
 
   // Commit & push
   console.log("\n\x1b[1mCommitting version bump...\x1b[0m");
-  run("git add package.json");
-  for (const pkg of packages) {
-    run(`git add ${join(pkg, "package.json")}`);
-  }
+  run("git add -A");
   const staged = run("git diff --cached --name-only");
   if (staged) {
     run(`git commit -m "release: v${version}"`);
-    run("git push origin main");
+    run(`git push origin ${branch}`);
   } else {
-    console.log("  No version changes to commit, skipping.");
+    console.log("  No changes to commit, skipping.");
   }
 
   // Git tag
@@ -191,7 +218,7 @@ async function main() {
   console.log(`\n\x1b[1mTriggering CI release workflow...\x1b[0m`);
   run(`gh workflow run release.yml -f version=${version} -f npm-tag=${tag}`, { stdio: "inherit" });
 
-  console.log(`\n\x1b[32m✓ Tag v${version} pushed — CI will handle publish + GitHub release.\x1b[0m`);
+  console.log(`\n\x1b[32m✓ Tag v${version} pushed — CI will handle Docker build + publish.\x1b[0m`);
   console.log(`  Watch progress: \x1b[36mhttps://github.com/rivet-dev/secure-exec/actions/workflows/release.yml\x1b[0m`);
 }
 

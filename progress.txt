@@ -3,26 +3,22 @@ Started: 2026-03-17
 PRD: ralph/kernel-hardening (46 stories)
 
 ## Codebase Patterns
-- Net bridge _onError only propagates err.message — err.code/err.errno are not set on socket errors in the sandbox (e.g., ECONNREFUSED code missing); error path fixtures should only serialize message/level, not code/errno
-- Docker containers on default bridge can reach each other by internal IP (docker inspect IPAddress), not by 127.0.0.1 host-mapped ports — use getContainerInternalIp() for cross-container tunnel destinations
-- process.exit() inside bridge callbacks (childProcessDispatch, timer refs) causes unhandled ProcessExitError — always await a Promise from the callback, then call process.exit() at the top-level await
-- Bridge process.stdout.write strips trailing newlines — NDJSON capture helpers must join with '\n' to restore event delimiters
-- Native binary sandbox test pattern: createTestNodeRuntime + createHostCommandExecutor, sandbox code calls require('child_process').spawn(), env vars serialize through bridge JSON to host executor
-- Overlay VFS pattern (InMemoryFileSystem + host FS fallback) for kernel tests that need both populateBin writes and host module resolution — writes go to memory, reads try memory first then fsPromises
-- TerminalHarness.waitFor() races with fast-exiting processes — use raw openShell + output collection for probes, not TerminalHarness
-- NodeRuntimeDriver doesn't bridge isTTY — process.stdout.isTTY is always false in the V8 isolate regardless of PTY attachment (spec gap #5)
-- NodeRuntimeDriver doesn't bridge streaming stdin — exec() receives stdin as single string batch; PTY input doesn't reach sandbox process.stdin events (blocks interactive TUI tests)
-- filterEnv returns {} when permissions.env is undefined — use { ...allowAllChildProcess, ...allowAllEnv } in createNodeRuntime() for sandbox tests that need process.env.PATH
-- HostBinaryDriver pattern: inline RuntimeDriver that spawns real host binaries; must handle child 'error' event (ENOENT) and use exitResolved guard to prevent double-resolve
-- Buffer polyfill (feross/buffer@5.7.1) lacks V8 internal methods (latin1Slice, base64Slice, utf8Write, etc.) — must patch on BOTH globalThis.Buffer.prototype (in process.ts) AND require('buffer').Buffer.prototype (in _patchPolyfill)
-- NetSocket._readableState must include ALL fields libraries check — ssh2 checks `.ended`, not just `.endEmitted`; ws checks `.endEmitted`
-- SandboxCipher/SandboxDecipher update() must return data immediately for streaming protocols — use stateful bridge (_cryptoCipherivCreate/Update/Final) not buffer-to-final()
-- applySyncPromise CANNOT run inside applySync contexts (e.g. net socket data callbacks) — use _resolveModuleSync.applySync + _loadFileSync.applySync as synchronous fallbacks for require() in these contexts
-- Libraries with lazy module loading (iconv-lite encodings, named-placeholders) must have their lazy loads pre-triggered during script execution, before any applySync-dispatched callbacks fire
-- NodeRuntimeDriver must emit result.errorMessage as stderr — V8 isolate errors (ReferenceError, SyntaxError) are returned in ExecResult, not thrown
-- isolated-vm preserves err.name but err.message excludes the class name — format as `${err.name}: ${err.message}` for Node.js-compatible error output
-- Stream polyfill prototype chain is patched in _patchPolyfill (require-setup.ts) — esbuild's circular-dep bundling breaks Readable→Stream inheritance; without patch, `instanceof Stream` fails (breaks node-fetch, undici, etc.)
-- Timing mitigation Date.now/performance.now use getter/setter (not writable:false) — setter is no-op for Node.js compat; configurable:false blocks re-definition
+- Platform-specific binary packages live in crates/v8-runtime/npm/{platform}/; PLATFORM_PACKAGES map in runtime.ts and postinstall.js must stay in sync
+- V8Runtime (Rust process) is heavyweight — use shared singleton (getSharedV8Runtime) across all NodeExecutionDrivers; each driver creates its own V8Session
+- Bridge code composition order: ivm-compat shim → config injections → globalExposureHelpers → initialBridgeGlobals → consoleSetup → setupFsFacade → bridgeBundle → bridgeAttach → timingMitigation → requireSetup
+- Rust SYNC_BRIDGE_FNS/ASYNC_BRIDGE_FNS in session.rs must match HOST_BRIDGE_GLOBAL_KEYS from bridge-contract.ts — update both when adding new bridge functions
+- v8::External data in FunctionTemplates causes SIGSEGV during snapshot serialization — for snapshot stubs, use FunctionTemplate::builder(callback).build() without .data()
+- Bridge handler args are spread by host routing (runtime.ts): to pass a single array arg, serialize as [[array]] so handler(...args) gives handler(array)
+- V8 Module::get_module_requests() returns FixedArray — cast elements via data.cast::<v8::ModuleRequest>(), then get_specifier() for import specifier string
+- IPC writes use per-session ChannelFrameSender (crossbeam channel) + one writer thread per connection — never use shared mutex for socket writes; serialize via frame_to_bytes() first
+- V8 code caching: use `v8::script_compiler::compile()` (not `Script::compile()`) with `Source` + `CompileOptions`; generate cache via `UnboundScript::create_code_cache()`; resource name in ScriptOrigin is required
+- SharedArrayBuffer removal must happen AFTER bridge bundle loads (applyTimingMitigationFreeze JS), not in Rust inject_globals
+- V8 snapshot tests must be consolidated into a single #[test] fn (like execution::tests) — parallel V8 isolate teardown causes SIGSEGV
+- v8::CreateParams::snapshot_blob() needs owned data (Deref<Target=[u8]> + Borrow<[u8]> + 'static); use Vec<u8> or StartupData, not &[u8]
+- v8::StartupData is not Send/Sync (contains *const i8) — store snapshot blobs as Arc<Vec<u8>> for cross-thread sharing; SnapshotCache.get_or_create() returns Arc<Vec<u8>>
+- ExternalReference { function: callback.map_fn_to() } — MapFnTo trait converts Rust fn to extern "C" FunctionCallback
+- ivm-compat shim adds .applySync/.applySyncPromise to Rust-registered functions; .apply() works via Function.prototype.apply (no shim needed)
+- @secure-exec/v8 is ESM — use `fileURLToPath(import.meta.url)` for __dirname, not `require()` or `__dirname` global
 - Claude binary at ~/.claude/local/claude — not on PATH by default; skip helpers must check this fallback location
 - Claude Code --output-format stream-json requires --verbose flag; uses ANTHROPIC_BASE_URL natively (no fetch interceptor)
 - Python WORKER_SOURCE is String.raw — use array.join("\n") for multiline Python code; f-strings with escaped quotes break
@@ -133,8 +129,14 @@ PRD: ralph/kernel-hardening (46 stories)
 - Bridge fs.ts `bridgeCall()` helper wraps applySyncPromise calls with ENOENT/EACCES/EEXIST error re-creation — use it for ALL new bridge fs methods
 - runtime-node has two VFS adapters (createKernelVfsAdapter, createHostFallbackVfs) that both need new VFS methods forwarded
 - diagnostics_channel is Tier 4 (deferred) with a custom no-op stub in require-setup.ts — channels report no subscribers, publish is no-op; needed for Fastify compatibility
-- Sandbox fetch() accepts Request objects (not just strings/URLs) — axios fetch adapter passes Request to fetch(); extract .url/.method/.headers
-- Sandbox process has Symbol.toStringTag = "process" — required by axios/libraries that check Object.prototype.toString.call(process)
+- V8 session creates a FRESH context per execute() — globals from previous executions (non-configurable hardened globals) must not persist; store InjectGlobals config and re-inject into each fresh context
+- V8 ValueSerializer cannot serialize exotic objects (ModuleNamespace) — copy properties to plain v8::Object before serialization
+- V8 typed array serialization format differs between V8 versions — use status=2 raw binary for Uint8Array results, TryCatch fallback in Rust deserializer
+- BridgeResponse status byte: 0=V8-serialized success, 1=UTF-8 error, 2=raw binary (Uint8Array)
+- Active IPC wire format is ipc_binary (BinaryFrame); old ipc.rs MessagePack types retained for reference but unused in active code path
+- _loadPolyfill MUST be in SYNC_BRIDGE_FNS (not ASYNC) — require() calls it synchronously; if async, it returns a Promise that bypasses the null check and breaks module loading
+- composeBridgeCode must include initCommonjsModuleGlobals + applyCustomGlobalPolicy after requireSetup; per-execution preamble must inject __runtimeCommonJsFileConfig + setCommonjsFileGlobals when filePath is provided
+- V8 execute_module falls back to globalThis.module.exports when ESM namespace has no own properties (CJS compat for run() mode)
 - Fastify fixture uses `app.routing(req, res)` for programmatic dispatch — avoids light-my-request's deep ServerResponse dependency; `app.server.emit("request")` won't work because sandbox Server lacks full EventEmitter
 - Sandbox Server class needs `setTimeout`, `keepAliveTimeout`, `requestTimeout` properties for framework compatibility — added as no-ops
 - Moving a module from Unsupported (Tier 5) to Deferred (Tier 4) requires changes in: module-resolver.ts, require-setup.ts, node-stdlib.md contract, and adding BUILTIN_NAMED_EXPORTS entry
@@ -147,9 +149,12 @@ PRD: ralph/kernel-hardening (46 stories)
 - NodeExecutionDriver split into 5 modules in src/node/: isolate-bootstrap.ts (types+utilities), module-resolver.ts, esm-compiler.ts, bridge-setup.ts, execution-lifecycle.ts; facade is execution-driver.ts (<300 lines)
 - Source policy tests (isolate-runtime-injection-policy, bridge-registry-policy) read specific source files by path — update them when moving code between files
 - esmModuleCache has a sibling esmModuleReverseCache (Map<ivm.Module, string>) for O(1) module→path lookup — both must be updated together and cleared together in execution.ts
-- wrapNetworkAdapter creates a new object — any new NetworkAdapter methods MUST be explicitly forwarded through wrapNetworkAdapter or they'll be undefined at bridge-setup
-- UpgradeSocket.emit must use .call(this) — libraries like ws use `this[Symbol(...)]` in event callbacks requiring proper `this` binding
-- Server-side HTTP upgrade relay: driver.ts adds server.on('upgrade') → applySync dispatches to sandbox → sandbox Server._emit('upgrade') → ws handles handshake → UpgradeSocket relays data bidirectionally through bridge
+- V8 runtime event loop uses crossbeam Receiver<SessionCommand> — run_event_loop(scope, rx, pending) polls channel for BridgeResponse/StreamEvent/TerminateExecution
+- CallIdRouter (Arc<Mutex<HashMap<u64,String>>>) maps call_id→session_id for BridgeResponse routing; populated by BridgeCallContext, consumed by connection handler
+- call_id is u64 throughout IPC stack (Rust AtomicU64 + 8-byte BE wire format + TS BigInt↔Number conversion); prevents wrap-around after ~4B calls
+- ChannelResponseReceiver implements ResponseReceiver trait — passes BinaryFrame directly from session channel to sync_call without re-serialization; BridgeCallContext::new() wraps reader in ReaderResponseReceiver (for tests), with_receiver() takes ResponseReceiver directly (production)
+- Per-connection SessionManager: each UDS connection gets its own SharedWriter and CallIdRouter (not global)
+- After iso.terminate_execution() in tests, call iso.cancel_terminate_execution() to allow continued isolate use
 
 ---
 
@@ -2137,695 +2142,717 @@ PRD: ralph/kernel-hardening (46 stories)
   - polyfills.ts still imports node-stdlib-browser but that's in the bundler path (lazy/async), not during module init
 ---
 
-## 2026-03-18 - US-166
-- What was implemented: Updated cloudflare-workers-comparison.mdx to reflect current implementation state
+## 2026-03-18 - US-006
+- What was implemented: Connection authentication handshake for V8 runtime process
 - Files changed:
-  - docs/cloudflare-workers-comparison.mdx — updated fs row (🟡→🟢, added cp/mkdtemp/opendir/glob/statfs/readv/fdatasync/fsync, moved chmod/chown/link/symlink/readlink/truncate/utimes from Deferred to Implemented), updated http row (added Agent pooling, upgrade, trailer support), changed async_hooks from ⚪ TBD to 🔴 Stub, changed diagnostics_channel from ⚪ TBD to 🔴 Stub, added punycode as 🟢 Supported, updated last-updated date to 2026-03-18
+  - crates/v8-runtime/src/ipc.rs — added Authenticate variant to HostMessage enum, added roundtrip test
+  - crates/v8-runtime/src/main.rs — added authenticate_connection() function, read SECURE_EXEC_V8_TOKEN env var on startup, authenticate each accepted connection before proceeding, added 4 tests (valid token, wrong token, non-Authenticate message, EOF)
+  - scripts/ralph/prd.json — marked US-006 as passes: true
 - **Learnings for future iterations:**
-  - chmod/chown/link/symlink/readlink/truncate/utimes are implemented as bridge calls to host, not deferred
-  - http Agent has real connection pooling with per-host maxSockets, plus upgrade (101) and trailer support
-  - async_hooks has functional stubs (AsyncLocalStorage, AsyncResource, createHook) — not just no-ops
-  - diagnostics_channel stubs are sufficient for Fastify compatibility
-  - punycode is provided via node-stdlib-browser polyfill
+  - UDS listener is non-blocking for shutdown polling, but accepted streams must be set to blocking for the auth handshake read
+  - authenticate_connection takes a &mut UnixStream and uses ipc::read_message directly — no need for separate framing; the existing length-prefixed MessagePack framing handles everything
+  - Tests create real UDS connections via temp_listener() helper — no mocking needed for connection-level tests
+  - cargo test runs all tests (ipc, isolate, main) from a single binary since it's a bin crate
 ---
 
-## 2026-03-18 - US-167
-- Cross-referenced require-setup.ts, module-resolver.ts, bridge files, and polyfills against both docs
-- Fixed 3 tier mismatches in cloudflare-workers-comparison.mdx:
-  - worker_threads: ⛔ (Unsupported) → 🔴 (Stub) — it's deferred/requireable, not unsupported
-  - perf_hooks: ⚪ (TBD) → 🔴 (Stub) — it's deferred with stub APIs
-  - readline: ⚪ (TBD) → 🔴 (Stub) — it's deferred with stub APIs
-- Added missing entries to nodejs-compatibility.mdx:
-  - console: Tier 1 (Bridge) — was only mentioned in Logging section, not in matrix
-  - stream/web subpath: noted under stream entry
-  - diagnostics_channel: added Channel constructor to API listing
+## 2026-03-18 - US-013
+- What was implemented: Session event loop that dispatches BridgeResponse, StreamEvent, and TerminateExecution into V8 while awaiting pending promises
 - Files changed:
-  - docs/cloudflare-workers-comparison.mdx
-  - docs/nodejs-compatibility.mdx
+  - crates/v8-runtime/src/stream.rs — implemented dispatch_stream_event() that calls registered V8 callback functions (_childProcessDispatch, _httpServerDispatch) with event_type and msgpack-decoded payload
+  - crates/v8-runtime/src/host_call.rs — added CallIdRouter type (Arc<Mutex<HashMap<u32, String>>>), with_router() constructor, call_id registration in sync_call/async_send for BridgeResponse routing
+  - crates/v8-runtime/src/session.rs — added run_event_loop() function, SharedWriter type, MutexWriter/ChannelMessageReader adapters, wired event loop into session_thread after execute, registered sync/async bridge functions, sends ExecutionResult via IPC after execution
+  - crates/v8-runtime/src/main.rs — per-connection SharedWriter and CallIdRouter, BridgeResponse routing via call_id→session_id lookup, per-connection SessionManager
+  - crates/v8-runtime/src/execution.rs — added 7 event loop tests (Parts 31-37)
+  - scripts/ralph/prd.json — marked US-013 as passes: true
 - **Learnings for future iterations:**
-  - Deferred modules (require succeeds, APIs throw) map to 🔴 Stub in CF comparison, not ⚪ TBD or ⛔ Unsupported
-  - console is bridge-implemented via console-formatter shim but not in BRIDGE_MODULES list — it's set up as a global override, not a requireable module
-  - stream/web has BUILTIN_NAMED_EXPORTS and is a known built-in — should be documented alongside stream
-  - diagnostics_channel Channel constructor is in BUILTIN_NAMED_EXPORTS but was missing from the nodejs-compat doc description
+  - run_event_loop polls crossbeam Receiver<SessionCommand> — blocking recv() is fine since we know there must be pending promises that will eventually resolve
+  - ChannelMessageReader wraps Receiver as io::Read: serializes incoming HostMessage back into length-prefixed bytes for BridgeCallContext.sync_call() compatibility
+  - CallIdRouter is populated by BridgeCallContext (sync_call/async_send register call_id→session_id) and consumed by connection handler for BridgeResponse routing
+  - TerminateExecution in event loop calls scope.terminate_execution() (HandleScope derefs to Isolate) then returns false; caller reports termination error
+  - Per-connection SessionManager instead of global: each connection gets its own SharedWriter (cloned UDS stream) and CallIdRouter
+  - Bridge function names (SYNC_BRIDGE_FNS, ASYNC_BRIDGE_FNS) are registered before execute — must match bridge-contract.ts names
+  - After TerminateExecution in tests, call iso.cancel_terminate_execution() to allow continued isolate use
 ---
 
-## 2026-03-18 - US-169
-- What was implemented: crypto.randomBytes, crypto.randomInt, crypto.randomFillSync, crypto.randomFill in bridge
+## 2026-03-18 - US-017
+- What was implemented: FD hygiene in the Rust V8 runtime process — close inherited FDs on startup, set CLOEXEC on all new FDs
 - Files changed:
-  - packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts — added randomBytes, randomInt, randomFillSync, randomFill overlays in crypto module section
-  - packages/secure-exec/tests/test-suite/node/crypto.ts — added 9 tests covering all four APIs
-  - packages/secure-exec-core/src/generated/isolate-runtime.ts — regenerated (build artifact)
+  - crates/v8-runtime/Cargo.toml — added libc dependency
+  - crates/v8-runtime/src/main.rs — added close_inherited_fds() (reads /proc/self/fd, closes all > 2), set_cloexec() (fcntl F_SETFD with FD_CLOEXEC), wired both into main() and accept loop; added 5 new tests
 - **Learnings for future iterations:**
-  - No new bridge ref needed — randomBytes/randomFill/randomFillSync reuse existing `_cryptoRandomFill` bridge; randomInt uses randomBytes for entropy
-  - Crypto randomness APIs go in require-setup.ts (the `if (name === 'crypto')` block), not process.ts — they are `require('crypto')` APIs, not Web Crypto
-  - randomBytes generates in 65536-byte chunks to respect Web Crypto spec limit on _cryptoRandomFill
-  - randomInt uses rejection sampling with 48-bit entropy for uniform distribution
-  - Callback-based tests must use synchronous callback capture (not Promise wrapping) since callbacks fire synchronously in sandbox
-  - Must run `pnpm run --filter @secure-exec/core build` after editing isolate-runtime sources to regenerate bundles
+  - Rust stdlib already sets CLOEXEC on sockets (SOCK_CLOEXEC) and clones (F_DUPFD_CLOEXEC) on Linux, but explicit set_cloexec is defense-in-depth
+  - close_inherited_fds reads /proc/self/fd and collects FD numbers before closing — the ReadDir handle is dropped after collect(), so its own FD is already gone before the close loop runs
+  - libc::pipe() does NOT set CLOEXEC (unlike pipe2), making it ideal for testing set_cloexec transitions from 0 to 1
+  - Cannot test close_inherited_fds directly in cargo test — it would close test harness FDs; tested indirectly via set_cloexec and CLOEXEC verification on socket types
+  - set_cloexec uses F_GETFD/F_SETFD (file descriptor flags), not F_GETFL/F_SETFL (file status flags) — these are different fcntl flag spaces
 ---
 
-## 2026-03-18 - US-170
-- What was implemented: crypto.pbkdf2, crypto.pbkdf2Sync, crypto.scrypt, and crypto.scryptSync in the bridge — three-layer pattern (host ref, contract key, sandbox overlay)
+## 2026-03-18 - US-020
+- What was implemented: createV8Runtime() that spawns Rust binary, reads socket path from stdout, connects over UDS with IPC client, authenticates, and provides session creation and dispose lifecycle
 - Files changed:
-  - packages/secure-exec-core/src/shared/bridge-contract.ts — added cryptoPbkdf2/cryptoScrypt keys and typed ref aliases
-  - packages/secure-exec-node/src/bridge-setup.ts — added host-side ivm.References calling real Node.js pbkdf2Sync/scryptSync with base64 encoding
-  - packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts — added sandbox-side pbkdf2Sync/pbkdf2/scryptSync/scrypt overlays in the crypto polyfill patch
-  - packages/secure-exec/tests/test-suite/node/crypto.ts — added 7 tests: pbkdf2Sync known value, pbkdf2 callback, pbkdf2 Buffer inputs, scryptSync known value, scryptSync defaults, scrypt callback with opts, scrypt callback without opts
+  - packages/secure-exec-v8/src/runtime.ts — full implementation replacing stub
+  - scripts/ralph/prd.json — marked US-020 as passes: true
 - **Learnings for future iterations:**
-  - pbkdf2/scrypt are one-shot functions (no stream accumulation like Hash/Hmac) — simpler bridge pattern: sandbox converts inputs to base64, calls host ref, converts result back
-  - scrypt options use both Node.js naming (N/r/p) and alias naming (cost/blockSize/parallelization) — sandbox overlay maps aliases to canonical names before passing to host
-  - Host-side scryptSync accepts options as a plain object — serialize via JSON.stringify across the isolate boundary
-  - All 34 crypto tests pass (27 existing + 7 new); typecheck passes across all packages
+  - Package is ESM ("type": "module") — use import.meta.url + fileURLToPath for __dirname equivalent, not require()
+  - Binary name is "secure-exec-v8" (Cargo.toml [[bin]] name), crate name is "secure-exec-v8-runtime"
+  - Rust binary prints socket path as first stdout line then flushes — use readline createInterface to read it
+  - resolveBinaryPath checks crates/v8-runtime/target/{release,debug}/ relative to dist/ output dir — needs adjustment when package is published (US-026)
+  - Session message routing uses Map<sessionId, handler> — each execute() call registers its own handler, cleaned up on ExecutionResult
+  - Bridge call args/results are MessagePack-encoded Uint8Array — must decode args and encode results in the JS-side handler
+  - Child stderr is buffered (capped at 8KB) for error reporting on spawn failure
 ---
 
-## 2026-03-18 - US-171
-- What was implemented: crypto.createCipheriv and crypto.createDecipheriv bridge support
-- Bridge design: guest accumulates update() chunks, host performs cipher/decipher on final()
-- GCM mode: host returns JSON with data + authTag; decipher accepts authTag via optionsJson
-- Supported algorithms: aes-128-cbc, aes-256-cbc, aes-128-gcm, aes-256-gcm
-- Also fixed missing _cryptoPbkdf2 and _cryptoScrypt entries in global-exposure.ts inventory
+## 2026-03-18 - US-022
+- What was implemented: Updated NodeExecutionDriver to use @secure-exec/v8 instead of isolated-vm
 - Files changed:
-  - packages/secure-exec-core/src/shared/bridge-contract.ts — added CryptoCipherivBridgeRef, CryptoDecipherivBridgeRef types and HOST_BRIDGE_GLOBAL_KEYS entries
-  - packages/secure-exec-core/src/shared/global-exposure.ts — added inventory entries for _cryptoPbkdf2, _cryptoScrypt, _cryptoCipheriv, _cryptoDecipheriv
-  - packages/secure-exec-node/src/bridge-setup.ts — added host-side createCipheriv/createDecipheriv refs with GCM auth tag support
-  - packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts — added SandboxCipher and SandboxDecipher guest-side classes
-  - packages/secure-exec/tests/test-suite/node/crypto.ts — added 7 tests: CBC/GCM roundtrips, auth tag verification, multi-chunk, hex encoding
-  - packages/secure-exec-core/src/generated/isolate-runtime.ts — auto-generated
+  - packages/secure-exec-node/src/execution-driver.ts — rewrote to use V8Runtime/V8Session, lazy-init shared runtime, compose bridge code for Rust V8 process
+  - packages/secure-exec-node/src/bridge-handlers.ts — NEW: builds BridgeHandlers map (plain functions) from DriverDeps for session.execute()
+  - packages/secure-exec-node/src/ivm-compat.ts — NEW: JS shim adding .applySync/.applySyncPromise methods to Rust-registered bridge functions
+  - packages/secure-exec-node/src/isolate-bootstrap.ts — removed ivm.Isolate from DriverDeps (kept legacy fields as `any` for backward compat)
+  - packages/secure-exec-node/package.json — added @secure-exec/v8 and @msgpack/msgpack dependencies
+  - crates/v8-runtime/src/session.rs — updated SYNC_BRIDGE_FNS (30 entries) and ASYNC_BRIDGE_FNS (8 entries) to match bridge contract
+  - crates/v8-runtime/src/execution.rs — moved SharedArrayBuffer removal from inject_globals to JS-side timing mitigation (bridge bundle needs SAB during init)
+  - pnpm-lock.yaml — updated for new deps
 - **Learnings for future iterations:**
-  - Cipher update() returns data (Buffer/string) unlike Hash.update() which returns `this` — accumulate-and-batch still works because final() returns all data
-  - createCipheriv/createDecipheriv with GCM need `as any` cast because TypeScript crypto types use separate CipherGCM/DecipherGCM for getAuthTag/setAuthTag
-  - bridge-registry-policy.test.ts enforces that ALL HOST_BRIDGE_GLOBAL_KEYS have matching NODE_CUSTOM_GLOBAL_INVENTORY entries — must add inventory entries for every new bridge key
-  - _cryptoPbkdf2 and _cryptoScrypt were missing from inventory (pre-existing gap) — fixed in this commit
+  - V8Runtime startup is slow (~5s first time); must use shared singleton across all drivers to avoid per-test timeouts
+  - SharedArrayBuffer removal must happen AFTER bridge bundle loads (whatwg-url/webidl-conversions depends on it during init)
+  - Bridge code uses .applySync()/.applySyncPromise() ivm.Reference methods — need compatibility shim since Rust registers plain FunctionTemplate functions
+  - .apply() calls work via Function.prototype.apply (third arg ignored) — no shim needed for async bridge calls
+  - _fs facade is created by setupFsFacade runtime script — must be included in bridge code composition after individual _fs* functions are registered
+  - Stdin data must be injected via preamble code before user code (setStdinData runtime script)
+  - Rust SYNC_BRIDGE_FNS/ASYNC_BRIDGE_FNS are hardcoded in session.rs — must match HOST_BRIDGE_GLOBAL_KEYS from bridge-contract.ts
+  - BridgeCall errors serialize only err.message — .code property preserved via message pattern detection (same as ivm architecture)
+- Bridge code calls host functions directly (fn(args)) — no more .applySync()/.applySyncPromise()/.apply() wrapper methods
+- After changing bridge source (src/bridge/*.ts), rebuild with `pnpm run build:bridge` in core; for isolate-runtime inject code, rebuild with `pnpm run build:isolate-runtime` in core
 ---
 
-## 2026-03-18 - US-172
-- What was implemented: crypto.sign, crypto.verify, crypto.generateKeyPairSync, crypto.generateKeyPair, crypto.createPublicKey, crypto.createPrivateKey, and KeyObject in bridge
+## 2026-03-19 - US-023 (+ US-024)
+- What was implemented: Replaced all ivm.Reference type interfaces (BridgeApplyRef, BridgeApplySyncRef, BridgeApplySyncPromiseRef) in bridge-contract.ts with plain function type signatures. Updated all bridge code call sites from .applySync()/.applySyncPromise()/.apply() to direct function calls. This also completed US-024 since changing types required updating call sites for typecheck to pass.
 - Files changed:
-  - packages/secure-exec-core/src/shared/bridge-contract.ts — added CryptoSignBridgeRef, CryptoVerifyBridgeRef, CryptoGenerateKeyPairSyncBridgeRef types and HOST_BRIDGE_GLOBAL_KEYS entries
-  - packages/secure-exec-core/src/shared/global-exposure.ts — added _cryptoSign, _cryptoVerify, _cryptoGenerateKeyPairSync to NODE_CUSTOM_GLOBAL_INVENTORY
-  - packages/secure-exec-core/isolate-runtime/src/common/runtime-globals.d.ts — added global type declarations for new bridge refs
-  - packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts — added sandbox-side sign, verify, generateKeyPairSync, generateKeyPair, createPublicKey, createPrivateKey, SandboxKeyObject
-  - packages/secure-exec-node/src/bridge-setup.ts — added host-side ivm.Reference implementations using Node.js crypto sign/verify/generateKeyPairSync/createPublicKey/createPrivateKey
-  - packages/secure-exec/tests/test-suite/node/crypto.ts — added 7 tests: RSA sign/verify roundtrip, EC key pair signing, PEM encoding output, async generateKeyPair, createPublicKey/createPrivateKey from PEM, KeyObject.export, tamper rejection
+  - packages/secure-exec-core/src/shared/bridge-contract.ts — removed 3 generic interfaces, replaced all type aliases with plain function types
+  - packages/secure-exec-core/src/index.ts — removed re-exports of 3 generic interfaces
+  - packages/secure-exec/src/shared/bridge-contract.ts — removed re-exports of 3 generic interfaces
+  - packages/secure-exec-core/src/bridge/fs.ts — .applySyncPromise() → direct calls (20+ sites)
+  - packages/secure-exec-core/src/bridge/child-process.ts — .applySync()/.applySyncPromise() → direct calls
+  - packages/secure-exec-core/src/bridge/network.ts — .apply() with options → direct calls
+  - packages/secure-exec-core/src/bridge/process.ts — .applySync()/.apply() → direct calls
+  - packages/secure-exec-core/src/bridge/module.ts — .applySyncPromise() → direct calls
+  - packages/secure-exec-core/src/shared/console-formatter.ts — .applySync() → direct calls in generated JS
+  - packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts — .applySyncPromise() → direct calls
+  - packages/secure-exec-core/isolate-runtime/src/inject/setup-dynamic-import.ts — .apply() → direct call
+  - packages/secure-exec-core/src/generated/isolate-runtime.ts — regenerated (build:isolate-runtime)
+  - packages/secure-exec/tests/console-formatter.test.ts — updated mock from {applySync} to plain function
 - **Learnings for future iterations:**
-  - Key material crosses isolate boundary as PEM strings (not binary) — host always generates PEM via spki/pkcs8 encoding
-  - SandboxKeyObject stores PEM as _pem property; sign/verify on sandbox side extract _pem to pass to host bridge
-  - Host sign/verify uses createPrivateKey/createPublicKey to reconstruct KeyObjects from PEM — this handles both raw PEM strings and KeyObject-wrapped keys
-  - generateKeyPairSync returns KeyObjects by default (no encoding options) or PEM strings when publicKeyEncoding/privateKeyEncoding are specified — mirrors Node.js behavior
-  - Three bridge refs suffice for all 6 API functions: sign, verify, and generateKeyPairSync; async variants (generateKeyPair) and KeyObject constructors (createPublicKey/createPrivateKey) are handled purely on the sandbox side
----
-
-## 2026-03-18 - US-176
-- What was implemented: pg (node-postgres) project-matrix fixture verifying Pool, Client, types, Query classes load and have expected methods
-- Files changed:
-  - packages/secure-exec/tests/projects/pg-pass/package.json — new fixture with pg 8.13.1
-  - packages/secure-exec/tests/projects/pg-pass/fixture.json — pass expectation
-  - packages/secure-exec/tests/projects/pg-pass/src/index.js — imports pg, verifies Pool/Client/types/Query exports and prototype methods, checks type parser APIs and defaults module
-  - docs/nodejs-compatibility.mdx — added pg to Tested Packages table
-- **Learnings for future iterations:**
-  - pg Pool/Client constructors with config trigger net.Socket on pool.end() — avoid calling connect/end/query in sandbox fixtures
-  - Fixture tests class existence and prototype methods without instantiating Pool/Client (which attempt network connections)
-  - require("pg/lib/defaults") gives access to default config values (host, port) for verification without triggering network
-  - Query class is exported directly from pg as a named export
----
-
-## 2026-03-18 - US-177
-- What was implemented: Added drizzle-orm project-matrix fixture that verifies ORM schema definition and query building in the sandbox
-- Files changed:
-  - packages/secure-exec/tests/projects/drizzle-pass/package.json — fixture package with drizzle-orm 0.45.1 dep
-  - packages/secure-exec/tests/projects/drizzle-pass/fixture.json — standard pass fixture config
-  - packages/secure-exec/tests/projects/drizzle-pass/src/index.js — defines pgTable schema, checks column metadata, verifies eq/and/sql operators
-  - docs/nodejs-compatibility.mdx — added drizzle-orm to Tested Packages table
-  - scripts/ralph/prd.json — marked US-177 passes: true
-- **Learnings for future iterations:**
-  - drizzle-orm CJS require works for both main entry ("drizzle-orm") and subpath ("drizzle-orm/pg-core")
-  - Table name accessed via Symbol.for("drizzle:Name"), not a plain property
-  - pgTable auto-adds "enableRLS" to column names — include it in sorted column list expectations
-  - drizzle-orm has zero dependencies — installs fast, good candidate for lightweight ORM testing
-  - e2e-project-matrix kernel tests fail for ALL fixtures (pre-existing), not a drizzle-specific issue
----
-
-## 2026-03-18 - US-178
-- What was implemented: Added axios project-matrix fixture with http adapter + fetch bridge support
-- Files changed:
-  - packages/secure-exec/tests/projects/axios-pass/ — new fixture (package.json, fixture.json, src/index.js)
-  - packages/secure-exec-core/src/bridge/process.ts — added Symbol.toStringTag = "process" so Object.prototype.toString.call(process) returns "[object process]"
-  - packages/secure-exec-core/src/bridge/network.ts — fixed fetch() to accept Request objects (extract url/method/headers from Request input)
-  - docs/nodejs-compatibility.mdx — added axios to Tested Packages table
-- **Learnings for future iterations:**
-  - axios adapter selection: default order is ['xhr', 'http', 'fetch']; sandbox XHR is polyfill-based and unreliable, http adapter uses follow-redirects which has incompatible emit patterns, fetch adapter works best
-  - axios http adapter checks `utils.kindOf(process) === 'process'` via Object.prototype.toString.call — sandbox process object needed Symbol.toStringTag = "process"
-  - axios fetch adapter passes Request objects to fetch(), not just URL strings — sandbox fetch() must handle Request input by extracting .url, .method, .headers
-  - hasBrowserEnv check in axios: `typeof window !== 'undefined' && typeof document !== 'undefined'` — sandbox does NOT define window/document (V8 isolate), so this is false
-  - fixture uses `adapter: "fetch"` to explicitly select fetch adapter — this is valid sandbox-blind Node.js code (fetch adapter works in Node.js 18+)
----
-
-## 2026-03-18 - US-179
-- What was implemented: Added ws (WebSocket) project-matrix fixture testing module loading, API shape, Receiver frame parsing, Sender frame construction, and WebSocketServer noServer mode
-- Files changed:
-  - packages/secure-exec/tests/projects/ws-pass/fixture.json — fixture config
-  - packages/secure-exec/tests/projects/ws-pass/package.json — ws 8.18.0 dependency
-  - packages/secure-exec/tests/projects/ws-pass/src/index.js — tests WebSocket/WebSocketServer exports, prototype methods, constants, Receiver/Sender data processing, noServer mode
-  - docs/nodejs-compatibility.mdx — added ws to Tested Packages table
-- **Learnings for future iterations:**
-  - Sandbox HTTP server does not support WebSocket upgrade (HTTP 101 Switching Protocols) — dispatchServerRequest only handles regular request/response, no bidirectional streaming
-  - ws Receiver defaults to client mode (isServer=false) — expects unmasked frames; use MASK bit only for server-mode receivers
-  - ws Sender requires a socket with cork()/uncork()/write() methods — provide a complete mock when testing standalone
-  - Follow pg-pass/ssh2-pass pattern for packages needing external services: test module loading, API shape, and data-processing features without real connections
-  - ClientRequest in sandbox bridge lacks destroy() method — ws calls req.destroy() on failed upgrades, causing "stream.destroy is not a function" error
----
-
-## 2026-03-18 - US-181
-- What was implemented: Added jsonwebtoken project-matrix fixture and fixed sandbox crypto key validation
-- Files changed:
-  - packages/secure-exec/tests/projects/jsonwebtoken-pass/package.json — new fixture package
-  - packages/secure-exec/tests/projects/jsonwebtoken-pass/fixture.json — fixture metadata
-  - packages/secure-exec/tests/projects/jsonwebtoken-pass/src/index.js — JWT sign/verify/decode test
-  - packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts — added createSecretKey, fixed createPrivateKey and createPublicKey to validate PEM format, updated SandboxHmac to handle SandboxKeyObject keys
-  - packages/secure-exec/tests/test-suite/node/crypto.ts — added 4 tests: createSecretKey, createPrivateKey/createPublicKey PEM validation, HMAC with KeyObject
-  - docs/nodejs-compatibility.mdx — added jsonwebtoken to Tested Packages table
-- **Learnings for future iterations:**
-  - jsonwebtoken 9.0.2 uses createPrivateKey/createSecretKey/createPublicKey to normalize key material before signing — sandbox must implement all three
-  - Sandbox createPrivateKey/createPublicKey must validate PEM format (check for '-----BEGIN') and throw for non-PEM strings — otherwise libraries that try createPrivateKey first and fall back to createSecretKey in catch blocks never reach the fallback
-  - SandboxHmac must handle SandboxKeyObject as key (check key._pem) — jwa passes KeyObject directly to crypto.createHmac()
-  - createSecretKey creates a KeyObject with type='secret' — needed for HS256/HS384/HS512 algorithm validation in jsonwebtoken
----
-
-## 2026-03-18 - US-182
-- What was implemented: Added bcryptjs project-matrix fixture; fixed Date.now timing mitigation to use getter/setter instead of writable:false
-- Files changed:
-  - packages/secure-exec/tests/projects/bcryptjs-pass/ — new fixture (fixture.json, package.json, src/index.js, pnpm-lock.yaml)
-  - packages/secure-exec-core/isolate-runtime/src/inject/apply-timing-mitigation-freeze.ts — changed Date.now freeze from writable:false to getter/setter (no-op setter) for Node.js compat
-  - packages/secure-exec-core/src/generated/isolate-runtime.ts — regenerated from build
-  - packages/secure-exec/tests/runtime-driver/node/index.test.ts — updated "Date.now cannot be overridden" test to expect assignThrew:false (setter is silently ignored)
-  - docs/nodejs-compatibility.mdx — added bcryptjs to Tested Packages table
-- **Learnings for future iterations:**
-  - bcryptjs does `Date.now = Date.now || function()...` which assigns to Date.now even when it already exists; writable:false causes TypeError in strict mode
-  - Fix: use getter/setter pattern (get returns frozen fn, set is no-op) instead of writable:false — silently ignores writes while keeping Date.now frozen
-  - Object.defineProperty with configurable:false still blocks re-definition, so security is maintained
-  - Must rebuild core (`pnpm turbo run build --filter=@secure-exec/core`) after changing isolate-runtime source files
-  - Generated isolate-runtime.ts must be committed alongside source changes
----
-
-## 2026-03-18 - US-183
-- What was implemented: Added lodash-es project-matrix fixture to verify large ESM module resolution at scale in the sandbox
-- Files changed:
-  - packages/secure-exec/tests/projects/lodash-es-pass/ — new fixture (fixture.json, package.json, src/index.js, pnpm-lock.yaml)
-  - docs/nodejs-compatibility.mdx — added lodash-es to Tested Packages table
-- **Learnings for future iterations:**
-  - lodash-es individual module imports (e.g., `lodash-es/map.js`) work fine with ESM — no need to use barrel import
-  - Fixture passed on first attempt with no sandbox compatibility issues
----
-
-## 2026-03-18 - US-184
-- What was implemented: chalk project-matrix fixture verifying terminal string styling with ANSI escape codes
-- Files changed:
-  - packages/secure-exec/tests/projects/chalk-pass/fixture.json — fixture metadata
-  - packages/secure-exec/tests/projects/chalk-pass/package.json — chalk 5.4.1 ESM dependency
-  - packages/secure-exec/tests/projects/chalk-pass/src/index.js — exercises Chalk constructor with level 1, red/green/blue/bold/underline/nested/bgYellow/italic/cyan styles
-  - docs/nodejs-compatibility.mdx — added chalk to Tested Packages table
-- **Learnings for future iterations:**
-  - chalk v5 exports `Chalk` as a named export (not `chalk.Chalk`) — use `import { Chalk } from "chalk"` and `new Chalk({ level: 1 })` for deterministic ANSI output
-  - Forcing `level: 1` ensures basic ANSI codes regardless of TTY detection, producing identical output in host and sandbox
----
-
-## 2026-03-18 - US-185
-- Added pino project-matrix fixture (pino-pass)
-- Fixed diagnostics_channel.tracingChannel() stub to include traceSync/tracePromise/traceCallback methods
-- Files changed:
-  - packages/secure-exec/tests/projects/pino-pass/ (new fixture: fixture.json, package.json, src/index.js)
-  - packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts (diagnostics_channel stub fix)
-  - packages/secure-exec-core/src/generated/isolate-runtime.ts (rebuilt)
-  - docs/nodejs-compatibility.mdx (added pino to Tested Packages table)
-- **Learnings for future iterations:**
-  - pino uses sonic-boom (async fd writes via fs.writeSync) by default — sandbox doesn't support direct fd writes, so use process.stdout as destination
-  - pino.destination({ dest: 1, sync: true }) fails in sandbox with EBADF; pino({}, process.stdout) works
-  - diagnostics_channel.tracingChannel() must return traceSync/tracePromise/traceCallback no-op wrappers that execute the passed function — libraries like pino call these directly
-  - Use `timestamp: false, base: undefined` with pino for deterministic output (removes time, pid, hostname)
----
-
-## 2026-03-18 - US-186
-- Implemented node-fetch project-matrix fixture (v2.7.0, CJS)
-- Fixed stream polyfill prototype chain: esbuild's circular-dep resolution between stream-browserify and readable-stream broke `instanceof Stream` — Readable extended EventEmitter directly instead of Stream; patched in `_patchPolyfill` to insert Stream.prototype back into the chain
-- Files changed:
-  - packages/secure-exec/tests/projects/node-fetch-pass/ (new fixture)
-  - packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts (stream patch)
-  - packages/secure-exec-core/src/generated/isolate-runtime.ts (generated)
-  - docs/nodejs-compatibility.mdx (Tested Packages table)
-- **Learnings for future iterations:**
-  - node-fetch v3 is ESM-only and uses socket.prependListener (not in bridge); use v2 for CJS compat
-  - `body instanceof Stream` check in node-fetch v2 was failing because esbuild's bundling of stream-browserify↔readable-stream circular dependency breaks the prototype chain (Readable → EventEmitter instead of Readable → Stream → EventEmitter)
-  - Stream polyfill patches go in `_patchPolyfill` in require-setup.ts; the generated file auto-updates on build
----
-
-## 2026-03-18 - US-187
-- What was implemented: yaml project-matrix fixture testing YAML parse/stringify/document API
-- Files changed:
-  - packages/secure-exec/tests/projects/yaml-pass/fixture.json — fixture metadata
-  - packages/secure-exec/tests/projects/yaml-pass/package.json — depends on yaml@2.8.0
-  - packages/secure-exec/tests/projects/yaml-pass/src/index.js — parse, stringify, round-trip, parseDocument
-  - docs/nodejs-compatibility.mdx — added yaml to Tested Packages table
-- **Learnings for future iterations:**
-  - yaml package is pure JS, works out of the box in sandbox with no special handling
-  - Fixture tests parse, stringify, round-trip consistency, and document API
----
-
-## 2026-03-18 - US-188
-- What was implemented: uuid project-matrix fixture testing UUID v4 generation/validation, deterministic v5 generation, and NIL UUID
-- Files changed:
-  - packages/secure-exec/tests/projects/uuid-pass/fixture.json — fixture metadata
-  - packages/secure-exec/tests/projects/uuid-pass/package.json — depends on uuid@11.1.0 (ESM)
-  - packages/secure-exec/tests/projects/uuid-pass/src/index.js — v4 validate, v5 deterministic, NIL validate
-  - docs/nodejs-compatibility.mdx — added uuid to Tested Packages table
-- **Learnings for future iterations:**
-  - uuid v4 output is random — only output validation results (valid/version booleans) for deterministic comparison
-  - uuid v5 with fixed namespace+name produces deterministic output safe for exact comparison
-  - uuid 11.1.0 works as ESM in sandbox with no special handling; exercises crypto.getRandomValues path
----
-
-## 2026-03-18 - US-190
-- What was implemented: SSE (Server-Sent Events) streaming project-matrix fixture
-- Files changed:
-  - packages/secure-exec/tests/projects/sse-streaming-pass/fixture.json — fixture metadata
-  - packages/secure-exec/tests/projects/sse-streaming-pass/package.json — no external deps (uses only Node builtins)
-  - packages/secure-exec/tests/projects/sse-streaming-pass/src/index.js — SSE server + manual text/event-stream parser
-  - docs/nodejs-compatibility.mdx — added sse-streaming to Tested Packages table
-- **Learnings for future iterations:**
-  - SSE fixtures need no external deps — http.createServer + manual parsing covers the full SSE protocol
-  - SSE events are separated by double newlines; multi-line data fields join with \n (per spec)
-  - All output is deterministic since server sends fixed events and closes — no randomness or timing issues
-  - The fixture exercises: http.createServer, chunked transfer-encoding, Connection: keep-alive, streaming reads
----
-
-## 2026-03-19 - US-191
-- What was implemented: Rewrote ws-pass fixture with full WebSocket server-client communication (text + binary echo). Implemented server-side HTTP upgrade support in the bridge (UpgradeSocket class, bidirectional data relay through host bridge references).
-- Files changed:
-  - packages/secure-exec/tests/projects/ws-pass/src/index.js — full rewrite: WebSocketServer on port 0, client connects, text + binary echo, event verification
-  - packages/secure-exec-core/src/bridge/network.ts — added UpgradeSocket class for bidirectional data relay, server upgrade dispatch, data/end push functions
-  - packages/secure-exec-core/src/shared/bridge-contract.ts — added upgrade socket host/runtime bridge keys
-  - packages/secure-exec-core/src/shared/global-exposure.ts — added upgrade socket globals to inventory
-  - packages/secure-exec-core/src/shared/permissions.ts — forwarded upgradeSocketWrite/End/Destroy/setUpgradeSocketCallbacks through wrapNetworkAdapter
-  - packages/secure-exec-core/src/types.ts — added onUpgrade/onUpgradeSocketData/onUpgradeSocketEnd to NetworkServerListenOptions; upgradeSocketWrite/End/Destroy/setUpgradeSocketCallbacks to NetworkAdapter
-  - packages/secure-exec-core/isolate-runtime/src/common/runtime-globals.d.ts — added upgrade socket bridge ref types
-  - packages/secure-exec-core/src/index.ts — re-exported new bridge ref types
-  - packages/secure-exec/src/shared/bridge-contract.ts — re-exported new bridge ref types
-  - packages/secure-exec-node/src/bridge-setup.ts — added lazy upgrade dispatch/data/end refs; registered onUpgrade/onUpgradeSocketData/onUpgradeSocketEnd callbacks; added host write/end/destroy refs; called setUpgradeSocketCallbacks
-  - packages/secure-exec-node/src/driver.ts — added server.on('upgrade') handler in httpServerListen; kept client-side upgrade socket alive for data relay; added upgradeSocketWrite/End/Destroy/setUpgradeSocketCallbacks adapter methods
-- **Learnings for future iterations:**
-  - wrapNetworkAdapter in permissions.ts creates a NEW object — any new adapter methods MUST be forwarded through it or they'll be undefined at bridge-setup time
-  - Server-side HTTP upgrade: host server.on('upgrade') → applySync to sandbox → sandbox Server._emit('upgrade') → ws handles it
-  - Client-side HTTP upgrade: host req.on('upgrade') → keep socket alive → include upgradeSocketId in response JSON → sandbox creates UpgradeSocket
-  - UpgradeSocket.emit must call listeners with .call(this) — ws library's socketOnData uses `this[Symbol('websocket')]` which requires proper `this` binding
-  - UpgradeSocket needs _readableState.endEmitted and _writableState.finished stubs — ws checks these in socketOnClose
-  - UpgradeSocket.destroy/close must emit 'close' with false argument (hadError=false) for ws compatibility
-  - applySync from within applySync (host→sandbox→host reentrance) works in isolated-vm — the host Reference callback runs synchronously
----
-
-## 2026-03-19 - US-192
-- Created shared Docker container test utility at packages/secure-exec/tests/utils/docker.ts
-- startContainer(image, opts) accepts port mappings, env vars, health check command, timeout
-- Returns { containerId, host, port, ports, stop() } — stop() is idempotent
-- skipUnlessDocker() skip helper follows project convention (returns string | false)
-- Auto-pulls images not present locally via execFileSync
-- Health check loop with configurable timeout (default 30s) and interval (default 500ms)
-- Self-test at packages/secure-exec/tests/utils/docker.test.ts (4 tests: basic start/exec/stop, port mapping, health check, env vars)
-- Files changed: packages/secure-exec/tests/utils/docker.ts, packages/secure-exec/tests/utils/docker.test.ts
-- **Learnings for future iterations:**
-  - Use execFileSync (not execSync with args.join(" ")) for docker CLI calls — shell interpretation breaks commands containing spaces, semicolons, pipes
-  - Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) is a clean synchronous sleep without spawning a shell process
-  - Docker port output format is "0.0.0.0:12345" — match /:(\d+)$/m to extract the host port
-  - afterAll cleanup in container tests ensures containers are removed even on test failure
----
-
-## 2026-03-19 - US-193
-- Added ioredis project-matrix fixture at packages/secure-exec/tests/projects/ioredis-pass/
-- Implemented as import-only fixture (consistent with pg-pass, mysql2-pass) because net module is deferred-stubbed in sandbox — real TCP connections via net.Socket are impossible
-- Validates: Redis constructor, Cluster class, Command class, 13 prototype methods (connect, disconnect, quit, get, set, del, lpush, lrange, subscribe, unsubscribe, publish, pipeline, multi), pipeline/multi transaction APIs, Command building, event emitter interface, options parsing
-- Updated docs/nodejs-compatibility.mdx Tested Packages table with ioredis entry
-- Files changed: packages/secure-exec/tests/projects/ioredis-pass/{package.json,fixture.json,src/index.js}, docs/nodejs-compatibility.mdx
-- **Learnings for future iterations:**
-  - net module is a deferred stub in sandbox — require("net") returns a Proxy; any API call (createServer, Socket, connect) throws "<module>.<api> is not supported in sandbox"
-  - Deferred modules: net, tls, readline, perf_hooks, worker_threads, diagnostics_channel, async_hooks — defined in isolate-runtime/src/inject/require-setup.ts
-  - Database client fixtures (pg, mysql2, ioredis) can only be import-only in project-matrix because they all depend on net.Socket for TCP connections
-  - http.createServer IS supported (used by express, fastify, ws fixtures) but net.createServer is NOT — ws WebSocketServer works because it wraps http.createServer internally
-  - ioredis with { lazyConnect: true, enableReadyCheck: false } safely constructs without touching net module — pipeline/multi/Command APIs work without a connection
----
-
-## 2026-03-19 - US-194
-- Enhanced mysql2 project-matrix fixture from basic import checks to comprehensive API surface validation
-- Expanded coverage: connection pool creation/config (createPool with connectionLimit, keepAlive), pool cluster (createPoolCluster with add/of/selectors), escape/format utilities (strings, numbers, null, booleans, arrays, nested arrays, identifiers, qualified identifiers, Buffer, objects/SET clauses), raw() prepared statement placeholders, MySQL type constants (27 types verified), promise wrapper (createConnection/createPool/createPoolCluster), event emitter interface
-- Real MySQL Docker integration not possible — net module is deferred-stubbed in sandbox (same as ioredis US-193, pg US-188)
-- Avoided timezone-sensitive Date formatting output (used type check instead of value comparison)
-- Files changed: packages/secure-exec/tests/projects/mysql2-pass/src/index.js
-- **Learnings for future iterations:**
-  - mysql2 pool.end() and cluster.end() accept callbacks — needed for clean fixture teardown without hanging
-  - mysql2 promise pool end() returns a Promise — use .catch() to suppress unhandled rejection
-  - mysql2 escape() with nested arrays produces SQL value lists: [[1,2],[3,4]] → "(1, 2), (3, 4)"
-  - Date formatting in mysql2.escape/format is timezone-dependent — avoid comparing date string values in project-matrix fixtures
-  - createPoolCluster.of("REPLICA*") returns a namespace selector object — exercises pattern matching without TCP
----
-
-## 2026-03-19 - US-196
-- What was implemented: Fixed node -e stderr/errors not appearing in interactive shell and kernel.exec. Two bugs: (1) NodeRuntimeDriver didn't emit result.errorMessage as stderr — V8 isolate errors (ReferenceError, SyntaxError, throw) were captured in ExecResult.errorMessage but never forwarded to ctx.onStderr/proc.onStderr. (2) execution.ts error formatting didn't include error class name — isolated-vm preserves err.name but execution.ts only used err.message, so "lskdjf is not defined" appeared instead of "ReferenceError: lskdjf is not defined".
-- Files changed:
-  - packages/runtime/node/src/driver.ts — emit result.errorMessage as stderr via ctx.onStderr/proc.onStderr after exec returns
-  - packages/secure-exec-node/src/execution.ts — include err.name prefix in errorMessage for non-generic errors (SyntaxError, ReferenceError, etc.)
-  - packages/secure-exec/tests/kernel/cross-runtime-terminal.test.ts — added 8 new tests: 4 kernel.exec stderr tests (ReferenceError, throw Error, SyntaxError, console.error) + 4 interactive shell PTY stderr tests (ReferenceError, throw Error, SyntaxError, stderr callback chain)
-- **Learnings for future iterations:**
-  - isolated-vm preserves err.name (ReferenceError, SyntaxError) but err.message does NOT include the class name prefix — must format as `${err.name}: ${err.message}` explicitly
-  - ExecResult.errorMessage is set when V8 isolate code throws, but NodeRuntimeDriver only emitted stderr in the catch block (for driver-level errors) — result.errorMessage needed separate emission
-  - process.exit errors use a generic Error (name === "Error") so the name prefix logic correctly skips them
-  - Changing execution.ts requires `pnpm run build` (or turbo build) before tests pick up the change — vitest resolves the compiled output, not TypeScript source
-  - The WARN "could not retrieve pid for child process" appears on stderr for all node -e invocations — tests must tolerate it
----
-
-## 2026-03-19 - US-197
-- What was implemented: Verified tree command works correctly in both kernel.exec() and interactive shell; no code fix needed (tree never hung — hypothesized stdin blocking does not occur because tree.rs never reads stdin, and the WASM polyfill only blocks on stdin when fd_read(0) is actually called). Added comprehensive test suite covering all acceptance criteria.
-- Files changed:
-  - packages/secure-exec/tests/kernel/tree-test.test.ts — 6 new tests: kernel.exec tree / returns within 5s, tree /nonexistent returns non-zero, 3-level nested directory rendering, empty directory minimal output, interactive shell tree completes with prompt return, stdin-empty-PTY non-hang verification
-  - scripts/ralph/prd.json — marked US-197 as passes: true
-- **Learnings for future iterations:**
-  - tree.rs only uses io::stdout() and fs::read_dir() — no stdin reads → PTY stdin blocking is not an issue for tree
-  - Interactive shell tests must use shell.onData = fn (property setter), not shell.onData(fn) — openShell returns a ShellHandle with getter/setter, not EventEmitter
-  - Shell prompt text is "sh-0.4$ " — use '$ ' substring match for prompt detection in tests
-  - Tree summary output uses singular/plural: "1 directory" vs "N directories", "1 file" vs "N files" — match with regex /\d+ director/ and /\d+ file/
-  - Interactive shell cleanup: send 'exit\n' and race shell.wait() with a timeout to avoid test hangs from dispose()
-  - kernel.exec('tree /') runs in under 1 second; interactive shell 'tree /' completes within 200ms after command is dispatched
----
-
-## 2026-03-19 - US-002 (cli-tool-sandbox-tests PRD)
-- What was implemented: Fixed mysql2-connect Docker fixture to connect to real MySQL container through sandbox net bridge with full parity
-- Root cause: iconv-lite (mysql2 dependency) lazily loads encoding modules on first use during TCP data callbacks. The data callback runs inside isolated-vm's applySync context where applySyncPromise cannot pump the event loop, causing "This function may not be called from the default thread" native error.
-- Files changed:
-  - packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts — added JS-side resolution cache, name-based module caching, sync bridge fallbacks, skip polyfill check for path requires
-  - packages/secure-exec-core/src/shared/bridge-contract.ts — added resolveModuleSync and loadFileSync bridge keys
-  - packages/secure-exec-node/src/bridge-setup.ts — added synchronous module resolution (createRequire/require.resolve) and synchronous file loading (readFileSync) host bridges for applySync contexts
-  - packages/secure-exec/tests/e2e-docker.test.ts — added mysql_native_password auth flag for MySQL container
-  - packages/secure-exec/tests/e2e-docker/mysql2-connect/fixture.json — updated expectation from fail to pass
-  - packages/secure-exec/tests/e2e-docker/mysql2-connect/package.json — added iconv-lite as direct dependency
-  - packages/secure-exec/tests/e2e-docker/mysql2-connect/src/index.js — added eager iconv-lite encoding initialization
-  - scripts/ralph/prd.json — marked US-002 as passes: true
-- **Learnings for future iterations:**
-  - applySyncPromise CANNOT run inside applySync contexts — it needs to pump the event loop which is not possible when the isolate is entered via applySync
-  - Net socket event callbacks (data, connect, etc.) are dispatched into the isolate via applySync — any require() calls inside these callbacks must NOT use applySyncPromise
-  - The sync bridge fallback pattern: add synchronous host references (_resolveModuleSync, _loadFileSync) that use Node.js sync APIs; the require system tries these first and falls back to applySyncPromise
-  - iconv-lite v0.6.x lazily loads encodings on first getDecoder/getEncoder call — pre-initialize by calling iconv.getDecoder("utf8") during module load to avoid lazy require() inside callbacks
-  - MySQL 8.0 caching_sha2_password auth requires crypto.publicEncrypt() not available in sandbox; use --default-authentication-plugin=mysql_native_password
-  - Name-based module caching (caching by require name, not just resolved path) prevents applySyncPromise calls for previously loaded modules in applySync contexts
----
-
-## 2026-03-19 - US-003
-- What was implemented: Updated ioredis-connect fixture from "fail" to "pass" — the net bridge work from US-001 (net.Socket, net.connect, net.createConnection) already supports ioredis's TCP connection needs
-- Files changed:
-  - packages/secure-exec/tests/e2e-docker/ioredis-connect/fixture.json — changed expectation from "fail" to "pass", removed fail contract
-  - scripts/ralph/prd.json — marked US-003 as passes: true
-- **Learnings for future iterations:**
-  - ioredis uses net.createConnection() which delegates to net.connect() — both were already implemented in US-001's net bridge work
-  - When the net bridge is working for one TCP client library (pg), other TCP-based libraries (ioredis, mysql2) often work without additional changes
-  - Always try running the fixture first before assuming code changes are needed — the fixture.json expectation may be stale
----
-
-## 2026-03-19 - US-004 & US-005
-- What was implemented: Fixed ssh2-connect and ssh2-sftp-transfer Docker fixtures to pass in sandbox
-- Key fixes:
-  1. **Buffer prototype patching**: Added internal V8 Buffer methods (latin1Slice, base64Slice, utf8Write, etc.) to both the bridge Buffer and the polyfill Buffer prototypes. ssh2 protocol parser uses these for fast binary data access.
-  2. **NetSocket._readableState.ended**: Added `ended: false` to stream state stubs. ssh2's `isWritable()` checks `_readableState.ended === false` — without this, all socket writes were silently skipped.
-  3. **Stateful cipher/decipher bridge**: Added `_cryptoCipherivCreate`, `_cryptoCipherivUpdate`, `_cryptoCipherivFinal` bridge functions for streaming crypto operations. ssh2 AES-GCM needs `update()` to return encrypted data immediately (not buffered to `final()`). The old SandboxCipher buffered everything in `update()` and only returned data from `final()`.
-- Files changed:
-  - packages/secure-exec-core/src/bridge/process.ts — Buffer prototype patching for internal V8 slice/write methods
-  - packages/secure-exec-core/src/bridge/network.ts — NetSocket._readableState.ended for ssh2 isWritable()
-  - packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts — Buffer prototype patching in _patchPolyfill for polyfill Buffer, stateful SandboxCipher/SandboxDecipher
-  - packages/secure-exec-core/src/shared/bridge-contract.ts — new cipher bridge keys
-  - packages/secure-exec-core/src/shared/global-exposure.ts — new cipher bridge global declarations
-  - packages/secure-exec-node/src/bridge-setup.ts — host-side stateful cipher session management
-  - packages/secure-exec/tests/e2e-docker/ssh2-connect/fixture.json — expectation: "pass"
-  - packages/secure-exec/tests/e2e-docker/ssh2-sftp-transfer/fixture.json — expectation: "pass"
-  - packages/secure-exec/tests/test-suite/node/crypto.ts — updated cipher tests to use correct Node.js pattern (concat update+final)
-  - scripts/ralph/prd.json — marked US-004 and US-005 as passes: true
-- **Learnings for future iterations:**
-  - ssh2's `isWritable(stream)` checks `stream._readableState.ended === false` — NetSocket stubs must include ALL state fields libraries check
-  - The polyfill Buffer from `require('buffer')` (esbuild-bundled) is a DIFFERENT prototype from `globalThis.Buffer` — must patch BOTH in _patchPolyfill
-  - Cipher `update()` must return data immediately for streaming protocols — buffering-to-final() breaks AES-GCM in ssh2
-  - Buffer internal methods (latin1Slice, base64Slice, etc.) are NOT in the feross/buffer polyfill — need explicit patching
-  - ssh2's AESGCMCipher creates a fresh cipher per packet, calls setAutoPadding(false) + setAAD + update + final + getAuthTag — all must work correctly
----
-
-## 2026-03-19 - US-007
-- Rewrote pi-interactive.test.ts to use kernel.openShell() inside the sandbox
-- Replaced PtyHarness (host `script -qefc` spawn) with kernel TerminalHarness (kernel.openShell() + @xterm/headless)
-- Created overlay VFS (InMemoryFileSystem for kernel populateBin writes, host filesystem fallback for reads/module resolution)
-- Added raw openShell probe to detect isTTY bridge status without TerminalHarness race condition
-- All 5 test scenarios preserved: TUI renders, input appears, prompt submission, ^C interrupt, exit cleanly
-- Tests skip with clear reason: "isTTY bridge not supported in kernel Node RuntimeDriver — Pi requires process.stdout.isTTY for TUI rendering (spec gap #5)"
-- Files changed:
-  - packages/secure-exec/tests/cli-tools/pi-interactive.test.ts — full rewrite
-  - scripts/ralph/prd.json — marked US-007 as passes: true
-- **Learnings for future iterations:**
-  - TerminalHarness.waitFor() has a race condition with fast-exiting processes: shell.wait() resolves before xterm processes data. Use raw openShell + output collection for probes.
-  - kernel.openShell({ command: 'node', args: [...] }) dispatches 'node' directly to the Node RuntimeDriver with PTY attached — stdout goes through ctx.onStdout → ptyManager.write(slave) → master read pump
-  - NodeRuntimeDriver doesn't bridge isTTY to the V8 isolate — process.stdout.isTTY is always false/undefined regardless of PTY attachment (spec gap #5)
-  - Overlay VFS pattern (InMemoryFileSystem + host FS fallback) solves the kernel.mount() populateBin vs. module resolution conflict
-  - NodeRuntimeDriver doesn't set moduleAccess on createNodeDriver — module resolution depends entirely on the kernel VFS's ability to read host files
-  - For openShell with command: 'node', set cwd to the project root (SECURE_EXEC_ROOT) so module resolution finds node_modules
----
-
-## 2026-03-19 - US-008
-- Rewrote opencode-headless.test.ts to spawn opencode via sandbox child_process bridge
-- All 9 test scenarios preserved: boot, output, text format, JSON format, env forwarding, file read, file write, SIGINT, error handling
-- Removed Strategy B (SDK client) per user direction
-- Files changed: packages/secure-exec/tests/cli-tools/opencode-headless.test.ts
-- **Learnings for future iterations:**
-  - process.exit() inside bridge callbacks (e.g. childProcessDispatch close handler) causes unhandled ProcessExitError — the throw propagates through the host reference chain. Fix: await a Promise that resolves from the callback, then call process.exit() at the top-level await
-  - Bridge process.stdout.write strips trailing newlines (.replace(/\n$/, "")) — NDJSON events arriving as separate chunks lose delimiters. Use newline-join in capture helpers for correct parsing
-  - Pattern for spawning native binaries through sandbox: createTestNodeRuntime with createHostCommandExecutor, sandbox code calls require('child_process').spawn(), env vars pass through bridge JSON serialization to host executor
-  - opencode env needs XDG_DATA_HOME for isolated SQLite storage + explicit PATH/HOME since spawn with explicit env replaces entire environment
----
-
-## 2026-03-19 - US-009
-- Rewrote opencode-interactive.test.ts to use kernel.openShell() + TerminalHarness
-- Replaced PtyHarness (host `script -qefc` spawn) with kernel-based PTY approach
-- Created inline HostBinaryDriver RuntimeDriver to register 'opencode' and 'script' in kernel command registry
-- Added 3 probes: (1) openShell + node, (2) child_process bridge spawn through kernel, (3) streaming stdin from PTY
-- Currently skips on probe 3: streaming stdin bridge not supported
-- All 5 test scenarios preserved: TUI renders, input area, submit response, Ctrl+C, exit cleanly
-- Files changed: packages/secure-exec/tests/cli-tools/opencode-interactive.test.ts
-- **Learnings for future iterations:**
-  - filterEnv returns empty object when permissions.env is undefined — NodeRuntimeDriver defaults to allowAllChildProcess only, must add allowAllEnv for sandbox code to have PATH in process.env
-  - HostBinaryDriver must handle 'error' event on spawned child process — without handler, ENOENT from missing binary becomes uncaught exception. Use exitResolved guard to prevent double-resolve from error + close events
-  - process.exit() inside bridge async contexts causes unhandled ProcessExitError — in probe code, avoid process.exit() entirely; report results via stdout instead
-  - NodeRuntimeDriver batches stdin as single string for exec() — no streaming stdin delivery from PTY to sandbox process.stdin. This is the primary blocker for interactive TUI tests through the kernel
-  - Bridge child_process.spawn passes opts.env to the host — but if opts.env is omitted, bridge passes process.env (sandbox env). The bridge-setup serializes env to JSON for the CommandExecutor
----
-
-## 2026-03-19 - US-010
-- Rewrote claude-headless.test.ts to spawn claude via sandbox child_process bridge
-- Replaced host `spawn` from `node:child_process` with `createTestNodeRuntime` + `proc.exec()` pattern
-- Sandbox JS code calls `require('child_process').spawn('claude', ...)` through the bridge
-- All 10 test scenarios preserved: boot, text output (canary), JSON output, stream-json NDJSON, file read, file write, bash tool, SIGINT, bad API key exit code, good prompt exit 0
-- Files changed: packages/secure-exec/tests/cli-tools/claude-headless.test.ts
-- **Learnings for future iterations:**
-  - Claude Code natively supports ANTHROPIC_BASE_URL — no mock redirect probe needed (unlike OpenCode)
-  - Claude Code stream-json requires --verbose flag (per codebase patterns)
-  - Claude binary may be at ~/.claude/local/claude — findClaudeBinary() checks both PATH and fallback location
-  - isolated-vm teardown can race with bridge callbacks on long-timeout tests (bad API key test with 15s timeout) — causes harmless unhandled rejection from getSync on disposed context
----
-
-## 2026-03-19 - US-011
-- Rewrote claude-interactive.test.ts to use kernel.openShell() with claude binary
-- Replaced PtyHarness (host `script -qefc` spawn) with kernel.openShell() + TerminalHarness
-- Uses overlay VFS (InMemoryFileSystem for populateBin, host FS fallback for module resolution)
-- HostBinaryDriver (inline RuntimeDriver) handles 'claude' and 'script' commands through the kernel
-- Three probes detect sandbox capabilities: (1) openShell + node, (2) child_process bridge spawns claude, (3) streaming stdin from PTY
-- Currently skips on probe 3: NodeRuntimeDriver batches stdin for exec() instead of streaming
-- All 6 test scenarios preserved: TUI renders, input area works, submit shows response, ^C interrupts, color output, exit cleanly
-- Files changed: packages/secure-exec/tests/cli-tools/claude-interactive.test.ts
-- **Learnings for future iterations:**
-  - Same pattern as opencode-interactive: sandbox code wraps binary in `script -qefc` for host-side PTY, pipes stdout/stderr to process.stdout/stderr
-  - Claude needs HOME set to workDir with pre-created .claude/settings.json and .terms-accepted to skip onboarding dialogs
-  - waitForClaudeBoot helper auto-dismisses setup dialogs (theme, workspace trust) with Enter presses — needed because Claude has multi-step first-run setup
-  - HostBinaryDriver must register actual claudeBinary path (may be ~/.claude/local/claude, not just 'claude')
----
-
-## 2026-03-19 - US-012
-- Updated docs-internal/specs/cli-tool-e2e.md to reflect actual tool capabilities
-- Clarified Pi is the only tool that runs as JS inside the isolate VM
-- Documented Claude Code as a native binary (SDK spawns cli.js, has .node addons) — same bridge-spawn approach as OpenCode
-- Removed Strategy B (SDK client via @opencode-ai/sdk) throughout the spec
-- Updated "Two sandbox strategies" → In-VM (Pi only) + Bridge-spawn (Claude Code, OpenCode)
-- Updated gap analysis: "Blocking for binary spawn path" now covers both Claude Code and OpenCode
-- Updated risks: Claude Code native binary, module resolution (Pi only), removed OpenCode server lifecycle risk
-- Updated success criteria and test file layout comments
-- Files changed: docs-internal/specs/cli-tool-e2e.md
-- **Learnings for future iterations:**
-  - The spec was originally written assuming Claude Code could run in-VM — always verify runtime constraints before planning sandbox strategies
-  - Claude Code's SDK (sdk.mjs) is not a standalone runner; it always spawns cli.js as a subprocess with native .node dependencies
-  - OpenCode is a compiled Bun ELF binary — no JS source to extract
----
-
-## 2026-03-19 - US-016
-- Added SSH key-based authentication e2e-docker fixture
-- Generated test RSA keypair (test_rsa/test_rsa.pub) embedded in fixture and Dockerfile
-- Updated sshd.Dockerfile: enabled PubkeyAuthentication, COPY test_rsa.pub to authorized_keys
-- New fixture ssh2-key-auth connects with privateKey instead of password, runs conn.exec(), verifies parity
-- Files changed:
-  - packages/secure-exec/tests/e2e-docker/dockerfiles/sshd.Dockerfile (added pubkey auth + COPY)
-  - packages/secure-exec/tests/e2e-docker/dockerfiles/test_rsa.pub (new)
-  - packages/secure-exec/tests/e2e-docker/ssh2-key-auth/fixture.json (new)
-  - packages/secure-exec/tests/e2e-docker/ssh2-key-auth/package.json (new)
-  - packages/secure-exec/tests/e2e-docker/ssh2-key-auth/src/index.js (new)
-  - packages/secure-exec/tests/e2e-docker/ssh2-key-auth/keys/test_rsa (new)
-  - packages/secure-exec/tests/e2e-docker/ssh2-key-auth/keys/test_rsa.pub (new)
-- **Learnings for future iterations:**
-  - buildImage() uses path.dirname(dockerfilePath) as build context — public keys for COPY must be in the dockerfiles/ directory
-  - RSA key-based auth works through the sandbox crypto bridge without any additional fixes — sign()/createSign() already handle RSA key parsing
-  - Fixture pattern for key auth: read privateKey via fs.readFileSync, pass as Buffer to conn.connect({ privateKey })
----
-
-## 2026-03-19 - US-017
-- Added SSH port forwarding / tunneling e2e-docker fixture
-- Fixture connects via SSH, uses conn.forwardOut() to tunnel to Redis container, sends raw PING, verifies +PONG response
-- Test infra discovers container internal IPs on Docker bridge via `docker inspect` for cross-container tunnel destinations
-- Files changed:
-  - packages/secure-exec/tests/e2e-docker/ssh2-tunnel/fixture.json (new)
-  - packages/secure-exec/tests/e2e-docker/ssh2-tunnel/package.json (new)
-  - packages/secure-exec/tests/e2e-docker/ssh2-tunnel/src/index.js (new)
-  - packages/secure-exec/tests/utils/docker.ts (added getContainerInternalIp helper)
-  - packages/secure-exec/tests/e2e-docker.test.ts (added internalAddresses, REDIS_INTERNAL_HOST/PORT env injection)
-- **Learnings for future iterations:**
-  - SSH forwardOut() works through the sandbox net bridge without any additional fixes — it uses the same TCP stream as the SSH connection (direct-tcpip channel over existing SSH protocol)
-  - Docker containers on the default bridge network can reach each other by internal IP (from `docker inspect`), not by 127.0.0.1 host-mapped ports
-  - getContainerInternalIp() in docker.ts resolves a container's bridge IP via `docker inspect -f '{{.NetworkSettings.IPAddress}}'`
-  - Raw Redis PING protocol: send "PING\r\n" (inline format), response is "+PONG\r\n"
-  - For tunnel fixtures, use REDIS_INTERNAL_HOST/PORT (container bridge IP + internal port), not REDIS_HOST/PORT (host-mapped)
----
-
-## 2026-03-19 - US-018
-- Added SFTP directory operations e2e-docker fixture (ssh2-sftp-dirs)
-- Fixture connects via SSH, opens SFTP subsystem, creates directory, lists empty dir with readdir, writes file inside dir, lists dir again to verify file appears, removes file via unlink, removes directory via rmdir
-- Files created: packages/secure-exec/tests/e2e-docker/ssh2-sftp-dirs/{package.json,fixture.json,src/index.js}
-- **Learnings for future iterations:**
-  - e2e-docker fixtures are auto-discovered — just create a directory with fixture.json + package.json + src/index.js
-  - sftp.readdir() returns array of objects with .filename property (not just strings)
-  - SFTP directory ops (mkdir, rmdir, readdir) work through the sandbox net bridge without any additional fixes needed
----
-
-## 2026-03-19 - US-019
-- Added two SSH/SFTP error path e2e-docker fixtures
-- ssh2-auth-fail: connects with wrong password, captures error message and level, verifies parity with host
-- ssh2-connect-refused: connects to non-listening port 1, captures ECONNREFUSED error message, verifies parity with host
-- Both fixtures have expectation "pass" — they produce identical error output on host and sandbox
-- Files created: packages/secure-exec/tests/e2e-docker/ssh2-auth-fail/{package.json,fixture.json,src/index.js}, packages/secure-exec/tests/e2e-docker/ssh2-connect-refused/{package.json,fixture.json,src/index.js}
-- **Learnings for future iterations:**
-  - Bridge _onError(message) creates plain Error without code/errno — socket system error properties (ECONNREFUSED code, -111 errno) are not propagated through the net bridge
-  - For error path fixtures, only serialize err.message (and err.level for ssh2) — err.code/err.errno are missing in sandbox
-  - ssh2 auth failure emits error with level="client-authentication" — useful for distinguishing auth errors from connection errors
----
-
-## 2026-03-19 - US-020
-- Added SFTP large file transfer and rename e2e-docker fixture
-- Fixture generates deterministic 1MB payload (byte pattern: i & 0xFF), uploads via createWriteStream, renames via sftp.rename(), downloads via createReadStream, verifies integrity via SHA-256 hash comparison
-- Files created: packages/secure-exec/tests/e2e-docker/ssh2-sftp-large/{package.json,fixture.json,src/index.js}
-- Host and sandbox produce identical output; parity test passes (~4.2s)
-- **Learnings for future iterations:**
-  - createWriteStream/createReadStream for SFTP work through the sandbox net bridge without issues — TCP buffer management handles 1MB+ transfers
-  - sftp.rename() works through the sandbox with no additional bridge work needed
-  - Deterministic payload generation (byte pattern loop) is simpler and more reliable than random data for parity testing
----
-
-## 2026-03-19 - US-021
-- Expanded pg-connect fixture with UPDATE, DELETE, and transaction operations
-- Added: UPDATE + SELECT verify, DELETE + SELECT verify (0 rows), BEGIN/ROLLBACK + verify row not inserted, BEGIN/COMMIT + verify row inserted
-- Output JSON now includes insert/update/delete/rollback/commit sections for full parity comparison
-- Files changed: packages/secure-exec/tests/e2e-docker/pg-connect/src/index.js
-- **Learnings for future iterations:**
-  - pg wire protocol for BEGIN/COMMIT/ROLLBACK works through the sandbox net bridge without issues
-  - Parameterized queries ($1, $2) work correctly for UPDATE and DELETE through the sandbox
-  - Transaction state tracking (rollback isolation, commit persistence) passes parity between host and sandbox
----
-
-## 2026-03-19 - US-022
-- Added pg-pool e2e-docker fixture for connection pooling
-- Fixture tests: pool.connect() + client.query() + client.release(), pool.query() shorthand, concurrent queries via Promise.all(), pool.end() cleanup
-- Files changed: packages/secure-exec/tests/e2e-docker/pg-pool/{package.json,fixture.json,src/index.js}
-- **Learnings for future iterations:**
-  - pg.Pool works through the sandbox net bridge without any additional fixes needed — pool connection management (acquire/release) is all in user-space JS
-  - Concurrent queries via Promise.all through the pool work correctly — the sandbox handles multiple simultaneous TCP connections through the net bridge
-  - pg-pool fixture follows the exact same pattern as pg-connect (same pg version, same env vars, same error handling)
----
-
-## 2026-03-19 - US-023
-- Added pg-types e2e-docker fixture for data type coverage
-- Fixture creates table with JSON, JSONB, TIMESTAMPTZ, BOOLEAN, BYTEA, INTEGER[], TEXT[], UUID, NUMERIC columns
-- Inserts fixed deterministic values, reads back, verifies JavaScript types (typeof, instanceof, isArray, isBuffer)
-- Files changed: packages/secure-exec/tests/e2e-docker/pg-types/{package.json,fixture.json,src/index.js}
-- **Learnings for future iterations:**
-  - pg type parsers work correctly through the sandbox — JSON/JSONB return objects, TIMESTAMPTZ returns Date, BYTEA returns Buffer, arrays return Array, UUID/NUMERIC return strings
-  - Buffer round-trip through BYTEA works via parameterized queries ($1) — pg handles Buffer serialization to bytea wire format in user-space JS
-  - No additional bridge fixes needed for type parsing — all type coercion happens in pg's JS type parser code
----
-
-## 2026-03-19 - US-024
-- Added pg-errors e2e-docker fixture for error path coverage
-- Tests 4 error scenarios: syntax error (bad SQL), undefined table, unique constraint violation, connection refused (wrong port)
-- SQL errors serialize message/code/severity/constraint from pg protocol; connection error serializes message only
-- Files changed: packages/secure-exec/tests/e2e-docker/pg-errors/{package.json,fixture.json,src/index.js}
-- **Learnings for future iterations:**
-  - pg SQL errors (syntax, undefined table, unique violation) propagate all protocol fields (message, code, severity, constraint) identically through the sandbox — these come from the Postgres server, not the socket layer
-  - Connection refused errors only serialize message (not code/errno) per codebase pattern — net bridge _onError only propagates err.message
-  - Each error test uses its own Client instance to avoid connection state contamination after errors
-  - Unique constraint test uses DELETE before INSERT to ensure clean state, and PRIMARY KEY as the constraint
+  - US-023 and US-024 are tightly coupled: changing bridge-contract types to plain functions breaks typecheck unless you also update bridge code call sites
+  - LoadPolyfillBridgeRef was typed as BridgeApplyRef (async) but called via .applySyncPromise() — a pre-existing type mismatch; corrected to sync return type
+  - Bridge bundle must be rebuilt (pnpm run build:bridge in core) after changing bridge source — not just isolate-runtime
+  - Pre-existing test failures: injection-policy CJS globals, node test suite run()/ESM, all Python tests — not caused by this change
 ---
 
 ## 2026-03-19 - US-025
-- Added pg-prepared e2e-docker fixture for named prepared statements
-- Fixture tests named prepared statement reuse (insert reused 3x, select reused 2x), update, and delete operations
-- Exercises Parse/Bind/Execute wire protocol path (vs SimpleQuery used by unnamed parameterized queries)
+- What was implemented: Replaced base64 encoding with native binary (Uint8Array) for all binary data transfers across the bridge boundary
 - Files changed:
-  - packages/secure-exec/tests/e2e-docker/pg-prepared/fixture.json (new)
-  - packages/secure-exec/tests/e2e-docker/pg-prepared/package.json (new)
-  - packages/secure-exec/tests/e2e-docker/pg-prepared/src/index.js (new)
-  - scripts/ralph/prd.json (updated passes: true)
+  - packages/secure-exec-core/src/shared/bridge-contract.ts — CryptoRandomFillBridgeRef, FsReadFileBinaryBridgeRef, FsWriteFileBinaryBridgeRef return/accept Uint8Array instead of string
+  - packages/secure-exec-core/src/bridge/fs.ts — readFileSync binary path uses Uint8Array directly, writeFileSync passes raw Uint8Array
+  - packages/secure-exec-core/src/bridge/process.ts — crypto.getRandomValues uses Uint8Array directly from host
+  - packages/secure-exec-node/src/bridge-handlers.ts — V8 handlers return raw Buffer/Uint8Array, removed getBase64EncodedByteLength import
+  - packages/secure-exec-node/src/bridge-setup.ts — ivm handlers updated for type consistency (dead code path, to be removed in US-028)
+  - packages/secure-exec-browser/src/worker.ts — browser handlers return Uint8Array, removed btoa/atob encoding, removed unused getBase64EncodedByteLength
+  - packages/secure-exec/tests/runtime-driver/node/payload-limits.test.ts — updated payload size calculations from base64-encoded to raw byte sizes
 - **Learnings for future iterations:**
-  - e2e-docker fixtures are auto-discovered: any directory under tests/e2e-docker/ with fixture.json gets picked up
-  - Named prepared statements in pg use { name, text, values } query config — the name key triggers Parse/Bind/Execute instead of SimpleQuery
-  - Reusing the same name with different values exercises the prepared statement cache (pg only sends Parse once, then reuses)
-  - e2e-docker fixtures are NOT tracked in the docs Tested Packages table (that's for project-matrix fixtures only)
+  - base64 encoding was the legacy approach for ivm boundary (couldn't transfer Uint8Array). With V8 MessagePack IPC, binary goes through as native bin type
+  - Payload size limits now apply to raw byte length instead of base64-encoded length — effectively more permissive (16MB raw instead of ~12MB raw)
+  - bytesOverBase64Limit helper replaced with bytesOverBinaryLimit — test data must exceed raw byte limit now, not base64-encoded limit
+  - Network HTTP body base64 encoding (bridge/network.ts, driver.ts) is a separate concern from IPC binary transfers — not changed in this story
+  - Pre-existing test failures unchanged: injection-policy CJS globals, node test suite run()/ESM, all Python tests, network payload tests
+---
+
+## 2026-03-19 - US-026
+- What was implemented: Platform-specific npm packages for prebuilt Rust binaries
+- Files changed:
+  - crates/v8-runtime/npm/{linux-x64-gnu,linux-arm64-gnu,darwin-x64,darwin-arm64,win32-x64}/package.json — platform packages with os/cpu fields
+  - crates/v8-runtime/npm/*/README.md — standard README for each platform package
+  - crates/v8-runtime/npm/.gitignore — exclude binary files from git
+  - packages/secure-exec-v8/package.json — added optionalDependencies for all 5 platform packages, postinstall script
+  - packages/secure-exec-v8/src/runtime.ts — updated resolveBinaryPath() to check platform packages first, then postinstall bin/, then crate target, then PATH
+  - packages/secure-exec-v8/postinstall.js — CJS fallback script that downloads binary from GitHub releases if platform package not installed
+  - packages/secure-exec-v8/.gitignore — exclude dist/ and bin/
+- **Learnings for future iterations:**
+  - Platform packages use `os` and `cpu` fields in package.json for npm's auto-selection
+  - resolveBinaryPath resolution order: platform npm package → postinstall bin/ → crate target (dev) → PATH
+  - postinstall.js must be CJS (not ESM) since it runs without build step; main package is ESM
+  - Windows binary name is `secure-exec-v8.exe` (not `secure-exec-v8`)
+  - PLATFORM_PACKAGES map is duplicated between runtime.ts and postinstall.js — keep in sync
 ---
 
 ## 2026-03-19 - US-027
-- Implemented tls.connect() bridge for TLS socket upgrade in the sandbox
-- Created pg-ssl e2e-docker fixture for SSL-encrypted Postgres connections
+- What was implemented: CI workflow for building the Rust V8 runtime binary across all 5 target platforms, with cargo test on native runners and cross-compilation for linux-arm64
 - Files changed:
-  - packages/secure-exec-core/src/shared/bridge-contract.ts (NetSocketUpgradeTlsRaw, tlsModule)
-  - packages/secure-exec-core/src/types.ts (netSocketUpgradeTls on NetworkAdapter)
-  - packages/secure-exec-core/src/bridge/network.ts (TLSSocket class, tls module, secureConnect dispatch)
-  - packages/secure-exec-core/src/shared/permissions.ts (forward netSocketUpgradeTls)
-  - packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts (tls special handling)
-  - packages/secure-exec-core/src/generated/isolate-runtime.ts (regenerated)
-  - packages/secure-exec-node/src/driver.ts (host-side TLS upgrade, tls import)
-  - packages/secure-exec-node/src/bridge-setup.ts (netSocketUpgradeTlsRef)
-  - packages/secure-exec/tests/e2e-docker.test.ts (postgres-ssl image, SSL command args)
-  - packages/secure-exec/tests/e2e-docker/dockerfiles/postgres-ssl.Dockerfile (new)
-  - packages/secure-exec/tests/e2e-docker/pg-ssl/ (new fixture)
+  - .github/workflows/rust.yml — new CI workflow with 5-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64)
+  - crates/v8-runtime/rust-toolchain.toml — pinned Rust toolchain to stable 1.85.0
 - **Learnings for future iterations:**
-  - TLS bridge pattern: host wraps existing net.Socket with Node.js tls.TLSSocket, removes old bridge listeners (data/end/error/close), adds new ones to TLS socket
-  - TLSSocket must forward end/close events to the wrapped raw socket — libraries like pg add listeners to the original socket before SSL upgrade, and rely on those listeners to detect shutdown
-  - TLSSocket._connectHost/_connectPort must be copied from the original socket so _cleanup() unregisters the correct active handle
-  - NetSocket._socketId must be accessible (not private) for TLS module to share it — changed to public underscore-prefixed
-  - socket.removeAllListeners() on a raw socket breaks tls.TLSSocket wrapping — only remove specific event types (data/end/error/close/connect)
-  - Postgres SSL: use custom Dockerfile (postgres-ssl.Dockerfile) that installs openssl and generates self-signed cert; existing pg fixtures still work when server has SSL enabled (SSL is optional)
-  - pg_stat_ssl system view verifies the connection is actually encrypted — query WHERE pid = pg_backend_pid()
+  - macos-latest in GitHub Actions is arm64 (M-series); use macos-13 for x86_64 macOS builds
+  - rusty_v8 crate (v8 = "130") provides prebuilt V8 libraries per target — cross-compilation only needs the right linker, not V8 source build
+  - linux-arm64 cross-compilation from ubuntu-latest requires gcc-aarch64-linux-gnu and a .cargo/config.toml linker override
+  - Workflow paths filter on crates/v8-runtime/** so it only triggers on Rust changes
+  - cargo test is skipped for cross-compiled targets (linux-arm64) since tests can't run on the host architecture
 ---
 
 ## 2026-03-19 - US-028
-- Implemented HTTPS error handling e2e tests for TLS edge cases
-- Three parity tests: expired cert, hostname mismatch, self-signed cert with rejectUnauthorized:true
-- Tests generate certs via openssl, start HTTPS servers on ephemeral ports, compare host vs sandbox error messages
+- What was implemented: Removed isolated-vm dependency from the codebase
 - Files changed:
-  - packages/secure-exec/tests/runtime-driver/node/https-errors.test.ts (new)
+  - packages/secure-exec-node/package.json — removed isolated-vm from dependencies
+  - packages/secure-exec-node/src/isolate.ts — removed ivm import, replaced ivm types with plain TS types
+  - packages/secure-exec-node/src/bridge-setup.ts — removed ivm import, replaced ivm types with legacy any aliases
+  - packages/secure-exec-node/src/execution.ts — removed ivm import, replaced ivm types with legacy any aliases
+  - packages/secure-exec-node/src/esm-compiler.ts — removed ivm import, replaced ivm types with legacy any aliases
+  - packages/secure-exec-node/src/execution-lifecycle.ts — removed ivm import, replaced ivm types with legacy any aliases
+  - packages/secure-exec-node/src/isolate-bootstrap.ts — cleaned up legacy ivm field comments
+  - packages/secure-exec-node/src/execution-driver.ts — cleaned up legacy ivm comment
+  - packages/secure-exec/tests/runtime-driver/node/bridge-hardening.test.ts — removed ivm import, rewrote module cache isolation test to use high-level run() API
+  - packages/secure-exec/tests/runtime-driver/node/hono-fetch-external.test.ts — removed ivm import, skipped test (depends on __unsafeIsolate internals not in V8 runtime)
+  - pnpm-lock.yaml — updated lockfile
 - **Learnings for future iterations:**
-  - TLS error messages propagate correctly through the httpRequest bridge — the adapter rejects with the same Node.js error, and isolated-vm delivers it to the sandbox's catch block
-  - openssl days=0 generates a cert that expires at issuance — a 2s delay in beforeAll ensures the cert is actually expired when tests run
-  - Self-signed cert (no CA in trust chain) with default rejectUnauthorized=true triggers SELF_SIGNED_CERT_IN_CHAIN
-  - Hostname mismatch cert (SAN=wrong.example.com, connecting to 127.0.0.1) triggers ERR_TLS_CERT_ALTNAME_MISMATCH
+  - bridge-setup.ts, execution.ts, esm-compiler.ts, execution-lifecycle.ts are all legacy code paths unused by the V8-based execution-driver.ts — they can be fully deleted in a future cleanup
+  - The only functions from bridge-setup.ts still actively used are createProcessConfigForExecution and emitConsoleEvent
+  - The only exports from isolate.ts still actively used are DEFAULT_TIMING_MITIGATION, ExecutionTimeoutError, and the timeout utility functions
+  - Tests using __unsafeIsolate/__unsafeCreateContext cannot be converted to V8 runtime — they need full rewrites for US-033
+  - All bridge-hardening tests were already timing out before this change (pre-existing V8 runtime connection issue)
+---
+
+## 2026-03-19 - US-029
+- Implemented 22 integration tests for full V8 IPC round-trip lifecycle
+- Tests cover: spawn/auth, session create/destroy, resource budgets, simple execution, _processConfig/_osConfig injection, syntax/runtime error handling, sync-blocking bridge calls (_log, _fsReadFile, _fsReadFileBinary with binary data), bridge error propagation, async bridge calls (_networkFetchRaw), async error rejection, multiple sequential bridge calls, mixed sync+async calls, session cleanup, sequential multi-session, concurrent sessions, unhandled bridge method, frozen globals, WASM compilation disabled
+- Files changed:
+  - packages/secure-exec-v8/package.json — added vitest devDep, updated test script
+  - packages/secure-exec-v8/vitest.config.ts — new vitest config
+  - packages/secure-exec-v8/test/ipc-roundtrip.test.ts — 22 integration tests
+  - pnpm-lock.yaml — updated lockfile
+- **Learnings for future iterations:**
+  - Each V8 integration test takes ~5s due to Rust process spawn/dispose overhead; consider sharing a runtime across tests via beforeAll/afterAll for faster iteration
+  - Concurrent sessions with sync bridge calls can deadlock over a single IPC connection (the Rust session threads all block on reads); concurrent tests should avoid sync bridge calls or use a different approach
+  - The debug binary at crates/v8-runtime/target/debug/secure-exec-v8 is used for tests; release binary used if available
+  - Tests skip automatically if no Rust binary is built (skipIf pattern)
+---
+
+## 2026-03-19 - US-030
+- What was implemented: Crash isolation tests proving V8 OOM kills only the child process (not host), timeout termination works for infinite loops, and child process can be killed via dispose (SIGKILL) as last resort
+- Files changed:
+  - packages/secure-exec-v8/test/crash-isolation.test.ts — new test file with 6 tests: OOM host survival, OOM error surfacing, infinite loop timeout, sync bridge call timeout, runtime reusability after timeout, SIGKILL via dispose
+  - packages/secure-exec-v8/src/runtime.ts — added rejectPendingSessions() to resolve pending execute Promises when child crashes; added isConnected guards on BridgeResponse sends
+- **Learnings for future iterations:**
+  - V8 heap_limits without near_heap_limit_callback causes V8 to abort() the Rust process on OOM — this is the desired behavior for process-level crash isolation
+  - Bridge function names in tests must match SYNC_BRIDGE_FNS or ASYNC_BRIDGE_FNS arrays in session.rs — custom names like `_slowBridgeCall` won't be registered in V8
+  - When child process crashes during active execution, the execute() Promise must be resolved with an error — added rejectPendingSessions() to handle this
+  - Bridge handler async callbacks can outlive the IPC connection (e.g., slow handler returns after timeout kills connection) — guard client.send() with isConnected check to avoid unhandled rejections
+  - TimeoutGuard drops abort_tx to unblock ChannelMessageReader's select!, which returns TimedOut error to sync_call — this unblocks both sync bridge calls and the event loop
+---
+
+## 2026-03-19 - US-031
+- What was implemented: IPC security tests covering auth token validation, cross-session access prevention, oversized message rejection, and duplicate BridgeResponse call_id integrity
+- Files changed:
+  - packages/secure-exec-v8/test/ipc-security.test.ts — new test file with 6 tests: wrong auth token rejection, non-Authenticate first message rejection, cross-session access prevention (connection B cannot access A's sessions), JS-side 64MB message size enforcement, Rust-side oversized length prefix rejection, duplicate BridgeResponse call_id resilience
+- **Learnings for future iterations:**
+  - Raw IPC testing requires spawning the Rust binary manually via child_process.spawn() and reading the socket path from stdout — use the same pattern as createV8Runtime but with direct IpcClient control
+  - readline 'close' event fires even after calling rl.close() in the 'line' handler — must track resolved state to avoid double-settlement of the Promise
+  - Cross-session access is enforced by connection_id binding in SessionManager — rejected messages are logged to stderr but no error response is sent back to the offending connection
+  - Duplicate BridgeResponse call_ids are silently dropped by the CallIdRouter (uses HashMap.remove, so second lookup returns None) — Rust process stays alive, session continues working
+  - Oversized message rejection by Rust causes a read error (InvalidData) which closes the connection, but the Rust process itself stays alive to serve other connections
+---
+
+## 2026-03-19 - US-032
+- What was implemented: Updated docs/security-model.mdx to document process isolation as a trust boundary and the IPC channel trust model
+- Files changed:
+  - docs/security-model.mdx — rewrote intro to mention separate V8 process instead of isolate-based sandboxes; updated Trust Boundaries to three boundaries (Process, Runtime, Host) with updated mermaid diagram showing IPC channel; added "Process Isolation" section covering what it protects against (V8 OOM, heap corruption, FD leakage, signal interference, uncontrolled resource consumption, clean termination) and what it does NOT protect against (IPC-level attacks, host-side vulnerabilities, authorized capability abuse, side channels); added "IPC Channel" section covering authenticated (one-time 128-bit token), session-bound (128-bit nonces), size-limited (64MB), not encrypted (same-host UDS), and FD hygiene properties
+- **Learnings for future iterations:**
+  - security-model.mdx is under docs/ in the Advanced section of docs.json navigation — no special placement needed
+  - The V8 runtime spec at docs-internal/specs/v8-runtime.md has a detailed "IPC Security" section and "Security model documentation" subsection that specifies exactly what the docs update should cover
+---
+
+## 2026-03-19 - US-033
+- What was implemented: Fixed V8 runtime to pass existing test suite — bridge code composition gaps, module exports deserialization, fresh context per execution, sync bridge function classification
+- Files changed:
+  - crates/v8-runtime/src/execution.rs — added CJS module.exports fallback in execute_module when ESM namespace has no own properties (for run() mode CJS compatibility)
+  - crates/v8-runtime/src/session.rs — moved _loadPolyfill from ASYNC_BRIDGE_FNS to SYNC_BRIDGE_FNS (require() calls it synchronously); create fresh V8 context per Execute (avoids non-configurable global conflicts); store InjectGlobals config and re-inject into fresh context
+  - packages/secure-exec-node/src/execution-driver.ts — added initCommonjsModuleGlobals and applyCustomGlobalPolicy to composeBridgeCode(); added setCommonjsFileGlobals to per-execution preamble when filePath is provided; added msgpack deserialization of V8ExecutionResult.exports for run() mode
+  - packages/secure-exec/tests/bridge-registry-policy.test.ts — added bridge-handlers.ts to scanned source files; updated assertions to accept K.xxx alias form for HOST_BRIDGE_GLOBAL_KEYS usage
+  - crates/v8-runtime/Cargo.lock — downgraded home dep for Rust 1.85 compatibility
+- **Learnings for future iterations:**
+  - Async bridge functions (ASYNC_BRIDGE_FNS) return Promises when called directly — any bridge function called from sync code paths (require, module resolution) MUST be in SYNC_BRIDGE_FNS
+  - Non-configurable globals (hardened by applyCustomGlobalPolicy) cannot be redefined in subsequent executions on the same V8 context — must create fresh context per execution
+  - Bridge code composition order matters: initCommonjsModuleGlobals must come AFTER requireSetup (require depends on _moduleCache set by bridgeInitialGlobals), and applyCustomGlobalPolicy must come LAST (it hardens all globals including module/exports)
+  - CJS run() mode in V8: ESM namespace is empty for code using module.exports; Rust execute_module must check globalThis.module.exports as fallback
+  - Pre-existing failures: python runtime (PythonRuntime not a constructor), isTTY/setRawMode, env-leakage, payload-limits, project-matrix (some), resource-limits, resource-budgets, ssrf-protection (1), bridge-hardening HTTP response body cap — all unchanged from before this story
+---
+
+## 2026-03-19 - US-035
+- Implemented `ipc_binary.rs` module with binary header wire format for all 11 message types
+- `write_frame()` encodes frames: [4B len][1B type][1B sid_len][N sid][type-specific fields][payload]
+- `read_frame()` decodes frames back to `BinaryFrame` enum
+- `extract_session_id()` routes by session_id from raw bytes without full deserialization
+- Files changed: `crates/v8-runtime/src/ipc_binary.rs` (new), `crates/v8-runtime/src/main.rs` (mod declaration)
+- 31 unit tests: round-trip for all 11 types, edge cases (empty payloads, empty session_id, large payloads), framing validation, session_id extraction, wire format byte verification
+- **Learnings for future iterations:**
+  - Rust borrow checker: `buf.len() - pos` cannot be used as arg alongside `&mut pos` — compute `let remaining = buf.len() - pos` first
+  - Binary crate tests run with `cargo test` (not `cargo test --lib`) since there are no library targets
+  - Pre-existing SharedArrayBuffer freeze test failure is unrelated (confirmed by stash test)
+  - Wire format: Authenticate (0x01) has sid_len=0 (no session_id); extract_session_id returns None for it
+  - ExecutionResult uses flag byte (bit 0 = has_exports, bit 1 = has_error) to conditionally include variable-length sections
+---
+
+## 2026-03-19 - US-036
+- What was implemented: TypeScript binary header encoder/decoder module (ipc-binary.ts) matching the Rust ipc_binary.rs wire format
+- Files changed:
+  - `packages/secure-exec-v8/src/ipc-binary.ts` (new) — encodeFrame(), decodeFrame(), extractSessionId(), serializePayload/deserializePayload re-exports
+  - `packages/secure-exec-v8/test/ipc-binary.test.ts` (new) — 40 unit tests
+- Key implementation details:
+  - Uses `node:v8` serialize/deserialize for payload fields (not @msgpack/msgpack)
+  - BinaryFrame is a discriminated union type (by `type` field) with camelCase field names
+  - Wire format matches Rust byte-for-byte: [4B len][1B msg_type][1B sid_len][N sid][type-specific][payload]
+  - All 12 message types supported (0x01-0x08 Host→Rust, 0x81-0x84 Rust→Host)
+- **Learnings for future iterations:**
+  - node:v8 serialize/deserialize handles Date, Map, Set, RegExp, circular references natively — no manual type walking needed
+  - Buffer.readInt32BE exists for signed 32-bit reads (needed for ExecutionResult.exitCode which can be negative)
+  - readLenPrefixedU16 helper needed for ExecutionResult error fields (u16-length-prefixed strings)
+  - Existing ipc-client.ts and ipc-types.ts remain unchanged — new module is additive only
+---
+
+## 2026-03-19 - US-037
+- What was implemented: Switched IPC pipeline to binary header + V8 serialization on both Rust and JS sides simultaneously
+- Files changed:
+  - crates/v8-runtime/src/bridge.rs — replaced encode_v8_args/msgpack_to_v8_value with serialize_v8_value/deserialize_v8_value; added TryCatch fallback for raw binary (Uint8Array) results
+  - crates/v8-runtime/src/host_call.rs — switched to ipc_binary::write_frame/read_frame for BridgeCall/BridgeResponse; updated tests
+  - crates/v8-runtime/src/session.rs — SessionCommand::Message now carries BinaryFrame; send_message uses ipc_binary::write_frame; ChannelMessageReader uses binary framing; event loop matches BinaryFrame variants; InjectGlobals stores raw V8 payload bytes
+  - crates/v8-runtime/src/main.rs — connection handler reads binary frames; authenticate_connection uses ipc_binary::read_frame; updated auth tests
+  - crates/v8-runtime/src/execution.rs — module resolution (resolve_module_via_ipc, load_module_via_ipc) uses V8 serialization for args/results; module exports use serialize_v8_value with plain object copy for namespace; added inject_globals_from_payload for V8-serialized config; updated all test fixtures
+  - crates/v8-runtime/src/stream.rs — dispatch_stream_event uses deserialize_v8_value instead of msgpack_to_v8_value
+  - packages/secure-exec-v8/src/ipc-client.ts — replaced @msgpack/msgpack with ipc-binary.ts encodeFrame/decodeFrame
+  - packages/secure-exec-v8/src/runtime.ts — replaced @msgpack/msgpack with node:v8 serialize/deserialize; constructs BinaryFrame objects; InjectGlobals sends v8.serialize({processConfig, osConfig}); Uint8Array results use status=2
+  - packages/secure-exec-v8/src/index.ts — added BinaryFrame type exports
+  - packages/secure-exec-node/src/execution-driver.ts — replaced @msgpack/msgpack decode with node:v8.deserialize for exports
+  - packages/secure-exec-v8/test/ipc-roundtrip.test.ts — removed unused @msgpack/msgpack import
+  - packages/secure-exec-v8/test/ipc-security.test.ts — migrated all message construction to BinaryFrame types
+- **Learnings for future iterations:**
+  - V8 ValueSerializer cannot serialize v8::ModuleNamespace (exotic object) — must copy properties to a plain v8::Object before serialization
+  - V8 typed array serialization format changed between V8 13.0 (Rust crate) and V8 13.6 (Node.js) — kFixedLengthArrayBuffer tag 0x5c not recognized by older V8; workaround: send Uint8Array as raw bytes with status=2 and use TryCatch-based fallback in Rust deserialization
+  - V8 ValueDeserializer may throw a V8 exception (not just return None) on invalid data — must use v8::TryCatch scope to prevent exception from propagating to sandbox code
+  - BinaryFrame::BridgeResponse status byte: 0=V8-serialized success, 1=UTF-8 error, 2=raw binary (Uint8Array)
+  - InjectGlobals with V8 payload: store raw bytes, deserialize in V8 scope at execution time (inject_globals_from_payload); no intermediate Rust structs needed
+---
+
+## 2026-03-19 - US-038
+- Eliminated the triple decode/encode/decode cycle in session.rs where ChannelMessageReader re-serialized BinaryFrame to bytes for BridgeCallContext sync_call to re-deserialize
+- Added `ResponseReceiver` trait in host_call.rs with `recv_response() -> Result<BinaryFrame, String>`
+- Added `ReaderResponseReceiver` (wraps `Box<dyn Read>` via `ipc_binary::read_frame`) for backward-compatible test constructors
+- Replaced `ChannelMessageReader` (io::Read adapter with internal buffer + write_frame) with `ChannelResponseReceiver` (passes BinaryFrame directly from channel)
+- Changed `BridgeCallContext::with_router()` to `with_receiver()` taking `Box<dyn ResponseReceiver>` instead of `Box<dyn Read>`
+- Files changed: crates/v8-runtime/src/host_call.rs, crates/v8-runtime/src/session.rs
+- **Learnings for future iterations:**
+  - BridgeCallContext::new() still accepts Box<dyn Read> for test convenience — only production path uses with_receiver()
+  - ChannelResponseReceiver is #[cfg(not(test))] since V8 lifecycle in tests causes SIGSEGV; session management tests don't exercise V8
+---
+
+## 2026-03-19 - US-039
+- Removed all MessagePack dependencies and dead code from both Rust and TypeScript sides
+- Rust: removed rmp-serde, serde_bytes, rmpv, serde from Cargo.toml
+- Rust: deleted v8_to_rmpv, rmpv_to_v8, msgpack_to_v8_value, v8_value_to_msgpack from bridge.rs
+- Rust: deleted write_message/read_message, HostMessage/RustMessage enums, ExecuteMode/LogChannel, and all MessagePack roundtrip tests from ipc.rs (kept ProcessConfig/OsConfig/ExecutionError as plain structs)
+- TypeScript: replaced @msgpack/msgpack encode/decode with node:v8 serialize/deserialize in bridge-handlers.ts (child process stream events, HTTP server stream events/callbacks)
+- Removed @msgpack/msgpack from packages/secure-exec-v8/package.json and packages/secure-exec-node/package.json
+- Files changed: Cargo.toml, Cargo.lock, src/ipc.rs, src/bridge.rs, packages/secure-exec-v8/package.json, packages/secure-exec-node/package.json, packages/secure-exec-node/src/bridge-handlers.ts, pnpm-lock.yaml
+- **Learnings for future iterations:**
+  - ipc.rs types (ProcessConfig, OsConfig, ExecutionError) are still used structurally in execution.rs — only remove the serde derives, not the types
+  - HostMessage/RustMessage enums in ipc.rs were fully dead (replaced by BinaryFrame in ipc_binary.rs) — safe to delete entirely
+  - bridge-handlers.ts stream event encoding (child process, HTTP server) was the only remaining @msgpack/msgpack consumer in TypeScript
+  - node:v8 serialize is sync and returns a Buffer — wrap in new Uint8Array() to match the Uint8Array type expected by sendStreamEvent
+  - Pre-existing test failures: SharedArrayBuffer removal (Rust), HTTP server timeout (TS) — unrelated to this story
+---
+
+## 2026-03-19 - US-040
+- What was implemented: Verified full test suite after serialization refactor; fixed pre-existing SharedArrayBuffer test in execution.rs
+- Files changed:
+  - crates/v8-runtime/src/execution.rs — fixed Part 4 test (SharedArrayBuffer removal): test incorrectly asserted inject_globals removes SAB, but actual removal is done by JS bridge code (applyTimingMitigationFreeze); updated test to assert SAB is preserved by inject_globals and timing_mitigation config is stored for the bridge
+- Test results summary:
+  - Rust cargo test: 56/56 pass (was 55/56 with pre-existing SAB test failure)
+  - test-suite/node: 6/6 pass
+  - V8 package (ipc-binary, ipc-roundtrip, ipc-security, crash-isolation): 74/74 pass
+  - WasmVM: 382/382 pass (20 skipped)
+  - project-matrix: 21/25 pass (4 pre-existing: esm-import-pass ICU error, fs-metadata-rename-pass ICU error, express-pass/fastify-pass HTTP server timeout)
+  - runtime-driver/node: 95/116 pass (21 pre-existing: ICU error in localeCompare, ESM module loading, HTTP server, isTTY, process.kill, resource-limits/budgets)
+  - runtime-driver/python: all fail (PythonRuntime not a constructor — Pyodide not available)
+  - Typecheck: all 28 packages pass
+  - No new regressions from US-037/038/039 serialization switch (verified: no test files changed since US-033)
+- **Learnings for future iterations:**
+  - SharedArrayBuffer removal is done by JS bridge code (applyTimingMitigationFreeze), NOT by Rust inject_globals — test was wrong since isolate creation
+  - V8 ICU data: localeCompare and Intl APIs fail with "Internal error. Icu error." in V8 runtime — the v8 crate may need ICU initialization or data bundle
+  - Pre-existing test failures (from US-033 V8 runtime integration) are documented in US-033 progress notes line 2369
+---
+
+## 2026-03-19 - US-041
+- What was implemented: V8 code caching for bridge code compilation
+  - Added `BridgeCodeCache` struct in execution.rs with FNV-1a source hash for cache invalidation
+  - Added `run_bridge_cached()` helper that compiles bridge code with `NoCompileOptions` on first run, creates code cache via `UnboundScript::create_code_cache()`, and consumes it via `ConsumeCodeCache` on subsequent runs
+  - Cache stored per-session in session.rs (`bridge_cache: Option<BridgeCodeCache>`)
+  - Updated `execute_script()` and `execute_module()` signatures to accept `&mut Option<BridgeCodeCache>`
+  - If V8 rejects the cache (version mismatch, etc.), it's invalidated and regenerated next execution
+- Files changed:
+  - crates/v8-runtime/src/execution.rs — BridgeCodeCache struct, run_bridge_cached(), updated execute_script/execute_module signatures, 5 new tests (Parts 60-64)
+  - crates/v8-runtime/src/session.rs — bridge_cache per-session state, passed to execute calls
+- **Learnings for future iterations:**
+  - V8 `Script::compile()` doesn't support code cache — must use `v8::script_compiler::compile()` with `Source` + `CompileOptions`
+  - Code cache is generated from `UnboundScript::create_code_cache()` (get unbound via `script.get_unbound_script()`)
+  - V8 code cache requires a resource name in ScriptOrigin — anonymous scripts don't cache well
+  - Helper functions that take `&mut TryCatch` and return `Local<Script>` cause lifetime conflicts when the caller needs to create another TryCatch afterwards — must contain the TryCatch within the helper (compile+run together)
+  - `CachedData::new(bytes)` creates a BufferNotOwned reference — the bytes must outlive the Source
+---
+
+## 2026-03-19 - US-042
+- What was implemented: Bridge code caching on the Rust side to skip resending over IPC
+  - Rust session.rs: Added `last_bridge_code: Option<String>` per session. When Execute arrives with empty (0-length) bridge_code, uses the cached value. When non-empty, updates the cache.
+  - JS runtime.ts: Added per-session `lastBridgeCodeHash` tracking using 32-bit FNV-1a hash. First execution always sends full bridge code; subsequent executions with same code send empty string (0-length), skipping the entire UTF-8 payload on the wire.
+  - Wire format unchanged — existing u32 BE length prefix naturally supports 0-length for "use cached" semantics
+- Files changed:
+  - crates/v8-runtime/src/session.rs — added `last_bridge_code` state, empty bridge_code → use cached logic, updated execute calls to use `effective_bridge_code`
+  - packages/secure-exec-v8/src/runtime.ts — added `lastBridgeCodeHash` per session, `fnv1aHash()` function, conditional bridge code sending
+  - scripts/ralph/prd.json — marked US-042 passes: true
+- **Learnings for future iterations:**
+  - The wire format already supports the optimization naturally — 0-length bridge_code in u32 BE prefix means empty string, no wire format changes needed
+  - JS and Rust hash algorithms don't need to match since they serve different purposes: JS hash is for deciding whether to resend, Rust hash (64-bit) is for V8 bytecode cache invalidation
+  - The per-session bridge code cache in session.rs (`last_bridge_code`) is distinct from the V8 bytecode cache (`bridge_cache`) — one avoids IPC transfer, the other avoids V8 recompilation
+---
+
+## 2026-03-19 - US-043
+- Replaced O(n^2) Buffer.concat pattern in IpcClient.handleData with pre-allocated buffer using read/write cursors
+- Buffer starts at 64KB, doubles when needed, compacts when consumed portion exceeds 50%
+- No new allocations per data event unless buffer needs to grow
+- Files changed:
+  - packages/secure-exec-v8/src/ipc-client.ts — replaced recvBuf Buffer.alloc(0) + Buffer.concat with pre-allocated buffer, added readPos/writePos cursors, ensureCapacity() for grow/compact, threshold-based compaction
+  - scripts/ralph/prd.json — marked US-043 passes: true
+- **Learnings for future iterations:**
+  - Buffer.copyWithin is efficient for in-place compaction (no allocation)
+  - Buffer.allocUnsafe is safe here since we always write before reading
+  - The subarray() calls for body extraction are still zero-copy views into the pre-allocated buffer; Buffer.from(body) copy is needed because decodeFrame may reference the data after readPos advances
+---
+
+## 2026-03-19 - US-044
+- Replaced non-blocking accept + 10ms sleep loop with poll(2) on listener FD + self-pipe for signal wakeup
+- SIGTERM/SIGINT handlers write a byte to the self-pipe via signal_hook::low_level::register (async-signal-safe)
+- poll(2) blocks on both listener FD and signal pipe read end — wakes instantly on either
+- No busy-wait or sleep loop remains in the accept path
+- Connection latency is now sub-millisecond (no 10ms poll delay)
+- Files changed:
+  - crates/v8-runtime/src/main.rs — added create_self_pipe(), drain_pipe(), replaced accept loop with poll(2), added 4 new tests
+  - scripts/ralph/prd.json — marked US-044 passes: true
+- **Learnings for future iterations:**
+  - signal_hook::low_level::register allows async-signal-safe closures (unlike flag::register which only sets AtomicBool)
+  - libc::write in a signal handler is async-signal-safe; only write a single byte to keep it minimal
+  - poll(2) returns -1 with EINTR when interrupted by a signal — must re-check pollfds after EINTR
+  - Self-pipe read end must be non-blocking to allow drain_pipe to consume all pending bytes without blocking
+---
+
+## 2026-03-19 - US-045
+- Removed JSON double-serialization from bridge handlers: _fsStat, _fsLstat, _fsReadDir, _childProcessSpawnSync, _networkFetchRaw, _networkDnsLookupRaw, _networkHttpRequestRaw, _networkHttpServerListenRaw
+- Host-side handlers now return objects directly instead of JSON.stringify'd strings
+- Bridge-side JS code now receives objects directly instead of JSON.parse
+- Updated bridge-contract.ts with typed return types (FsStatResult, FsLstatResult, FsReadDirEntry, SpawnSyncBridgeResult, NetworkFetchResult, etc.)
+- Added estimateResponseSize() for network payload limit checks (body + headers + url + statusText + overhead)
+- Also removed JSON serialization from HTTP server dispatch stream events (request/response)
+- Files changed:
+  - packages/secure-exec-core/src/shared/bridge-contract.ts — new typed return types for all affected bridge refs
+  - packages/secure-exec-node/src/bridge-handlers.ts — removed JSON.stringify from handler returns, added estimateResponseSize helper
+  - packages/secure-exec-core/src/bridge/fs.ts — removed JSON.parse for readDir/stat/lstat results
+  - packages/secure-exec-core/src/bridge/child-process.ts — removed JSON.parse for spawnSync/execSync results
+  - packages/secure-exec-core/src/bridge/network.ts — removed JSON.parse for fetch/dns/http/server results
+  - packages/secure-exec-core/src/bridge/process.ts — removed JSON.parse for process.chdir stat check
+  - scripts/ralph/prd.json — marked US-045 passes: true
+- **Learnings for future iterations:**
+  - Bridge handler return types in bridge-contract.ts must match both host-side handler implementations and bridge-side consumer code
+  - V8 ValueSerializer handles arbitrary JS objects natively — no need for JSON encoding of structured data crossing the bridge
+  - Payload size checks that relied on JSON string length need to be replaced with field-level estimates when switching to object returns
+  - assertPayloadByteLength uses strict > (not >=), so size estimates must account for object structure overhead
+  - Bridge code (fs.ts, network.ts, etc.) is bundled by core's build scripts — must force rebuild core after bridge source changes
+---
+
+## 2026-03-19 - US-046
+- Replaced SharedWriter (Arc<Mutex<Box<dyn Write + Send>>>) with per-session ChannelFrameSender + dedicated writer thread per connection
+- Added FrameSender trait abstracting frame sending (ChannelFrameSender for production, WriterFrameSender for tests)
+- Added frame_to_bytes() to ipc_binary.rs for lock-free frame serialization
+- Added ipc_writer_thread() in main.rs — one writer thread per connection drains the frame channel
+- Removed MutexWriter adapter (was wrapping SharedWriter with double-lock pattern)
+- Updated BridgeCallContext to use FrameSender instead of Mutex<Box<dyn Write + Send>>
+- Updated SessionManager to hold IpcSender (crossbeam Sender<Vec<u8>>) instead of SharedWriter
+- 7 new tests: frame_to_bytes correctness, ChannelFrameSender delivery, concurrent sender contention, and BridgeCallContext with channel end-to-end
+- Files changed:
+  - crates/v8-runtime/src/ipc_binary.rs — added frame_to_bytes(), refactored write_frame to use it, 3 new tests
+  - crates/v8-runtime/src/host_call.rs — added FrameSender trait, ChannelFrameSender, WriterFrameSender, updated BridgeCallContext, 4 new tests
+  - crates/v8-runtime/src/session.rs — replaced SharedWriter/MutexWriter with IpcSender/ChannelFrameSender, updated send_message
+  - crates/v8-runtime/src/main.rs — added ipc_writer_thread, spawn writer thread per connection, pass IpcSender to SessionManager
+  - scripts/ralph/prd.json — marked US-046 passes: true
+- **Learnings for future iterations:**
+  - write_frame() makes two write_all calls (length prefix + body) — with MutexWriter, these were separate lock/unlock cycles allowing interleaving across sessions
+  - frame_to_bytes() builds the complete frame as a single Vec<u8>, ensuring atomic writes through the channel
+  - crossbeam Sender<Vec<u8>> is Clone + Send — no Arc needed, each session thread clones the sender directly
+  - Writer thread ownership: when all senders are dropped (after session thread joins), rx.recv() returns Err and writer thread exits cleanly
+---
+
+## 2026-03-19 - US-047
+- Implemented batch module resolution to reduce IPC round-trips for import-heavy ESM code
+- After compiling each module, extracts static imports via V8 Module::get_module_requests()
+- Sends _batchResolveModules BridgeCall with all uncached specifiers in one round-trip
+- Host resolves+loads all specifiers concurrently via Promise.all, returns {resolved, source} array
+- BFS: recursively prefetches imports of newly compiled modules until no uncached imports remain
+- Falls back to individual _resolveModule/_loadFile calls if batch fails (backwards compatible)
+- Files changed:
+  - crates/v8-runtime/src/execution.rs — added extract_uncached_imports(), prefetch_module_imports(), batch_resolve_via_ipc(); updated execute_module() to prefetch before instantiate; 4 new test parts (65-68)
+  - packages/secure-exec-node/src/bridge-handlers.ts — added _batchResolveModules handler
+  - packages/secure-exec-v8/test/ipc-roundtrip.test.ts — 2 new integration tests (batch round-trip, fallback)
+  - scripts/ralph/prd.json — marked US-047 passes: true
+- **Learnings for future iterations:**
+  - V8 Module::get_module_requests() returns FixedArray of ModuleRequest objects; cast via data.cast::<v8::ModuleRequest>()
+  - Bridge handler args are spread by the host routing code (runtime.ts): serialize as [[batch]] so handler receives batch as single arg
+  - Existing ESM test (Part 30) must prepend a _batchResolveModules response since prefetch consumes call_id=1 before individual resolve callbacks run
+  - Thread-local MODULE_RESOLVE_STATE borrows must be brief — no V8 operations while RefCell is borrowed
+---
+
+## 2026-03-19 - US-048
+- Implemented per-session pre-allocated V8 serialization buffers
+- Added SessionBuffers struct (bridge.rs) with ser_buf: Vec<u8> for V8 ValueSerializer output
+- Added serialize_v8_value_into() that copies V8 serializer output into reusable buffer
+- Added encode_frame_into() (ipc_binary.rs) that writes length-prefixed frames into provided buffer, eliminating double-allocation in frame_to_bytes
+- Updated ChannelFrameSender with reusable frame_buf (RefCell<Vec<u8>>), clone for channel send
+- Updated session.rs: SessionBuffers per execution, msg_frame_buf for send_message
+- Updated sync_bridge_callback and async_bridge_callback to use SessionBuffers via pointer in External data
+- Files changed:
+  - crates/v8-runtime/src/bridge.rs — SessionBuffers struct, serialize_v8_value_into, serialize_v8_args_into, buffers pointer in SyncBridgeFnData/AsyncBridgeFnData
+  - crates/v8-runtime/src/ipc_binary.rs — encode_frame_into(); frame_to_bytes reimplemented in terms of it; 3 new tests
+  - crates/v8-runtime/src/host_call.rs — ChannelFrameSender::new() with frame_buf, updated send_frame; 1 new test
+  - crates/v8-runtime/src/session.rs — session_buffers + msg_frame_buf per-session, passed to bridge registration and send_message
+  - crates/v8-runtime/src/execution.rs — session_buffers added to all 21 test register call sites; 2 new test parts (57-58)
+  - scripts/ralph/prd.json — marked US-048 passes: true
+- **Learnings for future iterations:**
+  - rusty_v8 ValueSerializer hardcodes alloc/realloc in ReallocateBufferMemory (not customizable via ValueSerializerImpl trait) — can't avoid V8's internal buffer allocation, but can reuse our own output buffer
+  - frame_to_bytes had a double-allocation pattern (body Vec + result Vec) — encode_frame_into eliminates this by writing header placeholder + body into single buffer
+  - ChannelFrameSender.send_frame takes &self (not &mut self) because it's shared via BridgeCallContext — use RefCell for interior mutability on frame buffer
+  - V8 callbacks access session-level state via raw pointers in External data — SessionBuffers pointer added alongside BridgeCallContext pointer
+---
+
+## 2026-03-19 - US-050
+- Added process isolation integration tests proving separate V8Runtime instances are crash-isolated
+- 6 tests covering all acceptance criteria:
+  1. Crash in one V8Runtime does not affect another (OOM in one, simple code in other)
+  2. Crashed runtime reports ERR_V8_PROCESS_CRASH while healthy runtime returns exit code 0
+  3. Healthy runtime can create new sessions after peer runtime crashes
+  4. Runtimes using the same v8Runtime handle share crash fate (OOM + blocking bridge calls)
+  5. Multiple sessions on same process all get ERR_V8_PROCESS_CRASH on OOM
+  6. Separate V8Runtime processes have independent session namespaces
+- Files changed:
+  - packages/secure-exec-v8/test/process-isolation.test.ts (new) — 6 integration tests
+  - scripts/ralph/prd.json — marked US-050 passes: true
+- **Learnings for future iterations:**
+  - To test shared crash fate reliably, non-OOM sessions must block on a bridge call (Promise that never resolves) — otherwise fast-completing sessions may return code 0 before the OOM crash
+  - afterEach cleanup uses Promise.allSettled on runtimes array to handle dispose on already-crashed runtimes gracefully
+---
+
+## 2026-03-19 - US-051
+- Added process isolation documentation page at docs/process-isolation.mdx
+- Documents all three topology options: shared (default), per-tenant, per-runtime with code examples
+- Covers trade-offs (memory cost vs crash blast radius), resource limits (maxSessions per-process), crash behavior (ERR_V8_PROCESS_CRASH), and lifecycle management
+- Added page to docs/docs.json navigation under Features section
+- Updated docs/runtimes/node.mdx with cross-reference to process isolation page
+- Files changed:
+  - docs/process-isolation.mdx (new) — full documentation page
+  - docs/docs.json — added process-isolation to Features nav group
+  - docs/runtimes/node.mdx — added cross-reference paragraph
+  - scripts/ralph/prd.json — marked US-051 passes: true
+- **Learnings for future iterations:**
+  - Docs pages follow Mintlify MDX format with YAML frontmatter (title, description, optional icon)
+  - docs.json navigation uses flat page slugs relative to docs/ root (e.g., "process-isolation" not "docs/process-isolation")
+  - Existing docs use mermaid diagrams, tables, and code blocks for different explanation styles
+---
+
+## 2026-03-19 - US-052
+- Implemented external_refs() in bridge.rs returning &'static ExternalReferences via OnceLock with sync_bridge_callback and async_bridge_callback
+- Created snapshot.rs with create_snapshot(bridge_code) and create_isolate_from_snapshot(blob, heap_limit_mb)
+- create_snapshot returns Result<StartupData, String>, rejects blobs >50MB
+- create_isolate_from_snapshot uses generic bound (Deref<Target=[u8]> + Borrow<[u8]> + 'static) for blob parameter
+- 5 consolidated tests: non-empty blob, restored isolate JS execution, heap limit respect, size under limit, 3 sequential restores
+- Files changed: crates/v8-runtime/src/bridge.rs, crates/v8-runtime/src/snapshot.rs (new), crates/v8-runtime/src/main.rs
+- **Learnings for future iterations:**
+  - V8 ExternalReference union field `function` expects FunctionCallback type — use `.map_fn_to()` from MapFnTo trait to convert Rust function signatures
+  - v8::CreateParams::snapshot_blob() requires `impl Allocated<[u8]>` which is `Deref<Target=[u8]> + Borrow<[u8]> + 'static` — &[u8] doesn't satisfy this; use owned types (Vec<u8>, StartupData, Box<[u8]>)
+  - Snapshot tests must be consolidated into a single #[test] function (same as execution::tests) to avoid V8 global state SIGSEGV when test runner runs tests in parallel
+  - `Allocated` trait is not re-exported from v8 crate — use equivalent trait bounds directly in function signatures
+---
+
+## 2026-03-19 - US-053
+- Added SnapshotCache struct with Mutex-guarded Vec<CacheEntry> and LRU eviction
+- get_or_create() hashes bridge code with SipHash (std DefaultHasher), returns cached Arc on hit, creates snapshot on miss
+- LRU moves accessed entries to end on hit; evicts front (oldest) when at max_entries capacity
+- Blob stored as Arc<Vec<u8>> instead of Arc<StartupData> for Send+Sync compatibility
+- 4 new test parts in consolidated snapshot test: cache hit (same Arc), cache miss (different Arc), LRU eviction, concurrent access (4 threads all get same Arc)
+- Files changed: crates/v8-runtime/src/snapshot.rs
+- **Learnings for future iterations:**
+  - v8::StartupData contains *const i8 raw pointer — not Send/Sync. Store snapshot blobs as Arc<Vec<u8>> (via .to_vec()) for cross-thread sharing
+  - SnapshotCache holds mutex during snapshot creation (~20ms) — acceptable since it happens once per bridge code variant
+---
+
+## 2026-03-19 - US-054
+- Added WarmSnapshot IPC message type (0x09) to both Rust ipc_binary.rs and TypeScript ipc-binary.ts
+- Wire format: [msg_type=0x09][sid_len=0][u32 bridge_code_len][bridge_code bytes] — no session_id (like Authenticate)
+- Updated extract_session_id / extractSessionId to return None/null for WarmSnapshot
+- Added BinaryFrame::WarmSnapshot { bridge_code } variant in Rust and { type: "WarmSnapshot"; bridgeCode: string } in TypeScript
+- 4 new Rust tests: roundtrip, empty bridge code, large bridge code, extract_session_id returns None
+- 5 new TypeScript tests: roundtrip, empty, large, extractSessionId null, wire format byte verification
+- Updated wire_format_message_type_bytes test in both Rust and TypeScript to include 0x09
+- Files changed:
+  - crates/v8-runtime/src/ipc_binary.rs — WarmSnapshot variant, encode/decode, extract_session_id, tests
+  - packages/secure-exec-v8/src/ipc-binary.ts — WarmSnapshot type, encodeBody, decodeFrame, extractSessionId
+  - packages/secure-exec-v8/test/ipc-binary.test.ts — 5 new tests
+  - scripts/ralph/prd.json — marked US-054 passes: true
+- **Learnings for future iterations:**
+  - Connection-level messages (no session_id) use sid_len=0 in the wire format, same as Authenticate
+  - extract_session_id must be updated whenever a new connection-level message type is added
+  - WarmSnapshot is fire-and-forget — host sends it and continues without waiting for response
+---
+
+## 2026-03-19 - US-055
+- Wired SnapshotCache into session thread and connection handler
+- SessionManager now owns Arc<SnapshotCache> (shared across connections)
+- Session thread defers isolate creation from startup to first Execute (when bridge code is known for snapshot cache lookup)
+- On first Execute: snapshot_cache.get_or_create(bridge_code) → create_isolate_from_snapshot() with fallback to create_isolate() on failure
+- disable_wasm() called on every restored isolate (not captured in snapshot)
+- Connection handler processes WarmSnapshot messages via snapshot_cache.get_or_create() (fire-and-forget, no response)
+- main.rs creates global Arc<SnapshotCache>(max_entries=4) shared across all connections
+- Files changed: crates/v8-runtime/src/session.rs, crates/v8-runtime/src/main.rs
+- **Learnings for future iterations:**
+  - Deferred isolate creation (Option<OwnedIsolate>) requires updating all &mut v8_isolate references to use the unwrapped borrow (iso = v8_isolate.as_mut().unwrap())
+  - Drop cleanup for Option<OwnedIsolate> needs .take() instead of direct drop
+  - Pre-existing SIGSEGV on V8 teardown when multiple V8 test suites (snapshot, execution, bridge) run in same process — individual test suites all pass
+---
+
+## 2026-03-19 - US-056
+- Added eager snapshot warm-up on module load
+- composeBridgeCodeForWarmup() in execution-driver.ts produces default bridge code (timingMitigation='none', default budgets)
+- V8RuntimeOptions.warmupBridgeCode allows callers to specify bridge code for pre-warming
+- runtime.ts sends WarmSnapshot after authenticate() unless SECURE_EXEC_NO_SNAPSHOT_WARMUP=1
+- getSharedV8Runtime() passes composeBridgeCodeForWarmup() to createV8Runtime()
+- composeBridgeCodeForWarmup exported from @secure-exec/node package index
+- Files changed: packages/secure-exec-v8/src/runtime.ts, packages/secure-exec-node/src/execution-driver.ts, packages/secure-exec-node/src/index.ts
+- **Learnings for future iterations:**
+  - Bridge code composition depends on imports from both @secure-exec/core and @secure-exec/node — can't live in @secure-exec/v8 (wrong dependency direction)
+  - warmupBridgeCode is passed as option to createV8Runtime() to avoid circular deps between @secure-exec/v8 and @secure-exec/node
+---
+
+## 2026-03-19 - US-057
+- Added snapshot security and integration tests proving hardening survives snapshot round-trip
+- Rust (snapshot.rs): 3 new test parts — Part 10: WASM blocked after restore + disable_wasm(), Part 11: session isolation via fresh contexts from same snapshot, Part 12: external references survive restore (FunctionTemplates registered and callable)
+- TypeScript (snapshot-security.test.ts): 7 integration tests — WASM blocked, session state isolation (A does not leak to B), sync bridge dispatch on restored isolate, async bridge dispatch on restored isolate, WarmSnapshot cache hit, SECURE_EXEC_NO_SNAPSHOT_WARMUP=1 lazy fallback, different bridge code variants get separate snapshot entries
+- Files changed: crates/v8-runtime/src/snapshot.rs, packages/secure-exec-v8/test/snapshot-security.test.ts (new)
+- **Learnings for future iterations:**
+  - Rust snapshot tests must stay consolidated in single #[test] fn (Part N pattern) to avoid V8 teardown SIGSEGV
+  - ReaderResponseReceiver::new() takes Box<dyn Read + Send>, not a concrete type — need Box::new() wrapper
+  - SIGSEGV on cargo test exit is pre-existing (V8 global state cleanup across test suites) — all 74 tests pass before SIGSEGV
+---
+
+## 2026-03-19 - US-059
+- What was implemented: Replaced direct property assignment in setup-fs-facade.ts with Object.defineProperties using getters for all 19 fs bridge functions
+- Each _fs property getter now resolves globalThis._fsXxx at call time, not setup time — enabling snapshot-restored contexts to pick up replaced bridge function globals
+- Files changed: packages/secure-exec-core/isolate-runtime/src/inject/setup-fs-facade.ts, packages/secure-exec-core/src/generated/isolate-runtime.ts (auto-regenerated)
+- **Learnings for future iterations:**
+  - The getter pattern is transparent to callers — all existing fs tests pass unchanged with identical pass/fail counts
+  - packages/secure-exec-core/dist/ is gitignored — don't try to stage files from there
+  - The generated isolate-runtime.ts is auto-regenerated by `pnpm run --filter @secure-exec/core build` (specifically build:isolate-runtime)
+---
+
+## 2026-03-19 - US-069
+- What was implemented: Fixed 4 correctness bugs in TypeScript IPC binary codec and runtime hash function
+  - readLenPrefixedU16: returns { value, bytesRead } struct; pos advances by wire length (u16 value), not Buffer.byteLength(decodedString)
+  - encodeSessionId: throws if session ID UTF-8 byte length exceeds 255 (was silently truncating via byte assignment)
+  - writeLenPrefixedU16: throws if string UTF-8 byte length exceeds 65535 (explicit guard before writeUInt16BE)
+  - fnv1aHash: hashes over Buffer.from(str, 'utf8') bytes instead of str.charCodeAt(i) UTF-16 code units
+- Exported fnv1aHash from runtime.ts and index.ts for testability
+- Added 14 new tests: overflow guards (6), multi-byte UTF-8 round-trips (3), fnv1aHash (4 including UTF-8 vs UTF-16 divergence proof), boundary tests (1)
+- Files changed: packages/secure-exec-v8/src/ipc-binary.ts, packages/secure-exec-v8/src/runtime.ts, packages/secure-exec-v8/src/index.ts, packages/secure-exec-v8/test/ipc-binary.test.ts
+- **Learnings for future iterations:**
+  - readLenPrefixedU16 wire length vs re-encoded length diverges on malformed UTF-8 (replacement char U+FFFD re-encodes to 3 bytes per invalid sequence)
+  - Node.js writeUInt16BE already throws RangeError for >0xFFFF but error message is opaque — explicit guard gives clearer diagnostics
+  - FNV-1a over charCodeAt gives different results from FNV-1a over UTF-8 bytes for any non-ASCII string — always hash bytes for cross-language compatibility
+---
+
+## 2026-03-19 - US-070
+- Fixed overflow guards in Rust IPC binary encoder to prevent silent truncation
+- `write_session_id` now returns `io::Result<()>` and rejects session IDs > 255 bytes
+- `write_len_prefixed_u16` now returns `io::Result<()>` and rejects strings > 65535 bytes
+- `encode_body` changed to return `io::Result<()>` to propagate errors from helpers
+- Execute frame's `file_path` now uses `write_len_prefixed_u16` instead of inline `as u16` cast
+- All inline `as u16` casts for StreamEvent, BridgeCall, StreamCallback replaced with `write_len_prefixed_u16`
+- Removed dead `serialize_v8_args` function from bridge.rs (replaced by `serialize_v8_args_into`)
+- Added tests: write_session_id rejects >255 byte sid, accepts 255; write_len_prefixed_u16 rejects >65535, accepts 65535; Execute file_path rejects >65535
+- Files changed: crates/v8-runtime/src/ipc_binary.rs, crates/v8-runtime/src/bridge.rs
+- **Learnings for future iterations:**
+  - encode_body was infallible (returned nothing) so callers like encode_frame_into had to handle errors only from the size check — now encode_body itself can fail on field overflow
+  - All u16/u8 truncation points in encode_body now use the guarded helper functions
+---
+
+## 2026-03-19 - US-071
+- Replaced unbounded IPC writer channel in main.rs with bounded(1024)
+- Replaced unbounded session command channel in session.rs with bounded(256)
+- Session threads now block naturally when IPC writer buffer is full (backpressure)
+- Connection handler blocks when session command buffer is full
+- All 79 cargo tests pass, all 28 typecheck tasks pass
+- Files changed: crates/v8-runtime/src/main.rs, crates/v8-runtime/src/session.rs
+- **Learnings for future iterations:**
+  - Only main.rs and session.rs have production unbounded channels; execution.rs, host_call.rs, snapshot.rs unbounded channels are all in test code
+  - crossbeam_channel::bounded API is drop-in replacement for unbounded — same Sender/Receiver types
+---
+
+## 2026-03-19 - US-072
+- What was implemented: Constant-time auth token comparison and race-free socket directory creation
+- Changes:
+  1. Added `constant_time_eq()` function using XOR-accumulate for auth token comparison (prevents timing oracle)
+  2. Replaced `fs::create_dir() + fs::set_permissions()` with `fs::DirBuilder::new().mode(0o700).create()` (eliminates TOCTOU race)
+  3. Added tests: 3 for constant_time_eq (equal, different content, different length) and 1 for socket directory 0700 permissions
+- Files changed: crates/v8-runtime/src/main.rs
+- **Learnings for future iterations:**
+  - `DirBuilderExt::mode()` (from `std::os::unix::fs`) sets permissions atomically via mkdir(2) — always prefer over create_dir + set_permissions
+  - V8 isolate teardown SIGSEGV is pre-existing and test-order-dependent — the process crashes during exit cleanup when both execution and snapshot tests run in the same process, but all test assertions pass before the crash
+  - `PermissionsExt` import moved to test module only since production code no longer needs it
+---
+
+## 2026-03-19 - US-073
+- What was implemented:
+  - Changed call_id from u32 to u64 across the entire IPC stack (Rust + TypeScript)
+  - Rust: AtomicU32→AtomicU64 in host_call.rs, HashMap<u32>→HashMap<u64> in CallIdRouter and PendingPromises, updated BinaryFrame types
+  - Rust IPC: added read_u64 helper, BridgeCall/BridgeResponse encode/decode now use 8-byte BE for call_id
+  - TypeScript IPC: readBigUInt64BE/writeBigUInt64BE with Number() conversion for callId in BridgeCall/BridgeResponse
+  - Fixed accept error handling: transient errors (EMFILE, ENFILE, ECONNABORTED, EINTR, EAGAIN) log and continue; fatal errors break
+- Files changed:
+  - crates/v8-runtime/src/host_call.rs — AtomicU32→AtomicU64, HashSet<u32>→HashSet<u64>, CallIdRouter HashMap<u32>→<u64>, async_send return u64
+  - crates/v8-runtime/src/ipc_binary.rs — BinaryFrame call_id: u32→u64, added read_u64, updated encode/decode
+  - crates/v8-runtime/src/bridge.rs — PendingPromises HashMap<u32>→<u64>, resolve_pending_promise call_id: u64
+  - crates/v8-runtime/src/main.rs — transient vs fatal accept error handling
+  - packages/secure-exec-v8/src/ipc-binary.ts — BigInt for 8-byte call_id read/write
+  - packages/secure-exec-v8/test/ipc-binary.test.ts — updated wire format byte offset test for 8-byte call_id
+- **Learnings for future iterations:**
+  - On Linux, EAGAIN == EWOULDBLOCK (same errno value) — don't include both in match arms or you get unreachable pattern warning
+  - Wire format changes (u32→u64) require rebuilding the Rust binary (cargo build --release) before integration tests pass
+  - BinaryFrame::BridgeCall/BridgeResponse call_id field type change propagates automatically through destructuring patterns in session.rs and main.rs
+  - TS BigInt↔Number conversion via Number(buf.readBigUInt64BE()) and BigInt(frame.callId) works cleanly for counters within Number.MAX_SAFE_INTEGER
+---
+
+## 2026-03-19 - US-062
+- Implemented BridgeCallContext::stub() in host_call.rs — no-op context that panics if sync_call or async_send is called
+- Implemented register_stub_bridge_fns() in bridge.rs — registers FunctionTemplates with same sync_bridge_callback/async_bridge_callback but WITHOUT v8::External data (snapshot-safe)
+- Made SYNC_BRIDGE_FNS and ASYNC_BRIDGE_FNS pub(crate) in session.rs (removed #[cfg(not(test))])
+- Added tests: stub panic tests in host_call.rs, stub registration on V8 global, bridge IIFE execution + snapshot creation in snapshot.rs
+- Files changed:
+  - crates/v8-runtime/src/host_call.rs — StubFrameSender, StubResponseReceiver, BridgeCallContext::stub(), 2 panic tests
+  - crates/v8-runtime/src/bridge.rs — register_stub_bridge_fns()
+  - crates/v8-runtime/src/session.rs — pub(crate) SYNC_BRIDGE_FNS/ASYNC_BRIDGE_FNS
+  - crates/v8-runtime/src/snapshot.rs — Part 13 (stub registration) and Part 14 (IIFE + snapshot creation) tests
+- **Learnings for future iterations:**
+  - v8::External data (raw pointers) in FunctionTemplates causes SIGSEGV during V8 snapshot serialization — for snapshot stubs, omit .data() from FunctionTemplate::builder
+  - When stubs have no External data, callback's args.data() returns undefined → try_from::<v8::External> fails → throws V8 exception, which is correct behavior for stubs
+  - Pre-existing SIGSEGV on process teardown after running full cargo test suite (V8 global state cleanup) — not a regression
+  - SYNC_BRIDGE_FNS (31) + ASYNC_BRIDGE_FNS (7) = 38 total bridge functions
 ---

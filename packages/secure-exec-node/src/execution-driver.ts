@@ -1,34 +1,163 @@
-import ivm from "isolated-vm";
-import { DEFAULT_TIMING_MITIGATION, TIMEOUT_ERROR_MESSAGE, TIMEOUT_EXIT_CODE, createIsolate as createDefaultIsolate, getExecutionDeadlineMs, getExecutionRunOptions, isExecutionTimeoutError, runWithExecutionDeadline } from "./isolate.js";
-import { getPathDir, createResolutionCache } from "@secure-exec/core";
+import { createV8Runtime } from "@secure-exec/v8";
+import type { V8Runtime, V8Session, V8ExecutionResult } from "@secure-exec/v8";
+
+// Shared V8 runtime — spawns one Rust child process, reused across all drivers.
+// Sessions are isolated (separate V8 isolates in separate threads on the Rust side).
+let sharedV8Runtime: V8Runtime | null = null;
+let sharedV8RuntimePromise: Promise<V8Runtime> | null = null;
+
+async function getSharedV8Runtime(): Promise<V8Runtime> {
+	if (sharedV8Runtime) return sharedV8Runtime;
+	if (!sharedV8RuntimePromise) {
+		sharedV8RuntimePromise = createV8Runtime({
+			warmupBridgeCode: composeBridgeCodeForWarmup(),
+		}).then((r) => {
+			sharedV8Runtime = r;
+			return r;
+		});
+	}
+	return sharedV8RuntimePromise;
+}
+import { createResolutionCache, getIsolateRuntimeSource, TIMEOUT_ERROR_MESSAGE, TIMEOUT_EXIT_CODE } from "@secure-exec/core";
+import { getInitialBridgeGlobalsSetupCode } from "@secure-exec/core";
+import { getConsoleSetupCode } from "@secure-exec/core/internal/shared/console-formatter";
+import { getRequireSetupCode } from "@secure-exec/core/internal/shared/require-setup";
 import { createCommandExecutorStub, createFsStub, createNetworkStub, filterEnv, wrapCommandExecutor, wrapFileSystem, wrapNetworkAdapter } from "@secure-exec/core/internal/shared/permissions";
-import { executeWithRuntime } from "./execution.js";
+import { transformDynamicImport } from "@secure-exec/core/internal/shared/esm-utils";
+import { HARDENED_NODE_CUSTOM_GLOBALS, MUTABLE_NODE_CUSTOM_GLOBALS } from "@secure-exec/core/internal/shared/global-exposure";
 import type { NetworkAdapter, RuntimeDriver } from "@secure-exec/core";
 import type { StdioHook, ExecOptions, ExecResult, RunResult, TimingMitigation } from "@secure-exec/core/internal/shared/api-types";
-import { type DriverDeps, type NodeExecutionDriverOptions, createBudgetState, clearActiveHostTimers, killActiveChildProcesses, normalizePayloadLimit, getExecutionTimeoutMs, getTimingMitigation, DEFAULT_BRIDGE_BASE64_TRANSFER_BYTES, DEFAULT_ISOLATE_JSON_PAYLOAD_BYTES, DEFAULT_MAX_TIMERS, DEFAULT_MAX_HANDLES, DEFAULT_SANDBOX_CWD, DEFAULT_SANDBOX_HOME, DEFAULT_SANDBOX_TMPDIR } from "./isolate-bootstrap.js";
-import { shouldRunAsESM } from "./module-resolver.js";
-import { precompileDynamicImports, runESM, setupDynamicImport } from "./esm-compiler.js";
-import { setupConsole, setupRequire, setupESMGlobals } from "./bridge-setup.js";
-import { applyExecutionOverrides, initCommonJsModuleGlobals, setCommonJsFileGlobals, applyCustomGlobalExposurePolicy, awaitScriptResult } from "./execution-lifecycle.js";
+import { type DriverDeps, type NodeExecutionDriverOptions, createBudgetState, clearActiveHostTimers, killActiveChildProcesses, normalizePayloadLimit, getExecutionTimeoutMs, getTimingMitigation, DEFAULT_BRIDGE_BASE64_TRANSFER_BYTES, DEFAULT_ISOLATE_JSON_PAYLOAD_BYTES, DEFAULT_MAX_TIMERS, DEFAULT_MAX_HANDLES, DEFAULT_SANDBOX_CWD, DEFAULT_SANDBOX_HOME, DEFAULT_SANDBOX_TMPDIR, PAYLOAD_LIMIT_ERROR_CODE } from "./isolate-bootstrap.js";
+import { DEFAULT_TIMING_MITIGATION } from "./isolate.js";
+import { buildBridgeHandlers } from "./bridge-handlers.js";
+import { getIvmCompatShimSource } from "./ivm-compat.js";
+import { getRawBridgeCode, getBridgeAttachCode } from "./bridge-loader.js";
+import { createProcessConfigForExecution } from "./bridge-setup.js";
 
 export { NodeExecutionDriverOptions };
+
+// Module-level cache for the static bridge IIFE (identical across all sessions)
+let staticBridgeCodeCache: string | null = null;
+
+/**
+ * Compose the config-independent bridge IIFE. Output is byte-for-byte
+ * identical regardless of session options — uses DEFAULT values for all
+ * config that gets overridden by the post-restore script.
+ * Used for snapshot creation and as the base of every session's bridge code.
+ */
+export function composeStaticBridgeCode(): string {
+	if (staticBridgeCodeCache) return staticBridgeCodeCache;
+
+	const parts: string[] = [];
+
+	parts.push(getIvmCompatShimSource());
+
+	// Default budget values — overridden per-session by post-restore script
+	parts.push(`globalThis._maxTimers = ${DEFAULT_MAX_TIMERS};`);
+	parts.push(`globalThis._maxHandles = ${DEFAULT_MAX_HANDLES};`);
+	parts.push(`globalThis.__runtimeBridgeSetupConfig = ${JSON.stringify({
+		initialCwd: DEFAULT_SANDBOX_CWD,
+		jsonPayloadLimitBytes: DEFAULT_ISOLATE_JSON_PAYLOAD_BYTES,
+		payloadLimitErrorCode: PAYLOAD_LIMIT_ERROR_CODE,
+	})};`);
+
+	parts.push(getIsolateRuntimeSource("globalExposureHelpers"));
+	parts.push(getInitialBridgeGlobalsSetupCode());
+	parts.push(getConsoleSetupCode());
+	parts.push(getIsolateRuntimeSource("setupFsFacade"));
+	parts.push(getRawBridgeCode());
+	parts.push(getBridgeAttachCode());
+
+	// Default: no timing mitigation (freeze applied via post-restore script)
+	parts.push(getIsolateRuntimeSource("applyTimingMitigationOff"));
+
+	parts.push(getRequireSetupCode());
+	parts.push(getIsolateRuntimeSource("initCommonjsModuleGlobals"));
+
+	parts.push(`globalThis.__runtimeCustomGlobalPolicy = ${JSON.stringify({
+		hardenedGlobals: HARDENED_NODE_CUSTOM_GLOBALS,
+		mutableGlobals: MUTABLE_NODE_CUSTOM_GLOBALS,
+	})};`);
+	parts.push(getIsolateRuntimeSource("applyCustomGlobalPolicy"));
+
+	staticBridgeCodeCache = parts.join("\n");
+	return staticBridgeCodeCache;
+}
+
+/**
+ * Compose the per-session post-restore script. Overrides default config
+ * values from the static IIFE with session-specific values, applies timing
+ * mitigation, and handles polyfill loading.
+ */
+export function composePostRestoreScript(config: {
+	timingMitigation: TimingMitigation;
+	frozenTimeMs: number;
+	maxTimers?: number;
+	maxHandles?: number;
+	initialCwd?: string;
+	payloadLimitBytes?: number;
+	payloadLimitErrorCode?: string;
+}): string {
+	const parts: string[] = [];
+
+	// Override per-session budget values if they differ from defaults
+	if (config.maxTimers !== undefined) {
+		parts.push(`globalThis._maxTimers = ${config.maxTimers};`);
+	}
+	if (config.maxHandles !== undefined) {
+		parts.push(`globalThis._maxHandles = ${config.maxHandles};`);
+	}
+
+	// Override initial cwd for module resolution
+	if (config.initialCwd && config.initialCwd !== DEFAULT_SANDBOX_CWD) {
+		parts.push(`if (globalThis._currentModule) globalThis._currentModule.dirname = ${JSON.stringify(config.initialCwd)};`);
+	}
+
+	// Apply config (timing mitigation, payload limits) via __runtimeApplyConfig
+	parts.push(`globalThis.__runtimeApplyConfig(${JSON.stringify({
+		timingMitigation: config.timingMitigation,
+		frozenTimeMs: config.timingMitigation === "freeze" ? config.frozenTimeMs : undefined,
+		payloadLimitBytes: config.payloadLimitBytes,
+		payloadLimitErrorCode: config.payloadLimitErrorCode,
+	})});`);
+
+	// Reset mutable state from snapshot (no-op on fresh context, resets stale
+	// values on snapshot-restored context)
+	parts.push(`if (typeof globalThis.__runtimeResetProcessState === "function") globalThis.__runtimeResetProcessState();`);
+
+	return parts.join("\n");
+}
+
+/**
+ * Compose the bridge code for snapshot warm-up.
+ * Returns only the static IIFE — the post-restore script is sent
+ * separately per-execution so the snapshot is config-independent.
+ */
+export function composeBridgeCodeForWarmup(): string {
+	return composeStaticBridgeCode();
+}
+
+const MAX_ERROR_MESSAGE_CHARS = 8192;
+
+function boundErrorMessage(message: string): string {
+	if (message.length <= MAX_ERROR_MESSAGE_CHARS) return message;
+	return `${message.slice(0, MAX_ERROR_MESSAGE_CHARS)}...[Truncated]`;
+}
 
 export class NodeExecutionDriver implements RuntimeDriver {
 	private deps: DriverDeps;
 	private memoryLimit: number;
 	private disposed: boolean = false;
-	private runtimeCreateIsolate: (memoryLimit: number) => ivm.Isolate;
+
+	// V8 session state (lazy-initialized; runtime is shared across all drivers)
+	private v8Session: V8Session | null = null;
+	private v8InitPromise: Promise<void> | null = null;
+	private v8RuntimeOverride: V8Runtime | null;
 
 	constructor(options: NodeExecutionDriverOptions) {
+		this.v8RuntimeOverride = options.v8Runtime ?? null;
 		this.memoryLimit = options.memoryLimit ?? 128;
 		const system = options.system;
-		this.runtimeCreateIsolate =
-			(options.createIsolate as
-				| ((memoryLimit: number) => ivm.Isolate)
-				| undefined) ??
-			((memoryLimit) => createDefaultIsolate(memoryLimit));
-
-		const isolate = this.runtimeCreateIsolate(this.memoryLimit);
 		const permissions = system.permissions;
 		const filesystem = system.filesystem
 			? wrapFileSystem(system.filesystem, permissions)
@@ -62,7 +191,6 @@ export class NodeExecutionDriver implements RuntimeDriver {
 		const budgets = options.resourceBudgets;
 
 		this.deps = {
-			isolate,
 			filesystem,
 			commandExecutor,
 			networkAdapter,
@@ -83,13 +211,15 @@ export class NodeExecutionDriver implements RuntimeDriver {
 			activeHttpServerIds: new Set(),
 			activeChildProcesses: new Map(),
 			activeHostTimers: new Set(),
+			resolutionCache: createResolutionCache(),
+			// Legacy fields — unused by V8-based driver, provided for DriverDeps compatibility
+			isolate: null,
 			esmModuleCache: new Map(),
 			esmModuleReverseCache: new Map(),
 			moduleFormatCache: new Map(),
 			packageTypeCache: new Map(),
 			dynamicImportCache: new Map(),
 			dynamicImportPending: new Map(),
-			resolutionCache: createResolutionCache(),
 		};
 	}
 
@@ -100,46 +230,6 @@ export class NodeExecutionDriver implements RuntimeDriver {
 			dnsLookup: (hostname) => adapter.dnsLookup(hostname),
 			httpRequest: (url, options) => adapter.httpRequest(url, options),
 		};
-	}
-
-	get unsafeIsolate(): unknown { return this.__unsafeIsoalte; }
-	get __unsafeIsoalte(): ivm.Isolate {
-		if (this.disposed) throw new Error("NodeRuntime has been disposed");
-		return this.deps.isolate;
-	}
-
-	async createUnsafeContext(options: { env?: Record<string, string>; cwd?: string; filePath?: string } = {}): Promise<unknown> {
-		return this.__unsafeCreateContext(options);
-	}
-
-	async __unsafeCreateContext(options: { env?: Record<string, string>; cwd?: string; filePath?: string } = {}): Promise<ivm.Context> {
-		if (this.disposed) throw new Error("NodeRuntime has been disposed");
-		this.deps.budgetState = createBudgetState();
-		// Clear module caches to prevent cache poisoning across contexts
-		this.deps.esmModuleCache.clear();
-		this.deps.esmModuleReverseCache.clear();
-		this.deps.dynamicImportCache.clear();
-		this.deps.dynamicImportPending.clear();
-		this.deps.resolutionCache.resolveResults.clear();
-		this.deps.resolutionCache.packageJsonResults.clear();
-		this.deps.resolutionCache.existsResults.clear();
-		this.deps.resolutionCache.statResults.clear();
-		this.deps.moduleFormatCache.clear();
-		this.deps.packageTypeCache.clear();
-		const context = await this.deps.isolate.createContext();
-		const jail = context.global;
-		await jail.set("global", jail.derefInto());
-		const tm = getTimingMitigation(undefined, this.deps.timingMitigation);
-		const frozenTimeMs = Date.now();
-		await setupConsole(this.deps, context, jail, this.deps.onStdio);
-		await setupRequire(this.deps, context, jail, tm, frozenTimeMs);
-		const referrer = options.filePath ? getPathDir(options.filePath) : (options.cwd ?? this.deps.processConfig.cwd ?? "/");
-		await setupDynamicImport(this.deps, context, jail, referrer, undefined);
-		await initCommonJsModuleGlobals(context);
-		await applyExecutionOverrides(context, this.deps.permissions, options.env, options.cwd, undefined);
-		if (options.filePath) await setCommonJsFileGlobals(context, options.filePath);
-		await applyCustomGlobalExposurePolicy(context);
-		return context;
 	}
 
 	async run<T = unknown>(code: string, filePath?: string): Promise<RunResult<T>> {
@@ -161,6 +251,49 @@ export class NodeExecutionDriver implements RuntimeDriver {
 		return { code: result.code, errorMessage: result.errorMessage };
 	}
 
+	/** Ensure V8 session is initialized (runtime is shared). */
+	private async ensureV8(): Promise<V8Session> {
+		if (this.v8Session) return this.v8Session;
+		if (!this.v8InitPromise) {
+			this.v8InitPromise = this.initV8();
+		}
+		await this.v8InitPromise;
+		return this.v8Session!;
+	}
+
+	private async getV8Runtime(): Promise<V8Runtime> {
+		return this.v8RuntimeOverride ?? getSharedV8Runtime();
+	}
+
+	private async initV8(): Promise<void> {
+		const runtime = await this.getV8Runtime();
+		this.v8Session = await runtime.createSession({
+			heapLimitMb: this.memoryLimit,
+			cpuTimeLimitMs: this.deps.cpuTimeLimitMs,
+		});
+	}
+
+	/** Compose the static bridge IIFE (no per-session config). */
+	private composeBridgeCode(): string {
+		return composeStaticBridgeCode();
+	}
+
+	/** Compose the per-execution post-restore script. */
+	private composePostRestore(
+		timingMitigation: TimingMitigation,
+		frozenTimeMs: number,
+	): string {
+		return composePostRestoreScript({
+			timingMitigation,
+			frozenTimeMs,
+			maxTimers: this.deps.maxTimers,
+			maxHandles: this.deps.maxHandles,
+			initialCwd: this.deps.processConfig.cwd ?? DEFAULT_SANDBOX_CWD,
+			payloadLimitBytes: this.deps.isolateJsonPayloadLimitBytes,
+			payloadLimitErrorCode: PAYLOAD_LIMIT_ERROR_CODE,
+		});
+	}
+
 	private async executeInternal<T = unknown>(options: {
 		mode: "run" | "exec";
 		code: string;
@@ -172,82 +305,168 @@ export class NodeExecutionDriver implements RuntimeDriver {
 		timingMitigation?: TimingMitigation;
 		onStdio?: StdioHook;
 	}): Promise<RunResult<T>> {
+		// Reset budget state for this execution
 		this.deps.budgetState = createBudgetState();
-		const d = this.deps;
-		return executeWithRuntime<T>(
-			{
-				isolate: d.isolate,
-				esmModuleCache: d.esmModuleCache,
-				esmModuleReverseCache: d.esmModuleReverseCache,
-				dynamicImportCache: d.dynamicImportCache,
-				dynamicImportPending: d.dynamicImportPending,
-				resolutionCache: d.resolutionCache,
-				moduleFormatCache: d.moduleFormatCache,
-				packageTypeCache: d.packageTypeCache,
-				getTimingMitigation: (mode) => getTimingMitigation(mode, d.timingMitigation),
-				getExecutionTimeoutMs: (override) => getExecutionTimeoutMs(override, d.cpuTimeLimitMs),
-				getExecutionDeadlineMs: (timeoutMs) => getExecutionDeadlineMs(timeoutMs),
-				setupConsole: (context, jail, onStdio) =>
-					setupConsole(d, context, jail, onStdio ?? d.onStdio),
-				shouldRunAsESM: (code, filePath) => shouldRunAsESM(d, code, filePath),
-				setupESMGlobals: (context, jail, tm, frozenTimeMs) =>
-					setupESMGlobals(d, context, jail, tm, frozenTimeMs),
-				applyExecutionOverrides: (context, env, cwd, stdin) =>
-					applyExecutionOverrides(context, d.permissions, env, cwd, stdin),
-				precompileDynamicImports: (transformedCode, context, referrerPath) =>
-					precompileDynamicImports(d, transformedCode, context, referrerPath),
-				setupDynamicImport: (context, jail, referrerPath, executionDeadlineMs) =>
-					setupDynamicImport(d, context, jail, referrerPath, executionDeadlineMs),
-				runESM: (code, context, filePath, executionDeadlineMs) =>
-					runESM(d, code, context, filePath, executionDeadlineMs),
-				setupRequire: (context, jail, tm, frozenTimeMs) =>
-					setupRequire(d, context, jail, tm, frozenTimeMs),
-				initCommonJsModuleGlobals: (context) => initCommonJsModuleGlobals(context),
-				applyCustomGlobalExposurePolicy: (context) =>
-					applyCustomGlobalExposurePolicy(context),
-				setCommonJsFileGlobals: (context, filePath) =>
-					setCommonJsFileGlobals(context, filePath),
-				awaitScriptResult: (context, executionDeadlineMs) =>
-					awaitScriptResult(context, executionDeadlineMs),
-				getExecutionRunOptions: (executionDeadlineMs) =>
-					getExecutionRunOptions(executionDeadlineMs),
-				runWithExecutionDeadline: (operation, executionDeadlineMs) =>
-					runWithExecutionDeadline(operation, executionDeadlineMs),
-				isExecutionTimeoutError: (error) => isExecutionTimeoutError(error),
-				recycleIsolate: () => this.recycleIsolate(),
-				timeoutErrorMessage: TIMEOUT_ERROR_MESSAGE,
-				timeoutExitCode: TIMEOUT_EXIT_CODE,
-			},
-			options,
-		);
-	}
 
-	private recycleIsolate(): void {
-		if (this.disposed) {
-			return;
+		// Clear resolution caches between executions
+		this.deps.resolutionCache.resolveResults.clear();
+		this.deps.resolutionCache.packageJsonResults.clear();
+		this.deps.resolutionCache.existsResults.clear();
+		this.deps.resolutionCache.statResults.clear();
+
+		const session = await this.ensureV8();
+
+		// Determine timing and build configs
+		const timingMitigation = getTimingMitigation(options.timingMitigation, this.deps.timingMitigation);
+		const frozenTimeMs = Date.now();
+
+		// Build bridge handlers
+		const bridgeHandlers = buildBridgeHandlers({
+			deps: this.deps,
+			onStdio: options.onStdio ?? this.deps.onStdio,
+			sendStreamEvent: (eventType, payload) => {
+				session.sendStreamEvent(eventType, payload);
+			},
+		});
+
+		// Compose bridge code and post-restore script (sent separately over IPC)
+		const bridgeCode = this.composeBridgeCode();
+		const postRestoreScript = this.composePostRestore(timingMitigation, frozenTimeMs);
+
+		// Transform user code (dynamic import → __dynamicImport)
+		const userCode = transformDynamicImport(options.code);
+
+		// Build per-execution preamble for stdin, env/cwd overrides, and CJS file globals
+		const execPreamble: string[] = [];
+		if (options.filePath) {
+			const dirname = options.filePath.includes("/")
+				? options.filePath.substring(0, options.filePath.lastIndexOf("/")) || "/"
+				: "/";
+			execPreamble.push(`globalThis.__runtimeCommonJsFileConfig = ${JSON.stringify({ filePath: options.filePath, dirname })};`);
+			execPreamble.push(getIsolateRuntimeSource("setCommonjsFileGlobals"));
 		}
-		killActiveChildProcesses(this.deps);
-		this.closeActiveHttpServers();
-		clearActiveHostTimers(this.deps);
-		this.deps.isolate.dispose();
-		this.deps.isolate = this.runtimeCreateIsolate(this.memoryLimit);
+		if (options.stdin !== undefined) {
+			execPreamble.push(`globalThis.__runtimeStdinData = ${JSON.stringify(options.stdin)};`);
+			execPreamble.push(getIsolateRuntimeSource("setStdinData"));
+		}
+
+		// Build process/OS config for this execution
+		const processConfig = createProcessConfigForExecution(
+			this.deps.processConfig,
+			timingMitigation,
+			frozenTimeMs,
+		);
+		// Apply per-execution env/cwd overrides
+		if (options.env) {
+			processConfig.env = { ...processConfig.env, ...filterEnv(options.env, this.deps.permissions) };
+		}
+		if (options.cwd) {
+			processConfig.cwd = options.cwd;
+		}
+
+		const osConfig = this.deps.osConfig;
+
+		// Prepend per-execution preamble to user code
+		const fullUserCode = execPreamble.length > 0
+			? execPreamble.join("\n") + "\n" + userCode
+			: userCode;
+
+		try {
+			// Execute via V8 session
+			const result: V8ExecutionResult = await session.execute({
+				bridgeCode,
+				postRestoreScript,
+				userCode: fullUserCode,
+				mode: options.mode,
+				filePath: options.filePath,
+				processConfig: {
+					cwd: processConfig.cwd ?? "/",
+					env: processConfig.env ?? {},
+					timing_mitigation: String(processConfig.timingMitigation ?? timingMitigation),
+					frozen_time_ms: processConfig.frozenTimeMs ?? null,
+				},
+				osConfig: {
+					homedir: osConfig.homedir ?? DEFAULT_SANDBOX_HOME,
+					tmpdir: osConfig.tmpdir ?? DEFAULT_SANDBOX_TMPDIR,
+					platform: osConfig.platform ?? process.platform,
+					arch: osConfig.arch ?? process.arch,
+				},
+				bridgeHandlers,
+				onStreamCallback: (_callbackType, _payload) => {
+					// Handle stream callbacks from V8 (e.g., HTTP server responses)
+				},
+			});
+
+			// Map V8ExecutionResult to RunResult
+			if (result.error) {
+				// Check for timeout
+				if (result.error.message && /timed out|time limit exceeded/i.test(result.error.message)) {
+					return {
+						code: TIMEOUT_EXIT_CODE,
+						errorMessage: TIMEOUT_ERROR_MESSAGE,
+						exports: undefined as T,
+					};
+				}
+
+				// Check for process.exit()
+				const exitMatch = result.error.message?.match(/process\.exit\((\d+)\)/);
+				if (exitMatch) {
+					return {
+						code: parseInt(exitMatch[1], 10),
+						exports: undefined as T,
+					};
+				}
+
+				// Check for ProcessExitError (sentinel-based detection)
+				if (result.error.type === "ProcessExitError" && result.error.code) {
+					return {
+						code: parseInt(result.error.code, 10) || 1,
+						exports: undefined as T,
+					};
+				}
+
+				return {
+					code: result.code || 1,
+					errorMessage: boundErrorMessage(result.error.message || result.error.type),
+					exports: undefined as T,
+				};
+			}
+
+			// Deserialize module exports from V8 serialized binary
+			let exports: T | undefined;
+			if (result.exports && result.exports.byteLength > 0) {
+				const nodeV8 = await import("node:v8");
+				exports = nodeV8.deserialize(Buffer.from(result.exports)) as T;
+			}
+			return {
+				code: result.code,
+				exports,
+			};
+		} catch (err) {
+			const errMessage = err instanceof Error ? err.message : String(err);
+			return {
+				code: 1,
+				errorMessage: boundErrorMessage(errMessage),
+				exports: undefined as T,
+			};
+		}
 	}
 
 	dispose(): void {
-		if (this.disposed) {
-			return;
-		}
+		if (this.disposed) return;
 		this.disposed = true;
 		killActiveChildProcesses(this.deps);
 		this.closeActiveHttpServers();
 		clearActiveHostTimers(this.deps);
-		this.deps.isolate.dispose();
+		// Destroy this driver's V8 session (shared runtime stays alive)
+		if (this.v8Session) {
+			void this.v8Session.destroy();
+			this.v8Session = null;
+		}
 	}
 
 	async terminate(): Promise<void> {
-		if (this.disposed) {
-			return;
-		}
+		if (this.disposed) return;
 		killActiveChildProcesses(this.deps);
 		const adapter = this.deps.networkAdapter;
 		if (adapter?.httpServerClose) {
@@ -257,10 +476,12 @@ export class NodeExecutionDriver implements RuntimeDriver {
 		this.deps.activeHttpServerIds.clear();
 		clearActiveHostTimers(this.deps);
 		this.disposed = true;
-		this.deps.isolate.dispose();
+		if (this.v8Session) {
+			await this.v8Session.destroy();
+			this.v8Session = null;
+		}
 	}
 
-	/** Close all tracked HTTP servers without awaiting. */
 	private closeActiveHttpServers(): void {
 		const adapter = this.deps.networkAdapter;
 		if (adapter?.httpServerClose) {

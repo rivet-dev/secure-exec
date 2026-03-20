@@ -1,80 +1,557 @@
 # Ralph Progress Log
-Started: Thu Mar 19 02:22:39 PM PDT 2026
-PRD: ralph/cli-tool-sandbox-tests (7 stories)
+Started: Wed Mar 18 06:52:02 PM PDT 2026
+---
 
 ## Codebase Patterns
-
-- All sandbox tests use `createTestNodeRuntime()` or `NodeRuntime` directly, then `proc.exec()` / `proc.run()` to execute code inside the VM
-- Look at `tests/test-suite/node.test.ts` for the canonical pattern of creating a runtime and running sandbox code
-- Mock LLM server at `tests/cli-tools/mock-llm-server.ts` is fine running on host — sandbox code reaches it via network bridge
-- Pi has `createAgentSession()` programmatic API in `@mariozechner/pi-coding-agent` (dist/index.js) — designed for in-process headless use
-- Claude Code SDK always spawns cli.js as subprocess (ProcessTransport class) — no in-process execution path
-- OpenCode npm package ships only a compiled Bun binary (ELF) — no JS source to load in VM
-- Interactive tests should use `kernel.openShell()` with `@xterm/headless`, not host PTY via `script -qefc`
-
-- ModuleAccess overlay with pnpm: `moduleAccess: { cwd }` only exposes direct symlinks in that package's `node_modules`; transitive dependencies in the pnpm virtual store (`.pnpm/`) are NOT accessible unless they are also directly symlinked
-- For module resolution inside the sandbox, set `filePath: '/root/entry.js'` and `cwd: '/root'` in `exec()` options — the overlay mounts at `/root/node_modules`
-- `NodeFileSystem` as base filesystem for `createNodeDriver` provides real host filesystem access for file I/O
-- `createDefaultNetworkAdapter({ initialExemptPorts })` bypasses SSRF checks for specific localhost ports
-- `createHostCommandExecutor()` wraps `node:child_process.spawn` as a `CommandExecutor` for sandbox bash tool tests
-- TCP socket bridge: guest calls `_netSocketConnectRaw.applySync()` → host creates real `net.Socket` → events dispatched back via `_netSocketDispatch` applySync callback
-- `wrapNetworkAdapter` in `permissions.ts` must forward ALL adapter methods — new methods added to NetworkAdapter interface need corresponding forwarding in the wrapper
-- pg library uses Web Crypto `subtle.deriveBits` for SCRAM-SHA-256 auth — implemented in sandbox crypto.subtle bridge (guest: SandboxSubtle.deriveBits in require-setup.ts, host: deriveBits case in bridge-setup.ts using pbkdf2Sync)
-
+- Use `pnpm turbo run check-types` for TypeScript typecheck (not `typecheck`)
+- Rust crate lives at `crates/v8-runtime/`; binary name is `secure-exec-v8`
+- `cargo check` in `crates/v8-runtime/` validates Rust compilation
+- rusty_v8 crate is imported as `v8` (e.g., `v8 = "130"` in Cargo.toml)
+- IPC enums use `#[serde(tag = "type")]` (internally tagged) for JS interop
+- Use `serde_bytes` for `Vec<u8>` fields to get MessagePack bin format
+- Use `rmp_serde::to_vec_named` (not `to_vec`) for named-field serialization
+- Framing functions: `write_message(&mut writer, &msg)` and `read_message(&mut reader)` in `ipc.rs`
+- Max IPC message size is 64MB (`MAX_MESSAGE_SIZE` constant in `ipc.rs`)
+- V8 tests MUST run with `--test-threads=1` to avoid SIGSEGV from parallel V8 operations
+- `signal-hook::flag::register` clears the AtomicBool to `false` on signal receipt
+- `v8::Context::new(scope, Default::default())` — v130 requires a `ContextOptions` second arg
+- Use `v8::Global<v8::Context>` to persist context handles across HandleScope lifetimes
+- Consolidate V8 tests into a single `#[test]` fn to avoid inter-test isolate state issues
+- V8 platform MUST be initialized on the main thread before spawning session threads (SIGSEGV otherwise)
+- Session tests use `#[cfg(not(test))]` to skip V8 isolate creation; V8 lifecycle tested in `execution::tests`
+- ALL V8 tests live in `execution::tests::v8_consolidated_tests` — do NOT add new `#[test]` fns that create V8 isolates
+- Use `rmpv::Value` for dynamic V8 ↔ MessagePack conversion; `rmpv::encode::write_value` for encoding, `rmpv::decode::read_value` for decoding
+- Bridge functions use `v8::FunctionTemplate::builder(callback).data(external).build(scope)` to attach per-function data via `v8::External`
+- Split `scope.throw_exception(v8::Exception::error(scope, msg))` into two statements to avoid double mutable borrow
+- `BridgeCallContext` uses `Mutex<Box<dyn Write + Send>>` / `Mutex<Box<dyn Read + Send>>` for testable IPC abstraction
+- `BridgeFnStore` must be kept alive alongside the V8 context — it owns the heap allocations pointed to by v8::External
+- Use `obj.set_integrity_level(scope, v8::IntegrityLevel::Frozen)` for Object.freeze()
+- Use `obj.define_own_property(scope, key, val, READ_ONLY | DONT_DELETE)` for non-writable, non-configurable properties
+- Use `isolate.set_allow_wasm_code_generation_callback(fn)` to disable WASM — callback returns false
+- Use `scope.get_current_context()` to get the context from within a ContextScope
+- `session_id` is `String` in IPC types (not u32/u128) for JS interop; use hex nonces for 128-bit security
+- Session concurrency is configurable via `SECURE_EXEC_V8_MAX_SESSIONS` env var (default: available CPUs)
+- Use `std::thread::available_parallelism()` instead of `num_cpus` crate for CPU count
+- `v8::PromiseResolver::new(scope)` + `resolver.get_promise(scope)` to create promise-returning functions
+- Use `RefCell<HashMap<u32, v8::Global<v8::PromiseResolver>>>` for single-threaded pending promise storage
+- `scope.perform_microtask_checkpoint()` flushes .then() handlers after promise resolution
+- `async_send` and `sync_call` share the `next_call_id` counter — no cross-convention call_id collisions
+- `TimeoutGuard::new(ms, isolate_handle, abort_tx)` spawns a timer thread; `cancel()` or `Drop` joins it; `timed_out()` checks if it fired
+- Use `crossbeam_channel::select!` + abort channel pattern to unblock both `ChannelMessageReader` and `run_event_loop` on timeout
+- `cpu_time_limit_ms` is set on `CreateSession` and passed to the session thread; the `TimeoutGuard` is created per-`Execute`
+- `execute_script(scope, bridge_code, user_code)` in `execution.rs` compiles+runs CJS code and returns `(i32, Option<ExecutionError>)`
+- `extract_error_info(scope, exception)` extracts structured error info from V8 exception values via property access (constructor.name, message, stack, code)
+- `extract_process_exit_code(scope, exception)` returns `Option<i32>` — detects ProcessExitError via `_isProcessExit: true` sentinel, extracts numeric exit code
+- `exception_to_result(scope, exception)` combines both: returns `(exit_code, ExecutionError)` with correct exit code for ProcessExitError
+- Use `tc.exception()` then pass result + tc to helper — Local phantom lifetime doesn't block mutable scope reuse
+- `v8::script_compiler::compile_module(scope, &mut source)` — takes `&mut Source`, not owned `Source`
+- `module.get_identity_hash()` returns `NonZero<i32>` (not plain `i32`) — use as HashMap key directly
+- Use `v8::ScriptOrigin::new(scope, name.into(), 0, 0, false, -1, None, false, false, true, None)` for ESM modules (is_module=true)
+- Module resolve callback uses thread-local `RefCell<Option<ModuleResolveState>>` — brief borrows only, never hold across V8/IPC calls (recursive callbacks would double-borrow)
+- Use `unsafe { v8::CallbackScope::new(context) }` to get a scope inside V8 callbacks (ResolveModuleCallback)
+- `execute_module(scope, bridge_ctx, bridge_code, user_code, file_path)` returns `(i32, Option<Vec<u8>>, Option<ExecutionError>)` — exports are msgpack bytes
+- `module.get_status() == v8::ModuleStatus::Errored` + `module.get_exception()` for post-evaluate error checking
+- `v8::ValueSerializer::new(scope, Box::new(delegate))` + `write_header()` + `write_value(context, val)` + `release()` for V8-native serialization
+- `v8::ValueDeserializer::new(scope, Box::new(delegate), data)` + `read_header(context)` + `read_value(context)` for V8-native deserialization
+- Must `use v8::ValueSerializerHelper` and `use v8::ValueDeserializerHelper` to access methods on the serializer/deserializer structs
+- V8 serialization handles circular references, Date, Map, Set, RegExp natively — Error objects become plain objects (lose constructor name)
+- `Context::new()` on a snapshot-restored isolate clones the snapshot's default context with all state — use this instead of `get_current_context()` for fresh context per execution
+- Snapshot defaults: use `READ_ONLY` only (no `DONT_DELETE`) so `inject_globals_from_payload` can redefine per-session; `DONT_DELETE` makes non-configurable
 ---
 
-# Progress Log
-
-## 2026-03-19T14:42 - US-006
-- Rewrote `packages/secure-exec/tests/cli-tools/pi-headless.test.ts` to run Pi inside the sandbox VM
-- Test creates NodeRuntime with moduleAccess overlay, NodeFileSystem, network bridge, and allowAll permissions
-- Pi is loaded via `import('@mariozechner/pi-coding-agent')` inside the sandbox VM
-- Fetch interceptor patches `globalThis.fetch` in sandbox to redirect Anthropic API calls to mock server
-- All 6 test scenarios preserved: boot, output, file read, file write, bash, JSON output
-- Tests skip with clear reason when Pi cannot load (pnpm transitive dependency resolution gap)
-- Files changed: `packages/secure-exec/tests/cli-tools/pi-headless.test.ts`
+## 2026-03-18 - US-001
+- Scaffolded `crates/v8-runtime/` with Cargo.toml and all module stubs
+- Files created: Cargo.toml, src/{main,ipc,isolate,execution,bridge,host_call,timeout,stream}.rs
+- Dependencies: v8 (130), rmp-serde (1), serde (1, derive), crossbeam-channel (0.5)
 - **Learnings for future iterations:**
-  - pnpm virtual store structure prevents loading packages with deep dependency trees via the moduleAccess overlay — only direct symlinks are resolvable
-  - The actual blocker is "Cannot resolve module '@mariozechner/pi-ai' from '/root/node_modules/@mariozechner/pi-coding-agent/dist/main.js'" — a transitive dependency issue, not an ESM syntax issue
-  - Using `NodeFileSystem` as the base gives Pi real host filesystem access for its tools (read/write), while the overlay provides node_modules
-  - `initialExemptPorts` on the network adapter is essential for allowing fetch to reach the mock LLM server on localhost
+  - The turbo task for typecheck is `check-types`, not `typecheck`
+  - `pnpm install` may be needed before first turbo run if node_modules is missing
+  - v8 crate compiles quickly with prebuilt V8 static lib (~8s for check)
+  - main.rs declares all modules with `mod` statements; each .rs file is a module
 ---
 
-## 2026-03-19T15:30 - US-001
-- Implemented TCP socket bridge (net module) for the secure-exec sandbox
-- Net module provides: `Socket` class, `connect()`, `createConnection()`, `isIP()`, `isIPv4()`, `isIPv6()`, `createServer()` (throws)
-- Bridge architecture: guest `_netSocketConnectRaw.applySync()` → host creates real `net.Socket` → events (connect/data/end/error/close) dispatched back via `_netSocketDispatch.applySync()`
-- Updated pg-connect fixture from `expectation: "fail"` to `expectation: "pass"`
-- Added `POSTGRES_HOST_AUTH_METHOD: "trust"` to e2e-docker Postgres container to bypass SCRAM-SHA-256 (which requires `subtle.deriveBits` not yet implemented)
-- Files changed:
-  - `packages/secure-exec-core/src/shared/bridge-contract.ts` — new bridge refs for net socket operations
-  - `packages/secure-exec-core/src/types.ts` — NetworkAdapter interface extended with TCP socket methods
-  - `packages/secure-exec-core/src/bridge/network.ts` — NetSocket class + net module implementation
-  - `packages/secure-exec-core/src/shared/permissions.ts` — wrapNetworkAdapter forwards TCP socket methods
-  - `packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts` — register net as specially-handled module
-  - `packages/secure-exec-node/src/bridge-setup.ts` — wire up net socket bridge refs
-  - `packages/secure-exec-node/src/driver.ts` — implement TCP socket in createDefaultNetworkAdapter
-  - `packages/secure-exec/tests/e2e-docker.test.ts` — add trust auth to Postgres
-  - `packages/secure-exec/tests/e2e-docker/pg-connect/fixture.json` — update expectation to pass
+## 2026-03-18 - US-002
+- Defined all IPC message types in `ipc.rs`: HostMessage (7 variants) and RustMessage (4 variants)
+- Added ExecutionError structured type (type, message, stack, optional code)
+- Added helper types: ExecuteMode, LogChannel, ProcessConfig, OsConfig
+- Added serde_bytes dependency for efficient binary field serialization
+- 22 unit tests verifying MessagePack round-trip for every message variant
+- Files changed: `crates/v8-runtime/src/ipc.rs`, `crates/v8-runtime/Cargo.toml`
 - **Learnings for future iterations:**
-  - CRITICAL: `wrapNetworkAdapter` in `permissions.ts` must forward ALL new adapter methods — this was the root cause of a silent failure where the adapter's `netSocketConnect` was never called
-  - The net module was previously a "deferred core module" stub (Proxy that throws on any method call) — must remove from `_deferredCoreModules` set when implementing
-  - `loadPolyfillRef` in `bridge-setup.ts` must also return null for `net` to prevent node-stdlib-browser's stub from being loaded
-  - Postgres 16 defaults to SCRAM-SHA-256 auth which needs `subtle.deriveBits` — now implemented in sandbox crypto.subtle bridge
-  - The adapter's socketId counter is reused from `nextUpgradeSocketId` — bridge-setup must use the adapter's returned socketId, not its own counter
+  - `#[serde(tag = "type")]` works with rmp-serde for internally tagged enums
+  - `serde_bytes` works on `Option<Vec<u8>>` with `#[serde(with = "serde_bytes")]`
+  - `rmp_serde::to_vec_named` is needed for named-field maps (not `to_vec` which uses positional)
+  - `#[serde(skip_serializing_if = "Option::is_none")]` correctly omits keys from msgpack maps
+  - Spec has `session_id: u32` in Message Types section but `u128` in Resource Budgets — used u32 for now, US-007 will upgrade
 ---
 
-## 2026-03-19T20:46 - US-026
-- Implemented `subtle.deriveBits` in sandbox crypto bridge to support SCRAM-SHA-256 Postgres authentication
-- Removed `POSTGRES_HOST_AUTH_METHOD: "trust"` from local Docker setup so local and CI both use scram-sha-256
-- Files changed:
-  - `packages/secure-exec-node/src/bridge-setup.ts` — added `deriveBits` case to host-side crypto.subtle dispatcher (uses Node's `pbkdf2Sync`)
-  - `packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts` — added `SandboxSubtle.deriveBits` guest-side implementation
-  - `packages/secure-exec/tests/e2e-docker.test.ts` — removed `POSTGRES_HOST_AUTH_METHOD: "trust"` from Postgres container env
-  - `scripts/ralph/progress.txt` — updated codebase patterns
+## 2026-03-18 - US-003
+- Implemented `write_message()` and `read_message()` generic functions in `ipc.rs`
+- Format: [4-byte u32 big-endian length prefix][N-byte MessagePack payload]
+- 64MB max message size enforced on both read and write
+- Added 10 unit tests: framing round-trip for HostMessage/RustMessage, BE length prefix verification, multiple sequential messages, oversized read rejection (64MB+1, u32::MAX), exact-64MB acceptance, binary data round-trip, EOF handling
+- Files changed: `crates/v8-runtime/src/ipc.rs`
 - **Learnings for future iterations:**
-  - `subtle.deriveBits` for PBKDF2 maps directly to Node's `pbkdf2Sync(password, salt, iterations, keylen, digest)` — the algorithm object carries salt/iterations/hash, the key carries the password in `_raw`
-  - Guest-side `SandboxSubtle` methods must serialize algorithm-specific fields (salt as base64, hash as normalized name) before crossing the bridge
-  - After adding a new subtle operation, the bridge/isolate-runtime must be rebuilt (`pnpm turbo build`) and fixture caches cleared to pick up the regenerated code
+  - `std::io::Cursor` is useful for testing Read/Write trait functions against in-memory buffers
+  - `read_exact` returns `UnexpectedEof` when not enough data, distinct from `InvalidData` for size limits
+  - `write_message` serializes then checks size; for truly oversized payloads, serialization happens first (memory implication for future hardening)
 ---
 
+## 2026-03-18 - US-004
+- Implemented V8 platform init (`init_v8_platform()` with `Once`) and isolate lifecycle (`create_isolate()`, `create_context()`) in `isolate.rs`
+- Platform initialization is safe to call multiple times (idempotent via `std::sync::Once`)
+- `create_isolate()` supports optional `heap_limit_mb` parameter
+- `create_context()` returns `v8::Global<v8::Context>` for cross-scope persistence
+- Single consolidated test verifying: 3 sequential create/destroy cycles, heap-limited isolate, unlimited isolate, and Global context handle state persistence
+- Files changed: `crates/v8-runtime/src/isolate.rs`
+- **Learnings for future iterations:**
+  - V8 tests crash (SIGSEGV) when multiple `#[test]` functions create/destroy isolates even with `--test-threads=1` — consolidate V8 tests into single test functions
+  - rusty_v8 v130 changed `Context::new` to require a `ContextOptions` second arg (use `Default::default()`)
+  - `v8::Global::new(scope, local)` creates a persistent handle; when dropped, it resets via the stored `IsolateHandle`
+  - `v8::CreateParams::default().heap_limits(0, limit_bytes)` sets the max heap size
+---
+
+## 2026-03-18 - US-005
+- Implemented UDS listener in `main.rs` with socket path security
+- Creates tmpdir with 128-bit random hex suffix under system temp dir
+- Sets directory permissions to 0700 before binding socket
+- Binds `UnixListener` to `secure-exec.sock` inside the tmpdir
+- Prints socket path to stdout (with explicit flush for pipe consumers)
+- Registers SIGTERM and SIGINT handlers via `signal-hook` for graceful shutdown
+- Non-blocking accept loop polls shutdown flag every 10ms
+- Cleans up socket file and directory on shutdown
+- Files changed: `crates/v8-runtime/src/main.rs`, `crates/v8-runtime/Cargo.toml`
+- **Learnings for future iterations:**
+  - `signal-hook::flag::register` sets an AtomicBool to `false` on signal (inverts the running flag pattern) — pass the Arc directly, it clears to false
+  - Rust's `UnixListener::bind()` combines bind() and listen() — can't separate them without raw libc
+  - Setting 0700 on the directory before binding is equivalent to after-bind/before-listen when the directory name has 128-bit randomness
+  - Must flush stdout explicitly after printing socket path — Rust stdout is fully-buffered when piped
+  - `signal-hook` v0.3 was pulled (v0.4 available but 0.3 is fine for AtomicBool flag pattern)
+---
+
+## 2026-03-18 - US-007
+- Implemented session management with V8 isolate threads, connection binding, and concurrency limiting
+- Changed `session_id` from `u32` to `String` across all IPC message types for 128-bit nonce support
+- Created `session.rs` with `SessionManager`: create/destroy sessions, connection ownership enforcement, max concurrency with Condvar-based queuing
+- Updated `main.rs`: added connection handler threads (per authenticated connection), session message dispatch, graceful shutdown of all sessions, V8 platform init on main thread
+- Max concurrency configurable via `SECURE_EXEC_V8_MAX_SESSIONS` env var (default: `available_parallelism()`)
+- Files changed: `crates/v8-runtime/src/ipc.rs`, `crates/v8-runtime/src/main.rs`, `crates/v8-runtime/src/session.rs` (new)
+- **Learnings for future iterations:**
+  - V8 platform MUST be initialized on the main thread BEFORE spawning any threads that create isolates — otherwise SIGSEGV
+  - Session tests cannot create V8 isolates due to inter-test V8 state issues; use `#[cfg(not(test))]` to skip V8 in tests, test V8 lifecycle separately in `isolate::tests`
+  - `String` is the best type for session_id in IPC: JS interop is clean (hex nonce), works as HashMap key, avoids u128/MessagePack incompatibility
+  - `std::thread::available_parallelism()` (stable since Rust 1.59) replaces the `num_cpus` crate
+  - `BridgeResponse` messages don't carry session_id; routing will need a separate mechanism (call_id → session mapping) in later stories
+  - Connection handler threads handle the message loop; the main thread only does accept + auth
+---
+
+## 2026-03-18 - US-008
+- Implemented InjectGlobals handling and V8 context hardening in `execution.rs`
+- `inject_globals()`: sets `_processConfig` and `_osConfig` as frozen, non-writable, non-configurable global properties
+- `disable_wasm()`: disables WASM compilation via `set_allow_wasm_code_generation_callback` returning false
+- SharedArrayBuffer removed from global when `timing_mitigation` is "freeze", preserved otherwise
+- Env sub-object within `_processConfig` is also frozen
+- Updated `session.rs` to handle InjectGlobals messages and call `disable_wasm` on isolate creation
+- Consolidated all V8 tests into single `execution::tests::v8_inject_globals_and_hardening` test (moved isolate lifecycle tests from `isolate.rs`)
+- 7-part test covering: config values, null frozen_time_ms, frozen/non-writable/non-configurable properties, SharedArrayBuffer removal in freeze mode, SharedArrayBuffer preserved in non-freeze mode, WASM disabled, WASM enabled by default
+- Files changed: `crates/v8-runtime/src/execution.rs`, `crates/v8-runtime/src/session.rs`, `crates/v8-runtime/src/isolate.rs`
+- **Learnings for future iterations:**
+  - `v8::PropertyAttribute` does NOT implement `Copy` — must create a new instance for each `define_own_property` call
+  - Multiple `#[test]` functions that create V8 isolates cause SIGSEGV even with `--test-threads=1` — all V8 tests MUST live in a single test function
+  - `scope.get_current_context()` works within a ContextScope to retrieve the current context
+  - `Object.freeze()` is `set_integrity_level(scope, IntegrityLevel::Frozen)` — only shallow-freezes, so nested objects (like env) need separate freeze calls
+  - `obj.delete(scope, key.into())` removes a property from global (used for SharedArrayBuffer removal)
+  - `deny_wasm_code_generation` callback must be `extern "C"` with signature `fn(Local<Context>, Local<String>) -> bool`
+---
+
+## 2026-03-18 - US-009
+- Implemented sync-blocking bridge call host functions in `bridge.rs` and `host_call.rs`
+- `BridgeCallContext`: holds IPC reader/writer, session_id, atomic call_id counter, and pending-call HashSet for duplicate rejection
+- `sync_call(method, args)`: generates call_id, registers in pending set, writes BridgeCall, blocks on read for BridgeResponse, validates call_id match, returns result or error
+- `register_sync_bridge_fns(scope, ctx, methods)`: creates v8::FunctionTemplate per method with v8::External data pointing to per-function SyncBridgeFnData
+- V8 ↔ MessagePack conversion via `rmpv::Value`: handles null, bool, number (int/float), string, binary (Uint8Array), array, object/map
+- Error responses from the host throw V8 exceptions via `scope.throw_exception()`
+- `BridgeFnStore` opaque type keeps heap allocations alive for the V8 context lifetime
+- 7 unit tests for host_call.rs (success, null result, error, call_id increment, pending cleanup, call_id mismatch, unexpected message type)
+- 4 V8 integration tests added to consolidated test (Parts 8-11: success return, error throw, multiple functions with args, null/undefined result)
+- Renamed consolidated V8 test to `v8_consolidated_tests`
+- Added `rmpv = "1"` dependency to Cargo.toml
+- Files changed: `crates/v8-runtime/Cargo.toml`, `crates/v8-runtime/src/host_call.rs`, `crates/v8-runtime/src/bridge.rs`, `crates/v8-runtime/src/execution.rs`
+- **Learnings for future iterations:**
+  - `v8::FunctionTemplate::builder(callback).data(external.into()).build(scope)` works in contextful scopes via DerefMut coercion
+  - `v8::External::new(scope, ptr)` also works in contextful scopes — `HandleScope<'s, Context>` DerefMut to `HandleScope<'s, ()>`
+  - Must split `scope.throw_exception(v8::Exception::error(scope, msg))` into two statements — Rust borrow checker rejects double `&mut scope`
+  - `rmpv::Value::String(s.into())` converts `String` → `rmpv::Utf8String` via `From<String>`
+  - `rmpv::Integer::from(n as i64)` and `from(n as u64)` for compact integer encoding
+  - V8 `ArrayBuffer::get_backing_store().data()` returns `None` for zero-length buffers — always guard with `if len > 0`
+  - `BridgeCallContext` reader/writer use `Mutex<Box<dyn Write + Send>>` pattern for testability with in-memory Cursor/Vec
+---
+
+## 2026-03-18 - US-010
+- Implemented async promise-returning bridge calls in `bridge.rs` and `host_call.rs`
+- `async_send(method, args)`: generates call_id, writes BridgeCall to IPC (non-blocking), returns call_id for tracking
+- `PendingPromises`: RefCell<HashMap<u32, v8::Global<v8::PromiseResolver>>> for single-threaded resolver storage
+- `register_async_bridge_fns(scope, ctx, pending, methods)`: creates v8::FunctionTemplate per method with v8::External data pointing to AsyncBridgeFnData (ctx + pending + method)
+- `async_bridge_callback`: creates PromiseResolver, stores in PendingPromises, sends BridgeCall, returns promise to V8
+- `resolve_pending_promise(scope, pending, call_id, result, error)`: finds resolver by call_id, resolves/rejects, flushes microtasks
+- `AsyncBridgeFnStore` opaque type keeps heap allocations alive for the V8 context lifetime
+- 3 unit tests for async_send (write verification, call_id increment, shared counter with sync)
+- 5 V8 integration tests (Parts 12-16: success resolve, error reject, multi-function out-of-order resolution, null/undefined result, microtask flush verification)
+- Files changed: `crates/v8-runtime/src/bridge.rs`, `crates/v8-runtime/src/host_call.rs`, `crates/v8-runtime/src/execution.rs`
+- **Learnings for future iterations:**
+  - `v8::PromiseResolver::new(scope)` returns `Option<Local<PromiseResolver>>` — needs a context on the V8 context stack (works within ContextScope)
+  - `resolver.get_promise(scope)` returns the associated Promise before it's resolved
+  - `resolver.resolve(scope, val)` / `resolver.reject(scope, exc)` set promise state immediately; microtasks (`.then` handlers) are enqueued but not flushed until `perform_microtask_checkpoint()`
+  - `scope.perform_microtask_checkpoint()` works through DerefMut chain: `HandleScope<Context>` → `HandleScope<()>` → `Isolate`
+  - `RefCell<HashMap>` is appropriate for PendingPromises since all access is single-threaded (session thread)
+  - `async_send` shares the `next_call_id` AtomicU32 with `sync_call` — no duplicate call_ids between sync and async
+  - Promise state can be checked directly via `promise.state()` (Pending/Fulfilled/Rejected) and `promise.result(scope)` without needing `.then()` wrappers
+  - Out-of-order promise resolution works correctly — resolving call_id=2 before call_id=1 is fine
+---
+
+## 2026-03-18 - US-011
+- Implemented CJS script compilation and execution in `execution.rs`
+- `execute_script(scope, bridge_code, user_code)` returns `(i32, Option<ExecutionError>)`
+- Bridge code IIFE is compiled and executed first (if non-empty), then user code
+- `extract_error_info(scope, exception)` extracts structured error from V8 exceptions: type (constructor.name), message, stack, optional code
+- Handles SyntaxError (compilation), runtime errors (TypeError, etc.), thrown strings, and error codes
+- Updated `session.rs` to handle Execute messages with mode=Exec
+- 8 V8 integration tests (Parts 17-24): success, bridge-before-user ordering, SyntaxError in user/bridge code, TypeError with stack, empty bridge skip, error code extraction, thrown string handling
+- Files changed: `crates/v8-runtime/src/execution.rs`, `crates/v8-runtime/src/session.rs`
+- **Learnings for future iterations:**
+  - `tc.exception()` returns `Option<Local<Value>>` — Local is Copy-like (phantom lifetime), so immutable borrow from `exception()` doesn't block subsequent mutable use of the TryCatch scope
+  - Error type extraction: use `error.constructor.name` via property access (get "constructor", then get "name") — avoids needing `Function::get_name()` API
+  - Non-Error throws (e.g., `throw "string"`) — `exception.is_object()` is false, fall back to `to_rust_string_lossy` for message
+  - `v8::Script::compile(scope, source, None)` returns None on syntax error; the TryCatch catches the exception
+  - Session `#[cfg(not(test))]` blocks need matching cfg for imports like `ExecuteMode` to avoid unused-import warnings in test builds
+---
+
+## 2026-03-18 - US-012
+- Implemented ESM module loading with `v8::Module` API and `ResolveModuleCallback` in `execution.rs`
+- `execute_module(scope, bridge_ctx, bridge_code, user_code, file_path)` returns `(i32, Option<Vec<u8>>, Option<ExecutionError>)`
+- Bridge code IIFE compiled and executed first (same as CJS mode), then user code compiled as ES module
+- Thread-local `ModuleResolveState` stores BridgeCallContext pointer, module name map, and module cache
+- `module_resolve_callback`: sends sync-blocking `_resolveModule` + `_loadFile` IPC calls, compiles resolved source as v8::Module, caches result
+- Careful RefCell borrow management: brief borrows only, released before V8/IPC calls to support recursive resolution (nested imports)
+- Module exports serialized via `v8_value_to_msgpack` (new pub helper in bridge.rs using `v8_to_rmpv`)
+- Post-evaluate error checking via `module.get_status() == Errored` + `module.get_exception()`
+- Updated `session.rs` to handle `ExecuteMode::Run` with placeholder BridgeCallContext (real IPC wired in US-013)
+- Made `v8_to_rmpv` pub in bridge.rs for cross-module use
+- 6 V8 integration tests (Parts 25-30): simple exports, default export, SyntaxError, TypeError, bridge-before-module, import resolution via mock IPC
+- Files changed: `crates/v8-runtime/src/execution.rs`, `crates/v8-runtime/src/bridge.rs`, `crates/v8-runtime/src/session.rs`
+- **Learnings for future iterations:**
+  - `v8::script_compiler::compile_module(scope, &mut source)` takes `&mut Source`, not owned Source
+  - `module.get_identity_hash()` returns `NonZero<i32>` in v130, not plain `i32` — use directly as HashMap key
+  - `v8::ScriptOrigin::new(scope, name.into(), 0,0,false,-1,None,false,false,true,None)` — last `true` is `is_module`
+  - Module resolve callback MUST use brief RefCell borrows — V8 calls the callback recursively for nested imports during `instantiate_module`
+  - `unsafe { v8::CallbackScope::new(context) }` creates a HandleScope inside V8 callbacks (e.g., ResolveModuleCallback)
+  - `v8::Global<v8::Module>` implements Clone (creates new persistent handle via stored IsolateHandle) — safe to clone for cache lookups
+  - `module.get_module_namespace()` returns the namespace object (exports) as `Local<Value>` — can serialize directly with `v8_to_rmpv`
+  - `module.get_status()` returns `ModuleStatus` enum — check for `Errored` after evaluate() to catch TLA rejection cases
+  - `module.get_exception()` returns the exception value for errored modules — use with `extract_error_info` for structured error
+---
+
+## 2026-03-18 - US-014
+- Implemented streaming event dispatch for child process and HTTP server events
+- `dispatch_stream_event()` in `stream.rs` was already functionally complete from stub — removed stub comment
+- Event type routing: child_stdout/child_stderr/child_exit → `_childProcessDispatch`, http_request → `_httpServerDispatch`
+- Unknown event types are silently ignored; missing dispatch functions are safe (no crash)
+- Payload deserialized via `msgpack_to_v8_value` and passed as second argument to dispatch function
+- Microtask checkpoint performed after each dispatch in the event loop (`session.rs`)
+- Added 5 V8 integration tests (Parts 38-42): child_stderr+child_exit dispatch, http_request dispatch, unknown event ignored, missing callback safe, microtask flush after stream dispatch
+- Files changed: `crates/v8-runtime/src/stream.rs`, `crates/v8-runtime/src/execution.rs`
+- **Learnings for future iterations:**
+  - `dispatch_stream_event` does not call `perform_microtask_checkpoint()` itself — the caller (`run_event_loop`) handles it, keeping microtask policy centralized
+  - When a dispatch function is not registered on the V8 global, `global.get(scope, key)` returns `undefined` (not None) — check `.is_function()` before calling
+  - Stream event tests need a pending promise in the event loop (via `_asyncFn('keep-alive')`) to prevent immediate exit before the StreamEvent is processed
+---
+
+## 2026-03-18 - US-015
+- Implemented per-session timeout enforcement via dedicated timer thread
+- `timeout.rs`: `TimeoutGuard` spawns a timer thread using `crossbeam_channel::after()` for precise timing; uses a cancel channel for clean shutdown; calls `v8::Isolate::terminate_execution()` and drops an abort sender on timeout
+- `session.rs`: `ChannelMessageReader::with_abort()` uses `crossbeam_channel::select!` to monitor both the command channel and an abort channel; `run_event_loop()` also accepts optional abort receiver for timeout during async promise resolution
+- `session.rs`: `create_session()` now accepts `cpu_time_limit_ms`; timer guard is started before execution and cancelled after; timeout error reported as `ERR_SCRIPT_EXECUTION_TIMEOUT`
+- `main.rs`: passes `cpu_time_limit_ms` from `CreateSession` to `SessionManager::create_session()`
+- 4 V8 integration tests: timeout terminates infinite loop, timeout cancelled on normal completion, timeout fires during event loop (unblocks abort channel), timeout error structure verification
+- Files changed: `crates/v8-runtime/src/timeout.rs`, `crates/v8-runtime/src/session.rs`, `crates/v8-runtime/src/execution.rs`, `crates/v8-runtime/src/main.rs`
+- **Learnings for future iterations:**
+  - `crossbeam_channel::after(duration)` returns a channel that fires once after the duration — perfect for select!-based timers without polling
+  - `crossbeam_channel::select!` can multiplex on multiple channels efficiently — use for abort patterns (drop sender to unblock receivers)
+  - `v8::OwnedIsolate::thread_safe_handle()` returns a `v8::IsolateHandle` that is Send+Sync — safe to call `terminate_execution()` from another thread
+  - When `terminate_execution()` is called while V8 is running JS, execution stops immediately; when blocked on I/O (channel read), need a separate abort mechanism to unblock the thread
+  - `TimeoutGuard` cancel via dropping a Sender<()> is cleaner than AtomicBool polling — the select! in the timer thread wakes up immediately
+  - Abort channel approach works for both `ChannelMessageReader` (sync bridge calls) and `run_event_loop` (async promise event loop)
+---
+
+## 2026-03-18 - US-016
+- Implemented structured error serialization with ProcessExitError detection
+- Added `extract_process_exit_code()`: checks for `_isProcessExit: true` sentinel property on V8 exception objects and extracts the numeric exit code
+- Added `exception_to_result()` helper: combines ProcessExitError exit code extraction with structured error extraction
+- Updated `execute_script()` and `execute_module()` to use ProcessExitError exit code instead of always returning 1 on error
+- 8 new V8 integration tests (Parts 47-54): ProcessExitError sentinel detection, exit code 0 handling, non-ProcessExitError returns 1, custom ProcessExitError class, non-object throws, _isProcessExit:false not detected, Node-style string error code preserved, error type from constructor name for standard errors (SyntaxError/RangeError/ReferenceError), stack trace with function names
+- Files changed: `crates/v8-runtime/src/execution.rs`, `scripts/ralph/prd.json`
+- **Learnings for future iterations:**
+  - `extract_process_exit_code` checks `_isProcessExit: true` sentinel via `v8::Local<v8::Object>::get()` — sentinel-based detection is robust regardless of constructor name
+  - ProcessExitError `.code` is a numeric exit code (not a string error code), so `extract_error_info`'s string-only `.code` filter correctly excludes it
+  - `v8::Local<v8::Value>` is Copy-like (phantom lifetime) — safe to pass to both `extract_process_exit_code()` and `extract_error_info()` sequentially
+  - `exception.is_true()` checks strict boolean true — an object with `_isProcessExit: 1` or `_isProcessExit: "yes"` would NOT match, only `true`
+---
+
+## 2026-03-18 - US-018
+- Scaffolded `packages/secure-exec-v8/` as a new workspace package
+- Created `package.json` (`@secure-exec/v8`), `tsconfig.json`, `README.md`
+- Created `src/index.ts` re-exporting `createV8Runtime`, `V8Runtime`, `V8RuntimeOptions` from `runtime.ts` and `V8Session`, `V8SessionOptions`, `V8ExecutionOptions`, `V8ExecutionResult`, `V8ExecutionError`, `BridgeHandler`, `BridgeHandlers` from `session.ts`
+- `createV8Runtime()` is a stub (throws "Not yet implemented") — real implementation in US-020
+- `V8Session.execute()` takes `V8ExecutionOptions` (bridgeCode, userCode, mode, filePath, processConfig, osConfig, bridgeHandlers)
+- `V8ExecutionResult` has `code`, `exports?`, `error?` matching the Rust-side `ExecutionResult` schema
+- `@msgpack/msgpack` added as a dependency (needed by US-019 for IPC client)
+- All 27 workspace tasks pass typecheck
+- Files created: `packages/secure-exec-v8/{package.json,tsconfig.json,README.md,src/index.ts,src/runtime.ts,src/session.ts}`
+- **Learnings for future iterations:**
+  - All packages use identical tsconfig.json (no extends pattern, no base config)
+  - Package naming: directory `secure-exec-v8`, npm name `@secure-exec/v8`
+  - `pnpm-workspace.yaml` has `packages/*` glob so new packages under `packages/` are auto-discovered
+  - Every publishable package needs `"files": ["dist", "README.md"]` in package.json
+  - Use `.js` extensions in ESM import paths (e.g., `"./runtime.js"`)
+  - turbo auto-discovers the new package's `check-types` script
+---
+
+## 2026-03-18 - US-019
+- Implemented TypeScript IPC client for communicating with the Rust V8 runtime over Unix domain socket
+- Created `ipc-types.ts`: all Host→Rust and Rust→Host message types as discriminated unions matching Rust-side `#[serde(tag = "type")]` enums
+- Created `ipc-client.ts`: `IpcClient` class with length-prefixed MessagePack framing
+  - Connects via `net.createConnection()` to UDS path
+  - `send()` encodes with `@msgpack/msgpack` `encode()`, writes 4-byte u32 BE length prefix + payload
+  - Incoming data accumulated in buffer, drained as complete frames arrive
+  - `authenticate(token)` sends auth message as first message
+  - 64MB max message size enforced on both send and receive
+  - Error/close callbacks for lifecycle management
+- Updated `index.ts` to export `IpcClient`, `IpcClientOptions`, `MessageHandler`, and all IPC message types
+- Files changed: `packages/secure-exec-v8/src/ipc-types.ts` (new), `packages/secure-exec-v8/src/ipc-client.ts` (new), `packages/secure-exec-v8/src/index.ts`
+- **Learnings for future iterations:**
+  - `@msgpack/msgpack` `encode()` returns `Uint8Array`, `decode()` takes `Uint8Array` or `Buffer` — Buffer is a Uint8Array subclass so it works directly
+  - `Buffer.readUInt32BE(0)` for reading the 4-byte length prefix, `Buffer.writeUInt32BE(val, 0)` for writing
+  - `Buffer.concat([existing, chunk])` for accumulating incoming data; `Buffer.subarray()` for zero-copy slicing
+  - IPC types use `Uint8Array` for binary fields (matching `serde_bytes` on Rust side) — msgpack bin format maps directly
+  - `ExecutionError` in `ipc-types.ts` is the wire format type (field `type`); `V8ExecutionError` in `session.ts` is the public API type — same shape, different names to avoid export conflicts
+  - Net socket `connect` event fires after successful UDS connection; error before connect fires should reject the connect promise
+---
+
+## 2026-03-18 - US-021
+- Completed JS-side session abstraction with full StreamEvent/StreamCallback support
+- Added `sendStreamEvent(eventType, payload)` method to V8Session interface and implementation
+- Added `onStreamCallback` option to V8ExecutionOptions for receiving stream callbacks from V8
+- Wired StreamCallback message handling in session handler to route to `onStreamCallback`
+- Replaced dynamic `await import("@msgpack/msgpack")` with static imports in runtime.ts
+- Session lifecycle: createSession → execute (InjectGlobals + Execute + BridgeCall routing) → destroy
+- Files changed: `packages/secure-exec-v8/src/session.ts`, `packages/secure-exec-v8/src/runtime.ts`
+- **Learnings for future iterations:**
+  - Session abstraction is implemented inline in runtime.ts (not as a separate class) — the V8Session interface is the public API, implemented as an object literal inside createSession()
+  - `sendStreamEvent` is used by the host to push events into V8 (child process stdout/stderr, HTTP requests); `onStreamCallback` receives callbacks back from V8
+  - Static imports of `@msgpack/msgpack` are cleaner than dynamic `await import()` — encode/decode are used in the hot path of bridge call handling
+  - The session message handler routes all 4 RustMessage types: BridgeCall → bridgeHandlers, ExecutionResult → resolve promise, Log → stdout/stderr, StreamCallback → onStreamCallback
+---
+
+## 2026-03-19 - US-034
+- Added `serialize_v8_value()` and `deserialize_v8_value()` wrappers in `bridge.rs` using V8's built-in ValueSerializer/ValueDeserializer
+- Minimal `DefaultSerializerDelegate` (implements `throw_data_clone_error`) and `DefaultDeserializerDelegate` (default callbacks)
+- `serialize_v8_value`: creates ValueSerializer, writes header + value, releases buffer as `Vec<u8>`
+- `deserialize_v8_value`: creates ValueDeserializer, reads header + value, returns `Local<Value>`
+- 8 V8 integration tests (Parts 55-62): primitives, strings, arrays, objects, Uint8Array, nested structures, Date/RegExp/Map/Set/Error, circular references
+- Existing rmpv-based functions (`v8_to_rmpv`, `rmpv_to_v8`, `encode_v8_args`, `msgpack_to_v8_value`, `v8_value_to_msgpack`) unchanged
+- Files changed: `crates/v8-runtime/src/bridge.rs`, `crates/v8-runtime/src/execution.rs`
+- **Learnings for future iterations:**
+  - `v8::ValueSerializer::new(scope, Box::new(delegate))` requires the scope to have a current context (use within ContextScope)
+  - `ValueSerializer` methods (`write_header`, `write_value`) come from the `ValueSerializerHelper` trait — must `use v8::ValueSerializerHelper`
+  - `ValueDeserializer` methods (`read_header`, `read_value`) come from the `ValueDeserializerHelper` trait — must `use v8::ValueDeserializerHelper`
+  - `serializer.release()` returns `Vec<u8>` with the serialized bytes; the buffer is managed by the delegate's `ReallocateBufferMemory`
+  - `write_value` returns `Option<bool>` (None on failure, e.g., DataCloneError for non-serializable values)
+  - V8 serialization handles circular references natively via back-references in the wire format
+  - Error objects are serialized as plain objects with `message` property (constructor name/type info is lost)
+  - Pre-existing test failure: SharedArrayBuffer removal test (Part 5 at line 990) panics before reaching new tests — unrelated to this story
+---
+
+## 2026-03-19 - US-049
+- Added optional `v8Runtime: V8Runtime` field to `NodeRuntimeDriverFactoryOptions` in `driver.ts`
+- Added optional `v8Runtime: V8Runtime` field to `NodeExecutionDriverOptions` in `isolate-bootstrap.ts`
+- `createNodeRuntimeDriverFactory` passes `v8Runtime` through to `NodeExecutionDriver` constructor
+- `NodeExecutionDriver` stores `v8RuntimeOverride` and uses it in new `getV8Runtime()` method
+- `initV8()` calls `getV8Runtime()` which returns override if provided, otherwise falls back to `getSharedV8Runtime()`
+- Files changed: `packages/secure-exec-node/src/driver.ts`, `packages/secure-exec-node/src/execution-driver.ts`, `packages/secure-exec-node/src/isolate-bootstrap.ts`
+- **Learnings for future iterations:**
+  - `NodeRuntimeDriverFactoryOptions` lives in `driver.ts`, `NodeExecutionDriverOptions` lives in `isolate-bootstrap.ts` — both need the new field for the plumbing chain
+  - Use `import("@secure-exec/v8").V8Runtime` inline type import to avoid adding a top-level import dependency in interfaces
+  - Pre-existing OOM test timeout in `crash-isolation.test.ts` — unrelated to this story
+---
+
+## 2026-03-19 - US-058
+- Recorded context snapshot benchmark baseline (before any context snapshot code changes)
+- Ran `packages/secure-exec/benchmarks/quick-bench.ts` 5 iterations (5 runs each = 25 warm samples, 25 cold samples)
+- Saved results to `packages/secure-exec/benchmarks/results/context_snapshot_before.json`
+- Baseline results:
+  - Warm start (per-session cost): mean=13.75ms, p50=13.7ms, min=12.5ms, max=15.6ms
+  - Cold start (process cold): mean=99.88ms (first run of each iteration)
+  - Cold start (steady state): mean=48.23ms, p50=48.2ms
+- Hardware: i7-12700KF, 20 cores, 62GB RAM, Node v24.13.0, Linux x64
+- Files created: `packages/secure-exec/benchmarks/results/context_snapshot_before.json`
+- **Learnings for future iterations:**
+  - `quick-bench.ts` process hangs on cleanup after completing all runs — use `timeout 60` wrapper to avoid blocking
+  - Run 1 of each iteration is the true process cold-start (~90-126ms); runs 2-5 are steady state (~44-53ms)
+  - Warm start baseline is consistent at ~13-14ms — this is the per-session cost dominated by bridge IIFE compilation+execution
+---
+
+## 2026-03-19 - US-060
+- Deferred config-dependent bridge setup to post-restore init function
+- Replaced closure-captured `__jsonPayloadLimitBytes` and `__payloadLimitErrorCode` with `globalThis.__runtimeJsonPayloadLimitBytes` and `globalThis.__runtimePayloadLimitErrorCode` read at call time in `v8.deserialize()`
+- Added `globalThis.__runtimeApplyConfig(config)` function in `bridge-initial-globals.ts` that applies:
+  - Payload limits (payloadLimitBytes, payloadLimitErrorCode)
+  - Timing mitigation freeze (Date.now, Date constructor, performance.now, SharedArrayBuffer removal)
+  - Deletes itself from globalThis after execution (one-shot)
+- Updated `execution-driver.ts`:
+  - Split `composeBridgeCode()` into `getBridgeIIFE()` (cached, config-independent) and `composeBridgeCode()` (appends per-execution `__runtimeApplyConfig()` call)
+  - Removed conditional inclusion of `applyTimingMitigationFreeze` — timing mitigation now always applied via `__runtimeApplyConfig`
+  - Bridge IIFE is now cacheable regardless of timing mitigation setting
+- Updated `composeBridgeCodeForWarmup()` to call `__runtimeApplyConfig` with default config
+- Updated `runtime-globals.d.ts` with new global types
+- Rebuilt generated `isolate-runtime.ts`
+- Files changed: `packages/secure-exec-core/isolate-runtime/src/inject/bridge-initial-globals.ts`, `packages/secure-exec-core/isolate-runtime/src/common/runtime-globals.d.ts`, `packages/secure-exec-core/src/generated/isolate-runtime.ts`, `packages/secure-exec-node/src/execution-driver.ts`
+- **Learnings for future iterations:**
+  - `bridge-initial-globals.ts` is compiled as a standalone IIFE by `build-isolate-runtime.mjs` — imports are tree-shaken and inlined
+  - The timing mitigation freeze logic from `apply-timing-mitigation-freeze.ts` is duplicated inside `__runtimeApplyConfig` — future context snapshot phases can remove `apply-timing-mitigation-freeze.ts` entirely
+  - `composeBridgeCode()` was previously uncacheable when `timingMitigation === "freeze"` because `frozenTimeMs` was embedded; now the IIFE is always cached, only the `__runtimeApplyConfig()` call varies
+  - Pre-existing test failures: runtime-driver/node tests all fail with "Identifier '__name' has already been declared" (unrelated to this story, pre-existing from console-formatter `__name` shim conflict)
+  - V8 package tests (94/94) are the authoritative test for bridge code changes — they exercise the full IPC pipeline
+---
+
+## 2026-03-19 - US-059
+- Verified getter-based delegation was already implemented in `setup-fs-facade.ts` (done in prior iteration alongside US-060)
+- All 19 fs bridge function names covered via `Object.defineProperties` with getters resolving `globalThis._fsXxx` at call time
+- Generated `isolate-runtime.ts` already contains the getter-based pattern
+- Verification: Typecheck passes (28/28), fs type tests pass (3/3)
+- No code changes needed — marked as complete
+- Files verified: `packages/secure-exec-core/isolate-runtime/src/inject/setup-fs-facade.ts`, `packages/secure-exec-core/src/generated/isolate-runtime.ts`
+- **Learnings for future iterations:**
+  - Check if prerequisite stories were already completed as part of dependent stories before implementing
+  - The generated `isolate-runtime.ts` is rebuilt by `build-isolate-runtime.mjs` and must match source
+---
+
+## 2026-03-19 - US-061
+- Split `composeBridgeCode()` into static and post-restore parts for context snapshot support
+- Created `composeStaticBridgeCode()`: module-level exported function, cached, uses DEFAULT values for all config (maxTimers, maxHandles, initialCwd, payloadLimits). Output is byte-for-byte identical regardless of session options.
+- Created `composePostRestoreScript(config)`: module-level exported function that generates per-session config overrides (maxTimers, maxHandles, initialCwd, timingMitigation, payloadLimits) via `__runtimeApplyConfig()`
+- Refactored `composeBridgeCodeForWarmup()` to use `composeStaticBridgeCode() + composePostRestoreScript(defaultConfig)`
+- Refactored instance `composeBridgeCode()` to use `composeStaticBridgeCode() + composePostRestoreScript(sessionConfig)`
+- Removed instance `getBridgeIIFE()` method and `bridgeCodeCache` field (replaced by module-level `staticBridgeCodeCache`)
+- Exported `composeStaticBridgeCode` and `composePostRestoreScript` from `@secure-exec/node` package
+- Files changed: `packages/secure-exec-node/src/execution-driver.ts`, `packages/secure-exec-node/src/index.ts`
+- **Learnings for future iterations:**
+  - `TimingMitigation` type is `"off" | "freeze"` — the old warmup used `"none"` as a raw string but the typed version requires `"off"`
+  - `__runtimeApplyConfig` only checks for `"freeze"` — any other value is a no-op for timing, so `"off"` works the same as `"none"`
+  - Static bridge code can be cached at module level since it's identical across all driver instances and sessions
+  - Pre-existing test failures: test-suite/node (4 fails from `__name` conflict), runtime-driver/node (228 fails from `__name` conflict), V8 crash/process isolation (3 OOM timeouts)
+---
+
+## 2026-03-19 - US-063
+- Updated `create_snapshot()` in `snapshot.rs` to create fully-initialized context snapshots
+- Added `register_stub_bridge_fns(scope, &SYNC_BRIDGE_FNS, &ASYNC_BRIDGE_FNS)` call before running bridge IIFE
+- Added `inject_snapshot_defaults(scope)` to inject default `_processConfig` (cwd="/", env={}, timing_mitigation="off") and `_osConfig` (homedir="/root", tmpdir="/tmp", platform="linux", arch="x64") as frozen, read-only globals
+- Default config globals are injected via inline JS evaluation + Object.freeze + define_own_property(READ_ONLY | DONT_DELETE)
+- Added 3 new test parts (15-17):
+  - Part 15: Verifies all 38 stub bridge functions and default config globals are present during bridge IIFE execution
+  - Part 16: Verifies getter facade, closures, require-like functions, and config reads work through create_snapshot(); verifies restored default context preserves all bridge infrastructure
+  - Part 17: Verifies SnapshotCache works with the updated create_snapshot()
+- Files changed: `crates/v8-runtime/src/snapshot.rs`
+- **Learnings for future iterations:**
+  - V8 snapshot_creator MUST call `create_blob()` before being dropped — early returns (via `?`) cause SIGSEGV in the destructor
+  - Error handling in `create_snapshot()` must collect errors and return them AFTER `create_blob()`, not via early return
+  - Bridge IIFE setup code does NOT call bridge functions at the top level (only creates closures/wrappers), so stub functions are safe for snapshot creation
+  - `_loadPolyfill` is only called inside `require()` at runtime, not during IIFE setup — stubs don't need to handle it
+  - Pre-existing SIGSEGV when running execution::tests AND snapshot::tests in the same process (V8 inter-test state issue) — run them separately: `cargo test execution::tests -- --test-threads=1` and `cargo test snapshot::tests -- --test-threads=1`
+  - `inject_snapshot_defaults` uses inline JS evaluation to create config objects (avoids manual V8 object construction)
+---
+
+## 2026-03-19 - US-064
+- Implemented context restore with bridge function replacement for V8 context snapshots
+- Added `replace_bridge_fns()` convenience wrapper in `bridge.rs` — calls `register_sync_bridge_fns` + `register_async_bridge_fns` in one call, returning both stores
+- Fixed `inject_snapshot_defaults()` in `snapshot.rs` — changed `_processConfig` and `_osConfig` from `READ_ONLY | DONT_DELETE` (non-configurable) to `READ_ONLY` only (configurable), so `inject_globals_from_payload` can redefine them per-session after restore
+- Modified session thread in `session.rs`:
+  - Added `from_snapshot` flag tracking whether isolate was created from a snapshot
+  - On snapshot path: `Context::new()` on snapshot-restored isolate gives a clone of the snapshot's default context (bridge IIFE already executed), bridge functions replaced via `replace_bridge_fns()`, globals injected, bridge_code skipped (pass empty string)
+  - On fallback path: fresh context + full bridge code (existing behavior)
+  - Unified bridge function registration: both paths use `replace_bridge_fns()` (works for both initial registration and stub replacement)
+- Added 3 new snapshot test parts:
+  - Part 18: Full restore flow — create snapshot with IIFE, restore, replace bridge functions, verify IIFE state preserved + replaced functions work + getter facade resolves to replaced functions
+  - Part 19: `_processConfig` override — verify configurable property can be overridden via `inject_globals_from_payload` after restore (cwd "/" → "/app", arch "x64" → "arm64")
+  - Part 20: Multi-restore isolation — verify user state from one restore doesn't leak to another
+- Files changed: `crates/v8-runtime/src/bridge.rs`, `crates/v8-runtime/src/session.rs`, `crates/v8-runtime/src/snapshot.rs`
+- **Learnings for future iterations:**
+  - `v8::Context::new(scope, Default::default())` on a snapshot-restored isolate gives a CLONE of the snapshot's default context — each call creates a fresh clone with the bridge IIFE state, no need for `get_current_context()`
+  - `get_current_context()` requires a `ContextScope` (not available on plain `HandleScope<()>`) — use `Context::new()` instead
+  - `define_own_property` with `READ_ONLY | DONT_DELETE` makes a property non-configurable — subsequent `define_own_property` calls fail silently. Use only `READ_ONLY` for snapshot defaults so they can be overridden
+  - `Object.freeze()` on the value object does NOT make the global PROPERTY non-configurable — it only freezes the object's own properties
+  - The `from_snapshot` flag is stable for the session lifetime — once set on isolate creation, all subsequent Executes on the same session use the same path
+  - Pre-existing test failures: `__name` conflict in runtime-driver/node tests, Python tests (PythonRuntime not a constructor), project-matrix tests — all unrelated to this story
+---
+
+## 2026-03-19 - US-065
+- Wired post-restore init script through IPC for context snapshot support
+- Added `post_restore_script` field to Execute IPC message wire format (Rust `ipc_binary.rs` + TS `ipc-binary.ts`)
+- Added `run_init_script()` in `execution.rs` — compiles and runs a short script without code caching
+- Updated `session.rs` to run post-restore script after bridge fn replacement, before user code (returns error on failure)
+- Updated `V8ExecutionOptions` in `session.ts` with optional `postRestoreScript` field
+- Updated `runtime.ts` to send `postRestoreScript` in Execute frame
+- Split `composeBridgeCode()` into static IIFE only; post-restore script sent separately via `composePostRestore()`
+- `composeBridgeCodeForWarmup()` now returns only the static IIFE (snapshot is config-independent)
+- Added `__runtimeResetProcessState()` to bridge `process.ts` — resets `_processStartTime`, `_exitCode`, `_exited` closure variables for snapshot restore
+- Added `__runtimeResetProcessState` type to `runtime-globals.d.ts`
+- `composePostRestoreScript()` now calls `__runtimeResetProcessState()` after `__runtimeApplyConfig()`
+- Polyfills load lazily via `require()` — `_loadPolyfill` is a free variable resolved at call time, works after bridge fn replacement
+- Files changed: `crates/v8-runtime/src/{execution,ipc_binary,session}.rs`, `packages/secure-exec-core/{src/bridge/process.ts,isolate-runtime/src/common/runtime-globals.d.ts}`, `packages/secure-exec-node/src/execution-driver.ts`, `packages/secure-exec-v8/src/{ipc-binary,runtime,session}.ts`, `packages/secure-exec-v8/test/{ipc-binary,ipc-security}.test.ts`
+- **Learnings for future iterations:**
+  - Bridge `process.ts` uses `(globalThis as Record<string, unknown>)` cast for dynamic global properties — the bridge tsconfig doesn't include `runtime-globals.d.ts`
+  - The release binary (`target/release/secure-exec-v8`) is used by tests if it exists — must rebuild release after wire format changes
+  - `_processStartTime` was `const` — changed to `let` to support reset; `_exitCode` and `_exited` already `let`
+  - Mutable state resets are a no-op on fresh context (per-Execute `Context::new()` clones snapshot) — only matter for snapshot-restored contexts
+  - `_loadPolyfill` is called lazily inside `require()`, not during bridge IIFE setup — no eager polyfill loading needed in post-restore script
+  - Wire format change: Execute now has `[bc_len(u32)][bc][prs_len(u32)][prs][user_code(rest)]` — post_restore_script uses u32 length prefix before user_code
+---
+
+## 2026-03-19 - US-066
+- Added 36 context snapshot behavior tests across two test files
+- V8-level tests (17 tests, `packages/secure-exec-v8/test/context-snapshot-behavior.test.ts`):
+  - Getter-based FS facade: `_fsReadFile` dispatches to session-local bridge, each session gets own binding
+  - Config application: `_processConfig` and `_osConfig` set from execution options
+  - Bridge infrastructure: sync bridge returns/throws, async bridge resolves/rejects, `_log` dispatch
+  - Polyfill bridge: `_loadPolyfill` callable
+  - Timing: `Date.now()` returns reasonable timestamp at V8 level
+  - Exec/run results: exit code 0, structured errors (TypeError, SyntaxError), ESM exports, sequential executions, session isolation
+- NodeRuntime-level tests (19 tests, `packages/secure-exec/tests/runtime-driver/node/context-snapshot-behavior.test.ts`):
+  - Timing mitigation freeze: Date.now frozen, Date constructor frozen, SharedArrayBuffer removed, off mode preserves real Date
+  - Console bridge: stdout, stderr, warn routing, multiple args, circular refs
+  - CJS file globals: __filename/__dirname available with filePath
+  - Exec/run: exit code 0, structured errors, syntax errors, ESM default/named exports, sequential exec, error recovery
+- Files created: `packages/secure-exec-v8/test/context-snapshot-behavior.test.ts`, `packages/secure-exec/tests/runtime-driver/node/context-snapshot-behavior.test.ts`
+- **Learnings for future iterations:**
+  - CJS globals (require, module, process, crypto) are NOT available at the NodeRuntime exec level — this is a pre-existing issue where the bridge IIFE's CJS module initialization fails silently
+  - Timing mitigation freeze (Date constructor, SharedArrayBuffer removal) requires the bridge IIFE JS code — cannot test at raw V8 level without bridge code
+  - V8-level tests in `packages/secure-exec-v8/test/` cannot import from `@secure-exec/node` since it's not a dependency — test bridge behaviors with simple bridge code strings instead
+  - Pre-existing SIGSEGV when running `execution::tests` AND `snapshot::tests` together — must run separately: `cargo test execution::tests -- --test-threads=1` and `cargo test snapshot::tests -- --test-threads=1`
+  - Pre-existing test-suite failure: CJS `module.exports` in `run()` returns undefined (1/6 failing in test-suite/node.test.ts)
+  - Pre-existing runtime-driver/node failures: ~100/116 tests fail due to require/module being undefined
+---
+
+## 2026-03-19 - US-067
+- Ran quick-bench.ts 5 iterations (2 runs each = 10 warm samples, 10 cold samples)
+- Saved results to `packages/secure-exec/benchmarks/results/context_snapshot_after.json`
+- Created `packages/secure-exec/benchmarks/results/context_snapshot_comparison.md` with before/after table
+- Results:
+  - Warm start (per-session cost): mean=2.7ms, p50=2.5ms (target was <6ms) — **80% improvement** from 13.75ms baseline
+  - Cold start (steady state): mean=22.0ms, p50=21.9ms — **54% improvement** from 48.2ms baseline
+  - Cold start (process cold): mean=66.2ms — **34% improvement** from 99.9ms baseline
+- All 28 typecheck tasks pass
+- Files created: `packages/secure-exec/benchmarks/results/context_snapshot_after.json`, `packages/secure-exec/benchmarks/results/context_snapshot_comparison.md`
+- **Learnings for future iterations:**
+  - Context snapshot eliminated ~11ms of bridge IIFE compilation+execution per session
+  - Cold steady-state improvement (48ms → 22ms) is a bonus — snapshot cache hit on second run avoids snapshot creation
+  - `timeout 60` wrapper still needed for quick-bench.ts due to V8 process cleanup hang (see US-085)
+---

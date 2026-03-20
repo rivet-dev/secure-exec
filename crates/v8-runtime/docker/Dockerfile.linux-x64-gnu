@@ -1,0 +1,17 @@
+FROM rust:1.85.0-bookworm AS builder
+WORKDIR /build
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+RUN mkdir src && echo 'fn main() {}' > src/main.rs
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/build/target \
+    cargo build --release --target x86_64-unknown-linux-gnu
+COPY src/ src/
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/build/target \
+    touch src/main.rs && \
+    cargo build --release --target x86_64-unknown-linux-gnu && \
+    cp target/x86_64-unknown-linux-gnu/release/secure-exec-v8 /secure-exec-v8
+FROM scratch
+COPY --from=builder /secure-exec-v8 /secure-exec-v8

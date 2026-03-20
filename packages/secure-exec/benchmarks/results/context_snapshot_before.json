@@ -1,0 +1,63 @@
+{
+  "description": "Benchmark baseline BEFORE context snapshot optimization (isolate-only snapshot)",
+  "date": "2026-03-19",
+  "commit": "8d8cac5d2cd37a0a9c5d63756a621a1196d8c744",
+  "hardware": {
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+    "cores": 20,
+    "ram": "62 GB",
+    "node": "v24.13.0",
+    "os": "Linux 6.1.0-41-amd64",
+    "arch": "x64"
+  },
+  "benchmark": "quick-bench.ts (5 sequential create+run cycles per iteration)",
+  "iterations": 5,
+  "runs": [
+    {
+      "iteration": 1,
+      "cold_ms": [90.9, 48.8, 46.3, 48.1, 48.4],
+      "warm_ms": [13.5, 14.2, 13.3, 14.0, 14.4]
+    },
+    {
+      "iteration": 2,
+      "cold_ms": [94.8, 53.1, 50.2, 47.0, 44.1],
+      "warm_ms": [15.5, 12.7, 14.1, 12.5, 15.5]
+    },
+    {
+      "iteration": 3,
+      "cold_ms": [89.6, 46.5, 48.3, 49.1, 49.9],
+      "warm_ms": [14.7, 13.2, 13.7, 12.8, 13.1]
+    },
+    {
+      "iteration": 4,
+      "cold_ms": [126.0, 47.0, 46.6, 46.6, 44.6],
+      "warm_ms": [14.1, 13.6, 13.9, 12.9, 12.7]
+    },
+    {
+      "iteration": 5,
+      "cold_ms": [98.1, 47.4, 50.1, 51.3, 51.1],
+      "warm_ms": [13.9, 14.9, 15.6, 13.5, 13.4]
+    }
+  ],
+  "summary": {
+    "warm": {
+      "mean_ms": 13.75,
+      "p50_ms": 13.7,
+      "min_ms": 12.5,
+      "max_ms": 15.6,
+      "all_samples": [13.5, 14.2, 13.3, 14.0, 14.4, 15.5, 12.7, 14.1, 12.5, 15.5, 14.7, 13.2, 13.7, 12.8, 13.1, 14.1, 13.6, 13.9, 12.9, 12.7, 13.9, 14.9, 15.6, 13.5, 13.4]
+    },
+    "cold_process_start": {
+      "mean_ms": 99.88,
+      "samples": [90.9, 94.8, 89.6, 126.0, 98.1]
+    },
+    "cold_steady_state": {
+      "mean_ms": 48.23,
+      "p50_ms": 48.2,
+      "min_ms": 44.1,
+      "max_ms": 53.1,
+      "all_samples": [48.8, 46.3, 48.1, 48.4, 53.1, 50.2, 47.0, 44.1, 46.5, 48.3, 49.1, 49.9, 47.0, 46.6, 46.6, 44.6, 47.4, 50.1, 51.3, 51.1]
+    }
+  },
+  "notes": "Warm start (~13.75ms mean) represents per-session cost with isolate-only snapshot. This is the baseline for context snapshot optimization which targets <6ms warm start. Process hangs on cleanup after benchmark completes (exit code 124 from timeout), but all 5 runs complete successfully before hang."
+}

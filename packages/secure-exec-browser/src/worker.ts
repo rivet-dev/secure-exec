@@ -68,9 +68,6 @@ function getUtf8ByteLength(text: string): number {
 	return encoder.encode(text).byteLength;
 }
 
-function getBase64EncodedByteLength(rawByteLength: number): number {
-	return Math.ceil(rawByteLength / 3) * 4;
-}
 
 function assertPayloadByteLength(
 	payloadLabel: string,
@@ -320,15 +317,14 @@ async function initRuntime(payload: BrowserWorkerInitPayload): Promise<void> {
 		const data = await fsOps.readFile(path);
 		assertPayloadByteLength(
 			`fs.readFileBinary ${path}`,
-			getBase64EncodedByteLength(data.byteLength),
+			data.byteLength,
 			base64TransferLimitBytes,
 		);
-		return btoa(String.fromCharCode(...data));
+		return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
 	});
-	const writeFileBinaryRef = makeApplySyncPromise(async (path: string, base64: string) => {
-		assertTextPayloadSize(`fs.writeFileBinary ${path}`, base64, base64TransferLimitBytes);
-		const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-		return fsOps.writeFile(path, bytes);
+	const writeFileBinaryRef = makeApplySyncPromise(async (path: string, binaryContent: Uint8Array) => {
+		assertPayloadByteLength(`fs.writeFileBinary ${path}`, binaryContent.byteLength, base64TransferLimitBytes);
+		return fsOps.writeFile(path, binaryContent);
 	});
 	const readDirRef = makeApplySyncPromise(async (path: string) => {
 		const entries = await fsOps.readDirWithTypes(path);

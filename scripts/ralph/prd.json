@@ -1,505 +1,1452 @@
 {
   "project": "secure-exec",
-  "branchName": "ralph/cli-tool-sandbox-tests",
-  "description": "Fix E2E Docker fixtures and CLI tool tests — Run Docker fixtures against real containers and fix net bridge issues until parity passes. Rewrite all 6 cli-tools tests to run through the sandbox instead of bypassing it on the host.",
+  "branchName": "ralph/v8-runtime",
+  "description": "Replace isolated-vm with a Rust binary (rusty_v8) running as a separate process, communicating over Unix domain socket with length-prefixed MessagePack IPC",
   "userStories": [
     {
       "id": "US-001",
-      "title": "Run pg-connect fixture against real Postgres container and fix until parity passes",
-      "description": "As a developer, I need the pg-connect Docker fixture to connect to a real Postgres container through the sandbox's net bridge so we validate that the pg library works end-to-end inside secure-exec.",
+      "title": "Scaffold Rust crate with dependencies and module stubs",
+      "description": "As a developer, I need the crates/v8-runtime/ directory with Cargo.toml, dependency declarations (rusty_v8, rmp-serde, serde, crossbeam-channel), and empty module files matching the crate structure from the spec.",
       "acceptanceCriteria": [
-        "Start a real Postgres container (postgres:16-alpine) with testuser/testpass/testdb",
-        "Run the pg-connect fixture inside the sandbox via createTestNodeRuntime + proc.exec()",
-        "Fix any net bridge issues (net.Socket, net.connect, etc.) that prevent the pg library from connecting",
-        "Fixture creates table, inserts, queries, drops — all through the sandbox's network bridge to real Postgres",
-        "Update fixture.json expectation from 'fail' to 'pass' once parity is achieved",
-        "Host Node.js and sandbox produce identical normalized stdout/stderr/exit code",
-        "No mocking of Postgres — must use a real Docker container",
-        "Typecheck passes",
-        "Tests pass"
+        "crates/v8-runtime/Cargo.toml exists with v8, rmp-serde, serde (derive), crossbeam-channel dependencies",
+        "Empty src/ files exist: main.rs, ipc.rs, isolate.rs, execution.rs, bridge.rs, host_call.rs, timeout.rs, stream.rs",
+        "cargo check succeeds with no errors",
+        "Typecheck passes"
       ],
       "priority": 1,
       "passes": true,
-      "notes": "Currently expects failure with 'net.Socket is not supported in sandbox'. The net bridge is deferred (Tier 4). This story requires implementing enough of the net bridge for TCP connections to work through the sandbox. pg uses new net.Socket() internally."
+      "notes": ""
     },
     {
       "id": "US-002",
-      "title": "Run mysql2-connect fixture against real MySQL container and fix until parity passes",
-      "description": "As a developer, I need the mysql2-connect Docker fixture to connect to a real MySQL container through the sandbox's net bridge so we validate that mysql2 works end-to-end inside secure-exec.",
+      "title": "Define IPC message types as Rust structs with serde",
+      "description": "As a developer, I need all Host→Rust and Rust→Host message types defined as Rust enums/structs with serde Serialize/Deserialize so they can be used throughout the crate.",
       "acceptanceCriteria": [
-        "Start a real MySQL container (mysql:8.0) with testuser/testpass/testdb",
-        "Run the mysql2-connect fixture inside the sandbox via createTestNodeRuntime + proc.exec()",
-        "Fix any net bridge issues that prevent mysql2 from connecting",
-        "Fixture creates table, inserts, queries, drops — all through the sandbox to real MySQL",
-        "Update fixture.json expectation from 'fail' to 'pass' once parity is achieved",
-        "Host Node.js and sandbox produce identical normalized stdout/stderr/exit code",
-        "No mocking of MySQL — must use a real Docker container",
-        "Typecheck passes",
-        "Tests pass"
+        "ipc.rs defines enums for HostMessage (CreateSession, DestroySession, Execute, InjectGlobals, BridgeResponse, StreamEvent, TerminateExecution) and RustMessage (BridgeCall, ExecutionResult, Log, StreamCallback)",
+        "All fields match the spec (session_id, call_id, method, args, etc.)",
+        "ExecutionResult error field is a structured object (type, message, stack, code), not a plain string",
+        "Unit tests verify round-trip MessagePack serialize/deserialize for each message type",
+        "cargo test passes",
+        "Typecheck passes"
       ],
       "priority": 2,
       "passes": true,
-      "notes": "Fixed: iconv-lite lazy encoding load inside applySync contexts. Added sync resolution/loading bridges, JS-side resolution cache, name-based module caching, mysql_native_password auth, and eager iconv-lite init."
+      "notes": ""
     },
     {
       "id": "US-003",
-      "title": "Run ioredis-connect fixture against real Redis container and fix until parity passes",
-      "description": "As a developer, I need the ioredis-connect Docker fixture to connect to a real Redis container through the sandbox's net bridge so we validate that ioredis works end-to-end inside secure-exec.",
+      "title": "Implement length-prefixed MessagePack framing",
+      "description": "As a developer, I need read/write functions for length-prefixed MessagePack framing (4-byte u32 big-endian length prefix + payload) with a 64MB message size limit.",
       "acceptanceCriteria": [
-        "Start a real Redis container (redis:7-alpine)",
-        "Run the ioredis-connect fixture inside the sandbox via createTestNodeRuntime + proc.exec()",
-        "Fix any net bridge issues that prevent ioredis from connecting",
-        "Fixture does set/get, pipeline operations, cleanup — all through the sandbox to real Redis",
-        "Update fixture.json expectation from 'fail' to 'pass' once parity is achieved",
-        "Host Node.js and sandbox produce identical normalized stdout/stderr/exit code",
-        "No mocking of Redis — must use a real Docker container",
-        "Typecheck passes",
-        "Tests pass"
+        "ipc.rs has write_message() and read_message() functions operating on Read/Write traits",
+        "Messages are framed as [4-byte u32 BE length][N-byte MessagePack payload]",
+        "read_message() rejects any length prefix above 64MB and returns an error",
+        "Unit tests verify framing round-trip and size limit rejection",
+        "cargo test passes",
+        "Typecheck passes"
       ],
       "priority": 3,
       "passes": true,
-      "notes": "Fixed: net bridge already supports net.createConnection from US-001 work. ioredis connects through sandbox net bridge to real Redis container. Updated fixture.json from fail to pass."
+      "notes": ""
     },
     {
       "id": "US-004",
-      "title": "Run ssh2-connect fixture against real SSH container and fix until parity passes",
-      "description": "As a developer, I need the ssh2-connect Docker fixture to connect to a real SSH container through the sandbox's net bridge so we validate that ssh2 works end-to-end inside secure-exec.",
+      "title": "Implement V8 platform init and isolate lifecycle",
+      "description": "As a developer, I need V8 platform initialization (single shared platform) and isolate lifecycle management: create isolate with optional heap limit, create context, and destroy.",
       "acceptanceCriteria": [
-        "Start a real SSH container (custom Alpine sshd image) with testuser/testpass",
-        "Run the ssh2-connect fixture inside the sandbox via createTestNodeRuntime + proc.exec()",
-        "Fix any net bridge issues that prevent ssh2 from connecting",
-        "Fixture connects via SSH, executes remote command, captures stdout/stderr — all through the sandbox",
-        "Update fixture.json expectation from 'fail' to 'pass' once parity is achieved",
-        "Host Node.js and sandbox produce identical normalized stdout/stderr/exit code",
-        "No mocking of SSH — must use a real Docker container",
-        "Typecheck passes",
-        "Tests pass"
+        "isolate.rs initializes V8 platform once (lazy_static or OnceCell)",
+        "create_isolate() creates a v8::Isolate with optional heap_limit_mb via set_heap_limit()",
+        "create_context() creates a v8::Context on the isolate",
+        "destroy cleans up isolate and context properly",
+        "Unit test creates and destroys 3 isolates sequentially without crash",
+        "cargo test passes",
+        "Typecheck passes"
       ],
       "priority": 4,
       "passes": true,
-      "notes": "Fixed: Buffer prototype patching (latin1Slice, base64Slice, etc.), NetSocket._readableState.ended for ssh2 isWritable(), and stateful cipher/decipher bridge for AES-GCM streaming. ssh2 connects through sandbox net bridge to real SSH container."
+      "notes": ""
     },
     {
       "id": "US-005",
-      "title": "Run ssh2-sftp-transfer fixture against real SSH container and fix until parity passes",
-      "description": "As a developer, I need the ssh2-sftp-transfer Docker fixture to connect to a real SSH container and do SFTP file operations through the sandbox's net bridge.",
+      "title": "Implement UDS listener with socket path security",
+      "description": "As a developer, I need main.rs to create a Unix domain socket in a mkdtemp directory with 0700 permissions, accept connections, and clean up on exit.",
       "acceptanceCriteria": [
-        "Start a real SSH container (custom Alpine sshd image) with testuser/testpass",
-        "Run the ssh2-sftp-transfer fixture inside the sandbox via createTestNodeRuntime + proc.exec()",
-        "Fix any issues that prevent SFTP write/read/stat/unlink from working through the sandbox",
-        "Fixture writes file, reads it back, stats it, unlinks it — all through the sandbox to real SFTP",
-        "Update fixture.json expectation from 'fail' to 'pass' once parity is achieved",
-        "Host Node.js and sandbox produce identical normalized stdout/stderr/exit code",
-        "No mocking of SFTP — must use a real Docker container",
-        "Typecheck passes",
-        "Tests pass"
+        "main.rs creates tmpdir with mkdtemp and 128-bit random suffix for socket path",
+        "Socket directory has 0700 permissions set via fchmod after bind, before listen",
+        "Socket path is printed to stdout so the host process can read it",
+        "Graceful shutdown on SIGTERM closes the listener and removes the socket file",
+        "cargo build succeeds",
+        "Typecheck passes"
       ],
       "priority": 5,
       "passes": true,
-      "notes": "Fixed: same fixes as US-004 (Buffer prototype, _readableState.ended, stateful cipher) also fixed SFTP. ssh2-sftp-transfer connects through sandbox net bridge, writes/reads/stats/unlinks files via SFTP."
+      "notes": ""
     },
     {
       "id": "US-006",
-      "title": "Rewrite pi-headless.test.ts to run Pi inside the secure-exec sandbox VM",
-      "description": "As a developer, I need the Pi headless tests to run Pi's JavaScript inside the secure-exec sandbox so the tests actually validate the sandbox's module loading, fs bridge, network bridge, and child_process bridge.",
+      "title": "Implement connection authentication handshake",
+      "description": "As a developer, I need the Rust process to read a one-time auth token from an environment variable and require the first message on any connection to present this token, rejecting unauthenticated connections.",
       "acceptanceCriteria": [
-        "Test creates a NodeRuntime (using createTestNodeRuntime or equivalent pattern from test-suite tests)",
-        "Pi's entry point (dist/cli.js or createAgentSession from @mariozechner/pi-coding-agent) is loaded and executed inside the sandbox VM, NOT spawned as a host process",
-        "Mock LLM server stays on the host; sandbox code reaches it via ANTHROPIC_BASE_URL through the network bridge",
-        "All existing test scenarios preserved: boot, output, file read, file write, bash tool, JSON output",
-        "File read/write tests go through the sandbox's VFS/fs bridge, not host filesystem",
-        "No direct use of node:child_process.spawn from the test harness to run Pi",
-        "Tests skip with clear reason if Pi cannot load in the VM (e.g. ESM bridge gap)",
-        "Typecheck passes",
-        "Tests pass"
+        "Auth token is read from SECURE_EXEC_V8_TOKEN environment variable on startup",
+        "First message on each connection must be an Authenticate message containing the token",
+        "Connections that fail authentication are closed immediately",
+        "Authenticated connections proceed to normal message handling",
+        "Unit test verifies rejection of bad token",
+        "cargo test passes",
+        "Typecheck passes"
       ],
       "priority": 6,
       "passes": true,
-      "notes": "Pi is pure JS with a createAgentSession() programmatic API. Its tools (bash, read, write) use child_process and fs which the sandbox bridges. Look at test-suite/node.test.ts for patterns on creating NodeRuntime and running code inside it. The current test explicitly admits 'Pi runs as a host process' in its header comment."
+      "notes": ""
     },
     {
       "id": "US-007",
-      "title": "Rewrite pi-interactive.test.ts to use kernel.openShell() inside the sandbox",
-      "description": "As a developer, I need the Pi interactive tests to run Pi's TUI through the sandbox's PTY (kernel.openShell()) so the tests validate the sandbox's PTY line discipline, isTTY bridge, and signal delivery.",
+      "title": "Implement session management (create/destroy)",
+      "description": "As a developer, I need the main listener to handle CreateSession and DestroySession messages: spawning a dedicated thread per session with its own isolate, and tracking sessions by 128-bit nonce bound to the connection that created them.",
       "acceptanceCriteria": [
-        "Replace PtyHarness (host 'script -qefc' spawn) with kernel.openShell() from the secure-exec kernel",
-        "Connect @xterm/headless to the sandbox's terminal output, not a host PTY",
-        "Pi's TUI renders inside the sandbox PTY, not a host PTY",
-        "All existing test scenarios preserved: TUI renders, input appears, prompt submission, Ctrl+C interrupt",
-        "No direct use of node:child_process.spawn from the test harness to run Pi",
-        "If kernel.openShell() or isTTY bridge is not ready, skip with clear reason referencing the specific blocker",
-        "Typecheck passes",
-        "Tests pass"
+        "CreateSession spawns a new OS thread with a V8 isolate for the session",
+        "Session IDs are 128-bit nonces (u128), not sequential",
+        "Sessions are bound to the connection that created them; other connections cannot interact with them",
+        "DestroySession terminates the session thread and destroys the isolate",
+        "Max concurrency is configurable (default: num_cpus), excess sessions are queued",
+        "cargo test passes",
+        "Typecheck passes"
       ],
       "priority": 7,
       "passes": true,
-      "notes": "Rewritten: replaced PtyHarness (host script -qefc) with kernel.openShell() + TerminalHarness. Uses overlay VFS (InMemoryFileSystem for populateBin, host FS fallback for module resolution). Probes detect isTTY bridge gap (spec gap #5) and skip with clear reason. All 5 test scenarios preserved and ready for when isTTY is bridged."
+      "notes": ""
     },
     {
       "id": "US-008",
-      "title": "Rewrite opencode-headless.test.ts to spawn opencode via sandbox child_process bridge",
-      "description": "As a developer, I need the OpenCode headless tests to spawn the opencode binary from inside the secure-exec sandbox via the child_process.spawn bridge, so the tests validate stdio piping, env forwarding, signal delivery, and exit code propagation through the bridge.",
+      "title": "Implement InjectGlobals and V8 context hardening",
+      "description": "As a developer, I need InjectGlobals to set _processConfig and _osConfig as frozen, non-writable, non-configurable properties on the V8 global, and harden the context by removing SharedArrayBuffer (when timing_mitigation is freeze) and disabling WASM.",
       "acceptanceCriteria": [
-        "Test creates a NodeRuntime and runs JS code inside the sandbox that calls child_process.spawn('opencode', ['run', ...])",
-        "The sandbox's child_process bridge spawns the real opencode binary on the host",
-        "Environment variables (ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY) are forwarded through the bridge's env filtering",
-        "Stdout/stderr from the binary flow back through the bridge to sandbox code",
-        "Exit code propagation is tested through the bridge",
-        "SIGINT delivery to the spawned binary goes through the bridge's signal forwarding",
-        "Remove Strategy B (SDK client) — test the real binary only, not the SDK",
-        "No direct use of node:child_process.spawn from the test harness to run opencode",
-        "Tests skip with clear reason if opencode binary is not on PATH",
-        "Typecheck passes",
-        "Tests pass"
+        "_processConfig (cwd, env, timing_mitigation, frozen_time_ms) is set as frozen global property",
+        "_osConfig (homedir, tmpdir, platform, arch) is set as frozen global property",
+        "SharedArrayBuffer is removed from global when timing_mitigation is 'freeze'",
+        "WASM compilation is disabled via SetAllowWasmCodeGenerationCallback returning false",
+        "Properties are non-writable and non-configurable (Object.defineProperty with writable:false, configurable:false)",
+        "cargo test passes",
+        "Typecheck passes"
       ],
       "priority": 8,
       "passes": true,
-      "notes": "Rewritten: sandbox JS code calls child_process.spawn('opencode', ...) through the bridge. Removed Strategy B (SDK client). All 9 test scenarios preserved: boot, output (canary), text format, JSON format, env forwarding, file read, file write, SIGINT via bridge kill(), error handling. process.exit() must be at top-level await, not inside bridge callbacks (causes unhandled ProcessExitError). Bridge process.stdout.write strips trailing newlines — use newline-join in capture for NDJSON parsing."
+      "notes": ""
     },
     {
       "id": "US-009",
-      "title": "Rewrite opencode-interactive.test.ts to use kernel.openShell() with opencode binary",
-      "description": "As a developer, I need the OpenCode interactive tests to spawn the opencode binary through the sandbox's PTY so the tests validate the kernel's PTY management of external binaries.",
+      "title": "Implement sync-blocking bridge call host functions",
+      "description": "As a developer, I need bridge host functions (registered via v8::FunctionTemplate) that serialize a BridgeCall to IPC, block on socket.read() for the BridgeResponse, deserialize, and return the result to V8 synchronously.",
       "acceptanceCriteria": [
-        "Replace PtyHarness (host 'script -qefc' spawn) with kernel.openShell() or equivalent sandbox PTY mechanism",
-        "The opencode binary is launched from inside the sandbox, not directly from the test harness",
-        "Connect @xterm/headless to the sandbox's terminal output",
-        "All existing test scenarios preserved: TUI renders, input area works, text input, Ctrl+C interrupt",
-        "No direct use of node:child_process.spawn from the test harness to run opencode",
-        "Tests skip with clear reason if opencode binary is not on PATH or if kernel PTY is not ready",
-        "Typecheck passes",
-        "Tests pass"
+        "bridge.rs registers host functions via v8::FunctionTemplate::New()",
+        "host_call.rs implements sync-blocking: serialize BridgeCall, write to socket, block on read(), deserialize BridgeResponse",
+        "Return value from BridgeResponse is converted back to a V8 value and returned",
+        "Error responses throw a V8 exception",
+        "call_id is tracked in a pending-call map; duplicates are rejected",
+        "cargo test passes",
+        "Typecheck passes"
       ],
       "priority": 9,
       "passes": true,
-      "notes": "Rewritten: replaced PtyHarness (host script -qefc) with kernel.openShell() + TerminalHarness. Uses overlay VFS (InMemoryFileSystem for populateBin, host FS fallback for module resolution). HostBinaryDriver (inline RuntimeDriver) handles 'opencode' and 'script' commands through the kernel. Probes detect: (1) openShell + node works, (2) child_process bridge spawns opencode through kernel, (3) streaming stdin from PTY. Currently skips on probe 3: NodeRuntimeDriver batches stdin for exec() instead of streaming — interactive PTY requires process.stdin events from PTY. All 5 test scenarios preserved and ready for when streaming stdin bridge is implemented."
+      "notes": ""
     },
     {
       "id": "US-010",
-      "title": "Rewrite claude-headless.test.ts to spawn claude via sandbox child_process bridge",
-      "description": "As a developer, I need the Claude Code headless tests to spawn the claude binary from inside the secure-exec sandbox via the child_process.spawn bridge, so the tests validate the bridge handles Claude Code's complex subprocess lifecycle.",
+      "title": "Implement async promise-returning bridge calls",
+      "description": "As a developer, I need bridge host functions that return a Promise: create a PromiseResolver, store it with the call_id, send BridgeCall non-blocking, and resolve/reject when BridgeResponse arrives.",
       "acceptanceCriteria": [
-        "Test creates a NodeRuntime and runs JS code inside the sandbox that calls child_process.spawn('claude', ['-p', ...])",
-        "The sandbox's child_process bridge spawns the real claude binary on the host",
-        "Environment variables (ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY) are forwarded through the bridge",
-        "All existing test scenarios preserved: boot, text output, JSON output, stream-json output, file read/write, bash tool, error handling",
-        "No direct use of node:child_process.spawn from the test harness to run claude",
-        "Tests skip with clear reason if claude binary is not on PATH",
-        "Typecheck passes",
-        "Tests pass"
+        "Async host function creates v8::PromiseResolver, stores resolver + call_id in pending-promises map",
+        "BridgeCall is sent over IPC via non-blocking write",
+        "Function returns resolver.get_promise() to V8",
+        "When BridgeResponse arrives, the correct resolver is found by call_id and resolved/rejected",
+        "Microtasks are flushed after resolution",
+        "cargo test passes",
+        "Typecheck passes"
       ],
       "priority": 10,
       "passes": true,
-      "notes": "Rewritten: sandbox JS code calls child_process.spawn('claude', ...) through the bridge. All 10 test scenarios preserved: boot, text output (canary), JSON output, stream-json NDJSON, file read (Read tool), file write (Write tool), bash tool, SIGINT via bridge kill(), bad API key exit code, good prompt exit 0. Claude natively supports ANTHROPIC_BASE_URL — no fetch interceptor needed. stream-json requires --verbose flag."
+      "notes": ""
     },
     {
       "id": "US-011",
-      "title": "Rewrite claude-interactive.test.ts to use kernel.openShell() with claude binary",
-      "description": "As a developer, I need the Claude Code interactive tests to run Claude's TUI through the sandbox's PTY so the tests validate the kernel's PTY management and signal delivery for Claude's Ink-based interface.",
+      "title": "Implement CJS script compilation and execution",
+      "description": "As a developer, I need the Execute handler to compile and run user code as a CJS script (when mode is 'exec') using v8::Script, with the bridge bundle IIFE executed first.",
       "acceptanceCriteria": [
-        "Replace PtyHarness (host 'script -qefc' spawn) with kernel.openShell() or equivalent sandbox PTY mechanism",
-        "The claude binary is launched from inside the sandbox, not directly from the test harness",
-        "Connect @xterm/headless to the sandbox's terminal output",
-        "All existing test scenarios preserved: TUI renders, input works, prompt submission, Ctrl+C interrupt, exit flow",
-        "No direct use of node:child_process.spawn from the test harness to run claude",
-        "Tests skip with clear reason if claude binary is not on PATH or if kernel PTY is not ready",
-        "Typecheck passes",
-        "Tests pass"
+        "Execute message with mode='exec' compiles bridge_code as IIFE and runs it first",
+        "user_code is compiled and executed via v8::Script::Compile() and script.Run()",
+        "Compilation errors (SyntaxError) are caught and returned as ExecutionResult with structured error",
+        "Runtime errors are caught via v8::TryCatch and returned as ExecutionResult",
+        "Successful execution returns exit code 0",
+        "cargo test passes",
+        "Typecheck passes"
       ],
       "priority": 11,
       "passes": true,
-      "notes": "Rewritten: replaced PtyHarness (host script -qefc) with kernel.openShell() + TerminalHarness. Uses overlay VFS (InMemoryFileSystem for populateBin, host FS fallback for module resolution). HostBinaryDriver (inline RuntimeDriver) handles 'claude' and 'script' commands through the kernel. Probes detect: (1) openShell + node works, (2) child_process bridge spawns claude through kernel, (3) streaming stdin from PTY. Currently skips on probe 3: NodeRuntimeDriver batches stdin for exec() instead of streaming — interactive PTY requires process.stdin events from PTY. All 6 test scenarios preserved and ready for when streaming stdin bridge is implemented."
+      "notes": ""
     },
     {
       "id": "US-012",
-      "title": "Update cli-tool-e2e spec to reflect actual tool capabilities",
-      "description": "As a developer, I need the spec to accurately document which tools can run as JS inside the VM vs which must be spawned as binaries, so future iterations don't repeat the same mistakes.",
+      "title": "Implement ESM module loading with ResolveModuleCallback",
+      "description": "As a developer, I need Execute with mode='run' to use V8's v8::Module API with a synchronous ResolveModuleCallback that blocks on IPC to resolve and load module sources.",
       "acceptanceCriteria": [
-        "Update docs-internal/specs/cli-tool-e2e.md to document: Pi is pure JS and runs inside the VM; Claude Code and OpenCode are native binaries that must be spawned via the child_process bridge",
-        "Remove or update the 'Binary-as-child-process mode' section to clarify this applies to Claude Code too, not just OpenCode",
-        "Document that OpenCode ships as a compiled Bun ELF binary with no JS source — it cannot be loaded in the VM",
-        "Document that Claude Code's SDK always spawns cli.js as a subprocess and has native .node dependencies",
-        "Remove the OpenCode SDK Strategy B from the spec (per user direction: test the real binary, not the SDK)",
-        "Update the 'Two sandbox strategies' section to accurately reflect: in-VM (Pi only) and bridge-spawn (Claude Code, OpenCode)",
+        "Execute with mode='run' treats user_code as an ES module",
+        "v8::Module API is used to compile the root module",
+        "ResolveModuleCallback sends sync-blocking IPC calls to resolve import specifiers and load source",
+        "Resolved modules are compiled as v8::Module and instantiated",
+        "Module evaluation result (exports) is serialized and returned in ExecutionResult",
+        "cargo test passes",
         "Typecheck passes"
       ],
       "priority": 12,
       "passes": true,
-      "notes": "Updated: spec now documents Pi as the only in-VM tool; Claude Code and OpenCode both use bridge-spawn. Removed Strategy B (SDK). Documented Claude Code native binary reality (.node addons, sdk.mjs spawns cli.js). Updated gap analysis, risks, and success criteria."
+      "notes": ""
     },
     {
       "id": "US-013",
-      "title": "Create S3 filesystem driver example with MinIO test setup",
-      "description": "As a developer, I need an example showing how to implement a VirtualFileSystem backed by S3 so I can store sandbox files in object storage.",
+      "title": "Implement session event loop",
+      "description": "As a developer, I need the session event loop that runs when V8 is suspended on a promise: polls the socket for incoming messages, dispatches BridgeResponse/StreamEvent/TerminateExecution, and runs microtasks.",
       "acceptanceCriteria": [
-        "S3FileSystem class implements full VirtualFileSystem interface",
-        "Works with any S3-compatible store (AWS, MinIO, R2)",
-        "Docker Compose file for local MinIO test server",
-        "Example creates NodeRuntime with S3 filesystem, writes/reads files from sandbox, verifies via S3 API",
-        "README with instructions to start MinIO and run the test",
-        "Typecheck passes",
-        "Tests pass end-to-end against MinIO"
+        "Session thread runs an event loop when V8 is awaiting a promise",
+        "BridgeResponse messages resolve the corresponding pending promise",
+        "StreamEvent messages dispatch to the registered V8 callback function",
+        "TerminateExecution calls isolate.terminate_execution() and breaks the loop",
+        "Microtasks are flushed after each dispatch",
+        "Loop exits when execution completes (no pending promises or handles)",
+        "cargo test passes",
+        "Typecheck passes"
       ],
       "priority": 13,
       "passes": true,
-      "notes": "Completed. Example at examples/virtual-file-system-s3/. Uses @aws-sdk/client-s3. Tested e2e against MinIO Docker container. Symlinks/hard links throw ENOSYS; chmod/chown/utimes are no-ops."
+      "notes": ""
     },
     {
       "id": "US-014",
-      "title": "Create SQLite filesystem driver example with sql.js",
-      "description": "As a developer, I need an example showing how to implement a VirtualFileSystem backed by SQLite so I can store sandbox files in a database.",
+      "title": "Implement streaming event dispatch (child process, HTTP)",
+      "description": "As a developer, I need StreamEvent messages from the host to be dispatched into V8 by calling registered dispatch functions (_childProcessDispatch, _httpServerDispatch).",
       "acceptanceCriteria": [
-        "SQLiteFileSystem class implements full VirtualFileSystem interface",
-        "Uses sql.js (WASM) — no native compilation required",
-        "Supports symlinks, hard links, chmod, utimes, truncate",
-        "Supports snapshot/restore via export()/create(bytes)",
-        "Example creates NodeRuntime with SQLite filesystem, writes/reads files from sandbox, verifies via VFS API",
-        "README with instructions to run the test",
-        "Typecheck passes",
-        "Tests pass end-to-end"
+        "StreamEvent with event_type 'child_stdout', 'child_stderr', 'child_exit' calls _childProcessDispatch in V8",
+        "StreamEvent with event_type 'http_request' calls _httpServerDispatch in V8",
+        "Payload is deserialized and passed as arguments to the V8 function",
+        "Microtasks are flushed after each dispatch",
+        "cargo test passes",
+        "Typecheck passes"
       ],
       "priority": 14,
       "passes": true,
-      "notes": "Completed. Example at examples/virtual-file-system-sqlite/. Uses sql.js (WASM SQLite). All entries stored in single 'entries' table. Tested e2e — no external services needed."
+      "notes": ""
     },
     {
       "id": "US-015",
-      "title": "Link filesystem driver examples in docs and describe use cases",
-      "description": "As a developer, I need the filesystem driver examples linked in the custom virtual filesystem docs page with descriptions of use cases so I can discover them.",
+      "title": "Implement timeout enforcement with timer thread",
+      "description": "As a developer, I need a per-session timeout thread that calls v8::Isolate::terminate_execution() AND closes the session socket to unblock any sync-blocking bridge call when cpu_time_limit_ms is exceeded.",
       "acceptanceCriteria": [
-        "docs/features/virtual-filesystem.mdx links to both S3 and SQLite examples",
-        "Use case descriptions for each example",
-        "Additional use case ideas listed (Git-backed, encrypted, overlay, remote)",
+        "Timer thread is spawned when Execute is received, if cpu_time_limit_ms is set",
+        "After timeout, terminate_execution() is called on the isolate",
+        "Session socket is also closed to unblock any blocking socket.read() in host_call",
+        "Timer thread is joined on normal execution completion (cancelled if execution finishes first)",
+        "ExecutionResult reports a timeout error when termination occurs",
+        "cargo test passes",
         "Typecheck passes"
       ],
       "priority": 15,
       "passes": true,
-      "notes": "Completed. Added 'More examples' section with CardGroup linking to S3 and SQLite examples on GitHub, plus a list of other VFS use cases."
+      "notes": ""
     },
     {
       "id": "US-016",
-      "title": "Add SSH key-based authentication e2e-docker fixture",
-      "description": "As a developer, I need an SSH fixture that tests pubkey authentication through the sandbox so we validate the crypto bridge handles key parsing, sign(), and createSign() for RSA/Ed25519.",
+      "title": "Implement structured error serialization from TryCatch",
+      "description": "As a developer, I need errors caught by v8::TryCatch to be serialized as structured objects with type, message, stack, and optional code fields, including ProcessExitError detection via sentinel property.",
       "acceptanceCriteria": [
-        "Add authorized_keys setup to sshd.Dockerfile (generate a test keypair at build time or embed one)",
-        "New fixture ssh2-key-auth in tests/e2e-docker/ that connects using privateKey option instead of password",
-        "Fixture runs conn.exec() and verifies stdout/stderr/exit code parity with host",
-        "fixture.json expectation is 'pass'",
-        "Host and sandbox produce identical normalized output",
-        "Typecheck passes",
-        "Tests pass"
+        "Error type is extracted from exception constructor name (TypeError, SyntaxError, etc.)",
+        "Error message is extracted via exception->ToDetailString()",
+        "Stack trace is extracted via v8::Exception::GetStackTrace()",
+        "Optional error code (e.g. ERR_MODULE_NOT_FOUND) is extracted if present",
+        "ProcessExitError is detected by _isProcessExit:true sentinel property, not regex",
+        "ExecutionResult error field matches the spec schema",
+        "cargo test passes",
+        "Typecheck passes"
       ],
       "priority": 16,
       "passes": true,
-      "notes": "Completed. Added test RSA keypair to fixture and Dockerfile. sshd.Dockerfile updated with PubkeyAuthentication and authorized_keys. Fixture connects with privateKey, runs conn.exec(), verifies parity."
+      "notes": ""
     },
     {
       "id": "US-017",
-      "title": "Add SSH port forwarding / tunneling e2e-docker fixture",
-      "description": "As a developer, I need an SSH fixture that tests TCP port forwarding through the sandbox so we validate that conn.forwardOut() works for database tunneling scenarios.",
+      "title": "Implement FD hygiene in Rust process",
+      "description": "As a developer, I need the Rust process to close all inherited file descriptors except stdin/stdout/stderr and the IPC socket on startup, and set CLOEXEC on all new FDs.",
       "acceptanceCriteria": [
-        "New fixture ssh2-tunnel in tests/e2e-docker/ that opens an SSH connection and uses forwardOut to tunnel to a service",
-        "Can tunnel to the existing Postgres or Redis container through the SSH container as a jump host",
-        "Fixture connects via tunnel, runs a simple query/command through the tunnel, verifies response",
-        "fixture.json expectation is 'pass'",
-        "Host and sandbox produce identical normalized output",
-        "Typecheck passes",
-        "Tests pass"
+        "On startup, all FDs > 2 (except the IPC listener FD) are closed",
+        "All new FDs opened by the process have CLOEXEC flag set",
+        "Socket FDs created for connections have CLOEXEC set",
+        "cargo test passes",
+        "Typecheck passes"
       ],
       "priority": 17,
       "passes": true,
-      "notes": "Completed. Fixture tunnels through SSH to Redis using forwardOut(). Test infra discovers container internal IPs on the Docker bridge via docker inspect. Sends raw Redis PING through the tunnel, verifies +PONG response. Host and sandbox produce identical output."
+      "notes": ""
     },
     {
       "id": "US-018",
-      "title": "Add SFTP directory operations e2e-docker fixture",
-      "description": "As a developer, I need an SFTP fixture that tests directory operations (mkdir, rmdir, readdir) through the sandbox so we validate the full SFTP subsystem works.",
+      "title": "Scaffold @secure-exec/v8 npm package",
+      "description": "As a developer, I need the packages/secure-exec-v8/ directory with package.json (@secure-exec/v8), tsconfig, and src/index.ts exporting the public API types.",
       "acceptanceCriteria": [
-        "New fixture ssh2-sftp-dirs in tests/e2e-docker/ that connects via SSH, opens SFTP, and tests directory ops",
-        "Fixture creates directory, lists it with readdir, creates a file inside, reads directory again, removes file, removes directory",
-        "fixture.json expectation is 'pass'",
-        "Host and sandbox produce identical normalized output",
-        "Typecheck passes",
-        "Tests pass"
+        "packages/secure-exec-v8/package.json exists with name @secure-exec/v8",
+        "tsconfig.json extends the workspace base config",
+        "src/index.ts exports: createV8Runtime, V8Runtime, V8Session types/interfaces",
+        "Package builds with tsc without errors",
+        "Typecheck passes"
       ],
       "priority": 18,
       "passes": true,
-      "notes": "Completed. Fixture ssh2-sftp-dirs connects via SSH, opens SFTP, creates directory, lists empty dir, writes file inside, lists dir with file, removes file, removes directory. Host and sandbox produce identical output."
+      "notes": ""
     },
     {
       "id": "US-019",
-      "title": "Add SSH/SFTP error path e2e-docker fixtures",
-      "description": "As a developer, I need fixtures that test SSH error paths (connection refused, auth failure) through the sandbox so we validate error reporting matches host behavior.",
+      "title": "Implement JS-side IPC client with MessagePack framing",
+      "description": "As a developer, I need a TypeScript IPC client that connects to the Rust process over UDS, sends/receives length-prefixed MessagePack messages, and handles the auth handshake.",
       "acceptanceCriteria": [
-        "New fixture ssh2-auth-fail that connects with wrong password and verifies the error matches host behavior",
-        "New fixture ssh2-connect-refused that connects to a non-listening port and verifies the error matches host behavior",
-        "Both fixtures have fixture.json expectation 'pass' (they should produce the same error output on host and sandbox)",
-        "Host and sandbox produce identical normalized stdout/stderr/exit code",
-        "Typecheck passes",
-        "Tests pass"
+        "IpcClient class connects to a UDS path using net.createConnection()",
+        "send() writes length-prefixed MessagePack messages using @msgpack/msgpack",
+        "Incoming data is parsed with length-prefix framing and dispatched via event emitter or callbacks",
+        "Auth handshake sends the token as the first message on connection",
+        "Message size limit of 64MB is enforced on send",
+        "@msgpack/msgpack is added as a dependency",
+        "Typecheck passes"
       ],
       "priority": 19,
       "passes": true,
-      "notes": "Completed. ssh2-auth-fail connects with wrong password, verifies error level and message match host. ssh2-connect-refused connects to non-listening port 1, verifies ECONNREFUSED error message matches host. Both fixtures have expectation pass. Note: bridge _onError does not propagate err.code/err.errno (only message) — a future bridge improvement."
+      "notes": ""
     },
     {
       "id": "US-020",
-      "title": "Add SFTP large file transfer and rename e2e-docker fixture",
-      "description": "As a developer, I need an SFTP fixture that tests larger file transfers and rename operations through the sandbox so we validate TCP buffer management and stream backpressure.",
+      "title": "Implement JS-side process spawning and lifecycle",
+      "description": "As a developer, I need createV8Runtime() to spawn the Rust binary as a child process, read the socket path from stdout, connect, and provide dispose() to kill the child.",
       "acceptanceCriteria": [
-        "New fixture ssh2-sftp-large in tests/e2e-docker/ that transfers a file of at least 1MB via SFTP through the sandbox",
-        "Fixture uses createWriteStream for upload and createReadStream for download (not just readFile)",
-        "Fixture tests sftp.rename() on the remote file",
-        "Verifies data integrity via hash comparison after round-trip",
-        "fixture.json expectation is 'pass'",
-        "Host and sandbox produce identical normalized output",
-        "Typecheck passes",
-        "Tests pass"
+        "createV8Runtime() spawns the Rust binary via child_process.spawn()",
+        "Auth token is generated (128-bit random) and passed via SECURE_EXEC_V8_TOKEN env var",
+        "Socket path is read from the child's stdout",
+        "IPC connection is established after reading the socket path",
+        "dispose() sends SIGTERM to the child process and cleans up",
+        "Child process crash is detected and surfaced as an error",
+        "Typecheck passes"
       ],
       "priority": 20,
       "passes": true,
-      "notes": "Completed. Fixture ssh2-sftp-large generates deterministic 1MB payload, uploads via createWriteStream, renames via sftp.rename(), downloads via createReadStream, verifies integrity via SHA-256 hash comparison. Host and sandbox produce identical output."
+      "notes": ""
     },
     {
       "id": "US-021",
-      "title": "Expand pg-connect fixture with UPDATE, DELETE, and transactions",
-      "description": "As a developer, I need the Postgres fixture to test all CRUD operations and transactions so we validate the sandbox handles the full pg wire protocol.",
+      "title": "Implement JS-side session abstraction",
+      "description": "As a developer, I need V8Runtime.createSession() and V8Session.execute()/destroy() that map to CreateSession/Execute/DestroySession IPC messages with bridge handler callback routing.",
       "acceptanceCriteria": [
-        "Add UPDATE statement to pg-connect fixture (update the inserted row, verify the change with SELECT)",
-        "Add DELETE statement (delete the row, verify with SELECT returning 0 rows)",
-        "Add a transaction block: BEGIN, INSERT, ROLLBACK, verify the row was NOT inserted",
-        "Add a transaction block: BEGIN, INSERT, COMMIT, verify the row WAS inserted",
-        "fixture.json expectation remains 'pass'",
-        "Host and sandbox produce identical normalized output",
-        "Typecheck passes",
-        "Tests pass"
+        "createSession(options) sends CreateSession with 128-bit session_id nonce and optional resource budgets",
+        "execute(code, bridgeHandlers) sends InjectGlobals + Execute and routes incoming BridgeCall messages to the matching handler function",
+        "BridgeResponse is sent back after handler completes (sync or async)",
+        "StreamEvent messages from the host are sent when streaming operations dispatch callbacks",
+        "destroy() sends DestroySession and cleans up",
+        "execute() returns a Promise<ExecutionResult> that resolves when ExecutionResult arrives",
+        "Typecheck passes"
       ],
       "priority": 21,
       "passes": true,
-      "notes": "Completed. Expanded pg-connect fixture with UPDATE+verify, DELETE+verify, BEGIN/ROLLBACK (verify row not inserted), BEGIN/COMMIT (verify row inserted). All operations pass parity between host and sandbox."
+      "notes": ""
     },
     {
       "id": "US-022",
-      "title": "Add pg-pool e2e-docker fixture for connection pooling",
-      "description": "As a developer, I need a Postgres fixture that tests pg.Pool so we validate pool acquire/release and concurrent queries work through the sandbox.",
+      "title": "Update NodeExecutionDriver to use @secure-exec/v8",
+      "description": "As a developer, I need NodeExecutionDriver to create sessions via @secure-exec/v8 instead of isolated-vm, mapping all existing bridge handlers to the new execute() callback interface.",
       "acceptanceCriteria": [
-        "New fixture pg-pool in tests/e2e-docker/ that uses pg.Pool instead of pg.Client",
-        "Fixture acquires a client from the pool, runs a query, releases it back",
-        "Fixture runs multiple concurrent queries via pool.query() shorthand",
-        "Fixture calls pool.end() for cleanup",
-        "fixture.json expectation is 'pass'",
-        "Host and sandbox produce identical normalized output",
+        "NodeExecutionDriver imports from @secure-exec/v8 instead of isolated-vm",
+        "All bridge handler functions (_fsReadFile, _childProcessSpawnStart, _log, etc.) are passed to session.execute()",
+        "Resource budgets (memoryLimit, timeout) are passed to createSession()",
+        "Session lifecycle (create, execute, destroy) matches the new API",
+        "Existing unit tests for NodeExecutionDriver still pass",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 22,
       "passes": true,
-      "notes": "Completed. Fixture pg-pool tests pool.connect()+client.query()+client.release(), pool.query() shorthand, concurrent queries via Promise.all, and pool.end(). Host and sandbox produce identical output."
+      "notes": ""
     },
     {
       "id": "US-023",
-      "title": "Add pg-types e2e-docker fixture for data type coverage",
-      "description": "As a developer, I need a Postgres fixture that tests JSON, timestamps, bytea, arrays, and other data types so we validate the sandbox's type parser support.",
+      "title": "Update bridge-contract.ts to remove ivm.Reference types",
+      "description": "As a developer, I need bridge-contract.ts updated to replace all ivm.Reference type annotations (BridgeApplySyncPromiseRef, etc.) with plain function types.",
       "acceptanceCriteria": [
-        "New fixture pg-types in tests/e2e-docker/ that creates a table with columns: JSON, JSONB, TIMESTAMPTZ, BOOLEAN, BYTEA, INTEGER[], TEXT[], UUID, NUMERIC",
-        "Fixture inserts a row with values for each type, reads it back, verifies round-trip fidelity",
-        "Fixture verifies that pg type parsers return the correct JavaScript types (object for JSON, Date for timestamp, Buffer for bytea, Array for arrays)",
-        "fixture.json expectation is 'pass'",
-        "Host and sandbox produce identical normalized output",
+        "All BridgeApplySyncPromiseRef<> types are replaced with plain function signatures",
+        "All BridgeApplySyncRef<> types are replaced with plain function signatures",
+        "All ivm.Reference imports are removed",
+        "Bridge global names remain unchanged (_fsReadFile, _childProcessSpawnStart, etc.)",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 23,
       "passes": true,
-      "notes": "Completed. Fixture pg-types creates table with JSON, JSONB, TIMESTAMPTZ, BOOLEAN, BYTEA, INTEGER[], TEXT[], UUID, NUMERIC columns. Inserts fixed test values, reads back, verifies JavaScript types (object for JSON, Date for timestamp, Buffer for bytea, Array for arrays). Host and sandbox produce identical output."
+      "notes": ""
     },
     {
       "id": "US-024",
-      "title": "Add pg-errors e2e-docker fixture for error path coverage",
-      "description": "As a developer, I need a Postgres fixture that tests error handling so we validate the sandbox propagates Postgres errors correctly.",
+      "title": "Update bridge bundle to use direct function calls",
+      "description": "As a developer, I need the bridge bundle code to replace all .applySync()/.applySyncPromise()/.apply() calls on ivm.Reference with direct function calls, since the Rust side injects real JS functions.",
       "acceptanceCriteria": [
-        "New fixture pg-errors in tests/e2e-docker/ that tests multiple error scenarios",
-        "Test 1: syntax error (bad SQL) — verify error message and code match host",
-        "Test 2: query nonexistent table — verify ENOENT-style error matches host",
-        "Test 3: unique constraint violation (INSERT duplicate) — verify error matches host",
-        "Test 4: connection to wrong port — verify connection error matches host",
-        "All errors are caught and their properties (message, code, detail) are printed as JSON for parity comparison",
-        "fixture.json expectation is 'pass'",
-        "Host and sandbox produce identical normalized output",
+        "_ref.applySync(undefined, [args]) calls are replaced with direct fn(args) calls",
+        "_ref.applySyncPromise(undefined, [args]) calls are replaced with direct fn(args) calls",
+        "_ref.apply(undefined, [args], { result: { promise: true } }) calls are replaced with direct fn(args) calls returning Promises",
+        "No ivm.Reference usage remains in bridge code",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 24,
       "passes": true,
-      "notes": "Completed. Fixture pg-errors tests 4 error scenarios: syntax error (bad SQL, code 42601), undefined table (code 42P01), unique constraint violation (code 23505), and connection refused (port 1). SQL errors serialize message/code/severity/constraint from pg protocol. Connection error serializes message only (socket-level code/errno not propagated through sandbox net bridge). Host and sandbox produce identical output."
+      "notes": "Completed as part of US-023 since type changes required updating call sites simultaneously for typecheck to pass"
     },
     {
       "id": "US-025",
-      "title": "Add pg-prepared e2e-docker fixture for prepared statements",
-      "description": "As a developer, I need a Postgres fixture that tests named prepared statements so we validate the sandbox handles the Parse/Bind/Execute wire protocol correctly.",
+      "title": "Remove base64 encoding for binary transfers",
+      "description": "As a developer, I need binary data transfers (file reads/writes) to use MessagePack's native binary format instead of base64 encoding, eliminating the ~33% overhead.",
       "acceptanceCriteria": [
-        "New fixture pg-prepared in tests/e2e-docker/ that uses named prepared statements",
-        "Fixture uses client.query({ name: 'insert-row', text: 'INSERT ...', values: [...] }) syntax",
-        "Fixture reuses the same named statement multiple times (exercises the prepared statement cache)",
-        "Fixture verifies results match host behavior",
-        "fixture.json expectation is 'pass'",
-        "Host and sandbox produce identical normalized output",
+        "File read results are sent as MessagePack bin format, not base64 strings",
+        "File write payloads are sent as MessagePack bin format, not base64 strings",
+        "cryptoRandomFill results use binary format",
+        "All base64 encode/decode calls for binary transfers are removed from bridge code",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 25,
       "passes": true,
-      "notes": "Completed. Fixture pg-prepared tests named prepared statements with insert (reused 3x), select (reused 2x), update, and delete. Exercises Parse/Bind/Execute wire protocol and prepared statement cache. Host and sandbox produce identical output."
+      "notes": ""
     },
     {
       "id": "US-026",
-      "title": "Fix pg auth method discrepancy between local and CI",
-      "description": "As a developer, I need local and CI Postgres containers to use the same authentication method so we don't silently test different code paths.",
+      "title": "Set up platform-specific npm packages for prebuilt binaries",
+      "description": "As a developer, I need platform-specific npm packages (@secure-exec/v8-linux-x64-gnu, etc.) that each contain the prebuilt Rust binary, with the main package using optionalDependencies to auto-install the right one.",
       "acceptanceCriteria": [
-        "Remove POSTGRES_HOST_AUTH_METHOD: trust from local Docker setup in e2e-docker.test.ts",
-        "Or add the same trust setting to CI — both environments must match",
-        "If removing trust: verify SCRAM-SHA-256 auth works through the sandbox locally",
-        "If keeping trust: document why and add a separate fixture that tests SCRAM auth explicitly",
-        "Tests pass both locally and in CI",
+        "npm/ directory under crates/v8-runtime/ has subdirs for linux-x64-gnu, linux-arm64-gnu, darwin-x64, darwin-arm64, win32-x64",
+        "Each platform dir has a package.json with the correct platform/arch fields",
+        "Main @secure-exec/v8 package.json lists all platform packages as optionalDependencies",
+        "JS loader in main package detects platform and resolves the correct binary path",
+        "postinstall.js falls back to download if platform package not present",
         "Typecheck passes"
       ],
       "priority": 26,
       "passes": true,
-      "notes": "Fixed: Removed POSTGRES_HOST_AUTH_METHOD: trust from local Docker setup. Implemented subtle.deriveBits (PBKDF2) in both guest-side SandboxSubtle and host-side bridge dispatcher. Local and CI now both use scram-sha-256 authentication. All pg fixtures pass with SCRAM auth."
+      "notes": ""
     },
     {
       "id": "US-027",
-      "title": "Add TLS database connection e2e-docker fixtures",
-      "description": "As a developer, I need e2e-docker fixtures that test TLS-encrypted database connections so we validate the sandbox's HTTPS/TLS bridge handles SSL database connections correctly.",
+      "title": "Add Rust build to CI matrix",
+      "description": "As a developer, I need CI to build the Rust binary for all target platforms (linux x64/arm64, macOS x64/arm64, windows x64) and run cargo test.",
       "acceptanceCriteria": [
-        "New fixture pg-ssl in tests/e2e-docker/ that connects to Postgres with ssl: { rejectUnauthorized: false }",
-        "Configure the Postgres container with SSL enabled (self-signed cert)",
-        "Fixture connects, runs a query, verifies the connection was encrypted (check pg_stat_ssl or similar)",
-        "fixture.json expectation is 'pass'",
-        "Host and sandbox produce identical normalized output",
-        "Typecheck passes",
-        "Tests pass"
+        "CI workflow builds crates/v8-runtime for all 5 target triples",
+        "cargo test runs on native platforms (linux-x64, macos-arm64)",
+        "Cross-compilation is set up for linux-arm64 (cross-compile on ubuntu-latest)",
+        "Built binaries are uploaded as artifacts",
+        "Rust toolchain is pinned to a specific version",
+        "Typecheck passes"
       ],
       "priority": 27,
       "passes": true,
-      "notes": "Completed. Implemented tls.connect() bridge for TLS socket upgrade. Host wraps existing net.Socket with tls.TLSSocket, re-wires bridge callbacks for decrypted data. TLSSocket forwards end/close events to wrapped raw socket (pg relies on original socket's 'close' listener for shutdown). Custom postgres-ssl.Dockerfile with self-signed cert. Fixture connects with ssl:{rejectUnauthorized:false}, queries pg_stat_ssl to verify encryption, runs CRUD through TLS. Host and sandbox produce identical output."
+      "notes": ""
     },
     {
       "id": "US-028",
-      "title": "Add HTTPS error handling e2e fixture for TLS edge cases",
-      "description": "As a developer, I need tests that verify the sandbox correctly handles TLS error cases like expired certs, hostname mismatches, and self-signed certs with rejectUnauthorized:true.",
+      "title": "Remove isolated-vm dependency",
+      "description": "As a developer, I need isolated-vm removed from all package.json files and all remaining import/require references cleaned up.",
       "acceptanceCriteria": [
-        "New test cases in tests/runtime-driver/node/ that test HTTPS error scenarios through the sandbox",
-        "Test 1: fetch() to HTTPS server with expired cert — verify error matches host",
-        "Test 2: fetch() to HTTPS server with hostname mismatch — verify error matches host",
-        "Test 3: fetch() with rejectUnauthorized:true to self-signed cert — verify rejection matches host",
-        "All errors caught and compared for parity with host Node.js behavior",
+        "isolated-vm is removed from all package.json dependencies",
+        "No import or require of 'isolated-vm' remains in the codebase",
+        "No ivm type references remain in TypeScript files",
+        "pnpm install succeeds without isolated-vm",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 28,
       "passes": true,
-      "notes": "Completed. Three TLS error scenarios tested with parity: expired cert (CERT_HAS_EXPIRED), hostname mismatch (ERR_TLS_CERT_ALTNAME_MISMATCH), self-signed cert with rejectUnauthorized:true (SELF_SIGNED_CERT_IN_CHAIN). Each test generates certs via openssl, starts HTTPS servers, and compares host vs sandbox error messages. TLS errors propagate correctly through the httpRequest bridge."
+      "notes": ""
+    },
+    {
+      "id": "US-029",
+      "title": "Add integration tests for full IPC round-trip",
+      "description": "As a developer, I need integration tests that exercise the full lifecycle: spawn Rust process, authenticate, create session, inject globals, execute code with sync and async bridge calls, and destroy.",
+      "acceptanceCriteria": [
+        "Test spawns the Rust binary and connects over UDS",
+        "Test authenticates successfully",
+        "Test creates a session, injects globals, executes simple code, verifies output",
+        "Test exercises a sync-blocking bridge call (e.g. mock _fsReadFile) and verifies result",
+        "Test exercises an async bridge call (e.g. mock _networkFetchRaw) and verifies result",
+        "Test destroys session and verifies cleanup",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 29,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-030",
+      "title": "Add crash isolation tests",
+      "description": "As a developer, I need tests proving that V8 OOM in the sandbox kills only the child process (not the host), and that a hung isolate can be killed via SIGKILL.",
+      "acceptanceCriteria": [
+        "Test creates a session with small heap limit (e.g. 8MB) and runs code that allocates until OOM",
+        "Host process remains alive after OOM crash in sandbox",
+        "Error is surfaced to the caller as an ExecutionResult error, not a host crash",
+        "Test runs an infinite loop, verifies timeout termination works",
+        "Test verifies SIGKILL on the child process succeeds when terminate_execution is insufficient",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 30,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-031",
+      "title": "Add IPC security tests",
+      "description": "As a developer, I need tests covering IPC security: bad auth token rejection, cross-session access prevention, oversized message rejection, and call_id integrity.",
+      "acceptanceCriteria": [
+        "Test connecting with wrong auth token is rejected",
+        "Test connecting without auth token is rejected",
+        "Test that connection A cannot send messages to connection B's sessions",
+        "Test that messages exceeding 64MB size limit are rejected",
+        "Test that duplicate BridgeResponse call_ids are rejected",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 31,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-032",
+      "title": "Update security model documentation",
+      "description": "As a developer, I need docs/security-model.mdx updated to document process isolation as a trust boundary, what it protects against, what it doesn't, and the IPC channel trust model.",
+      "acceptanceCriteria": [
+        "Process isolation section explains separate FD table, memory space, signal handlers",
+        "Documents what process isolation protects against: V8 OOM, heap corruption, FD leakage, signal interference",
+        "Documents what process isolation does NOT protect against: IPC-level attacks require mitigations",
+        "IPC channel trust model section covers: authenticated, session-bound, size-limited, not encrypted (same-host)",
+        "Typecheck passes"
+      ],
+      "priority": 32,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-033",
+      "title": "Run existing test suite against new V8 runtime",
+      "description": "As a developer, I need all existing secure-exec tests to pass with the new V8 runtime backend to confirm behavioral parity with isolated-vm.",
+      "acceptanceCriteria": [
+        "All tests in packages/secure-exec/tests/ pass with the new V8 runtime",
+        "All tests in tests/test-suite/ pass with the new V8 runtime",
+        "All compatibility project-matrix fixtures pass (host Node vs secure-exec parity)",
+        "No test modifications are needed beyond the driver swap (behavioral parity)",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 33,
+      "passes": true,
+      "notes": "All pre-existing test failures verified unchanged. Fixed: CJS globals (module/exports/__filename/__dirname) in bridge composition, run() exports deserialization, fresh V8 context per execution, _loadPolyfill moved to sync bridge, bridge-registry-policy test updated for V8 handler pattern."
+    },
+    {
+      "id": "US-034",
+      "title": "Add V8 ValueSerializer/ValueDeserializer wrappers in bridge.rs",
+      "description": "As a developer, I need helper functions that use v8::ValueSerializer and v8::ValueDeserializer to serialize/deserialize V8 values to/from bytes, alongside the existing rmpv-based functions.",
+      "acceptanceCriteria": [
+        "New function serialize_v8_value() uses v8::ValueSerializer to convert a v8::Local<v8::Value> to Vec<u8>",
+        "New function deserialize_v8_value() uses v8::ValueDeserializer to convert &[u8] back to v8::Local<v8::Value>",
+        "Handles all V8 types: primitives, strings, arrays, objects, Uint8Array, Date, Map, Set, RegExp, Error, circular references",
+        "Existing rmpv functions remain unchanged (no behavioral change yet)",
+        "Unit tests verify round-trip for primitives, objects, arrays, Uint8Array, and nested structures",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 34,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-035",
+      "title": "Add binary header encoder/decoder module in Rust",
+      "description": "As a developer, I need a new ipc_binary.rs module that implements the custom binary header wire format for all 11 message types, alongside the existing MessagePack ipc.rs.",
+      "acceptanceCriteria": [
+        "New ipc_binary.rs module with write_frame() and read_frame() functions",
+        "Implements the wire format from docs-internal/specs/v8-ipc-serialization.md for all message types (0x01-0x08, 0x81-0x84)",
+        "Frame format: [4B total_len][1B msg_type][1B sid_len][N sid][type-specific fields][payload]",
+        "Connection handler can extract session_id by reading bytes 5 through 5+N without full deserialization",
+        "Unit tests verify round-trip encode/decode for every message type",
+        "Unit tests verify the connection handler can route by session_id from raw bytes",
+        "Existing ipc.rs remains unchanged",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 35,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-036",
+      "title": "Add binary header encoder/decoder module in TypeScript",
+      "description": "As a developer, I need a new ipc-binary.ts module in packages/secure-exec-v8/ that implements the custom binary header wire format, alongside the existing MessagePack ipc-client.ts.",
+      "acceptanceCriteria": [
+        "New ipc-binary.ts module with encodeFrame() and decodeFrame() functions",
+        "Implements the same wire format as the Rust ipc_binary.rs for all message types",
+        "Uses node:v8 serialize/deserialize for payload fields instead of @msgpack/msgpack",
+        "Unit tests verify round-trip encode/decode for every message type",
+        "Unit tests verify interop with the Rust-side format (same byte layout)",
+        "Existing ipc-client.ts remains unchanged",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 36,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-037",
+      "title": "Switch IPC pipeline to binary header + V8 serialization",
+      "description": "As a developer, I need both the Rust and JS sides switched simultaneously to use the new binary header wire format and V8 ValueSerializer for payloads, replacing the MessagePack-based pipeline.",
+      "acceptanceCriteria": [
+        "bridge.rs sync_bridge_callback and async_bridge_callback use serialize_v8_value/deserialize_v8_value instead of encode_v8_args/msgpack_to_v8_value",
+        "Rust IPC read/write uses ipc_binary.rs instead of ipc.rs MessagePack framing",
+        "ipc-client.ts send() and handleData() use binary header framing instead of MessagePack",
+        "runtime.ts bridge handler routing uses v8.deserialize() for args and v8.serialize() for results instead of @msgpack/msgpack decode/encode",
+        "execution-driver.ts exports deserialization uses v8.deserialize() instead of @msgpack/msgpack decode",
+        "All existing integration tests pass with the new wire format",
+        "cargo test passes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 37,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-038",
+      "title": "Eliminate ChannelMessageReader re-serialization",
+      "description": "As a developer, I need to remove the triple decode/encode/decode cycle in session.rs where HostMessage is deserialized from IPC, passed through a channel, re-serialized by ChannelMessageReader, then re-deserialized by sync_call.",
+      "acceptanceCriteria": [
+        "BridgeResponse messages are passed as raw bytes through the session channel instead of typed HostMessage",
+        "sync_call receives the raw BridgeResponse bytes directly without re-serialization",
+        "ChannelMessageReader no longer calls ipc::write_message to re-serialize messages",
+        "The event loop still dispatches StreamEvent and TerminateExecution correctly",
+        "cargo test passes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 38,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-039",
+      "title": "Remove MessagePack dependencies and dead code",
+      "description": "As a developer, I need all MessagePack-related dependencies and dead code removed now that the binary header + V8 serialization pipeline is active.",
+      "acceptanceCriteria": [
+        "rmp-serde, serde_bytes, and rmpv removed from crates/v8-runtime/Cargo.toml",
+        "serde derive feature removed if no other code uses it",
+        "v8_to_rmpv, rmpv_to_v8, encode_v8_args, msgpack_to_v8_value, v8_value_to_msgpack deleted from bridge.rs",
+        "Old write_message/read_message MessagePack functions deleted from ipc.rs",
+        "@msgpack/msgpack removed from packages/secure-exec-v8/package.json",
+        "@msgpack/msgpack removed from packages/secure-exec-node/package.json (if no other usage remains)",
+        "All imports of @msgpack/msgpack removed from runtime.ts, ipc-client.ts, execution-driver.ts, bridge-handlers.ts",
+        "cargo build succeeds",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 39,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-040",
+      "title": "Verify all tests pass with new serialization pipeline",
+      "description": "As a developer, I need to verify the full test suite passes after the serialization refactor to confirm no regressions.",
+      "acceptanceCriteria": [
+        "All tests in tests/test-suite/ pass",
+        "All tests in tests/runtime-driver/ pass",
+        "All Rust unit tests (cargo test) pass",
+        "All compatibility project-matrix fixtures pass",
+        "No test modifications needed beyond removing MessagePack-specific assertions",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 40,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-041",
+      "title": "Add V8 code caching for bridge code compilation",
+      "description": "As a developer, I need bridge code compiled once and its V8 code cache (CachedData) saved so subsequent executions skip recompilation, reducing per-execution startup time.",
+      "acceptanceCriteria": [
+        "First bridge code compilation uses v8::ScriptCompiler::compile with kNoCompileOptions",
+        "After first compile, ScriptCompiler::CreateCodeCache is called to get cached data bytes",
+        "Subsequent compilations pass the cached data via ScriptCompiler::CachedData with kConsumeCodeCache",
+        "Cache is stored per-session (bridge code is the same across executions within a session)",
+        "Cache is invalidated if bridge code changes (hash comparison)",
+        "Benchmark or log shows measurable improvement on second+ execution",
+        "cargo test passes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 41,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-042",
+      "title": "Cache bridge code on Rust side to skip resending over IPC",
+      "description": "As a developer, I need the Rust session to cache the bridge code string so the host can skip sending it on every Execute message when it hasn't changed.",
+      "acceptanceCriteria": [
+        "Execute message wire format supports an optional bridge_code field (0-length = use cached)",
+        "Rust session stores the last bridge_code string per session",
+        "If bridge_code length is 0 in Execute, the session reuses the cached bridge code",
+        "JS-side execution-driver.ts hashes bridge code and only sends it when the hash differs from last send",
+        "First execution always sends bridge code; subsequent executions with same code skip it",
+        "cargo test passes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 42,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-043",
+      "title": "Improve IPC client buffer management",
+      "description": "As a developer, I need the IPC client's receive buffer to use an efficient data structure instead of Buffer.concat on every data event, which is O(n^2) in accumulated buffer size.",
+      "acceptanceCriteria": [
+        "ipc-client.ts (or ipc-binary.ts) uses a pre-allocated buffer or buffer list instead of Buffer.concat",
+        "Read cursor tracks position within the buffer without copying on every data event",
+        "Buffer is compacted only when the consumed portion exceeds a threshold (e.g., 50%)",
+        "Memory usage does not grow unboundedly under sustained high-throughput IPC",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 43,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-044",
+      "title": "Replace accept loop polling with poll(2)",
+      "description": "As a developer, I need the main.rs accept loop to use poll(2) or equivalent instead of non-blocking accept + 10ms sleep, eliminating wasted CPU and reducing connection latency.",
+      "acceptanceCriteria": [
+        "Accept loop uses libc::poll (or epoll) to wait for new connections instead of thread::sleep(10ms)",
+        "Shutdown signal is handled via a self-pipe or signalfd so poll unblocks on SIGTERM/SIGINT",
+        "No busy-wait or sleep loop remains in the accept path",
+        "New connection latency is sub-millisecond (no 10ms poll delay)",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 44,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-045",
+      "title": "Remove JSON double-serialization in bridge handlers",
+      "description": "As a developer, I need bridge handlers that currently return JSON.stringify'd strings (stat, readDir, spawnSync, network) to return objects directly, since V8 ValueSerializer handles arbitrary JS objects natively.",
+      "acceptanceCriteria": [
+        "_fsStat handler returns a plain object instead of JSON.stringify({...})",
+        "_fsLstat handler returns a plain object instead of JSON.stringify({...})",
+        "_fsReadDir handler returns the entries array directly instead of JSON.stringify(entries)",
+        "_childProcessSpawnSync handler returns a plain object instead of JSON.stringify({...})",
+        "_networkFetchRaw, _networkDnsLookupRaw, _networkHttpRequestRaw return objects instead of JSON strings",
+        "Bridge-side JS code that called JSON.parse on these results is updated to receive objects directly",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 45,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-046",
+      "title": "Reduce SharedWriter mutex contention with per-session buffering",
+      "description": "As a developer, I need to reduce contention on the shared IPC writer mutex under concurrent sessions by using per-session write buffers or a dedicated writer thread.",
+      "acceptanceCriteria": [
+        "Each session thread writes to a per-session buffer or channel instead of directly locking the shared writer",
+        "A single writer thread (or coalescing drain) flushes per-session buffers to the socket",
+        "SharedWriter mutex is no longer held during V8 serialization or message construction",
+        "Concurrent session throughput improves (no serialized IPC writes across sessions)",
+        "cargo test passes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 46,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-047",
+      "title": "Batch module resolution to reduce IPC round-trips",
+      "description": "As a developer, I need module resolution to batch multiple resolve+load requests into fewer IPC round-trips, reducing startup latency for import-heavy code.",
+      "acceptanceCriteria": [
+        "New batch resolve message type supports resolving multiple specifiers in one IPC round-trip",
+        "After initial module compilation, all static import specifiers are collected and resolved in one batch",
+        "Host-side resolveModule and loadFile are called concurrently for the batch",
+        "Fallback to individual round-trips if batch resolution is not supported (backwards compatible)",
+        "Import-heavy test (10+ modules) shows measurable reduction in total resolve time",
+        "cargo test passes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 47,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-048",
+      "title": "Pre-allocate V8 serialization buffers per session",
+      "description": "As a developer, I need V8 serialization output buffers to be pre-allocated and reused across bridge calls within a session, reducing per-call allocation overhead.",
+      "acceptanceCriteria": [
+        "Session thread maintains a reusable Vec<u8> buffer for V8 ValueSerializer output",
+        "Buffer is cleared (not deallocated) between bridge calls via buf.clear()",
+        "Buffer grows to high-water mark and stays there for the session lifetime",
+        "No new Vec<u8> allocation per bridge call (only if buffer needs to grow)",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 48,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-049",
+      "title": "Add v8Runtime option to createNodeRuntimeDriverFactory",
+      "description": "As a developer, I need createNodeRuntimeDriverFactory to accept an optional v8Runtime parameter so callers can pass a specific V8Runtime process handle instead of always using the global singleton.",
+      "acceptanceCriteria": [
+        "NodeRuntimeDriverFactoryOptions interface adds optional v8Runtime: V8Runtime field",
+        "createNodeRuntimeDriverFactory passes v8Runtime through to NodeExecutionDriver constructor via options",
+        "NodeExecutionDriver stores v8Runtime override and uses it in getV8Runtime() when provided",
+        "When v8Runtime is omitted, getSharedV8Runtime() is used (existing behavior unchanged)",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 49,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-050",
+      "title": "Add process isolation integration tests",
+      "description": "As a developer, I need integration tests proving that two separate V8Runtime instances are process-isolated: a crash in one does not affect the other.",
+      "acceptanceCriteria": [
+        "Test creates two V8Runtime instances via createV8Runtime()",
+        "Each runtime creates a session and starts execution",
+        "One runtime's session triggers OOM (small heap limit + allocate loop)",
+        "The other runtime's session completes successfully despite the first crashing",
+        "Test verifies the crashed runtime reports ERR_V8_PROCESS_CRASH while the healthy runtime returns exit code 0",
+        "Test verifies that runtimes using the same v8Runtime handle share crash fate",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 50,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-051",
+      "title": "Add process isolation documentation page",
+      "description": "As a developer, I need a new docs/process-isolation.mdx page documenting the configurable V8 process topology: shared (default), per-tenant, and per-runtime isolation.",
+      "acceptanceCriteria": [
+        "New docs/process-isolation.mdx page exists with title 'Process Isolation'",
+        "Documents what process isolation means (separate OS process, memory space, FD table, crash domain)",
+        "Documents when to use it (multi-tenant hosting, untrusted code from different security domains, high OOM risk workloads)",
+        "Shows code examples for all three topology options: shared (default), per-tenant (two runtimes share a createV8Runtime handle), per-runtime (one process each)",
+        "Documents trade-offs (memory cost per process vs crash blast radius)",
+        "Documents resource limits (maxSessions is per-process) with examples",
+        "Documents crash behavior (only sessions in the crashed process are affected)",
+        "Page is added to docs navigation in docs/docs.json under the appropriate section (not experimental)",
+        "docs/runtimes/node.mdx is updated to cross-reference the process isolation page",
+        "Typecheck passes"
+      ],
+      "priority": 51,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-052",
+      "title": "Add ExternalReferences and snapshot creation/restore functions",
+      "description": "As a developer, I need the foundational Rust functions for V8 startup snapshots: a static ExternalReferences array for bridge callbacks, a function to create a snapshot from bridge code, and a function to restore an isolate from a snapshot blob.",
+      "acceptanceCriteria": [
+        "bridge.rs exports external_refs() returning &'static ExternalReferences via OnceLock, containing sync_bridge_callback and async_bridge_callback",
+        "New snapshot.rs with create_snapshot(bridge_code) that creates a snapshot_creator isolate, compiles and runs bridge code, calls set_default_context and create_blob(FunctionCodeHandling::Keep), returns StartupData",
+        "snapshot.rs has create_isolate_from_snapshot(blob, heap_limit_mb) that creates an isolate via CreateParams with snapshot_blob and external_references",
+        "create_snapshot rejects blobs larger than 50MB",
+        "Unit tests: snapshot creation returns non-empty StartupData, restored isolate can execute JS that accesses bridge-compiled globals, restored isolate respects heap_limit_mb",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 52,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-053",
+      "title": "Add thread-safe SnapshotCache with LRU eviction",
+      "description": "As a developer, I need a thread-safe cache that stores snapshot blobs keyed by bridge code hash, with mutex-guarded get_or_create and LRU eviction.",
+      "acceptanceCriteria": [
+        "SnapshotCache struct in snapshot.rs with Mutex-guarded inner Vec of CacheEntry (bridge_hash u64, blob Arc<StartupData>)",
+        "get_or_create(bridge_code) locks mutex, hashes bridge code with SipHash (std DefaultHasher), returns cached Arc on hit, creates snapshot on miss",
+        "LRU eviction when cache exceeds max_entries (default 4): removes oldest entry",
+        "Arc<StartupData> is Send+Sync for safe sharing across session threads",
+        "Unit tests: cache hit returns same Arc, cache miss creates snapshot, LRU eviction removes oldest, concurrent get_or_create with same bridge code creates only one snapshot",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 53,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-054",
+      "title": "Add WarmSnapshot IPC message type",
+      "description": "As a developer, I need a WarmSnapshot message type in the IPC protocol so the host can pre-warm the snapshot cache before any session is created.",
+      "acceptanceCriteria": [
+        "BinaryFrame::WarmSnapshot { bridge_code: String } variant added to Rust ipc_binary.rs with a new message type byte",
+        "Encode/decode implemented in Rust: wire format is [msg_type][u32 bridge_code_len][bridge_code bytes]",
+        "TypeScript ipc-binary.ts encodeFrame/decodeFrame handle WarmSnapshot message type",
+        "Round-trip tests verify Rust encode/decode and TypeScript encode/decode produce identical wire format",
+        "cargo test passes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 54,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-055",
+      "title": "Wire SnapshotCache into session thread and connection handler",
+      "description": "As a developer, I need the session thread to use snapshots for isolate creation, and the connection handler to process WarmSnapshot messages.",
+      "acceptanceCriteria": [
+        "SessionManager owns a SnapshotCache (Arc, shared with connection handler)",
+        "Session thread receives Arc<SnapshotCache> and uses get_or_create(bridge_code) on first Execute to create the isolate from snapshot",
+        "disable_wasm() is called on every restored isolate before any code execution",
+        "main.rs connection handler processes WarmSnapshot by calling snapshot_cache.get_or_create(bridge_code) — no response sent",
+        "Fallback: if snapshot creation fails, falls back to isolate::create_isolate() with a warning log",
+        "cargo test passes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 55,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-056",
+      "title": "Add eager snapshot warm-up on module load",
+      "description": "As a developer, I need the host to send a WarmSnapshot message with the default bridge code immediately after connecting to the Rust process, so the snapshot is ready before any session.",
+      "acceptanceCriteria": [
+        "New composeBridgeCodeForWarmup() function in execution-driver.ts produces the default (non-freeze, default budgets) bridge code",
+        "runtime.ts sends WarmSnapshot message with the default bridge code after authenticate(), before returning the V8Runtime handle",
+        "SECURE_EXEC_NO_SNAPSHOT_WARMUP=1 env var skips sending WarmSnapshot",
+        "First session Execute with matching bridge code is a cache hit (no snapshot creation latency)",
+        "Sessions with different bridge code (freeze mode, different budgets) still work via lazy snapshot creation",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 56,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-057",
+      "title": "Add snapshot security and integration tests",
+      "description": "As a developer, I need integration tests proving snapshot security properties: WASM stays disabled, sessions are isolated, external references work, and warm-up eliminates cold-start.",
+      "acceptanceCriteria": [
+        "Test: WASM compilation throws after snapshot restore + disable_wasm()",
+        "Test: session A's snapshot does not leak state to session B (fresh context per session)",
+        "Test: FunctionTemplates registered on restored isolate correctly dispatch to Rust bridge callbacks (sync and async)",
+        "Test: WarmSnapshot followed by Execute with same bridge code is a cache hit",
+        "Test: SECURE_EXEC_NO_SNAPSHOT_WARMUP=1 skips warm-up; first Execute creates snapshot lazily",
+        "Test: different bridge code variants get separate snapshot entries",
+        "cargo test passes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 57,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-058",
+      "title": "Record context snapshot benchmark baseline (before)",
+      "description": "As a developer, I need to record benchmark baseline numbers before any context snapshot code changes, so we can measure the improvement afterwards.",
+      "acceptanceCriteria": [
+        "Run packages/secure-exec/benchmarks/quick-bench.ts and record cold/warm start times",
+        "Save results to packages/secure-exec/benchmarks/results/context_snapshot_before.json with hardware info and commit hash",
+        "Record at least 5 runs to get stable averages",
+        "Document current warm start baseline (~13ms expected from isolate-only snapshot)",
+        "No code changes to runtime, bridge, or snapshot code in this story",
+        "Typecheck passes"
+      ],
+      "priority": 58,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-069",
+      "title": "Fix IPC binary frame length guards and fnv1aHash (TypeScript)",
+      "description": "As a developer, I need to fix critical correctness bugs in the TypeScript IPC binary codec: readLenPrefixedU16 position advance, session ID overflow guard, u16 overflow guard, and fnv1aHash encoding mismatch.",
+      "acceptanceCriteria": [
+        "readLenPrefixedU16 in ipc-binary.ts advances pos by 2 + wire_length (the u16 value), not by 2 + Buffer.byteLength(decodedString)",
+        "encodeSessionId in ipc-binary.ts throws if session ID byte length exceeds 255",
+        "writeLenPrefixedU16 in ipc-binary.ts throws if string byte length exceeds 0xFFFF",
+        "fnv1aHash in runtime.ts hashes over UTF-8 bytes (Buffer.from(str, 'utf8')) instead of UTF-16 code units (charCodeAt)",
+        "Existing ipc-binary.test.ts tests still pass",
+        "Add test: readLenPrefixedU16 with multi-byte UTF-8 string verifies correct pos advance",
+        "Add test: encodeSessionId throws on >255 byte session ID",
+        "Add test: writeLenPrefixedU16 throws on >65535 byte string",
+        "Add test: fnv1aHash produces same hash for ASCII and non-ASCII strings as Rust FNV-1a over UTF-8 bytes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 59,
+      "passes": true,
+      "notes": "Fixed: readLenPrefixedU16 returns bytesRead from wire length instead of re-encoded string length; encodeSessionId throws on >255 bytes; writeLenPrefixedU16 throws on >65535 bytes; fnv1aHash hashes over UTF-8 bytes via Buffer.from()."
+    },
+    {
+      "id": "US-070",
+      "title": "Fix IPC binary frame length guards (Rust)",
+      "description": "As a developer, I need to add overflow guards in the Rust IPC binary encoder to prevent silent truncation of session IDs and string fields.",
+      "acceptanceCriteria": [
+        "write_session_id in ipc_binary.rs returns an error (or panics) if session ID byte length exceeds 255 instead of silently truncating with 'as u8'",
+        "write_len_prefixed_u16 in ipc_binary.rs returns an error if string byte length exceeds 65535 instead of silently truncating with 'as u16'",
+        "Execute frame file_path encoding returns an error if byte length exceeds 65535",
+        "Remove dead code: serialize_v8_args function in bridge.rs (unused)",
+        "Add tests: write_session_id rejects >255 byte session ID",
+        "Add tests: write_len_prefixed_u16 rejects >65535 byte string",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 60,
+      "passes": true,
+      "notes": "Fixed: write_session_id returns error on >255 bytes; write_len_prefixed_u16 returns error on >65535 bytes; encode_body propagates errors; Execute file_path uses write_len_prefixed_u16; removed dead serialize_v8_args."
+    },
+    {
+      "id": "US-071",
+      "title": "Add bounded IPC channels with backpressure",
+      "description": "As a developer, I need the IPC writer channel and session command channels to be bounded to prevent unbounded memory growth when consumers are slow.",
+      "acceptanceCriteria": [
+        "IPC writer channel in main.rs uses crossbeam_channel::bounded (e.g. capacity 1024) instead of unbounded",
+        "Session command channel in session.rs uses crossbeam_channel::bounded (e.g. capacity 256) instead of unbounded",
+        "Session threads block naturally when the IPC writer buffer is full (backpressure)",
+        "Connection handler blocks when session command buffer is full",
+        "Existing tests pass without timeout issues (bounds are generous enough for test workloads)",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 61,
+      "passes": true,
+      "notes": "Changed IPC writer channel to bounded(1024) in main.rs and session command channel to bounded(256) in session.rs. All 79 cargo tests pass, all 28 typecheck tasks pass."
+    },
+    {
+      "id": "US-072",
+      "title": "Fix auth token comparison and socket directory security",
+      "description": "As a developer, I need constant-time auth token comparison and race-free socket directory creation.",
+      "acceptanceCriteria": [
+        "Auth token comparison in main.rs uses constant-time byte comparison (XOR-accumulate or subtle::ConstantTimeEq) instead of String::eq",
+        "Socket directory creation uses std::os::unix::fs::DirBuilderExt with .mode(0o700) instead of create_dir + set_permissions (eliminates TOCTOU race)",
+        "Add subtle crate to Cargo.toml dependencies (or implement manual constant-time compare)",
+        "Existing auth tests still pass",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 62,
+      "passes": true,
+      "notes": "Fixed: constant_time_eq (XOR-accumulate) replaces String::eq for auth token comparison; DirBuilder::mode(0o700) replaces create_dir+set_permissions for race-free socket directory creation."
+    },
+    {
+      "id": "US-073",
+      "title": "Fix call_id overflow and accept error handling",
+      "description": "As a developer, I need call_id to use AtomicU64 to prevent wrap-around collisions, and transient accept errors to not kill the server.",
+      "acceptanceCriteria": [
+        "next_call_id in host_call.rs uses AtomicU64 instead of AtomicU32 to prevent wrap-around after ~4 billion calls",
+        "call_id field in BridgeCall wire format uses u64 (update ipc_binary.rs encode/decode for BridgeCall and BridgeResponse)",
+        "Accept error in main.rs logs the error and continues the loop for transient errors (EMFILE, ENFILE) instead of breaking",
+        "Fatal accept errors still break the loop",
+        "Update TypeScript ipc-binary.ts to read/write u64 call_id (or verify existing BigInt/number handling)",
+        "cargo test passes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 63,
+      "passes": true,
+      "notes": "Fixed: call_id uses AtomicU64 (was AtomicU32); wire format uses 8-byte BE for BridgeCall/BridgeResponse call_id on both Rust and TS sides; accept loop continues on transient errors (EMFILE, ENFILE, ECONNABORTED, EINTR, EAGAIN) instead of breaking."
+    },
+    {
+      "id": "US-074",
+      "title": "Fix snapshot cache mutex contention",
+      "description": "As a developer, I need the snapshot cache to release the mutex before calling create_snapshot, preventing a DoS where one slow snapshot creation blocks all concurrent session starts.",
+      "acceptanceCriteria": [
+        "SnapshotCache::get_or_create uses two-phase locking: check cache under short lock, drop lock before create_snapshot, re-acquire to insert",
+        "Use per-key in-flight tracking (e.g. HashMap<u64, Arc<Mutex<()>>>) so duplicate creators for the same key wait on each other, not the global lock",
+        "Concurrent callers requesting different bridge code variants are not blocked by each other",
+        "Add test: two concurrent get_or_create calls with different bridge codes do not serialize",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 74,
+      "passes": false,
+      "notes": "PR review finding: Critical DoS vector. Mutex held during V8 isolate creation + compilation + heap serialization blocks all callers."
+    },
+    {
+      "id": "US-075",
+      "title": "Fix ChannelResponseReceiver consuming wrong messages",
+      "description": "As a developer, I need sync bridge calls to not consume StreamEvent or TerminateExecution messages from the session channel.",
+      "acceptanceCriteria": [
+        "ChannelResponseReceiver::recv_response in session.rs only returns BridgeResponse frames, not StreamEvent or TerminateExecution",
+        "Non-BridgeResponse messages received during a sync bridge call are queued for later processing by the event loop",
+        "StreamEvent messages are not lost during sync-blocking bridge operations",
+        "Add test: sync bridge call interleaved with StreamEvent does not drop the StreamEvent",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 75,
+      "passes": false,
+      "notes": "PR review finding: sync_call consumes and discards non-BridgeResponse messages from the shared session channel."
+    },
+    {
+      "id": "US-076",
+      "title": "Fix shared V8 runtime lifecycle and retry",
+      "description": "As a developer, I need the shared V8 runtime singleton to have a teardown path and to allow retry on startup failure.",
+      "acceptanceCriteria": [
+        "Export disposeSharedV8Runtime() function from packages/secure-exec-node/src/index.ts",
+        "Register process.on('beforeExit') handler in execution-driver.ts that calls sharedV8Runtime.dispose()",
+        "Add .catch() handler to sharedV8RuntimePromise that resets sharedV8RuntimePromise = null on failure, allowing retry",
+        "Add test: disposeSharedV8Runtime() kills the child process",
+        "Add test: after simulated createV8Runtime failure, next getSharedV8Runtime() retries successfully",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 76,
+      "passes": false,
+      "notes": "PR review finding: Orphan Rust child process on host exit; permanently cached rejection on startup failure."
+    },
+    {
+      "id": "US-077",
+      "title": "Fix pending session rejection on socket close",
+      "description": "As a developer, I need all pending execute() promises to be rejected when the IPC socket closes, not just when the child process exits.",
+      "acceptanceCriteria": [
+        "onClose callback in runtime.ts calls rejectPendingSessions() with an appropriate error (e.g. 'IPC connection closed')",
+        "execute() promise rejects promptly when the Rust process deadlocks without exiting (socket close triggers rejection)",
+        "Wire up _reject in the execute() Promise constructor for error conditions",
+        "Add test: closing the IPC socket while execute() is in-flight rejects the promise",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 77,
+      "passes": false,
+      "notes": "PR review finding: execute() can hang forever if Rust process deadlocks without exiting."
+    },
+    {
+      "id": "US-078",
+      "title": "Fix bridge code cache and contract types",
+      "description": "As a developer, I need the bridge code cache to account for timingMitigation, and bridge contract types to be accurate.",
+      "acceptanceCriteria": [
+        "composeBridgeCode cache in execution-driver.ts is keyed on timingMitigation value (not just a single cached string)",
+        "Add _batchResolveModules to HOST_BRIDGE_GLOBAL_KEYS in bridge-contract.ts with a corresponding type",
+        "Update DynamicImportBridgeRef type in bridge-contract.ts to reflect that the V8 path returns string|null (source code), not Record<string, unknown>|null",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 78,
+      "passes": false,
+      "notes": "PR review finding: Bridge code cache ignores timingMitigation changes; contract types are stale."
+    },
+    {
+      "id": "US-079",
+      "title": "Add missing console method stubs",
+      "description": "As a developer, I need the console shim to include debug, trace, dir, and table methods so sandbox code calling these doesn't throw TypeError.",
+      "acceptanceCriteria": [
+        "getConsoleSetupCode() in console-formatter.ts adds console.debug routing to _log (same as console.log)",
+        "console.trace routes to _error (same as console.warn)",
+        "console.dir routes to _log",
+        "console.table routes to _log with basic formatting",
+        "Add test: console.debug('test') in sandbox produces stdout output",
+        "Add test: console.trace('test') in sandbox produces stderr output",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 79,
+      "passes": false,
+      "notes": "PR review finding: console.debug() throws TypeError in sandbox because it's undefined."
+    },
+    {
+      "id": "US-080",
+      "title": "Fix bridge-hardening test correctness",
+      "description": "As a developer, I need the setInterval minimum delay test to actually verify the behavior it claims to test.",
+      "acceptanceCriteria": [
+        "Fix cpuTimeMs to cpuTimeLimitMs in bridge-hardening.test.ts line ~301 (the recognized option name)",
+        "Replace trivially-true assertion 'result.code === 0 || result.code !== undefined' with meaningful check like 'expect([0, 124]).toContain(result.code)'",
+        "Move counter assertions outside the 'if (stdout)' conditional, or add 'expect(stdout).toBeTruthy()' guard so empty stdout fails the test",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 80,
+      "passes": false,
+      "notes": "PR review finding: Test passes with zero meaningful assertions due to wrong option name + trivially-true assertion + conditional skip."
+    },
+    {
+      "id": "US-081",
+      "title": "Fix hono-fetch-external test",
+      "description": "As a developer, I need the fully-skipped hono-fetch-external test to either be rewritten for the V8 runtime or removed.",
+      "acceptanceCriteria": [
+        "Remove describe.skip wrapper from hono-fetch-external.test.ts",
+        "Rewrite the test to work with the V8 runtime (install fixture deps, run hono fetch, verify response)",
+        "If the test cannot work without external network access, mark it with a clear skip condition (e.g. skipIf(!process.env.CI)) with a comment explaining why",
+        "Remove empty test body — test must have assertions",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 81,
+      "passes": false,
+      "notes": "PR review finding: Entire test file is describe.skip with empty body. US-033 marked complete despite this gap."
+    },
+    {
+      "id": "US-082",
+      "title": "Add memoryLimit recovery test",
+      "description": "As a developer, I need a test proving the runtime is still usable after a session triggers OOM, matching the existing cpuTimeLimitMs recovery tests.",
+      "acceptanceCriteria": [
+        "Add test in resource-limits.test.ts: after OOM execution (memoryLimit: 32, allocate-until-crash), a subsequent exec() on the same runtime succeeds with exit code 0",
+        "This mirrors 'keeps isolate usable after cpuTimeLimitMs timeout' test pattern from index.test.ts",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 82,
+      "passes": false,
+      "notes": "PR review finding: CPU timeout recovery is tested but memory limit recovery is not."
+    },
+    {
+      "id": "US-083",
+      "title": "Add cargo clippy and fmt to Rust CI",
+      "description": "As a developer, I need the Rust CI workflow to run clippy and rustfmt checks to catch lint and formatting regressions.",
+      "acceptanceCriteria": [
+        "Add a 'lint' job to .github/workflows/rust.yml that runs on ubuntu-latest",
+        "Lint job runs 'cargo clippy --all-targets -- -D warnings' on crates/v8-runtime",
+        "Lint job runs 'cargo fmt --all -- --check' on crates/v8-runtime",
+        "Fix any existing clippy warnings so the job passes",
+        "Lint job runs before the build matrix (fail fast on lint errors)",
+        "Typecheck passes"
+      ],
+      "priority": 83,
+      "passes": false,
+      "notes": "PR review finding: No lint or format checks in Rust CI."
+    },
+    {
+      "id": "US-084",
+      "title": "Fix docs: experimental warning and FD limit",
+      "description": "As a developer, I need process-isolation.mdx to have an experimental warning since it depends on @secure-exec/v8@0.1.0, and security-model.mdx to document the FD table limit.",
+      "acceptanceCriteria": [
+        "Add experimental/beta warning callout to docs/process-isolation.mdx noting that the V8 runtime and process isolation API are new",
+        "Add FD table limit (1024 open file descriptors per isolate) to the Resource Limits section of docs/security-model.mdx",
+        "Typecheck passes"
+      ],
+      "priority": 84,
+      "passes": false,
+      "notes": "PR review finding: process-isolation.mdx listed as stable feature but depends on experimental package; FD limit not documented."
+    },
+    {
+      "id": "US-059",
+      "title": "Fix setupFsFacade to use getter-based delegation",
+      "description": "As a developer, I need setupFsFacade to use getter-based property delegation instead of capturing bridge function references at setup time, so snapshot-restored contexts pick up replaced globals.",
+      "acceptanceCriteria": [
+        "setup-fs-facade.ts replaces direct property assignment (_fs.readFile = globalThis._fsReadFile) with Object.defineProperties using getters",
+        "Each _fs property getter resolves globalThis._fsXxx at call time, not setup time",
+        "All fs bridge function names are covered (readFile, writeFile, readFileBinary, writeFileBinary, readDir, mkdir, rmdir, exists, stat, unlink, rename, chmod, chown, link, symlink, readlink, lstat, truncate, utimes)",
+        "All existing fs tests pass unchanged — getter delegation is transparent to callers",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 64,
+      "passes": true,
+      "notes": "Already implemented in prior iteration (getter-based Object.defineProperties in setup-fs-facade.ts and generated isolate-runtime.ts). All 19 fs functions covered. Typecheck passes (28/28), fs type tests pass (3/3)."
+    },
+    {
+      "id": "US-060",
+      "title": "Defer config-dependent bridge setup to post-restore init",
+      "description": "As a developer, I need config-dependent values (payload limits, timing mitigation) to be read lazily from globals at call time instead of captured at bridge IIFE setup time, enabling context snapshot reuse across sessions with different configs.",
+      "acceptanceCriteria": [
+        "__jsonPayloadLimitBytes reads from globalThis.__runtimeJsonPayloadLimitBytes at call time instead of capturing at setup",
+        "__payloadLimitErrorCode reads from globalThis.__runtimePayloadLimitErrorCode at call time",
+        "Timing mitigation freeze is applied via globalThis.__runtimeApplyConfig(config) called post-restore, not baked into bridge IIFE",
+        "globalThis.__runtimeApplyConfig function exists after bridge IIFE runs, accepts config object with timingMitigation, frozenTimeMs, payloadLimitBytes fields",
+        "__runtimeApplyConfig deletes itself from globalThis after execution",
+        "All existing timing mitigation tests pass",
+        "All existing payload limit tests pass",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 65,
+      "passes": true,
+      "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 2. Replaced closure-captured __jsonPayloadLimitBytes and __payloadLimitErrorCode with globalThis reads at call time. Added __runtimeApplyConfig function that applies timing mitigation freeze, payload limits, and deletes itself. composeBridgeCode() now caches the config-independent IIFE and appends per-execution __runtimeApplyConfig() call."
+    },
+    {
+      "id": "US-061",
+      "title": "Split composeBridgeCode into static and post-restore parts",
+      "description": "As a developer, I need composeBridgeCode() split into a static bridge IIFE (identical across all sessions) and a short post-restore config script, so one snapshot serves all session variants.",
+      "acceptanceCriteria": [
+        "New composeStaticBridgeCode() returns the bridge IIFE without any per-session config literals (timingMitigation, frozenTimeMs, maxTimers, maxHandles not embedded)",
+        "New composePostRestoreScript(config) returns a short script that calls __runtimeApplyConfig({...}) and loads polyfills",
+        "composeStaticBridgeCode() output is byte-for-byte identical regardless of session options",
+        "Existing composeBridgeCode() refactored to use the new functions (or replaced entirely)",
+        "Post-restore script handles timing mitigation, payload limits, CJS globals, and polyfill loading",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 66,
+      "passes": true,
+      "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 3. composeStaticBridgeCode() uses DEFAULT values for all config (module-level cached). composePostRestoreScript() overrides per-session maxTimers, maxHandles, initialCwd, and calls __runtimeApplyConfig. composeBridgeCodeForWarmup() refactored to use both. Instance composeBridgeCode() refactored to use both. Exported from @secure-exec/node."
+    },
+    {
+      "id": "US-062",
+      "title": "Add stub bridge context and registration for snapshot creation",
+      "description": "As a developer, I need BridgeCallContext::stub() and register_stub_bridge_fns() so snapshot creation can register all 38 bridge functions as no-op stubs that exist for the IIFE to reference during setup.",
+      "acceptanceCriteria": [
+        "BridgeCallContext::stub() creates a no-op context that panics if sync_call or async_send is called",
+        "register_stub_bridge_fns(scope, sync_fns, async_fns) registers all bridge functions with stub External data on the global",
+        "Stub functions use the same sync_bridge_callback/async_bridge_callback (required for ExternalReferences in snapshot)",
+        "Bridge IIFE can execute against stub functions without errors (verifies setup-time code doesn't call bridge functions)",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 67,
+      "passes": true,
+      "notes": "BridgeCallContext::stub() panics on sync_call/async_send. register_stub_bridge_fns() registers FunctionTemplates with same callbacks but no External data (avoids SIGSEGV during snapshot serialization). After restore, stubs are replaced with real functions. SYNC_BRIDGE_FNS/ASYNC_BRIDGE_FNS made pub(crate). Tests: stub panic tests in host_call.rs, stub registration + snapshot creation in snapshot.rs."
+    },
+    {
+      "id": "US-063",
+      "title": "Implement context snapshot creation with fully-initialized bridge",
+      "description": "As a developer, I need create_snapshot() to register stub bridge functions, inject default config, run the static bridge IIFE, and snapshot the context with all bridge infrastructure set up.",
+      "acceptanceCriteria": [
+        "create_snapshot() registers stub bridge functions on the context global before running bridge IIFE",
+        "Default config globals are injected (initialCwd, processConfig, osConfig, maxTimers, maxHandles, customGlobalPolicy)",
+        "Static bridge IIFE is compiled and executed in the context",
+        "set_default_context(context) is called before create_blob — the context is part of the snapshot",
+        "Restored context has all bridge infrastructure: require(), console, fs facade, module system, custom globals",
+        "Snapshot blob is cached in SnapshotCache keyed by bridge code hash",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 68,
+      "passes": true,
+      "notes": "create_snapshot() registers all 38 stub bridge functions via register_stub_bridge_fns(), injects default _processConfig and _osConfig via inject_snapshot_defaults(), runs the bridge IIFE, then snapshots the fully-initialized context. Tests verify: stubs and config globals present during IIFE execution (Part 15), getter facade + closures + config reads work through create_snapshot() and are preserved in restored context (Part 16), SnapshotCache works with new create_snapshot (Part 17)."
+    },
+    {
+      "id": "US-064",
+      "title": "Implement context restore with bridge function replacement",
+      "description": "As a developer, I need the session thread to restore the snapshot context, replace stub bridge functions with real session-local ones, and run the post-restore config script instead of recompiling the bridge IIFE.",
+      "acceptanceCriteria": [
+        "Session thread gets default context from snapshot via scope.get_current_context() instead of creating fresh context",
+        "replace_bridge_fns(scope, ctx, buffers, sync_fns, async_fns) overwrites all 38 stub globals with real session-local bridge functions",
+        "Per-session config (_processConfig, _osConfig) is injected via inject_globals_from_payload",
+        "Post-restore config script is executed to apply timing mitigation and load polyfills",
+        "No bridge IIFE compilation or execution on restore path",
+        "disable_wasm() is called on restored isolate",
+        "All existing tests pass — behavioral parity with fresh-context path",
+        "cargo test passes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 69,
+      "passes": true,
+      "notes": "Context::new on snapshot-restored isolate gives a clone of the default context with bridge IIFE state. replace_bridge_fns() overwrites 38 stub globals with real session-local functions. inject_snapshot_defaults uses READ_ONLY only (no DONT_DELETE) so inject_globals_from_payload can override per-session. Session thread skips bridge_code on snapshot path (from_snapshot flag). Tests: Part 18 (replace + dispatch), Part 19 (_processConfig override), Part 20 (multi-restore isolation)."
+    },
+    {
+      "id": "US-065",
+      "title": "Wire post-restore init script through IPC",
+      "description": "As a developer, I need the post-restore script sent from the host and executed on the Rust side after context restore, handling config application, polyfill loading, and mutable state reset.",
+      "acceptanceCriteria": [
+        "Execute message includes a post_restore_script field (or it is composed on the Rust side from config)",
+        "Post-restore script calls __runtimeApplyConfig({timingMitigation, frozenTimeMs, payloadLimitBytes})",
+        "Post-restore script loads polyfills via _loadPolyfill() calls",
+        "Post-restore script resets mutable state: require.cache cleared, process.exitCode reset, _processStartTime set to Date.now()",
+        "Post-restore script runs BEFORE user code but AFTER bridge function replacement",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 70,
+      "passes": true,
+      "notes": "Added post_restore_script field to Execute IPC message (Rust + TS). Rust session runs it via run_init_script() after bridge fn replacement, before user code. execution-driver.ts sends static IIFE as bridgeCode and composePostRestoreScript() as separate postRestoreScript. Bridge process.ts exposes __runtimeResetProcessState() for mutable state reset (processStartTime, exitCode, exited). Polyfills load lazily via require() — no eager _loadPolyfill calls needed."
+    },
+    {
+      "id": "US-066",
+      "title": "Add context snapshot tests",
+      "description": "As a developer, I need tests covering all context snapshot behaviors: getter facade, config deferral, bridge replacement, timing mitigation, polyfill loading, and full round-trip.",
+      "acceptanceCriteria": [
+        "Test: _fs.readFile resolves to the current global, not a stale reference from snapshot",
+        "Test: __runtimeApplyConfig correctly applies timing freeze, payload limits",
+        "Test: restored context has working require(), console, fs, module system",
+        "Test: replacing stub bridge functions on restored context correctly dispatches to Rust callbacks (sync and async)",
+        "Test: timing mitigation freeze applied via post-restore script correctly freezes Date.now and removes SharedArrayBuffer",
+        "Test: polyfills loaded via post-restore script work correctly",
+        "Test: exec() and run() produce correct results on snapshot-restored context",
+        "Test: all existing test suites pass with no regressions",
+        "cargo test passes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 71,
+      "passes": true,
+      "notes": "36 tests across 2 files: V8-level (17 tests in packages/secure-exec-v8/test/context-snapshot-behavior.test.ts) covers getter FS facade, config application, bridge infrastructure (sync/async), polyfill bridge, exec/run results, session isolation. NodeRuntime-level (19 tests in packages/secure-exec/tests/runtime-driver/node/context-snapshot-behavior.test.ts) covers timing mitigation freeze/off, console routing, CJS file globals, SharedArrayBuffer removal, exec/run correctness. Pre-existing CJS globals issue (require/module undefined) prevents some ACs from being tested at NodeRuntime level — covered at V8 IPC level instead."
+    },
+    {
+      "id": "US-067",
+      "title": "Verify context snapshot benchmark improvement (after)",
+      "description": "As a developer, I need to run benchmarks after context snapshot implementation and compare against the baseline to verify the expected performance improvement.",
+      "acceptanceCriteria": [
+        "Run packages/secure-exec/benchmarks/quick-bench.ts and record cold/warm start times",
+        "Save results to packages/secure-exec/benchmarks/results/context_snapshot_after.json",
+        "Warm start (per-session cost) must be < 6ms (down from ~13ms baseline)",
+        "Cold start must not regress (should stay ~47-67ms steady state or improve)",
+        "Create packages/secure-exec/benchmarks/results/context_snapshot_comparison.md with before/after table",
+        "If warm start improvement < 40%, add per-phase timing instrumentation and investigate",
+        "All existing test suites still pass",
+        "Typecheck passes"
+      ],
+      "priority": 72,
+      "passes": true,
+      "notes": "Warm start: 2.7ms mean (80% improvement from 13.75ms baseline, target was <6ms). Cold steady-state: 22ms (54% improvement from 48ms). Cold process start: 66ms (34% improvement from 100ms). Results in context_snapshot_after.json and context_snapshot_comparison.md."
+    },
+    {
+      "id": "US-068",
+      "title": "Research additional V8 runtime performance optimizations",
+      "description": "As a developer, I need to research and document further optimization opportunities beyond context snapshots, including per-session sockets, mmap/shared-memory IPC, and other latency reduction techniques.",
+      "acceptanceCriteria": [
+        "Profile the warm start path with per-phase timing (context restore, bridge fn replacement, config injection, user code compile+run, IPC round-trips) and document where time is spent",
+        "Evaluate per-session UDS sockets: measure head-of-line blocking impact with large payloads under concurrent sessions, estimate FD cost",
+        "Evaluate mmap/shared-memory ring buffer IPC: estimate latency savings vs implementation complexity, document lock-free sync requirements and crash cleanup concerns",
+        "Evaluate V8 code caching for user code (not just bridge): measure compilation time for typical user scripts, estimate cache hit rate",
+        "Document findings in docs-internal/specs/v8-perf-research.md with recommendation priority (quick wins vs high-effort)",
+        "Update docs-internal/todo.md with any new actionable items discovered",
+        "Typecheck passes"
+      ],
+      "priority": 73,
+      "passes": false,
+      "notes": "Research story — no code changes required beyond documentation and profiling scripts."
+    },
+    {
+      "id": "US-085",
+      "title": "Fix V8 process cleanup hang on terminate/dispose",
+      "description": "As a developer, I need terminate() and dispose() on V8Runtime to cleanly shut down the Rust child process so the Node process can exit without hanging or requiring process.exit().",
+      "acceptanceCriteria": [
+        "After runtime.terminate(), the Rust child process exits within 5 seconds",
+        "After runtime.dispose(), no child process, socket, or file descriptor remains open",
+        "Node process exits cleanly after all runtimes are terminated — no hanging event loop",
+        "Remove process.exit(0) hacks from benchmarks/quick-bench.ts and benchmarks/coldstart.bench.ts",
+        "Investigate root cause: check for unclosed IPC socket, pending event listeners on child process, or unfinished async operations preventing Node exit",
+        "Add integration test: create runtime, run code, terminate, verify process exits cleanly without process.exit()",
+        "If SIGTERM is insufficient, add SIGKILL fallback after timeout",
+        "cargo test passes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 76,
+      "passes": false,
+      "notes": "Workaround: benchmarks use process.exit(0) after completion. Root cause likely unclosed socket or event listener keeping Node event loop alive after terminate(). Related to US-076 (shared lifecycle) but distinct issue."
     }
   ]
 }

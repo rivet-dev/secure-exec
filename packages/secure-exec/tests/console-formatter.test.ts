@@ -72,15 +72,11 @@ describe("console formatter", () => {
 		const stdout: string[] = [];
 		const stderr: string[] = [];
 		const context = createContext({
-			_log: {
-				applySync: (_receiver: unknown, args: unknown[]) => {
-					stdout.push(String(args[0]));
-				},
+			_log: (msg: unknown) => {
+				stdout.push(String(msg));
 			},
-			_error: {
-				applySync: (_receiver: unknown, args: unknown[]) => {
-					stderr.push(String(args[0]));
-				},
+			_error: (msg: unknown) => {
+				stderr.push(String(msg));
 			},
 		});
 

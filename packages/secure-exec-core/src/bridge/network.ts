@@ -135,18 +135,7 @@ export async function fetch(input: string | URL | Request, options: FetchOptions
     body: options.body || null,
   });
 
-  const responseJson = await _networkFetchRaw.apply(undefined, [resolvedUrl, optionsJson], {
-    result: { promise: true },
-  });
-  const response = JSON.parse(responseJson) as {
-    ok: boolean;
-    status: number;
-    statusText: string;
-    headers?: Record<string, string>;
-    url?: string;
-    redirected?: boolean;
-    body?: string;
-  };
+  const response = await _networkFetchRaw(String(url), optionsJson);
 
   // Create Response-like object
   return {
@@ -324,10 +313,8 @@ export const dns = {
       cb = options as DnsCallback;
     }
 
-    _networkDnsLookupRaw
-      .apply(undefined, [hostname], { result: { promise: true } })
-      .then((resultJson) => {
-        const result = JSON.parse(resultJson) as { error?: string; code?: string; address?: string; family?: number };
+    _networkDnsLookupRaw(hostname)
+      .then((result) => {
         if (result.error) {
           const err: DnsError = new Error(result.error);
           err.code = result.code || "ENOTFOUND";
@@ -775,18 +762,7 @@ export class ClientRequest {
         ...tls,
       });
 
-      const responseJson = await _networkHttpRequestRaw.apply(undefined, [url, optionsJson], {
-        result: { promise: true },
-      });
-      const response = JSON.parse(responseJson) as {
-        headers?: Record<string, string>;
-        url?: string;
-        status?: number;
-        statusText?: string;
-        body?: string;
-        trailers?: Record<string, string>;
-        upgradeSocketId?: number;
-      };
+      const response = await _networkHttpRequestRaw(url, optionsJson);
 
       this.finished = true;
 
@@ -1415,12 +1391,9 @@ class Server {
       );
     }
 
-    const resultJson = await _networkHttpServerListenRaw.apply(
-      undefined,
-      [JSON.stringify({ serverId: this._serverId, port, hostname })],
-      { result: { promise: true } }
+    const result = await _networkHttpServerListenRaw(
+      JSON.stringify({ serverId: this._serverId, port, hostname }),
     );
-    const result = JSON.parse(resultJson) as SerializedServerListenResult;
     this._address = result.address;
     this.listening = true;
     this._handleId = `http-server:${this._serverId}`;
@@ -1465,9 +1438,7 @@ class Server {
           await this._listenPromise;
         }
         if (this.listening && typeof _networkHttpServerCloseRaw !== "undefined") {
-          await _networkHttpServerCloseRaw.apply(undefined, [this._serverId], {
-            result: { promise: true },
-          });
+          await _networkHttpServerCloseRaw(this._serverId);
         }
         this.listening = false;
         this._address = null;
@@ -1551,14 +1522,12 @@ class Server {
 /** Route an incoming HTTP request to the server's request listener and return the serialized response. */
 async function dispatchServerRequest(
   serverId: number,
-  requestJson: string
-): Promise<string> {
+  request: SerializedServerRequest
+): Promise<SerializedServerResponse> {
   const listener = serverRequestListeners.get(serverId);
   if (!listener) {
     throw new Error(`Unknown HTTP server: ${serverId}`);
   }
-
-  const request = JSON.parse(requestJson) as SerializedServerRequest;
   const incoming = new ServerIncomingMessage(request);
   const outgoing = new ServerResponseBridge();
 
@@ -1588,7 +1557,7 @@ async function dispatchServerRequest(
   }
 
   await outgoing.waitForClose();
-  return JSON.stringify(outgoing.serialize());
+  return outgoing.serialize();
 }
 
 // Upgrade socket for bidirectional data relay through the host bridge

@@ -1,6 +1,6 @@
 {
   "name": "secure-exec",
-  "version": "0.1.0",
+  "version": "0.1.1-rc.2",
   "type": "module",
   "license": "Apache-2.0",
   "main": "./dist/index.js",
@@ -16,16 +16,19 @@
   },
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "default": "./dist/index.js"
     },
     "./browser": {
+      "types": "./dist/browser-runtime.d.ts",
       "import": "./dist/browser-runtime.js",
-      "types": "./dist/browser-runtime.d.ts"
+      "default": "./dist/browser-runtime.js"
     },
     "./python": {
+      "types": "./dist/python-runtime.d.ts",
       "import": "./dist/python-runtime.js",
-      "types": "./dist/python-runtime.d.ts"
+      "default": "./dist/python-runtime.js"
     }
   },
   "scripts": {
@@ -50,6 +53,7 @@
     "@secure-exec/python": "workspace:*"
   },
   "devDependencies": {
+    "@secure-exec/v8": "workspace:*",
     "@mariozechner/pi-coding-agent": "^0.60.0",
     "@opencode-ai/sdk": "^1.2.27",
     "@types/node": "^22.10.2",
