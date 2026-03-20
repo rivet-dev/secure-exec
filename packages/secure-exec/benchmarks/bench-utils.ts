@@ -3,8 +3,8 @@ import {
 	createNodeDriver,
 	createNodeRuntimeDriverFactory,
 	createNodeV8Runtime,
-} from "@secure-exec/node";
-import type { V8Runtime } from "@secure-exec/node";
+} from "../src/index.js";
+import type { V8Runtime } from "../src/index.js";
 import os from "node:os";
 
 export const BATCH_SIZES = [1, 10, 50, 100, 200];

@@ -38,17 +38,20 @@ export type {
 	TimingMitigation,
 } from "./shared/api-types.js";
 
-// Re-export Node driver factories.
+// Re-export Node driver factories and V8 runtime.
 export {
 	createDefaultNetworkAdapter,
 	createNodeDriver,
 	createNodeRuntimeDriverFactory,
+	createNodeV8Runtime,
 	NodeExecutionDriver,
 	NodeFileSystem,
 } from "@secure-exec/node";
 export type {
 	ModuleAccessOptions,
 	NodeRuntimeDriverFactoryOptions,
+	NodeV8RuntimeOptions,
+	V8Runtime,
 } from "@secure-exec/node";
 
 // TODO: Re-enable once @secure-exec/python is a reliable optional dependency

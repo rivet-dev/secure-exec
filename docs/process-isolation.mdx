@@ -43,7 +43,7 @@ import {
   NodeRuntime,
   createNodeDriver,
   createNodeRuntimeDriverFactory,
-} from "@secure-exec/node";
+} from "secure-exec";
 
 const rt = new NodeRuntime({
   systemDriver: createNodeDriver(),
@@ -62,12 +62,12 @@ NodeRuntime C ──── Tenant 2 Process (sessions: C1)
 ```
 
 ```ts
-import { createNodeV8Runtime } from "@secure-exec/node";
+import { createNodeV8Runtime } from "secure-exec";
 import {
   NodeRuntime,
   createNodeDriver,
   createNodeRuntimeDriverFactory,
-} from "@secure-exec/node";
+} from "secure-exec";
 
 // Create a dedicated process for this tenant
 const tenantProcess = await createNodeV8Runtime({ maxSessions: 10 });
@@ -95,12 +95,12 @@ NodeRuntime B ──── Process B (session: B1)
 ```
 
 ```ts
-import { createNodeV8Runtime } from "@secure-exec/node";
+import { createNodeV8Runtime } from "secure-exec";
 import {
   NodeRuntime,
   createNodeDriver,
   createNodeRuntimeDriverFactory,
-} from "@secure-exec/node";
+} from "secure-exec";
 
 const processA = await createNodeV8Runtime();
 const processB = await createNodeV8Runtime();
