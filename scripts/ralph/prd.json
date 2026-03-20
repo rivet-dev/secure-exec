@@ -897,8 +897,8 @@
         "Typecheck passes"
       ],
       "priority": 53,
-      "passes": false,
-      "notes": "Spec: docs-internal/specs/v8-startup-snapshot.md. Mutex hold time during snapshot creation (~20ms) is acceptable — happens once per variant."
+      "passes": true,
+      "notes": "Spec: docs-internal/specs/v8-startup-snapshot.md. Blob stored as Arc<Vec<u8>> (not Arc<StartupData>) because v8::StartupData contains raw pointers that are not Send/Sync. LRU moves accessed entries to end on hit. 4 new test parts: cache hit same Arc, cache miss different Arc, LRU eviction, concurrent access."
     },
     {
       "id": "US-054",

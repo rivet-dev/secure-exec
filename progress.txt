@@ -14,6 +14,7 @@ PRD: ralph/kernel-hardening (46 stories)
 - SharedArrayBuffer removal must happen AFTER bridge bundle loads (applyTimingMitigationFreeze JS), not in Rust inject_globals
 - V8 snapshot tests must be consolidated into a single #[test] fn (like execution::tests) — parallel V8 isolate teardown causes SIGSEGV
 - v8::CreateParams::snapshot_blob() needs owned data (Deref<Target=[u8]> + Borrow<[u8]> + 'static); use Vec<u8> or StartupData, not &[u8]
+- v8::StartupData is not Send/Sync (contains *const i8) — store snapshot blobs as Arc<Vec<u8>> for cross-thread sharing; SnapshotCache.get_or_create() returns Arc<Vec<u8>>
 - ExternalReference { function: callback.map_fn_to() } — MapFnTo trait converts Rust fn to extern "C" FunctionCallback
 - ivm-compat shim adds .applySync/.applySyncPromise to Rust-registered functions; .apply() works via Function.prototype.apply (no shim needed)
 - @secure-exec/v8 is ESM — use `fileURLToPath(import.meta.url)` for __dirname, not `require()` or `__dirname` global
@@ -2673,4 +2674,16 @@ PRD: ralph/kernel-hardening (46 stories)
   - v8::CreateParams::snapshot_blob() requires `impl Allocated<[u8]>` which is `Deref<Target=[u8]> + Borrow<[u8]> + 'static` — &[u8] doesn't satisfy this; use owned types (Vec<u8>, StartupData, Box<[u8]>)
   - Snapshot tests must be consolidated into a single #[test] function (same as execution::tests) to avoid V8 global state SIGSEGV when test runner runs tests in parallel
   - `Allocated` trait is not re-exported from v8 crate — use equivalent trait bounds directly in function signatures
+---
+
+## 2026-03-19 - US-053
+- Added SnapshotCache struct with Mutex-guarded Vec<CacheEntry> and LRU eviction
+- get_or_create() hashes bridge code with SipHash (std DefaultHasher), returns cached Arc on hit, creates snapshot on miss
+- LRU moves accessed entries to end on hit; evicts front (oldest) when at max_entries capacity
+- Blob stored as Arc<Vec<u8>> instead of Arc<StartupData> for Send+Sync compatibility
+- 4 new test parts in consolidated snapshot test: cache hit (same Arc), cache miss (different Arc), LRU eviction, concurrent access (4 threads all get same Arc)
+- Files changed: crates/v8-runtime/src/snapshot.rs
+- **Learnings for future iterations:**
+  - v8::StartupData contains *const i8 raw pointer — not Send/Sync. Store snapshot blobs as Arc<Vec<u8>> (via .to_vec()) for cross-thread sharing
+  - SnapshotCache holds mutex during snapshot creation (~20ms) — acceptable since it happens once per bridge code variant
 ---
