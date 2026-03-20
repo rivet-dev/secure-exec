@@ -524,6 +524,13 @@
             };
           }
 
+          // Overlay host-backed randomUUID
+          if (typeof _cryptoRandomUUID !== 'undefined') {
+            result.randomUUID = function randomUUID() {
+              return _cryptoRandomUUID.applySync(undefined, []);
+            };
+          }
+
           // Overlay host-backed pbkdf2/pbkdf2Sync
           if (typeof _cryptoPbkdf2 !== 'undefined') {
             result.pbkdf2Sync = function pbkdf2Sync(password, salt, iterations, keylen, digest) {

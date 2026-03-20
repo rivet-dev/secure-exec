@@ -518,8 +518,8 @@
         "Tests pass"
       ],
       "priority": 29,
-      "passes": false,
-      "notes": "HIGHEST PRIORITY. Remaining blocker: V8 ESM 'Not supported' error from deep in Pi's dependency evaluation chain. Need to investigate which specific V8 module API is unsupported in isolated-vm and fix the ESM bridge gap. Significant framework fixes already applied: removed duplicate _netModule global, pnpm transitive dep resolution via workspace root moduleAccess, ESM star export deconfliction, import.meta.url polyfill, comprehensive fs/stream ESM exports, CJS wrapper const\u2192let fix, stream/web handler, sandboxToHostPath for sync resolver. Test infrastructure is fully in place and will pass once remaining ESM compat gap is resolved."
+      "passes": true,
+      "notes": "Fixed: (1) ESM dynamic import() transform in compileESMModule — isolated-vm V8 doesn't support native import() in ESM modules, now transformed to __dynamicImport() with module-scoped referrer for relative path resolution. (2) crypto.randomUUID overlay on crypto module bridge. (3) Headers.append() method. (4) FormData stub for SDK compatibility. (5) Response.body ReadableStream-like with getReader() for SSE streaming. (6) process.stdout/stderr.write callback support (Pi's runPrintMode flush). (7) Network adapter redirect for Anthropic API requests to mock server (sandbox fetch is non-writable). All 6 tests pass: boot, output canary, file read via tool, file write via tool, bash via tool, JSON mode."
     },
     {
       "id": "US-030",

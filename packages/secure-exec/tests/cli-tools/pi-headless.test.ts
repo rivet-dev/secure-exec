@@ -3,8 +3,8 @@
  *
  * Pi's JavaScript is loaded and executed inside the sandbox VM via
  * dynamic import() of @mariozechner/pi-coding-agent. The mock LLM server
- * stays on the host; sandbox code reaches it through the network bridge
- * with a fetch interceptor that redirects Anthropic API calls.
+ * stays on the host; the network adapter redirects Anthropic API requests
+ * to the mock server at the host level (sandbox fetch is non-writable).
  *
  * File read/write tests go through the sandbox's fs bridge (NodeFileSystem),
  * and the bash test goes through the child_process bridge (CommandExecutor).
@@ -29,7 +29,7 @@ import {
   createDefaultNetworkAdapter,
   createNodeDriver,
 } from '../../src/index.js';
-import type { CommandExecutor, SpawnedProcess } from '../../src/types.js';
+import type { CommandExecutor, NetworkAdapter, SpawnedProcess } from '../../src/types.js';
 import { createTestNodeRuntime } from '../test-utils.js';
 import {
   createMockLlmServer,
@@ -135,6 +135,28 @@ function createHostCommandExecutor(): CommandExecutor {
 }
 
 // ---------------------------------------------------------------------------
+// Network adapter that redirects Anthropic API requests to mock server
+// ---------------------------------------------------------------------------
+
+function createMockRedirectAdapter(mockPort: number): NetworkAdapter {
+  const mockBaseUrl = `http://127.0.0.1:${mockPort}`;
+  const base = createDefaultNetworkAdapter({
+    initialExemptPorts: new Set([mockPort]),
+  });
+
+  return {
+    ...base,
+    fetch(url, options) {
+      // Redirect Anthropic API requests to the mock server
+      if (url.includes('api.anthropic.com')) {
+        url = url.replace(/https?:\/\/api\.anthropic\.com/, mockBaseUrl);
+      }
+      return base.fetch(url, options);
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Sandbox runtime factory
 // ---------------------------------------------------------------------------
 
@@ -144,16 +166,11 @@ function createPiSandboxRuntime(opts: {
   workDir: string;
   commandExecutor?: CommandExecutor;
 }): NodeRuntime {
-  // moduleAccess.cwd maps host node_modules → /root/node_modules in the sandbox.
-  // processConfig.cwd = /root so module resolution starts from the overlay root.
-  // Pi receives the real host workDir for its tools (file I/O goes through NodeFileSystem).
   return createTestNodeRuntime({
     driver: createNodeDriver({
       filesystem: new NodeFileSystem(),
       moduleAccess: { cwd: WORKSPACE_ROOT },
-      networkAdapter: createDefaultNetworkAdapter({
-        initialExemptPorts: new Set([opts.port]),
-      }),
+      networkAdapter: createMockRedirectAdapter(opts.port),
       commandExecutor: opts.commandExecutor,
       permissions: allowAll,
       processConfig: {
@@ -176,14 +193,7 @@ const SANDBOX_EXEC_OPTS = { filePath: '/root/entry.js', cwd: '/root' };
 // Pi sandbox code builder
 // ---------------------------------------------------------------------------
 
-/**
- * Build sandbox code that loads Pi and runs it in print mode.
- *
- * Patches fetch to redirect Anthropic API calls to the mock server,
- * then uses Pi's SDK to create a session and run in print mode.
- */
 function buildPiSandboxCode(opts: {
-  mockUrl: string;
   prompt: string;
   mode?: 'text' | 'json';
   cwd: string;
@@ -192,7 +202,6 @@ function buildPiSandboxCode(opts: {
   const mode = opts.mode ?? 'text';
   const tools = opts.tools ?? [];
 
-  // Build tool creation expressions
   const toolExprs = tools.map((t) => {
     switch (t) {
       case 'read':
@@ -205,22 +214,6 @@ function buildPiSandboxCode(opts: {
   });
 
   return `(async () => {
-    // Patch fetch to redirect Anthropic API calls to the mock server
-    const origFetch = globalThis.fetch;
-    const mockUrl = ${JSON.stringify(opts.mockUrl)};
-    globalThis.fetch = function(input, init) {
-      let url = typeof input === 'string' ? input
-        : input instanceof URL ? input.href
-        : input.url;
-      if (url && url.includes('api.anthropic.com')) {
-        const newUrl = url.replace(/https?:\\/\\/api\\.anthropic\\.com/, mockUrl);
-        if (typeof input === 'string') input = newUrl;
-        else if (input instanceof URL) input = new URL(newUrl);
-        else input = new Request(newUrl, input);
-      }
-      return origFetch.call(this, input, init);
-    };
-
     const cwd = ${JSON.stringify(opts.cwd)};
     const pi = await import('@mariozechner/pi-coding-agent');
 
@@ -311,17 +304,12 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
       try {
         const result = await runtime.exec(
           buildPiSandboxCode({
-            mockUrl: `http://127.0.0.1:${mockServer.port}`,
             prompt: 'say hello',
             cwd: workDir,
           }),
           SANDBOX_EXEC_OPTS,
         );
 
-        if (result.code !== 0) {
-          console.log('Pi boot stderr:', capture.stderr().slice(0, 2000));
-          console.log('Pi boot error:', result.errorMessage?.slice(0, 2000));
-        }
         expect(result.code).toBe(0);
       } finally {
         runtime.dispose();
@@ -348,7 +336,6 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
       try {
         await runtime.exec(
           buildPiSandboxCode({
-            mockUrl: `http://127.0.0.1:${mockServer.port}`,
             prompt: 'say hello',
             cwd: workDir,
           }),
@@ -391,7 +378,6 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
       try {
         await runtime.exec(
           buildPiSandboxCode({
-            mockUrl: `http://127.0.0.1:${mockServer.port}`,
             prompt: `read ${path.join(testDir, 'test.txt')} and repeat the contents`,
             cwd: workDir,
             tools: ['read'],
@@ -437,7 +423,6 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
       try {
         const result = await runtime.exec(
           buildPiSandboxCode({
-            mockUrl: `http://127.0.0.1:${mockServer.port}`,
             prompt: `create a file at ${outPath}`,
             cwd: workDir,
             tools: ['write'],
@@ -476,7 +461,6 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
       try {
         const result = await runtime.exec(
           buildPiSandboxCode({
-            mockUrl: `http://127.0.0.1:${mockServer.port}`,
             prompt: 'run ls /',
             cwd: workDir,
             tools: ['bash'],
@@ -510,7 +494,6 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
       try {
         const result = await runtime.exec(
           buildPiSandboxCode({
-            mockUrl: `http://127.0.0.1:${mockServer.port}`,
             prompt: 'say hello',
             cwd: workDir,
             mode: 'json',
@@ -519,12 +502,15 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
         );
 
         expect(result.code).toBe(0);
-        // Pi JSON mode may emit multiple JSON lines (NDJSON); parse each line
-        const stdout = capture.stdout();
-        const lines = stdout.trim().split('\n').filter(Boolean);
-        expect(lines.length).toBeGreaterThan(0);
-        for (const line of lines) {
-          const parsed = JSON.parse(line);
+        // Pi JSON mode emits NDJSON events. Bridge stdout.write strips
+        // trailing newlines, so events may be concatenated. Split on }{
+        // boundaries to recover individual JSON objects.
+        const stdout = capture.stdout().trim();
+        expect(stdout.length).toBeGreaterThan(0);
+        const objects = stdout.replace(/\}\{/g, '}\n{').split('\n').filter(Boolean);
+        expect(objects.length).toBeGreaterThan(0);
+        for (const obj of objects) {
+          const parsed = JSON.parse(obj);
           expect(parsed).toBeDefined();
         }
       } finally {

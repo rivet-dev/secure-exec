@@ -265,7 +265,7 @@ function _emit(event: string, ...args: unknown[]): boolean {
 
 // Stdio stream shape shared by stdout and stderr
 interface StdioWriteStream {
-  write(data: unknown): boolean;
+  write(data: unknown, encodingOrCallback?: string | ((err?: Error | null) => void), callback?: (err?: Error | null) => void): boolean;
   end(): StdioWriteStream;
   on(): StdioWriteStream;
   once(): StdioWriteStream;
@@ -283,10 +283,13 @@ const _stderrIsTTY = (typeof _processConfig !== "undefined" && _processConfig.st
 
 // Stdout stream
 const _stdout: StdioWriteStream = {
-  write(data: unknown): boolean {
+  write(data: unknown, encodingOrCallback?: string | ((err?: Error | null) => void), callback?: (err?: Error | null) => void): boolean {
     if (typeof _log !== "undefined") {
       _log.applySync(undefined, [String(data).replace(/\n$/, "")]);
     }
+    // Support Node.js write(data, cb) and write(data, encoding, cb)
+    const cb = typeof encodingOrCallback === "function" ? encodingOrCallback : callback;
+    if (typeof cb === "function") cb(null);
     return true;
   },
   end(): StdioWriteStream {
@@ -309,10 +312,12 @@ const _stdout: StdioWriteStream = {
 
 // Stderr stream
 const _stderr: StdioWriteStream = {
-  write(data: unknown): boolean {
+  write(data: unknown, encodingOrCallback?: string | ((err?: Error | null) => void), callback?: (err?: Error | null) => void): boolean {
     if (typeof _error !== "undefined") {
       _error.applySync(undefined, [String(data).replace(/\n$/, "")]);
     }
+    const cb = typeof encodingOrCallback === "function" ? encodingOrCallback : callback;
+    if (typeof cb === "function") cb(null);
     return true;
   },
   end(): StdioWriteStream {

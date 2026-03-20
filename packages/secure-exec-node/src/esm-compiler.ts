@@ -11,6 +11,7 @@ import { bundlePolyfill, hasPolyfill } from "./polyfills.js";
 import {
 	extractCjsNamedExports,
 	extractDynamicImportSpecifiers,
+	transformDynamicImport,
 	wrapCJSForESMWithModulePath,
 } from "@secure-exec/core/internal/shared/esm-utils";
 import {
@@ -229,6 +230,17 @@ export async function compileESMModule(
 	if (code.includes("import.meta.url")) {
 		const fileUrl = `file://${filePath}`;
 		code = code.replace(/import\.meta\.url/g, JSON.stringify(fileUrl));
+	}
+
+	// Transform dynamic import() to __dynamicImport() — isolated-vm V8
+	// does not support native dynamic import() in ESM modules.
+	code = transformDynamicImport(code);
+
+	// Inject module-scoped __dynamicImport that captures the referrer path
+	// so relative dynamic imports (e.g. import("./foo.js")) resolve correctly.
+	if (code.includes("__dynamicImport(")) {
+		const escapedPath = JSON.stringify(filePath);
+		code = `const __dynamicImport = (spec) => globalThis.__dynamicImport(spec, ${escapedPath});\n${code}`;
 	}
 
 	// Compile the module
