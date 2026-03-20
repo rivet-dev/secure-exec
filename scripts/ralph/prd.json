@@ -1717,7 +1717,7 @@
         "Tests pass"
       ],
       "priority": 86,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on US-070-074 (host_net subsystem). libcurl has a pluggable socket backend. We need to implement a custom backend that routes through our host_net WASI imports. Configure with --disable-cookies --disable-proxy to reduce scope initially. The key file to patch is lib/connect.c and lib/sendf.c."
     },
     {

@@ -8,6 +8,9 @@ PRD: ralph/kernel-hardening (46 stories)
 - Simple C commands (vanilla sysroot, no host imports) just need: programs/<name>.c, add to COMMANDS in Makefile, add to WASMVM_COMMANDS + DEFAULT_FIRST_PARTY_TIERS in driver.ts
 - ALL GNU tools (make, coreutils, grep, sed, etc.) are GPL — NEVER vendor their source; always use permissive reimplementations or write from scratch (Apache-2.0/MIT/BSD)
 - Vendored C libs (zlib, minizip) that use fopen64/ftello64/fseeko64 need `__wasi__` guard added to fall back to standard functions (WASI has 64-bit off_t natively)
+- WASI wasip1 sysroot guards most POSIX socket constants (SO_KEEPALIVE, POLLPRI, TCP_NODELAY, etc.) and getsockname/getpeername behind `__wasilibc_unmodified_upstream` — supply missing defines in program config or compat headers
+- Sysroot libc.a has duplicate send/recv (wasip2 stubs vs host_socket.o) — patch-wasi-libc.sh removes the stubs; if sysroot is rebuilt, this fix is applied automatically
+- libcurl at wasmvm/c/libs/curl/ configured for WASI: curl_config.h is the single config file, wasi_compat.h provides missing declarations, wasi_stubs.c provides getsockname/getpeername stubs
 - wasi-libc source files must use `#include <errno.h>` (not `<__errno.h>`) to get errno constants like EAFNOSUPPORT, EINVAL, ENAMETOOLONG
 - wasi-libc Makefile OMIT_SOURCES already excludes wasip2 socket implementations for wasip1 — no need to guard existing socket.c/send.c/recv.c
 - netdb.h omission for wasip1 is in scripts/install-include-headers.sh (not MUSL_OMIT_HEADERS array) — must patch the conditional block
@@ -3541,4 +3544,29 @@ PRD: ralph/kernel-hardening (46 stories)
   - ifeq/ifneq/ifdef/ifndef conditionals are NOT indented (they're directives, not recipe lines) — only the recipe lines under them get tab indentation
   - Wildcard test creates actual .c files in VFS so $(wildcard *.c) has something to match
   - Pre-existing typecheck failure in examples/ai-sdk (missing node_modules) — not related to wasmvm changes
+---
+
+## 2026-03-20 - US-086
+- What was implemented: Vendored libcurl 8.11.1 for WASM compilation via host_net backend
+- Files changed:
+  - wasmvm/c/libs/curl/ — vendored libcurl 8.11.1 source (lib/, include/, LICENSE)
+  - wasmvm/c/libs/curl/lib/curl_config.h — WASI-specific config: HTTP-only, no SSL/threads/proxy/cookies
+  - wasmvm/c/libs/curl/lib/wasi_compat.h — Missing POSIX declarations for wasip1
+  - wasmvm/c/libs/curl/lib/wasi_stubs.c — Stub getsockname/getpeername implementations
+  - wasmvm/c/libs/curl/lib/hostip.h — Guard setjmp.h include for WASI
+  - wasmvm/c/libs/curl/lib/hostip.c — Guard setjmp.h include for WASI
+  - wasmvm/c/libs/curl/lib/curl_setup_once.h — Include wasi_compat.h after sys/socket.h
+  - wasmvm/c/programs/curl_test.c — Test program verifying libcurl HTTP GET via host_net
+  - wasmvm/c/Makefile — Build rule for curl_test, added to PATCHED_PROGRAMS
+  - wasmvm/scripts/patch-wasi-libc.sh — Remove duplicate send.o/recv.o from sysroot libc.a
+- **Learnings for future iterations:**
+  - WASI wasip1 sysroot hides most POSIX socket constants (SO_KEEPALIVE, POLLPRI, etc.) behind `__wasilibc_unmodified_upstream` guard — supply them via curl_config.h
+  - getsockname/getpeername are only declared for wasip2, not wasip1 — stub implementations needed
+  - setjmp.h on WASI errors out requiring WASM exception handling — guard with `#ifndef __wasi__`
+  - Sysroot libc.a had duplicate send/recv symbols: wasip2 stubs (send.o/recv.o) conflicting with host_socket.o — must `llvm-ar d` the stubs
+  - C comment `*/` inside `/* ... */` block causes premature comment termination — don't use patterns like `SO_*/POLLPRI` in C comments
+  - libcurl `HAVE_MSG_NOSIGNAL 0` is still truthy for `#ifdef` — use `#undef` instead
+  - HAVE_STRERROR_R requires specifying HAVE_POSIX_STRERROR_R or HAVE_GLIBC_STRERROR_R
+  - HAVE_FCNTL_O_NONBLOCK needed for libcurl's nonblock.c to use fcntl F_GETFL/F_SETFL
+  - Binary verified: 219KB optimized, imports host_net functions (net_socket, net_connect, net_send, net_recv, net_getaddrinfo)
 ---
