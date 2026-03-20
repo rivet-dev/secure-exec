@@ -2977,3 +2977,19 @@ PRD: ralph/kernel-hardening (46 stories)
   - Host binary env must merge process.env with ctx.env — restricted sandbox env lacks system vars Claude needs
   - tcsetattr with opost/onlcr/icrnl causes rapid process exit — use ptySetDiscipline for safe termios changes
   - Claude workspace trust dialog requires Enter (CR/NL) to dismiss — boot probe must detect and handle it
+---
+
+## 2026-03-20 - US-035
+- Implemented opencode-headless-binary.test.ts — dedicated verification of OpenCode headless binary mode via sandbox child_process bridge
+- 9 test cases: boot+exit0, text output (canary), JSON format, default text format, env forwarding, exit code propagation (bad model, good prompt), SIGINT via bridge kill(), stdout/stderr bridge flow
+- Probes mock redirect viability at startup (some opencode versions hang with BASE_URL redirects)
+- All 9 tests pass; typecheck passes
+- Files changed:
+  - packages/secure-exec/tests/cli-tools/opencode-headless-binary.test.ts (new)
+  - scripts/ralph/prd.json (US-035 passes: true)
+- **Learnings for future iterations:**
+  - OpenCode headless binary test mirrors claude-headless-binary.test.ts pattern — same host command executor, stdio capture, spawn code builder, sigint code builder
+  - OpenCode uses `opencode run -m anthropic/claude-sonnet-4-6 --format json` for headless mode vs Claude's `claude -p --output-format text`
+  - OpenCode mock redirect probe is necessary: some versions hang during plugin init when ANTHROPIC_BASE_URL is set
+  - XDG_DATA_HOME isolation prevents test pollution of real opencode config
+  - OpenCode needs 3 mock responses for some requests (title, response, response) vs Claude's 1

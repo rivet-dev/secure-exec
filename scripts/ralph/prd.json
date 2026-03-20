@@ -634,8 +634,8 @@
         "Tests pass"
       ],
       "priority": 35,
-      "passes": false,
-      "notes": "OpenCode is a compiled Bun binary (ELF) \u2014 no SDK, no JS source. The only way to run it is via child_process.spawn through the bridge. This is the headless verification."
+      "passes": true,
+      "notes": "Completed. Test file opencode-headless-binary.test.ts verifies raw binary spawn path: boot+exit0, text output (canary), JSON output format, default text format, env forwarding (ANTHROPIC_BASE_URL reaches mock server), exit code propagation (bad model \u2192 error, good prompt \u2192 0), SIGINT via bridge kill(), stdout/stderr bridge flow. All 9 tests pass. Probes mock redirect viability at startup (some opencode versions hang with BASE_URL redirects)."
     },
     {
       "id": "US-036",
