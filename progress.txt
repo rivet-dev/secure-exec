@@ -3071,3 +3071,15 @@ PRD: ralph/kernel-hardening (46 stories)
   - npm Tracker "idealTree" already exists error occurs when multiple npm instances share the same cache dir — use unique temp dirs per test to avoid collisions
   - npm install + require round-trip: npm runs on host via child_process bridge, writes node_modules to host filesystem, then a new sandbox exec loads modules via NodeFileSystem reading from same host dir
 ---
+
+## 2026-03-20 - US-041
+- Implemented npx E2E test through sandbox child_process bridge
+- Files changed:
+  - packages/secure-exec/tests/cli-tools/npx-exec.test.ts (new)
+  - scripts/ralph/prd.json (US-041 passes: true)
+- 5 tests: cowsay download+execute, exit code 0 (semver), stdout through bridge (cowsay), argument passing (semver range), non-zero exit code propagation (semver mismatch)
+- **Learnings for future iterations:**
+  - npx --yes flag is required to auto-confirm package download without interactive prompts (critical for non-interactive sandbox execution)
+  - Not all npm packages have CLI binaries — is-odd has no bin entry so `npx is-odd 3` fails; use packages known to have CLI binaries (cowsay, semver) for npx tests
+  - Same sandbox runtime factory pattern as npm-install works for npx — NodeFileSystem() with host temp dir as cwd, createHostCommandExecutor for child_process bridge
+---

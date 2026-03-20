@@ -748,8 +748,8 @@
         "Tests pass"
       ],
       "priority": 41,
-      "passes": false,
-      "notes": "npx is a common agent operation. It combines package download (network), temp installation (fs), and execution (child_process) in one command."
+      "passes": true,
+      "notes": "Completed. Test file npx-exec.test.ts verifies npx through sandbox child_process bridge: downloads and executes cowsay (output contains message), exit code 0 on success, stdout flows through bridge (cowsay output), argument passing (semver range check), non-zero exit code propagation (semver range mismatch). 5 tests pass. Uses --yes flag to auto-confirm npx package download."
     },
     {
       "id": "US-042",
