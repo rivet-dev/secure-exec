@@ -1,0 +1,24 @@
+[package]
+name = "cmd-codex"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "codex standalone binary for secure-exec WasmVM"
+
+[[bin]]
+name = "codex"
+path = "src/main.rs"
+
+# The full codex-exec dependency from rivet-dev/codex (wasi-support branch)
+# will be wired in when subsequent stories (US-100+) implement host_process
+# FFI for process spawning, PTY, stdin/stdout, and HTTP.
+#
+# The fork at github.com/rivet-dev/codex already has cfg(target_os = "wasi")
+# gates on codex-core (portable-pty, network-proxy, sandbox deps) and
+# codex-exec (all platform deps gated behind non-WASI).
+#
+# The vendored source config (.cargo/config.toml) currently prevents adding
+# the git dep directly because codex-exec's transitive crates-io deps
+# (owo-colors, etc.) are not in the vendor/ directory.
+
+[dependencies]

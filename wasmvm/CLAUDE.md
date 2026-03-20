@@ -59,6 +59,13 @@ We implement our own WASI host runtime in JavaScript:
 - Do NOT import GPL, LGPL, AGPL, or copyleft packages
 - Do NOT import GNU tools directly — use permissive reimplementations
 
+## Codex (rivet-dev/codex fork)
+- Fork: `github.com/rivet-dev/codex` (branch: `wasi-support`)
+- The fork adds `cfg(target_os = "wasi")` gates on platform-specific deps in codex-core and codex-utils-pty
+- codex-exec gates ALL deps behind `cfg(not(target_os = "wasi"))` and provides a WASI stub via `include!("lib_native.rs")`
+- The codex binary crate is at `crates/commands/codex/` — currently a stub pending US-100+ implementation
+- **Vendoring blocker:** the git dep cannot be added directly because `.cargo/config.toml` redirects crates-io to `vendor/`, and codex-exec's transitive deps are not vendored. Fix this when wiring in the real codex-exec dep.
+
 ## Dependency Patching
 
 ### Three tiers (prefer Tier 1, escalate as needed)
