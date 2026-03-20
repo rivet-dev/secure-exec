@@ -448,3 +448,22 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - Static bridge code can be cached at module level since it's identical across all driver instances and sessions
   - Pre-existing test failures: test-suite/node (4 fails from `__name` conflict), runtime-driver/node (228 fails from `__name` conflict), V8 crash/process isolation (3 OOM timeouts)
 ---
+
+## 2026-03-19 - US-063
+- Updated `create_snapshot()` in `snapshot.rs` to create fully-initialized context snapshots
+- Added `register_stub_bridge_fns(scope, &SYNC_BRIDGE_FNS, &ASYNC_BRIDGE_FNS)` call before running bridge IIFE
+- Added `inject_snapshot_defaults(scope)` to inject default `_processConfig` (cwd="/", env={}, timing_mitigation="off") and `_osConfig` (homedir="/root", tmpdir="/tmp", platform="linux", arch="x64") as frozen, read-only globals
+- Default config globals are injected via inline JS evaluation + Object.freeze + define_own_property(READ_ONLY | DONT_DELETE)
+- Added 3 new test parts (15-17):
+  - Part 15: Verifies all 38 stub bridge functions and default config globals are present during bridge IIFE execution
+  - Part 16: Verifies getter facade, closures, require-like functions, and config reads work through create_snapshot(); verifies restored default context preserves all bridge infrastructure
+  - Part 17: Verifies SnapshotCache works with the updated create_snapshot()
+- Files changed: `crates/v8-runtime/src/snapshot.rs`
+- **Learnings for future iterations:**
+  - V8 snapshot_creator MUST call `create_blob()` before being dropped — early returns (via `?`) cause SIGSEGV in the destructor
+  - Error handling in `create_snapshot()` must collect errors and return them AFTER `create_blob()`, not via early return
+  - Bridge IIFE setup code does NOT call bridge functions at the top level (only creates closures/wrappers), so stub functions are safe for snapshot creation
+  - `_loadPolyfill` is only called inside `require()` at runtime, not during IIFE setup — stubs don't need to handle it
+  - Pre-existing SIGSEGV when running execution::tests AND snapshot::tests in the same process (V8 inter-test state issue) — run them separately: `cargo test execution::tests -- --test-threads=1` and `cargo test snapshot::tests -- --test-threads=1`
+  - `inject_snapshot_defaults` uses inline JS evaluation to create config objects (avoids manual V8 object construction)
+---

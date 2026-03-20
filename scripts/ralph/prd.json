@@ -1332,8 +1332,8 @@
         "Typecheck passes"
       ],
       "priority": 68,
-      "passes": false,
-      "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 5."
+      "passes": true,
+      "notes": "create_snapshot() registers all 38 stub bridge functions via register_stub_bridge_fns(), injects default _processConfig and _osConfig via inject_snapshot_defaults(), runs the bridge IIFE, then snapshots the fully-initialized context. Tests verify: stubs and config globals present during IIFE execution (Part 15), getter facade + closures + config reads work through create_snapshot() and are preserved in restored context (Part 16), SnapshotCache works with new create_snapshot (Part 17)."
     },
     {
       "id": "US-064",
