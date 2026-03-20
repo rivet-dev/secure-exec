@@ -33,6 +33,12 @@
 - check GitHub Actions test/typecheck status per commit to identify when a failure first appeared
 - do not use `contract` in test filenames; use names like `suite`, `behavior`, `parity`, `integration`, or `policy` instead
 
+## V8 Rust Binary
+
+- the published `@secure-exec/v8-linux-x64-gnu` (and other platform) packages install a pre-built binary into `node_modules`; the runtime.ts `resolveBinaryPath()` checks platform packages **first**, before the local cargo-built binary
+- after changing Rust source, if integration tests still hit `unknown message type` or similar, the stale platform binary in `node_modules` is being picked up instead of your local build — delete it: `find node_modules -path '*v8-linux-x64-gnu/secure-exec-v8' -delete` (adjust platform as needed)
+- always verify the correct binary is running by checking the error messages match your source changes
+
 ## WASM Binary
 
 - WasmVM and Python are experimental surfaces in this repo
