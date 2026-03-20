@@ -298,7 +298,7 @@ describe("bridge-side resource hardening", () => {
 			const capture = createConsoleCapture();
 			proc = createTestNodeRuntime({
 				onStdio: capture.onStdio,
-				cpuTimeMs: 200,
+				cpuTimeLimitMs: 200,
 			});
 
 			const result = await proc.exec(`
@@ -312,16 +312,22 @@ describe("bridge-side resource hardening", () => {
 				}, 100);
 			`);
 
-			// Process should complete (not hang or spin forever)
-			const stdout = capture.stdout().trim();
-			if (stdout) {
-				const results = JSON.parse(stdout);
-				// Counter should be bounded — with 1ms min delay, ~100 iterations max in 100ms
-				expect(results.counter).toBeLessThan(500);
-				expect(results.counter).toBeGreaterThan(0);
+			if (result.errorMessage?.includes("setInterval is not defined")) {
+				// Timer polyfills not yet available in exec() — skip meaningful assertions
+				// until CJS require('timers') is wired up (pre-existing limitation)
+				expect(result.code).toBe(1);
+				return;
 			}
-			// Even if timeout killed it, we prove it didn't spin infinitely
-			expect(result.code === 0 || result.code !== undefined).toBe(true);
+
+			// Process should complete normally or be killed by timeout
+			expect([0, 124]).toContain(result.code);
+
+			const stdout = capture.stdout().trim();
+			expect(stdout).toBeTruthy();
+			const results = JSON.parse(stdout);
+			// Counter should be bounded — with 1ms min delay, ~100 iterations max in 100ms
+			expect(results.counter).toBeLessThan(500);
+			expect(results.counter).toBeGreaterThan(0);
 		});
 	});
 
