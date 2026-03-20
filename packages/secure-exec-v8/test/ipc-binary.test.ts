@@ -119,6 +119,21 @@ describe("Host → Rust messages", () => {
 	it("round-trips TerminateExecution", () => {
 		roundtrip({ type: "TerminateExecution", sessionId: "sess-6" });
 	});
+
+	it("round-trips WarmSnapshot", () => {
+		roundtrip({
+			type: "WarmSnapshot",
+			bridgeCode: "(function(){ /* bridge IIFE */ })()",
+		});
+	});
+
+	it("round-trips WarmSnapshot with empty bridge code", () => {
+		roundtrip({ type: "WarmSnapshot", bridgeCode: "" });
+	});
+
+	it("round-trips WarmSnapshot with large bridge code", () => {
+		roundtrip({ type: "WarmSnapshot", bridgeCode: "x".repeat(100_000) });
+	});
 });
 
 // -- Rust → Host message types --
@@ -400,6 +415,16 @@ describe("session_id extraction", () => {
 		}
 	});
 
+	it("returns null for WarmSnapshot", () => {
+		const frame: BinaryFrame = {
+			type: "WarmSnapshot",
+			bridgeCode: "bridge()",
+		};
+		const encoded = encodeFrame(frame);
+		const raw = encoded.subarray(4);
+		expect(extractSessionId(raw)).toBeNull();
+	});
+
 	it("returns null for Authenticate", () => {
 		const frame: BinaryFrame = {
 			type: "Authenticate",
@@ -468,6 +493,7 @@ describe("wire format interop", () => {
 				0x07,
 			],
 			[{ type: "TerminateExecution", sessionId: "s" }, 0x08],
+			[{ type: "WarmSnapshot", bridgeCode: "bridge()" }, 0x09],
 			[
 				{
 					type: "BridgeCall",
@@ -557,6 +583,20 @@ describe("wire format interop", () => {
 		expect(Buffer.compare(body.subarray(11), Buffer.from([0xaa, 0xbb]))).toBe(
 			0,
 		); // payload
+	});
+
+	it("WarmSnapshot wire format matches Rust layout", () => {
+		const frame: BinaryFrame = {
+			type: "WarmSnapshot",
+			bridgeCode: "hi",
+		};
+		const encoded = encodeFrame(frame);
+		const body = encoded.subarray(4);
+		expect(body[0]).toBe(0x09); // msg_type
+		expect(body[1]).toBe(0); // sid_len = 0
+		expect(body.readUInt32BE(2)).toBe(2); // bridge_code_len
+		expect(body.toString("utf8", 6, 8)).toBe("hi"); // bridge_code
+		expect(body.length).toBe(8); // total body: 1+1+4+2
 	});
 
 	it("ExecutionResult flags and error layout match Rust", () => {

@@ -25,6 +25,7 @@ const MSG_EXECUTE = 0x05;
 const MSG_BRIDGE_RESPONSE = 0x06;
 const MSG_STREAM_EVENT = 0x07;
 const MSG_TERMINATE_EXECUTION = 0x08;
+const MSG_WARM_SNAPSHOT = 0x09;
 
 // Rust → Host message type codes
 const MSG_BRIDGE_CALL = 0x81;
@@ -78,6 +79,7 @@ export type BinaryFrame =
 			payload: Buffer;
 	  }
 	| { type: "TerminateExecution"; sessionId: string }
+	| { type: "WarmSnapshot"; bridgeCode: string }
 	// Rust → Host
 	| {
 			type: "BridgeCall";
@@ -191,6 +193,12 @@ export function decodeFrame(buf: Buffer): BinaryFrame {
 		}
 		case MSG_TERMINATE_EXECUTION:
 			return { type: "TerminateExecution", sessionId };
+		case MSG_WARM_SNAPSHOT: {
+			const bcLen = buf.readUInt32BE(pos);
+			pos += 4;
+			const bridgeCode = buf.toString("utf8", pos, pos + bcLen);
+			return { type: "WarmSnapshot", bridgeCode };
+		}
 		case MSG_BRIDGE_CALL: {
 			const callId = buf.readUInt32BE(pos);
 			pos += 4;
@@ -255,7 +263,7 @@ export function extractSessionId(raw: Buffer): string | null {
 		throw new Error("Frame too short");
 	}
 	const msgType = raw[0];
-	if (msgType === MSG_AUTHENTICATE) {
+	if (msgType === MSG_AUTHENTICATE || msgType === MSG_WARM_SNAPSHOT) {
 		return null;
 	}
 	const sidLen = raw[1];
@@ -340,6 +348,15 @@ function encodeBody(frame: BinaryFrame): Buffer {
 		case "TerminateExecution": {
 			parts.push(Buffer.from([MSG_TERMINATE_EXECUTION]));
 			parts.push(encodeSessionId(frame.sessionId));
+			break;
+		}
+		case "WarmSnapshot": {
+			parts.push(Buffer.from([MSG_WARM_SNAPSHOT, 0])); // no session_id
+			const bcBuf = Buffer.from(frame.bridgeCode, "utf8");
+			const bcLen = Buffer.alloc(4);
+			bcLen.writeUInt32BE(bcBuf.length, 0);
+			parts.push(bcLen);
+			parts.push(bcBuf);
 			break;
 		}
 		case "BridgeCall": {

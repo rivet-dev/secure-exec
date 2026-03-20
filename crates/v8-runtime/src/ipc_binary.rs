@@ -24,6 +24,7 @@ const MSG_EXECUTE: u8 = 0x05;
 const MSG_BRIDGE_RESPONSE: u8 = 0x06;
 const MSG_STREAM_EVENT: u8 = 0x07;
 const MSG_TERMINATE_EXECUTION: u8 = 0x08;
+const MSG_WARM_SNAPSHOT: u8 = 0x09;
 
 // Rust → Host message type codes
 const MSG_BRIDGE_CALL: u8 = 0x81;
@@ -74,6 +75,9 @@ pub enum BinaryFrame {
     },
     TerminateExecution {
         session_id: String,
+    },
+    WarmSnapshot {
+        bridge_code: String,
     },
 
     // Rust → Host
@@ -171,7 +175,7 @@ pub fn extract_session_id(raw: &[u8]) -> io::Result<Option<&str>> {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "frame too short"));
     }
     let msg_type = raw[0];
-    if msg_type == MSG_AUTHENTICATE {
+    if msg_type == MSG_AUTHENTICATE || msg_type == MSG_WARM_SNAPSHOT {
         return Ok(None);
     }
     let sid_len = raw[1] as usize;
@@ -263,6 +267,13 @@ fn encode_body(buf: &mut Vec<u8>, frame: &BinaryFrame) {
         BinaryFrame::TerminateExecution { session_id } => {
             buf.push(MSG_TERMINATE_EXECUTION);
             write_session_id(buf, session_id);
+        }
+        BinaryFrame::WarmSnapshot { bridge_code } => {
+            buf.push(MSG_WARM_SNAPSHOT);
+            buf.push(0); // no session_id
+            let bc_bytes = bridge_code.as_bytes();
+            buf.extend_from_slice(&(bc_bytes.len() as u32).to_be_bytes());
+            buf.extend_from_slice(bc_bytes);
         }
         BinaryFrame::BridgeCall {
             session_id,
@@ -405,6 +416,11 @@ fn decode_body(buf: &[u8]) -> io::Result<BinaryFrame> {
             })
         }
         MSG_TERMINATE_EXECUTION => Ok(BinaryFrame::TerminateExecution { session_id }),
+        MSG_WARM_SNAPSHOT => {
+            let bc_len = read_u32(buf, &mut pos)? as usize;
+            let bridge_code = read_utf8(buf, &mut pos, bc_len)?;
+            Ok(BinaryFrame::WarmSnapshot { bridge_code })
+        }
         MSG_BRIDGE_CALL => {
             let call_id = read_u32(buf, &mut pos)?;
             let m_len = read_u16(buf, &mut pos)? as usize;
@@ -760,6 +776,41 @@ mod tests {
         });
     }
 
+    // -- WarmSnapshot --
+
+    #[test]
+    fn roundtrip_warm_snapshot() {
+        roundtrip(&BinaryFrame::WarmSnapshot {
+            bridge_code: "(function(){ /* bridge IIFE */ })()".into(),
+        });
+    }
+
+    #[test]
+    fn roundtrip_warm_snapshot_empty_bridge_code() {
+        roundtrip(&BinaryFrame::WarmSnapshot {
+            bridge_code: "".into(),
+        });
+    }
+
+    #[test]
+    fn roundtrip_warm_snapshot_large_bridge_code() {
+        roundtrip(&BinaryFrame::WarmSnapshot {
+            bridge_code: "x".repeat(100_000),
+        });
+    }
+
+    #[test]
+    fn extract_session_id_warm_snapshot_returns_none() {
+        let frame = BinaryFrame::WarmSnapshot {
+            bridge_code: "bridge()".into(),
+        };
+        let mut buf = Vec::new();
+        write_frame(&mut buf, &frame).expect("write");
+        let raw = &buf[4..];
+        let result = extract_session_id(raw).expect("extract");
+        assert_eq!(result, None);
+    }
+
     // -- Edge cases --
 
     #[test]
@@ -1041,6 +1092,12 @@ mod tests {
                     session_id: "s".into(),
                 },
                 0x08,
+            ),
+            (
+                BinaryFrame::WarmSnapshot {
+                    bridge_code: "bridge()".into(),
+                },
+                0x09,
             ),
             (
                 BinaryFrame::BridgeCall {
