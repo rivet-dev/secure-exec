@@ -1,0 +1,404 @@
+Implement socket(), connect(), send(), recv(), getaddrinfo(),
+freeaddrinfo(), gai_strerror(), gethostname(), and setsockopt()
+via host_net WASM imports.
+
+Replaces the wasi-libc stubs (which return -ENOSYS or are #ifdef'd out)
+with implementations that call our host_net.net_socket, net_connect,
+net_send, net_recv, net_getaddrinfo, and net_close WASM imports.
+
+Un-omits netdb.h from the sysroot headers so C programs can use
+getaddrinfo/freeaddrinfo/gai_strerror.
+
+Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
+
+--- a/scripts/install-include-headers.sh	2026-03-20 04:05:48.609869966 -0700
++++ b/scripts/install-include-headers.sh	2026-03-20 04:05:57.781880813 -0700
+@@ -69,10 +69,11 @@
+     "net/ethernet.h" "net/route.h" "netinet/if_ether.h" "netinet/ether.h" \
+     "sys/timerfd.h" "libintl.h" "sys/sysmacros.h" "aio.h")
+ # Exclude `netdb.h` from all of the p1 targets.
+-if [[ $TARGET_TRIPLE == *"wasi" || $TARGET_TRIPLE == *"wasi-threads" || \
+-      $TARGET_TRIPLE == *"wasip1" || $TARGET_TRIPLE == *"wasip1-threads" ]]; then
+-    MUSL_OMIT_HEADERS+=("netdb.h")
+-fi
++# NOTE: commented out by secureexec 0008-sockets patch — we provide getaddrinfo via host_net
++#if [[ $TARGET_TRIPLE == *"wasi" || $TARGET_TRIPLE == *"wasi-threads" || \
++#      $TARGET_TRIPLE == *"wasip1" || $TARGET_TRIPLE == *"wasip1-threads" ]]; then
++#    MUSL_OMIT_HEADERS+=("netdb.h")
++#fi
+ 
+ # Remove all the `MUSL_OMIT_HEADERS` previously copied over.
+ for OMIT_HEADER in "${MUSL_OMIT_HEADERS[@]}"; do
+
+--- a/libc-top-half/musl/include/sys/socket.h	2026-03-20 04:05:48.609869966 -0700
++++ b/libc-top-half/musl/include/sys/socket.h	2026-03-20 04:06:04.989889334 -0700
+@@ -398,9 +398,7 @@
+ #include <__struct_sockaddr_storage.h>
+ #endif
+ 
+-#if (defined __wasilibc_unmodified_upstream) || (defined __wasilibc_use_wasip2)
+ int socket (int, int, int);
+-#endif
+ 
+ #ifdef __wasilibc_unmodified_upstream /* WASI has no socketpair */
+ int socketpair (int, int, int, int [2]);
+@@ -408,8 +406,8 @@
+ 
+ int shutdown (int, int);
+ 
+-#if (defined __wasilibc_unmodified_upstream) || (defined __wasilibc_use_wasip2)
+ int connect (int, const struct sockaddr *, socklen_t);
++#if (defined __wasilibc_unmodified_upstream) || (defined __wasilibc_use_wasip2)
+ int bind (int, const struct sockaddr *, socklen_t);
+ int listen (int, int);
+ #endif
+@@ -434,9 +432,7 @@
+ #endif
+ 
+ int getsockopt (int, int, int, void *__restrict, socklen_t *__restrict);
+-#if (defined __wasilibc_unmodified_upstream) || (defined __wasilibc_use_wasip2)
+ int setsockopt (int, int, int, const void *, socklen_t);
+-#endif
+ 
+ #ifdef __wasilibc_unmodified_upstream /* WASI has no sockatmark */
+ int sockatmark (int);
+
+--- /dev/null
++++ b/libc-bottom-half/sources/host_socket.c
+@@ -0,0 +1,336 @@
++// Socket API via wasmVM host_net imports.
++//
++// Replaces wasi-libc's ENOSYS stubs with calls to our custom WASM imports:
++//   host_net.net_socket       -> socket()
++//   host_net.net_connect      -> connect()
++//   host_net.net_send         -> send()
++//   host_net.net_recv         -> recv()
++//   host_net.net_close        -> (used internally)
++//   host_net.net_getaddrinfo  -> getaddrinfo()
++//   host_net.net_setsockopt   -> setsockopt()
++//
++// Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
++
++#include <sys/socket.h>
++#include <netinet/in.h>
++#include <netdb.h>
++#include <errno.h>
++#include <stdint.h>
++#include <string.h>
++#include <stdlib.h>
++#include <stdio.h>
++#include <arpa/inet.h>
++#include <unistd.h>
++
++#define WASM_IMPORT(mod, fn) \
++    __attribute__((__import_module__(mod), __import_name__(fn)))
++
++// host_net.net_socket(domain: u32, type: u32, protocol: u32, ret_fd: *mut u32) -> errno
++WASM_IMPORT("host_net", "net_socket")
++uint32_t __host_net_socket(uint32_t domain, uint32_t type, uint32_t protocol, uint32_t *ret_fd);
++
++// host_net.net_connect(fd: u32, addr_ptr: *const u8, addr_len: u32) -> errno
++WASM_IMPORT("host_net", "net_connect")
++uint32_t __host_net_connect(uint32_t fd, const uint8_t *addr_ptr, uint32_t addr_len);
++
++// host_net.net_send(fd: u32, buf_ptr: *const u8, buf_len: u32, flags: u32, ret_sent: *mut u32) -> errno
++WASM_IMPORT("host_net", "net_send")
++uint32_t __host_net_send(uint32_t fd, const uint8_t *buf_ptr, uint32_t buf_len, uint32_t flags, uint32_t *ret_sent);
++
++// host_net.net_recv(fd: u32, buf_ptr: *mut u8, buf_len: u32, flags: u32, ret_received: *mut u32) -> errno
++WASM_IMPORT("host_net", "net_recv")
++uint32_t __host_net_recv(uint32_t fd, uint8_t *buf_ptr, uint32_t buf_len, uint32_t flags, uint32_t *ret_received);
++
++// host_net.net_close(fd: u32) -> errno
++WASM_IMPORT("host_net", "net_close")
++uint32_t __host_net_close(uint32_t fd);
++
++// host_net.net_getaddrinfo(host_ptr, host_len, port_ptr, port_len, ret_addr, ret_addr_len) -> errno
++WASM_IMPORT("host_net", "net_getaddrinfo")
++uint32_t __host_net_getaddrinfo(
++    const uint8_t *host_ptr, uint32_t host_len,
++    const uint8_t *port_ptr, uint32_t port_len,
++    uint8_t *ret_addr, uint32_t *ret_addr_len);
++
++// host_net.net_setsockopt(fd, level, optname, optval_ptr, optval_len) -> errno
++WASM_IMPORT("host_net", "net_setsockopt")
++uint32_t __host_net_setsockopt(uint32_t fd, uint32_t level, uint32_t optname,
++    const uint8_t *optval_ptr, uint32_t optval_len);
++
++int socket(int domain, int type, int protocol) {
++    uint32_t fd;
++    uint32_t err = __host_net_socket((uint32_t)domain, (uint32_t)type, (uint32_t)protocol, &fd);
++    if (err != 0) {
++        errno = (int)err;
++        return -1;
++    }
++    return (int)fd;
++}
++
++int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
++    char buf[256];
++    int len;
++
++    if (addr->sa_family == AF_INET) {
++        const struct sockaddr_in *sin = (const struct sockaddr_in *)addr;
++        char ip[INET_ADDRSTRLEN];
++        inet_ntop(AF_INET, &sin->sin_addr, ip, sizeof(ip));
++        unsigned int port = ntohs(sin->sin_port);
++        len = snprintf(buf, sizeof(buf), "%s:%u", ip, port);
++    } else if (addr->sa_family == AF_INET6) {
++        const struct sockaddr_in6 *sin6 = (const struct sockaddr_in6 *)addr;
++        char ip[INET6_ADDRSTRLEN];
++        inet_ntop(AF_INET6, &sin6->sin6_addr, ip, sizeof(ip));
++        unsigned int port = ntohs(sin6->sin6_port);
++        len = snprintf(buf, sizeof(buf), "%s:%u", ip, port);
++    } else {
++        errno = EAFNOSUPPORT;
++        return -1;
++    }
++
++    if (len < 0 || (size_t)len >= sizeof(buf)) {
++        errno = EINVAL;
++        return -1;
++    }
++
++    uint32_t err = __host_net_connect((uint32_t)sockfd, (const uint8_t *)buf, (uint32_t)len);
++    if (err != 0) {
++        errno = (int)err;
++        return -1;
++    }
++    return 0;
++}
++
++ssize_t send(int sockfd, const void *buf, size_t len, int flags) {
++    uint32_t sent;
++    uint32_t err = __host_net_send((uint32_t)sockfd, (const uint8_t *)buf, (uint32_t)len, (uint32_t)flags, &sent);
++    if (err != 0) {
++        errno = (int)err;
++        return -1;
++    }
++    return (ssize_t)sent;
++}
++
++ssize_t recv(int sockfd, void *buf, size_t len, int flags) {
++    uint32_t received;
++    uint32_t err = __host_net_recv((uint32_t)sockfd, (uint8_t *)buf, (uint32_t)len, (uint32_t)flags, &received);
++    if (err != 0) {
++        errno = (int)err;
++        return -1;
++    }
++    return (ssize_t)received;
++}
++
++int setsockopt(int sockfd, int level, int optname, const void *optval, socklen_t optlen) {
++    uint32_t err = __host_net_setsockopt(
++        (uint32_t)sockfd, (uint32_t)level, (uint32_t)optname,
++        (const uint8_t *)optval, (uint32_t)optlen);
++    if (err != 0) {
++        errno = (int)err;
++        return -1;
++    }
++    return 0;
++}
++
++int gethostname(char *name, size_t len) {
++    const char *hostname = "sandbox";
++    size_t hlen = strlen(hostname);
++    if (hlen >= len) {
++        errno = ENAMETOOLONG;
++        return -1;
++    }
++    memcpy(name, hostname, hlen + 1);
++    return 0;
++}
++
++// Parse a port number from a string, return -1 on failure
++static int parse_port(const char *s) {
++    if (!s || !*s) return 0;
++    int port = 0;
++    for (; *s; s++) {
++        if (*s < '0' || *s > '9') return -1;
++        port = port * 10 + (*s - '0');
++        if (port > 65535) return -1;
++    }
++    return port;
++}
++
++// Skip whitespace in JSON parsing
++static const char *skip_ws(const char *p) {
++    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
++    return p;
++}
++
++// Parse a JSON string value (expects p pointing at opening quote)
++// Writes into dst (up to dst_len-1 chars), returns pointer past closing quote
++static const char *parse_json_str(const char *p, char *dst, size_t dst_len) {
++    if (*p != '"') return NULL;
++    p++;
++    size_t i = 0;
++    while (*p && *p != '"') {
++        if (i < dst_len - 1) dst[i++] = *p;
++        p++;
++    }
++    if (i < dst_len) dst[i] = '\0';
++    if (*p == '"') p++;
++    return p;
++}
++
++// Allocate and populate one addrinfo entry
++static struct addrinfo *make_addrinfo(const char *addr_str, int family, int port, int socktype) {
++    size_t sa_len;
++    if (family == AF_INET)
++        sa_len = sizeof(struct sockaddr_in);
++    else if (family == AF_INET6)
++        sa_len = sizeof(struct sockaddr_in6);
++    else
++        return NULL;
++
++    struct addrinfo *ai = calloc(1, sizeof(struct addrinfo) + sa_len);
++    if (!ai) return NULL;
++
++    ai->ai_family = family;
++    ai->ai_socktype = socktype ? socktype : SOCK_STREAM;
++    ai->ai_protocol = (ai->ai_socktype == SOCK_STREAM) ? IPPROTO_TCP : IPPROTO_UDP;
++    ai->ai_addrlen = sa_len;
++    ai->ai_addr = (struct sockaddr *)((char *)ai + sizeof(struct addrinfo));
++
++    if (family == AF_INET) {
++        struct sockaddr_in *sin = (struct sockaddr_in *)ai->ai_addr;
++        sin->sin_family = AF_INET;
++        sin->sin_port = htons((uint16_t)port);
++        inet_pton(AF_INET, addr_str, &sin->sin_addr);
++    } else {
++        struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)ai->ai_addr;
++        sin6->sin6_family = AF_INET6;
++        sin6->sin6_port = htons((uint16_t)port);
++        inet_pton(AF_INET6, addr_str, &sin6->sin6_addr);
++    }
++    return ai;
++}
++
++int getaddrinfo(const char *restrict host, const char *restrict serv,
++                const struct addrinfo *restrict hints, struct addrinfo **restrict res) {
++    if (!host && !serv) return EAI_NONAME;
++
++    const char *host_str = host ? host : "";
++    const char *port_str = serv ? serv : "0";
++
++    int port = parse_port(port_str);
++    int socktype = hints ? hints->ai_socktype : 0;
++
++    // Call host bridge for DNS resolution
++    uint8_t buf[4096];
++    uint32_t buf_len = sizeof(buf) - 1;
++    uint32_t err = __host_net_getaddrinfo(
++        (const uint8_t *)host_str, (uint32_t)strlen(host_str),
++        (const uint8_t *)port_str, (uint32_t)strlen(port_str),
++        buf, &buf_len);
++    if (err != 0) return EAI_NONAME;
++
++    buf[buf_len] = '\0';
++    const char *json = (const char *)buf;
++
++    // Parse JSON array: [{"addr":"...","family":N}, ...]
++    struct addrinfo *head = NULL;
++    struct addrinfo *tail = NULL;
++    int count = 0;
++
++    const char *p = skip_ws(json);
++    if (*p != '[') return EAI_FAIL;
++    p++;
++
++    while (*p) {
++        p = skip_ws(p);
++        if (*p == ']') break;
++        if (*p == ',') { p++; continue; }
++        if (*p != '{') break;
++        p++;
++
++        char addr_str[64] = {0};
++        int family = 0;
++
++        // Parse object fields
++        while (*p && *p != '}') {
++            p = skip_ws(p);
++            if (*p == ',') { p++; continue; }
++
++            char key[16] = {0};
++            p = parse_json_str(p, key, sizeof(key));
++            if (!p) goto parse_error;
++
++            p = skip_ws(p);
++            if (*p != ':') goto parse_error;
++            p++;
++            p = skip_ws(p);
++
++            if (strcmp(key, "addr") == 0) {
++                p = parse_json_str(p, addr_str, sizeof(addr_str));
++                if (!p) goto parse_error;
++            } else if (strcmp(key, "family") == 0) {
++                family = 0;
++                while (*p >= '0' && *p <= '9') {
++                    family = family * 10 + (*p - '0');
++                    p++;
++                }
++                // Map Node.js family (4/6) to AF_INET/AF_INET6
++                if (family == 4) family = AF_INET;
++                else if (family == 6) family = AF_INET6;
++            } else {
++                // Skip unknown value
++                if (*p == '"') {
++                    char tmp[64];
++                    p = parse_json_str(p, tmp, sizeof(tmp));
++                    if (!p) goto parse_error;
++                } else {
++                    while (*p && *p != ',' && *p != '}') p++;
++                }
++            }
++        }
++        if (*p == '}') p++;
++
++        // Filter by requested family
++        if (hints && hints->ai_family != AF_UNSPEC && hints->ai_family != family)
++            continue;
++
++        struct addrinfo *ai = make_addrinfo(addr_str, family, port, socktype);
++        if (!ai) { freeaddrinfo(head); return EAI_MEMORY; }
++
++        if (tail) { tail->ai_next = ai; tail = ai; }
++        else { head = tail = ai; }
++        count++;
++    }
++
++    if (count == 0) return EAI_NONAME;
++    *res = head;
++    return 0;
++
++parse_error:
++    freeaddrinfo(head);
++    return EAI_FAIL;
++}
++
++void freeaddrinfo(struct addrinfo *res) {
++    while (res) {
++        struct addrinfo *next = res->ai_next;
++        free(res);
++        res = next;
++    }
++}
++
++const char *gai_strerror(int ecode) {
++    switch (ecode) {
++        case 0:            return "Success";
++        case EAI_BADFLAGS: return "Invalid flags";
++        case EAI_NONAME:   return "Name or service not known";
++        case EAI_AGAIN:    return "Temporary failure in name resolution";
++        case EAI_FAIL:     return "Non-recoverable failure in name resolution";
++        case EAI_FAMILY:   return "Address family not supported";
++        case EAI_SOCKTYPE: return "Socket type not supported";
++        case EAI_SERVICE:  return "Servname not supported for ai_socktype";
++        case EAI_MEMORY:   return "Memory allocation failure";
++        case EAI_SYSTEM:   return "System error";
++        case EAI_OVERFLOW: return "Argument buffer overflow";
++        default:           return "Unknown error";
++    }
++}
