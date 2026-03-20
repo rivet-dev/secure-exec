@@ -55,10 +55,7 @@ pub fn serialize_v8_value(
     value: v8::Local<v8::Value>,
 ) -> Result<Vec<u8>, String> {
     let context = scope.get_current_context();
-    let serializer = v8::ValueSerializer::new(
-        scope,
-        Box::new(DefaultSerializerDelegate),
-    );
+    let serializer = v8::ValueSerializer::new(scope, Box::new(DefaultSerializerDelegate));
     serializer.write_header();
     serializer
         .write_value(context, value)
@@ -89,11 +86,8 @@ pub fn deserialize_v8_value<'s>(
     data: &[u8],
 ) -> Result<v8::Local<'s, v8::Value>, String> {
     let context = scope.get_current_context();
-    let deserializer = v8::ValueDeserializer::new(
-        scope,
-        Box::new(DefaultDeserializerDelegate),
-        data,
-    );
+    let deserializer =
+        v8::ValueDeserializer::new(scope, Box::new(DefaultDeserializerDelegate), data);
     deserializer
         .read_header(context)
         .ok_or_else(|| "V8 ValueDeserializer: invalid header".to_string())?;
@@ -128,6 +122,8 @@ struct SyncBridgeFnData {
 /// Opaque store that keeps bridge function data alive.
 /// Must be held for the lifetime of the V8 context.
 pub struct BridgeFnStore {
+    // Box ensures stable pointer address for v8::External data when Vec grows
+    #[allow(clippy::vec_box)]
     _data: Vec<Box<SyncBridgeFnData>>,
 }
 
@@ -142,6 +138,8 @@ struct AsyncBridgeFnData {
 /// Opaque store that keeps async bridge function data alive.
 /// Must be held for the lifetime of the V8 context.
 pub struct AsyncBridgeFnStore {
+    // Box ensures stable pointer address for v8::External data when Vec grows
+    #[allow(clippy::vec_box)]
     _data: Vec<Box<AsyncBridgeFnData>>,
 }
 
@@ -245,7 +243,8 @@ fn sync_bridge_callback(
         match serialize_v8_args_into(scope, &args, &mut bufs.ser_buf) {
             Ok(()) => bufs.ser_buf.clone(),
             Err(err) => {
-                let msg = v8::String::new(scope, &format!("bridge serialization error: {}", err)).unwrap();
+                let msg = v8::String::new(scope, &format!("bridge serialization error: {}", err))
+                    .unwrap();
                 let exc = v8::Exception::error(scope, msg);
                 scope.throw_exception(exc);
                 return;
@@ -349,9 +348,8 @@ fn async_bridge_callback(
     let external = match v8::Local::<v8::External>::try_from(args.data()) {
         Ok(ext) => ext,
         Err(_) => {
-            let msg =
-                v8::String::new(scope, "internal error: missing async bridge function data")
-                    .unwrap();
+            let msg = v8::String::new(scope, "internal error: missing async bridge function data")
+                .unwrap();
             let exc = v8::Exception::error(scope, msg);
             scope.throw_exception(exc);
             return;
@@ -383,7 +381,8 @@ fn async_bridge_callback(
         match serialize_v8_args_into(scope, &args, &mut bufs.ser_buf) {
             Ok(()) => bufs.ser_buf.clone(),
             Err(err) => {
-                let msg = v8::String::new(scope, &format!("bridge serialization error: {}", err)).unwrap();
+                let msg = v8::String::new(scope, &format!("bridge serialization error: {}", err))
+                    .unwrap();
                 let exc = v8::Exception::error(scope, msg);
                 scope.throw_exception(exc);
                 return;
@@ -449,8 +448,7 @@ pub fn register_stub_bridge_fns(
 
     // Register sync bridge functions as stubs (no External data)
     for &method_name in sync_fns {
-        let template = v8::FunctionTemplate::builder(sync_bridge_callback)
-            .build(scope);
+        let template = v8::FunctionTemplate::builder(sync_bridge_callback).build(scope);
         let func = template.get_function(scope).unwrap();
         let key = v8::String::new(scope, method_name).unwrap();
         global.set(scope, key.into(), func.into());
@@ -458,8 +456,7 @@ pub fn register_stub_bridge_fns(
 
     // Register async bridge functions as stubs (no External data)
     for &method_name in async_fns {
-        let template = v8::FunctionTemplate::builder(async_bridge_callback)
-            .build(scope);
+        let template = v8::FunctionTemplate::builder(async_bridge_callback).build(scope);
         let func = template.get_function(scope).unwrap();
         let key = v8::String::new(scope, method_name).unwrap();
         global.set(scope, key.into(), func.into());
@@ -468,7 +465,11 @@ pub fn register_stub_bridge_fns(
 
 /// Serialize V8 function arguments into a pre-allocated buffer.
 /// The buffer is cleared and reused across calls (grows to high-water mark).
-fn serialize_v8_args_into(scope: &mut v8::HandleScope, args: &v8::FunctionCallbackArguments, buf: &mut Vec<u8>) -> Result<(), String> {
+fn serialize_v8_args_into(
+    scope: &mut v8::HandleScope,
+    args: &v8::FunctionCallbackArguments,
+    buf: &mut Vec<u8>,
+) -> Result<(), String> {
     let count = args.length();
     let array = v8::Array::new(scope, count);
     for i in 0..count {

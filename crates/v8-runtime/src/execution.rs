@@ -6,7 +6,9 @@ use std::num::NonZeroI32;
 
 use crate::bridge::{deserialize_v8_value, serialize_v8_value};
 use crate::host_call::BridgeCallContext;
-use crate::ipc::{ExecutionError, OsConfig, ProcessConfig};
+use crate::ipc::ExecutionError;
+#[cfg(test)]
+use crate::ipc::{OsConfig, ProcessConfig};
 
 /// Cached V8 code cache data for bridge code compilation.
 ///
@@ -51,6 +53,7 @@ pub fn disable_wasm(isolate: &mut v8::OwnedIsolate) {
 /// global properties, and harden the context (remove SharedArrayBuffer in freeze mode).
 ///
 /// Must be called within a ContextScope.
+#[cfg(test)]
 pub fn inject_globals(
     scope: &mut v8::HandleScope,
     process_config: &ProcessConfig,
@@ -83,10 +86,7 @@ pub fn inject_globals(
 /// The payload is produced by node:v8.serialize() on the host side.
 /// Deserializes into V8, extracts processConfig and osConfig, freezes them,
 /// and sets them as non-writable, non-configurable global properties.
-pub fn inject_globals_from_payload(
-    scope: &mut v8::HandleScope,
-    payload: &[u8],
-) {
+pub fn inject_globals_from_payload(scope: &mut v8::HandleScope, payload: &[u8]) {
     let context = scope.get_current_context();
     let global = context.global(scope);
 
@@ -164,22 +164,31 @@ fn run_bridge_cached(
     let origin = v8::ScriptOrigin::new(
         tc,
         resource_name.into(),
-        0, 0, false, -1, None, false, false, false, None,
+        0,
+        0,
+        false,
+        -1,
+        None,
+        false,
+        false,
+        false,
+        None,
     );
 
     let source_hash = BridgeCodeCache::hash_source(bridge_code);
 
     // Check if cache is valid for this bridge code
-    let cache_hit = cache
-        .as_ref()
-        .map_or(false, |c| c.source_hash == source_hash);
+    let cache_hit = cache.as_ref().is_some_and(|c| c.source_hash == source_hash);
 
     let script = if cache_hit {
         // Consume cached bytecode
         let cached_bytes = &cache.as_ref().unwrap().cached_data;
         let cached_data = v8::script_compiler::CachedData::new(cached_bytes);
-        let mut source =
-            v8::script_compiler::Source::new_with_cached_data(v8_source, Some(&origin), cached_data);
+        let mut source = v8::script_compiler::Source::new_with_cached_data(
+            v8_source,
+            Some(&origin),
+            cached_data,
+        );
         let compiled = v8::script_compiler::compile(
             tc,
             &mut source,
@@ -187,10 +196,7 @@ fn run_bridge_cached(
             v8::script_compiler::NoCacheReason::NoReason,
         );
         // If cache was rejected, invalidate it (will be regenerated next time)
-        if source
-            .get_cached_data()
-            .map_or(false, |cd| cd.rejected())
-        {
+        if source.get_cached_data().is_some_and(|cd| cd.rejected()) {
             *cache = None;
         }
         compiled
@@ -221,7 +227,10 @@ fn run_bridge_cached(
         Some(s) => s,
         None => {
             return match tc.exception() {
-                Some(e) => { let (c, err) = exception_to_result(tc, e); (c, Some(err)) }
+                Some(e) => {
+                    let (c, err) = exception_to_result(tc, e);
+                    (c, Some(err))
+                }
                 None => (1, None),
             };
         }
@@ -229,7 +238,10 @@ fn run_bridge_cached(
 
     if script.run(tc).is_none() {
         return match tc.exception() {
-            Some(e) => { let (c, err) = exception_to_result(tc, e); (c, Some(err)) }
+            Some(e) => {
+                let (c, err) = exception_to_result(tc, e);
+                (c, Some(err))
+            }
             None => (1, None),
         };
     }
@@ -239,10 +251,8 @@ fn run_bridge_cached(
 
 /// Run a short init script (e.g. post-restore config). Compiles and executes
 /// via v8::Script, returning (exit_code, error) on failure. No code caching.
-pub fn run_init_script(
-    scope: &mut v8::HandleScope,
-    code: &str,
-) -> (i32, Option<ExecutionError>) {
+#[cfg(not(test))]
+pub fn run_init_script(scope: &mut v8::HandleScope, code: &str) -> (i32, Option<ExecutionError>) {
     if code.is_empty() {
         return (0, None);
     }
@@ -325,14 +335,20 @@ pub fn execute_script(
             Some(s) => s,
             None => {
                 return match tc.exception() {
-                    Some(e) => { let (c, err) = exception_to_result(tc, e); (c, Some(err)) }
+                    Some(e) => {
+                        let (c, err) = exception_to_result(tc, e);
+                        (c, Some(err))
+                    }
                     None => (1, None),
                 };
             }
         };
         if script.run(tc).is_none() {
             return match tc.exception() {
-                Some(e) => { let (c, err) = exception_to_result(tc, e); (c, Some(err)) }
+                Some(e) => {
+                    let (c, err) = exception_to_result(tc, e);
+                    (c, Some(err))
+                }
                 None => (1, None),
             };
         }
@@ -452,6 +468,7 @@ pub fn extract_error_info(
 }
 
 /// Build the _processConfig JS object: { cwd, env, timing_mitigation, frozen_time_ms }
+#[cfg(test)]
 fn build_process_config<'s>(
     scope: &mut v8::HandleScope<'s>,
     config: &ProcessConfig,
@@ -491,6 +508,7 @@ fn build_process_config<'s>(
 }
 
 /// Build the _osConfig JS object: { homedir, tmpdir, platform, arch }
+#[cfg(test)]
 fn build_os_config<'s>(
     scope: &mut v8::HandleScope<'s>,
     config: &OsConfig,
@@ -529,7 +547,7 @@ struct ModuleResolveState {
 unsafe impl Send for ModuleResolveState {}
 
 thread_local! {
-    static MODULE_RESOLVE_STATE: RefCell<Option<ModuleResolveState>> = RefCell::new(None);
+    static MODULE_RESOLVE_STATE: RefCell<Option<ModuleResolveState>> = const { RefCell::new(None) };
 }
 
 fn clear_module_state() {
@@ -613,7 +631,10 @@ pub fn execute_module(
             None => {
                 clear_module_state();
                 return match tc.exception() {
-                    Some(e) => { let (c, err) = exception_to_result(tc, e); (c, None, Some(err)) }
+                    Some(e) => {
+                        let (c, err) = exception_to_result(tc, e);
+                        (c, None, Some(err))
+                    }
                     None => (1, None, None),
                 };
             }
@@ -634,10 +655,16 @@ pub fn execute_module(
         prefetch_module_imports(tc, bridge_ctx, module, resource_name_str);
 
         // Instantiate (calls resolve callback for each import — mostly cache hits now)
-        if module.instantiate_module(tc, module_resolve_callback).is_none() {
+        if module
+            .instantiate_module(tc, module_resolve_callback)
+            .is_none()
+        {
             clear_module_state();
             return match tc.exception() {
-                Some(e) => { let (c, err) = exception_to_result(tc, e); (c, None, Some(err)) }
+                Some(e) => {
+                    let (c, err) = exception_to_result(tc, e);
+                    (c, None, Some(err))
+                }
                 None => (1, None, None),
             };
         }
@@ -647,7 +674,10 @@ pub fn execute_module(
         if eval_result.is_none() {
             clear_module_state();
             return match tc.exception() {
-                Some(e) => { let (c, err) = exception_to_result(tc, e); (c, None, Some(err)) }
+                Some(e) => {
+                    let (c, err) = exception_to_result(tc, e);
+                    (c, None, Some(err))
+                }
                 None => (1, None, None),
             };
         }
@@ -695,7 +725,9 @@ pub fn execute_module(
             let plain = v8::Object::new(tc);
             for i in 0..prop_names.length() {
                 let key = prop_names.get_index(tc, i).unwrap();
-                let val = namespace_obj.get(tc, key).unwrap_or_else(|| v8::undefined(tc).into());
+                let val = namespace_obj
+                    .get(tc, key)
+                    .unwrap_or_else(|| v8::undefined(tc).into());
                 plain.set(tc, key, val);
             }
             plain.into()
@@ -704,12 +736,16 @@ pub fn execute_module(
             Ok(bytes) => bytes,
             Err(e) => {
                 clear_module_state();
-                return (1, None, Some(ExecutionError {
-                    error_type: "Error".into(),
-                    message: format!("failed to serialize exports: {}", e),
-                    stack: String::new(),
-                    code: None,
-                }));
+                return (
+                    1,
+                    None,
+                    Some(ExecutionError {
+                        error_type: "Error".into(),
+                        message: format!("failed to serialize exports: {}", e),
+                        stack: String::new(),
+                        code: None,
+                    }),
+                );
             }
         };
 
@@ -760,9 +796,8 @@ fn prefetch_module_imports(
     root_name: &str,
 ) {
     // BFS queue: modules whose imports we need to prefetch
-    let mut pending: Vec<(v8::Global<v8::Module>, String)> = vec![
-        (v8::Global::new(scope, root_module), root_name.to_string()),
-    ];
+    let mut pending: Vec<(v8::Global<v8::Module>, String)> =
+        vec![(v8::Global::new(scope, root_module), root_name.to_string())];
 
     while !pending.is_empty() {
         // Collect all uncached imports from pending modules
@@ -813,7 +848,13 @@ fn prefetch_module_imports(
                 let origin = v8::ScriptOrigin::new(
                     scope,
                     resource.into(),
-                    0, 0, false, -1, None, false, false,
+                    0,
+                    0,
+                    false,
+                    -1,
+                    None,
+                    false,
+                    false,
                     true, // is_module
                     None,
                 );
@@ -831,10 +872,16 @@ fn prefetch_module_imports(
                 let global = v8::Global::new(scope, module);
                 MODULE_RESOLVE_STATE.with(|cell| {
                     if let Some(state) = cell.borrow_mut().as_mut() {
-                        state.module_names.insert(module.get_identity_hash(), resolved_path.clone());
+                        state
+                            .module_names
+                            .insert(module.get_identity_hash(), resolved_path.clone());
                         // Cache by both specifier and resolved path
-                        state.module_cache.insert(resolved_path.clone(), global.clone());
-                        state.module_cache.insert(batch[i].0.clone(), global.clone());
+                        state
+                            .module_cache
+                            .insert(resolved_path.clone(), global.clone());
+                        state
+                            .module_cache
+                            .insert(batch[i].0.clone(), global.clone());
                     }
                 });
 
@@ -885,10 +932,12 @@ fn batch_resolve_via_ipc(
                 if let Some(obj) = obj {
                     let r_key = v8::String::new(scope, "resolved").unwrap();
                     let s_key = v8::String::new(scope, "source").unwrap();
-                    let resolved = obj.get(scope, r_key.into())
+                    let resolved = obj
+                        .get(scope, r_key.into())
                         .filter(|v| v.is_string())
                         .map(|v| v.to_rust_string_lossy(scope));
-                    let source = obj.get(scope, s_key.into())
+                    let source = obj
+                        .get(scope, s_key.into())
                         .filter(|v| v.is_string())
                         .map(|v| v.to_rust_string_lossy(scope));
                     match (resolved, source) {
@@ -1129,7 +1178,11 @@ mod tests {
     }
 
     /// Helper: serialize a V8 string value for test BridgeResponse payloads
-    fn v8_serialize_str(iso: &mut v8::OwnedIsolate, ctx: &v8::Global<v8::Context>, s: &str) -> Vec<u8> {
+    fn v8_serialize_str(
+        iso: &mut v8::OwnedIsolate,
+        ctx: &v8::Global<v8::Context>,
+        s: &str,
+    ) -> Vec<u8> {
         let scope = &mut v8::HandleScope::new(iso);
         let local = v8::Local::new(scope, ctx);
         let scope = &mut v8::ContextScope::new(scope, local);
@@ -1138,7 +1191,11 @@ mod tests {
     }
 
     /// Helper: serialize a V8 integer value for test BridgeResponse payloads
-    fn v8_serialize_int(iso: &mut v8::OwnedIsolate, ctx: &v8::Global<v8::Context>, n: i64) -> Vec<u8> {
+    fn v8_serialize_int(
+        iso: &mut v8::OwnedIsolate,
+        ctx: &v8::Global<v8::Context>,
+        n: i64,
+    ) -> Vec<u8> {
         let scope = &mut v8::HandleScope::new(iso);
         let local = v8::Local::new(scope, ctx);
         let scope = &mut v8::ContextScope::new(scope, local);
@@ -1156,7 +1213,11 @@ mod tests {
     }
 
     /// Helper: serialize a V8 object (from JS expression) for test BridgeResponse payloads
-    fn v8_serialize_eval(iso: &mut v8::OwnedIsolate, ctx: &v8::Global<v8::Context>, expr: &str) -> Vec<u8> {
+    fn v8_serialize_eval(
+        iso: &mut v8::OwnedIsolate,
+        ctx: &v8::Global<v8::Context>,
+        expr: &str,
+    ) -> Vec<u8> {
         let scope = &mut v8::HandleScope::new(iso);
         let local = v8::Local::new(scope, ctx);
         let scope = &mut v8::ContextScope::new(scope, local);
@@ -1167,7 +1228,11 @@ mod tests {
     }
 
     /// Enter a context, run JS, return the string result.
-    fn eval(isolate: &mut v8::OwnedIsolate, context: &v8::Global<v8::Context>, code: &str) -> String {
+    fn eval(
+        isolate: &mut v8::OwnedIsolate,
+        context: &v8::Global<v8::Context>,
+        code: &str,
+    ) -> String {
         let scope = &mut v8::HandleScope::new(isolate);
         let local = v8::Local::new(scope, context);
         let scope = &mut v8::ContextScope::new(scope, local);
@@ -1178,7 +1243,11 @@ mod tests {
     }
 
     /// Enter a context, run JS, return true if the result is truthy.
-    fn eval_bool(isolate: &mut v8::OwnedIsolate, context: &v8::Global<v8::Context>, code: &str) -> bool {
+    fn eval_bool(
+        isolate: &mut v8::OwnedIsolate,
+        context: &v8::Global<v8::Context>,
+        code: &str,
+    ) -> bool {
         let scope = &mut v8::HandleScope::new(isolate);
         let local = v8::Local::new(scope, context);
         let scope = &mut v8::ContextScope::new(scope, local);
@@ -1189,7 +1258,11 @@ mod tests {
     }
 
     /// Enter a context, run JS, return true if an exception was thrown.
-    fn eval_throws(isolate: &mut v8::OwnedIsolate, context: &v8::Global<v8::Context>, code: &str) -> bool {
+    fn eval_throws(
+        isolate: &mut v8::OwnedIsolate,
+        context: &v8::Global<v8::Context>,
+        code: &str,
+    ) -> bool {
         let scope = &mut v8::HandleScope::new(isolate);
         let local = v8::Local::new(scope, context);
         let scope = &mut v8::ContextScope::new(scope, local);
@@ -1223,7 +1296,10 @@ mod tests {
         {
             let mut isolate = isolate::create_isolate(None);
             let context = isolate::create_context(&mut isolate);
-            assert_eq!(eval(&mut isolate, &context, "'hello' + ' world'"), "hello world");
+            assert_eq!(
+                eval(&mut isolate, &context, "'hello' + ' world'"),
+                "hello world"
+            );
         }
         // Global context handle persists state
         {
@@ -1283,7 +1359,10 @@ mod tests {
             );
 
             // Verify _osConfig values
-            assert_eq!(eval(&mut isolate, &context, "_osConfig.homedir"), "/home/user");
+            assert_eq!(
+                eval(&mut isolate, &context, "_osConfig.homedir"),
+                "/home/user"
+            );
             assert_eq!(eval(&mut isolate, &context, "_osConfig.tmpdir"), "/tmp");
             assert_eq!(eval(&mut isolate, &context, "_osConfig.platform"), "linux");
             assert_eq!(eval(&mut isolate, &context, "_osConfig.arch"), "x64");
@@ -1315,7 +1394,11 @@ mod tests {
             }
 
             assert_eq!(
-                eval(&mut isolate, &context, "_processConfig.frozen_time_ms === null"),
+                eval(
+                    &mut isolate,
+                    &context,
+                    "_processConfig.frozen_time_ms === null"
+                ),
                 "true"
             );
         }
@@ -1669,11 +1752,7 @@ mod tests {
                 );
             }
 
-            assert!(eval_bool(
-                &mut iso,
-                &ctx,
-                "_testBridge() === undefined"
-            ));
+            assert!(eval_bool(&mut iso, &ctx, "_testBridge() === undefined"));
         }
 
         // --- Part 12: Async bridge call returns pending promise, resolved successfully ---
@@ -1733,14 +1812,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                bridge::resolve_pending_promise(
-                    scope,
-                    &pending,
-                    1,
-                    Some(result_v8),
-                    None,
-                )
-                .unwrap();
+                bridge::resolve_pending_promise(scope, &pending, 1, Some(result_v8), None).unwrap();
             }
 
             assert_eq!(pending.len(), 0);
@@ -1870,8 +1942,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                bridge::resolve_pending_promise(scope, &pending, 2, Some(r2), None)
-                    .unwrap();
+                bridge::resolve_pending_promise(scope, &pending, 2, Some(r2), None).unwrap();
             }
             assert_eq!(pending.len(), 1);
 
@@ -1880,8 +1951,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                bridge::resolve_pending_promise(scope, &pending, 1, Some(r1), None)
-                    .unwrap();
+                bridge::resolve_pending_promise(scope, &pending, 1, Some(r1), None).unwrap();
             }
             assert_eq!(pending.len(), 0);
 
@@ -1947,8 +2017,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                bridge::resolve_pending_promise(scope, &pending, 1, None, None)
-                    .unwrap();
+                bridge::resolve_pending_promise(scope, &pending, 1, None, None).unwrap();
             }
 
             // Promise should be fulfilled with undefined
@@ -2007,8 +2076,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                bridge::resolve_pending_promise(scope, &pending, 1, None, None)
-                    .unwrap();
+                bridge::resolve_pending_promise(scope, &pending, 1, None, None).unwrap();
             }
 
             // After resolution + microtask flush, _thenRan should be true
@@ -2199,9 +2267,20 @@ mod tests {
                 assert!(val.is_object());
                 let obj = v8::Local::<v8::Object>::try_from(val).unwrap();
                 let k = v8::String::new(scope, "x").unwrap();
-                assert_eq!(obj.get(scope, k.into()).unwrap().int32_value(scope).unwrap(), 42);
+                assert_eq!(
+                    obj.get(scope, k.into())
+                        .unwrap()
+                        .int32_value(scope)
+                        .unwrap(),
+                    42
+                );
                 let k = v8::String::new(scope, "msg").unwrap();
-                assert_eq!(obj.get(scope, k.into()).unwrap().to_rust_string_lossy(scope), "hello");
+                assert_eq!(
+                    obj.get(scope, k.into())
+                        .unwrap()
+                        .to_rust_string_lossy(scope),
+                    "hello"
+                );
             }
         }
 
@@ -2220,7 +2299,14 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_module(scope, &bridge_ctx, "", "export default 'world';", None, &mut None)
+                execute_module(
+                    scope,
+                    &bridge_ctx,
+                    "",
+                    "export default 'world';",
+                    None,
+                    &mut None,
+                )
             };
 
             assert_eq!(code, 0);
@@ -2234,7 +2320,12 @@ mod tests {
                 assert!(val.is_object());
                 let obj = v8::Local::<v8::Object>::try_from(val).unwrap();
                 let k = v8::String::new(scope, "default").unwrap();
-                assert_eq!(obj.get(scope, k.into()).unwrap().to_rust_string_lossy(scope), "world");
+                assert_eq!(
+                    obj.get(scope, k.into())
+                        .unwrap()
+                        .to_rust_string_lossy(scope),
+                    "world"
+                );
             }
         }
 
@@ -2253,7 +2344,14 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_module(scope, &bridge_ctx, "", "export const x = {;", None, &mut None)
+                execute_module(
+                    scope,
+                    &bridge_ctx,
+                    "",
+                    "export const x = {;",
+                    None,
+                    &mut None,
+                )
             };
 
             assert_eq!(code, 1);
@@ -2384,7 +2482,13 @@ mod tests {
                 assert!(val.is_object());
                 let obj = v8::Local::<v8::Object>::try_from(val).unwrap();
                 let k = v8::String::new(scope, "result").unwrap();
-                assert_eq!(obj.get(scope, k.into()).unwrap().int32_value(scope).unwrap(), 100);
+                assert_eq!(
+                    obj.get(scope, k.into())
+                        .unwrap()
+                        .int32_value(scope)
+                        .unwrap(),
+                    100
+                );
             }
         }
 
@@ -2448,7 +2552,10 @@ mod tests {
 
             assert!(completed, "event loop should complete normally");
             assert_eq!(pending.len(), 0);
-            assert_eq!(eval(&mut iso, &ctx, "_eventLoopResult"), "event-loop-resolved");
+            assert_eq!(
+                eval(&mut iso, &ctx, "_eventLoopResult"),
+                "event-loop-resolved"
+            );
         }
 
         // --- Part 32: Event loop — multiple BridgeResponses resolved in sequence ---
@@ -2720,7 +2827,10 @@ mod tests {
 
             // Verify stream event was dispatched
             assert_eq!(eval(&mut iso, &ctx, "_streamEvents.length"), "1");
-            assert_eq!(eval(&mut iso, &ctx, "_streamEvents[0].type"), "child_stdout");
+            assert_eq!(
+                eval(&mut iso, &ctx, "_streamEvents[0].type"),
+                "child_stdout"
+            );
             assert_eq!(
                 eval(&mut iso, &ctx, "_streamEvents[0].data"),
                 "hello from child"
@@ -2918,7 +3028,8 @@ mod tests {
             let (tx, rx) = crossbeam_channel::unbounded();
 
             // Send http_request event with request data
-            let http_payload = v8_serialize_eval(&mut iso, &ctx, "({method: 'GET', url: '/api/test'})");
+            let http_payload =
+                v8_serialize_eval(&mut iso, &ctx, "({method: 'GET', url: '/api/test'})");
             tx.send(crate::session::SessionCommand::Message(
                 crate::ipc_binary::BinaryFrame::StreamEvent {
                     session_id: "test-session".into(),
@@ -3166,7 +3277,11 @@ mod tests {
             }
 
             // Microtask enqueued by the dispatch callback should have run
-            assert!(eval_bool(&mut iso, &ctx, "_microtaskRanFromStream === true"));
+            assert!(eval_bool(
+                &mut iso,
+                &ctx,
+                "_microtaskRanFromStream === true"
+            ));
         }
 
         // --- Part 43: Timeout terminates infinite loop ---
@@ -3333,7 +3448,10 @@ mod tests {
             "#;
 
             let (exit_code, error) = execute_script(scope, "", code, &mut None);
-            assert_eq!(exit_code, 42, "ProcessExitError should return the error's exit code");
+            assert_eq!(
+                exit_code, 42,
+                "ProcessExitError should return the error's exit code"
+            );
             let err = error.unwrap();
             assert_eq!(err.error_type, "Error");
             assert!(err.message.contains("process.exit(42)"));
@@ -3358,7 +3476,10 @@ mod tests {
             "#;
 
             let (exit_code, error) = execute_script(scope, "", code, &mut None);
-            assert_eq!(exit_code, 0, "ProcessExitError code 0 should return exit code 0");
+            assert_eq!(
+                exit_code, 0,
+                "ProcessExitError code 0 should return exit code 0"
+            );
             assert!(error.is_some());
         }
 
@@ -3504,15 +3625,21 @@ mod tests {
             let err = error.unwrap();
             assert_eq!(err.error_type, "Error");
             assert_eq!(err.message, "deep error");
-            assert!(err.stack.contains("innerFn"), "stack should contain innerFn");
-            assert!(err.stack.contains("outerFn"), "stack should contain outerFn");
+            assert!(
+                err.stack.contains("innerFn"),
+                "stack should contain innerFn"
+            );
+            assert!(
+                err.stack.contains("outerFn"),
+                "stack should contain outerFn"
+            );
         }
 
         // --- V8 ValueSerializer/ValueDeserializer round-trip tests ---
 
         // Part 55: Primitives round-trip (null, undefined, true, false, integers, floats)
         {
-            use crate::bridge::{serialize_v8_value, deserialize_v8_value};
+            use crate::bridge::{deserialize_v8_value, serialize_v8_value};
 
             let mut iso = isolate::create_isolate(None);
             let ctx = isolate::create_context(&mut iso);
@@ -3557,15 +3684,15 @@ mod tests {
             assert_eq!(out.int32_value(scope).unwrap(), -7);
 
             // float
-            let num_val: v8::Local<v8::Value> = v8::Number::new(scope, 3.14).into();
+            let num_val: v8::Local<v8::Value> = v8::Number::new(scope, 3.125).into();
             let bytes = serialize_v8_value(scope, num_val).unwrap();
             let out = deserialize_v8_value(scope, &bytes).unwrap();
-            assert!((out.number_value(scope).unwrap() - 3.14).abs() < 1e-10);
+            assert!((out.number_value(scope).unwrap() - 3.125).abs() < 1e-10);
         }
 
         // Part 56: Strings round-trip
         {
-            use crate::bridge::{serialize_v8_value, deserialize_v8_value};
+            use crate::bridge::{deserialize_v8_value, serialize_v8_value};
 
             let mut iso = isolate::create_isolate(None);
             let ctx = isolate::create_context(&mut iso);
@@ -3596,7 +3723,7 @@ mod tests {
 
         // Part 57: Arrays round-trip
         {
-            use crate::bridge::{serialize_v8_value, deserialize_v8_value};
+            use crate::bridge::{deserialize_v8_value, serialize_v8_value};
 
             let mut iso = isolate::create_isolate(None);
             let ctx = isolate::create_context(&mut iso);
@@ -3620,8 +3747,21 @@ mod tests {
             assert!(out.is_array());
             let out_arr = v8::Local::<v8::Array>::try_from(out).unwrap();
             assert_eq!(out_arr.length(), 4);
-            assert_eq!(out_arr.get_index(scope, 0).unwrap().int32_value(scope).unwrap(), 1);
-            assert_eq!(out_arr.get_index(scope, 1).unwrap().to_rust_string_lossy(scope), "two");
+            assert_eq!(
+                out_arr
+                    .get_index(scope, 0)
+                    .unwrap()
+                    .int32_value(scope)
+                    .unwrap(),
+                1
+            );
+            assert_eq!(
+                out_arr
+                    .get_index(scope, 1)
+                    .unwrap()
+                    .to_rust_string_lossy(scope),
+                "two"
+            );
             assert!(out_arr.get_index(scope, 2).unwrap().is_true());
             assert!(out_arr.get_index(scope, 3).unwrap().is_null());
 
@@ -3635,7 +3775,7 @@ mod tests {
 
         // Part 58: Objects round-trip
         {
-            use crate::bridge::{serialize_v8_value, deserialize_v8_value};
+            use crate::bridge::{deserialize_v8_value, serialize_v8_value};
 
             let mut iso = isolate::create_isolate(None);
             let ctx = isolate::create_context(&mut iso);
@@ -3660,16 +3800,29 @@ mod tests {
             assert!(out.is_object());
             let out_obj = v8::Local::<v8::Object>::try_from(out).unwrap();
             let k = v8::String::new(scope, "name").unwrap();
-            assert_eq!(out_obj.get(scope, k.into()).unwrap().to_rust_string_lossy(scope), "test");
+            assert_eq!(
+                out_obj
+                    .get(scope, k.into())
+                    .unwrap()
+                    .to_rust_string_lossy(scope),
+                "test"
+            );
             let k = v8::String::new(scope, "count").unwrap();
-            assert_eq!(out_obj.get(scope, k.into()).unwrap().int32_value(scope).unwrap(), 42);
+            assert_eq!(
+                out_obj
+                    .get(scope, k.into())
+                    .unwrap()
+                    .int32_value(scope)
+                    .unwrap(),
+                42
+            );
             let k = v8::String::new(scope, "active").unwrap();
             assert!(out_obj.get(scope, k.into()).unwrap().is_true());
         }
 
         // Part 59: Uint8Array round-trip
         {
-            use crate::bridge::{serialize_v8_value, deserialize_v8_value};
+            use crate::bridge::{deserialize_v8_value, serialize_v8_value};
 
             let mut iso = isolate::create_isolate(None);
             let ctx = isolate::create_context(&mut iso);
@@ -3677,7 +3830,7 @@ mod tests {
             let local = v8::Local::new(scope, &ctx);
             let scope = &mut v8::ContextScope::new(scope, local);
 
-            let data = vec![0u8, 1, 2, 255, 128, 64];
+            let data = [0u8, 1, 2, 255, 128, 64];
             let ab = v8::ArrayBuffer::new(scope, data.len());
             {
                 let bs = ab.get_backing_store();
@@ -3703,7 +3856,7 @@ mod tests {
 
         // Part 60: Nested structures round-trip
         {
-            use crate::bridge::{serialize_v8_value, deserialize_v8_value};
+            use crate::bridge::{deserialize_v8_value, serialize_v8_value};
 
             let mut iso = isolate::create_isolate(None);
             let ctx = isolate::create_context(&mut iso);
@@ -3733,12 +3886,25 @@ mod tests {
             assert!(items.is_array());
             let items_arr = v8::Local::<v8::Array>::try_from(items).unwrap();
             assert_eq!(items_arr.length(), 2);
-            assert_eq!(items_arr.get_index(scope, 0).unwrap().int32_value(scope).unwrap(), 1);
+            assert_eq!(
+                items_arr
+                    .get_index(scope, 0)
+                    .unwrap()
+                    .int32_value(scope)
+                    .unwrap(),
+                1
+            );
             let inner = items_arr.get_index(scope, 1).unwrap();
             assert!(inner.is_object());
             let inner_obj = v8::Local::<v8::Object>::try_from(inner).unwrap();
             let k = v8::String::new(scope, "nested").unwrap();
-            assert_eq!(inner_obj.get(scope, k.into()).unwrap().to_rust_string_lossy(scope), "value");
+            assert_eq!(
+                inner_obj
+                    .get(scope, k.into())
+                    .unwrap()
+                    .to_rust_string_lossy(scope),
+                "value"
+            );
 
             // Check flag
             let k = v8::String::new(scope, "flag").unwrap();
@@ -3747,7 +3913,7 @@ mod tests {
 
         // Part 61: Date, RegExp, Map, Set, Error round-trip via JS eval
         {
-            use crate::bridge::{serialize_v8_value, deserialize_v8_value};
+            use crate::bridge::{deserialize_v8_value, serialize_v8_value};
 
             let mut iso = isolate::create_isolate(None);
             let ctx = isolate::create_context(&mut iso);
@@ -3809,7 +3975,7 @@ mod tests {
 
         // Part 62: Circular references round-trip
         {
-            use crate::bridge::{serialize_v8_value, deserialize_v8_value};
+            use crate::bridge::{deserialize_v8_value, serialize_v8_value};
 
             let mut iso = isolate::create_isolate(None);
             let ctx = isolate::create_context(&mut iso);
@@ -3829,14 +3995,28 @@ mod tests {
 
             // Verify the self-reference resolves
             let k = v8::String::new(scope, "a").unwrap();
-            assert_eq!(out_obj.get(scope, k.into()).unwrap().int32_value(scope).unwrap(), 1);
+            assert_eq!(
+                out_obj
+                    .get(scope, k.into())
+                    .unwrap()
+                    .int32_value(scope)
+                    .unwrap(),
+                1
+            );
             let k = v8::String::new(scope, "self").unwrap();
             let self_ref = out_obj.get(scope, k.into()).unwrap();
             assert!(self_ref.is_object());
             // The self reference should point back to the same structure
             let self_obj = v8::Local::<v8::Object>::try_from(self_ref).unwrap();
             let k = v8::String::new(scope, "a").unwrap();
-            assert_eq!(self_obj.get(scope, k.into()).unwrap().int32_value(scope).unwrap(), 1);
+            assert_eq!(
+                self_obj
+                    .get(scope, k.into())
+                    .unwrap()
+                    .int32_value(scope)
+                    .unwrap(),
+                1
+            );
         }
 
         // --- V8 Code Caching tests ---
@@ -3859,7 +4039,10 @@ mod tests {
             assert!(error.is_none());
             assert_eq!(eval(&mut iso, &ctx, "_saw"), "yes");
             // Cache should be populated after first compile
-            assert!(cache.is_some(), "cache should be populated after first execution");
+            assert!(
+                cache.is_some(),
+                "cache should be populated after first execution"
+            );
             assert!(!cache.as_ref().unwrap().cached_data.is_empty());
         }
 
@@ -3895,7 +4078,10 @@ mod tests {
                 };
                 assert_eq!(code, 0);
                 // Cache should still be present (not invalidated)
-                assert!(cache.is_some(), "cache should persist after second execution");
+                assert!(
+                    cache.is_some(),
+                    "cache should persist after second execution"
+                );
                 // Cached data should be same size (same code, same cache)
                 assert_eq!(cache.as_ref().unwrap().cached_data.len(), cached_data_len);
                 // Bridge code executed correctly
@@ -3915,7 +4101,12 @@ mod tests {
                     let scope = &mut v8::HandleScope::new(&mut iso);
                     let local = v8::Local::new(scope, &ctx);
                     let scope = &mut v8::ContextScope::new(scope, local);
-                    execute_script(scope, "(function() { globalThis.x = 'A'; })()", "", &mut cache)
+                    execute_script(
+                        scope,
+                        "(function() { globalThis.x = 'A'; })()",
+                        "",
+                        &mut cache,
+                    )
                 };
                 assert_eq!(code, 0);
                 assert!(cache.is_some());
@@ -3930,7 +4121,12 @@ mod tests {
                     let scope = &mut v8::HandleScope::new(&mut iso);
                     let local = v8::Local::new(scope, &ctx);
                     let scope = &mut v8::ContextScope::new(scope, local);
-                    execute_script(scope, "(function() { globalThis.x = 'B'; })()", "", &mut cache)
+                    execute_script(
+                        scope,
+                        "(function() { globalThis.x = 'B'; })()",
+                        "",
+                        &mut cache,
+                    )
                 };
                 assert_eq!(code, 0);
                 assert!(cache.is_some());
@@ -3949,11 +4145,8 @@ mod tests {
             let output = Arc::new(Mutex::new(Vec::new()));
             let writer = SharedWriter(Arc::clone(&output));
             let reader = Cursor::new(Vec::new());
-            let bridge_ctx = BridgeCallContext::new(
-                Box::new(writer),
-                Box::new(reader),
-                "test-session".into(),
-            );
+            let bridge_ctx =
+                BridgeCallContext::new(Box::new(writer), Box::new(reader), "test-session".into());
 
             let bridge = "(function() { globalThis._moduleBridge = true; })()";
 
@@ -3964,7 +4157,14 @@ mod tests {
                     let scope = &mut v8::HandleScope::new(&mut iso);
                     let local = v8::Local::new(scope, &ctx);
                     let scope = &mut v8::ContextScope::new(scope, local);
-                    execute_module(scope, &bridge_ctx, bridge, "export const a = 1;", None, &mut cache)
+                    execute_module(
+                        scope,
+                        &bridge_ctx,
+                        bridge,
+                        "export const a = 1;",
+                        None,
+                        &mut cache,
+                    )
                 };
                 assert_eq!(code, 0);
                 assert!(cache.is_some());
@@ -3977,7 +4177,14 @@ mod tests {
                     let scope = &mut v8::HandleScope::new(&mut iso);
                     let local = v8::Local::new(scope, &ctx);
                     let scope = &mut v8::ContextScope::new(scope, local);
-                    execute_module(scope, &bridge_ctx, bridge, "export const b = 2;", None, &mut cache)
+                    execute_module(
+                        scope,
+                        &bridge_ctx,
+                        bridge,
+                        "export const b = 2;",
+                        None,
+                        &mut cache,
+                    )
                 };
                 assert_eq!(code, 0);
                 assert!(exports.is_some());
@@ -3999,7 +4206,10 @@ mod tests {
             };
 
             assert_eq!(code, 0);
-            assert!(cache.is_none(), "cache should not be populated for empty bridge code");
+            assert!(
+                cache.is_none(),
+                "cache should not be populated for empty bridge code"
+            );
         }
 
         // Part 65: Batch resolve — multiple imports prefetched in one round-trip
@@ -4038,7 +4248,14 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_module(scope, &bridge_ctx, "", user_code, Some("/app/main.mjs"), &mut None)
+                execute_module(
+                    scope,
+                    &bridge_ctx,
+                    "",
+                    user_code,
+                    Some("/app/main.mjs"),
+                    &mut None,
+                )
             };
 
             assert_eq!(code, 0, "error: {:?}", error);
@@ -4051,7 +4268,13 @@ mod tests {
                 let val = crate::bridge::deserialize_v8_value(scope, &exports).unwrap();
                 let obj = v8::Local::<v8::Object>::try_from(val).unwrap();
                 let k = v8::String::new(scope, "sum").unwrap();
-                assert_eq!(obj.get(scope, k.into()).unwrap().int32_value(scope).unwrap(), 3);
+                assert_eq!(
+                    obj.get(scope, k.into())
+                        .unwrap()
+                        .int32_value(scope)
+                        .unwrap(),
+                    3
+                );
             }
 
             // Verify only one BridgeCall was sent (the batch call, not individual calls)
@@ -4079,7 +4302,9 @@ mod tests {
                     session_id: String::new(),
                     call_id: 1,
                     status: 1,
-                    payload: "No handler for bridge method: _batchResolveModules".as_bytes().to_vec(),
+                    payload: "No handler for bridge method: _batchResolveModules"
+                        .as_bytes()
+                        .to_vec(),
                 },
             )
             .unwrap();
@@ -4121,7 +4346,14 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_module(scope, &bridge_ctx, "", user_code, Some("/app/main.mjs"), &mut None)
+                execute_module(
+                    scope,
+                    &bridge_ctx,
+                    "",
+                    user_code,
+                    Some("/app/main.mjs"),
+                    &mut None,
+                )
             };
 
             assert_eq!(code, 0, "error: {:?}", error);
@@ -4134,7 +4366,13 @@ mod tests {
                 let val = crate::bridge::deserialize_v8_value(scope, &exports).unwrap();
                 let obj = v8::Local::<v8::Object>::try_from(val).unwrap();
                 let k = v8::String::new(scope, "result").unwrap();
-                assert_eq!(obj.get(scope, k.into()).unwrap().int32_value(scope).unwrap(), 42);
+                assert_eq!(
+                    obj.get(scope, k.into())
+                        .unwrap()
+                        .int32_value(scope)
+                        .unwrap(),
+                    42
+                );
             }
         }
 
@@ -4190,7 +4428,14 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_module(scope, &bridge_ctx, "", user_code, Some("/app/main.mjs"), &mut None)
+                execute_module(
+                    scope,
+                    &bridge_ctx,
+                    "",
+                    user_code,
+                    Some("/app/main.mjs"),
+                    &mut None,
+                )
             };
 
             assert_eq!(code, 0, "error: {:?}", error);
@@ -4203,7 +4448,13 @@ mod tests {
                 let val = crate::bridge::deserialize_v8_value(scope, &exports).unwrap();
                 let obj = v8::Local::<v8::Object>::try_from(val).unwrap();
                 let k = v8::String::new(scope, "result").unwrap();
-                assert_eq!(obj.get(scope, k.into()).unwrap().int32_value(scope).unwrap(), 11);
+                assert_eq!(
+                    obj.get(scope, k.into())
+                        .unwrap()
+                        .int32_value(scope)
+                        .unwrap(),
+                    11
+                );
             }
         }
 
@@ -4232,7 +4483,10 @@ mod tests {
 
             // No BridgeCall should have been sent (no imports to resolve)
             let written = writer_buf.lock().unwrap();
-            assert!(written.is_empty(), "no IPC calls expected for module with no imports");
+            assert!(
+                written.is_empty(),
+                "no IPC calls expected for module with no imports"
+            );
         }
 
         // --- Part 57: serialize_v8_value_into reuses buffer capacity ---
@@ -4261,7 +4515,11 @@ mod tests {
                 let val = v8::Integer::new(scope, 42);
                 bridge::serialize_v8_value_into(scope, val.into(), &mut buf).expect("serialize");
             }
-            assert_eq!(buf.capacity(), cap_after_first, "capacity should stay at high-water mark");
+            assert_eq!(
+                buf.capacity(),
+                cap_after_first,
+                "capacity should stay at high-water mark"
+            );
 
             // Third serialization (larger value) grows buffer
             {
@@ -4272,7 +4530,10 @@ mod tests {
                 let val = v8::String::new(scope, &long_str).unwrap();
                 bridge::serialize_v8_value_into(scope, val.into(), &mut buf).expect("serialize");
             }
-            assert!(buf.capacity() >= cap_after_first, "capacity should grow for larger values");
+            assert!(
+                buf.capacity() >= cap_after_first,
+                "capacity should grow for larger values"
+            );
             let cap_after_large = buf.capacity();
 
             // Fourth serialization (small again) stays at high-water mark
@@ -4283,7 +4544,11 @@ mod tests {
                 let val = v8::Boolean::new(scope, true);
                 bridge::serialize_v8_value_into(scope, val.into(), &mut buf).expect("serialize");
             }
-            assert_eq!(buf.capacity(), cap_after_large, "capacity stays at high-water mark");
+            assert_eq!(
+                buf.capacity(),
+                cap_after_large,
+                "capacity stays at high-water mark"
+            );
 
             // Verify the serialized data is correct (round-trip)
             {
@@ -4301,7 +4566,10 @@ mod tests {
             let ctx = isolate::create_context(&mut iso);
 
             let session_buffers = std::cell::RefCell::new(bridge::SessionBuffers::new());
-            assert!(session_buffers.borrow().ser_buf.capacity() >= 256, "initial capacity should be >= 256");
+            assert!(
+                session_buffers.borrow().ser_buf.capacity() >= 256,
+                "initial capacity should be >= 256"
+            );
 
             // Simulate multiple serializations through SessionBuffers
             for i in 0..5 {
@@ -4313,12 +4581,13 @@ mod tests {
                 let val_str = "a".repeat(100 * (i + 1));
                 let val = v8::String::new(scope, &val_str).unwrap();
                 let mut bufs = session_buffers.borrow_mut();
-                bridge::serialize_v8_value_into(scope, val.into(), &mut bufs.ser_buf).expect("serialize");
+                bridge::serialize_v8_value_into(scope, val.into(), &mut bufs.ser_buf)
+                    .expect("serialize");
             }
 
             // Buffer capacity should be at least as large as the last (largest) serialization
             let bufs = session_buffers.borrow();
-            assert!(bufs.ser_buf.len() > 0, "should contain serialized data");
+            assert!(!bufs.ser_buf.is_empty(), "should contain serialized data");
 
             // Verify the buffer hasn't been dropped/reallocated to smaller size
             let final_cap = bufs.ser_buf.capacity();

@@ -7,14 +7,14 @@ use std::thread;
 use crossbeam_channel::{Receiver, Sender};
 
 use crate::host_call::CallIdRouter;
-use crate::ipc_binary::BinaryFrame;
-use crate::snapshot::SnapshotCache;
 #[cfg(not(test))]
 use crate::host_call::{BridgeCallContext, ChannelFrameSender};
+use crate::ipc_binary::BinaryFrame;
 #[cfg(not(test))]
 use crate::ipc_binary::{self, ExecutionErrorBin};
+use crate::snapshot::SnapshotCache;
 #[cfg(not(test))]
-use crate::{bridge, execution, isolate, snapshot, stream};
+use crate::{bridge, execution, isolate, snapshot};
 
 /// Commands sent to a session thread
 pub enum SessionCommand {
@@ -69,7 +69,12 @@ pub struct SessionManager {
 }
 
 impl SessionManager {
-    pub fn new(max_concurrency: usize, ipc_tx: IpcSender, call_id_router: CallIdRouter, snapshot_cache: Arc<SnapshotCache>) -> Self {
+    pub fn new(
+        max_concurrency: usize,
+        ipc_tx: IpcSender,
+        call_id_router: CallIdRouter,
+        snapshot_cache: Arc<SnapshotCache>,
+    ) -> Self {
         SessionManager {
             sessions: HashMap::new(),
             max_concurrency,
@@ -81,6 +86,7 @@ impl SessionManager {
     }
 
     /// Get the snapshot cache for pre-warming from WarmSnapshot messages.
+    #[allow(dead_code)]
     pub fn snapshot_cache(&self) -> &Arc<SnapshotCache> {
         &self.snapshot_cache
     }
@@ -114,7 +120,16 @@ impl SessionManager {
         let join_handle = thread::Builder::new()
             .name(format!("session-{}", name_prefix))
             .spawn(move || {
-                session_thread(heap_limit_mb, cpu_time_limit_ms, rx, slot_control, max, ipc_tx, router, snap_cache);
+                session_thread(
+                    heap_limit_mb,
+                    cpu_time_limit_ms,
+                    rx,
+                    slot_control,
+                    max,
+                    ipc_tx,
+                    router,
+                    snap_cache,
+                );
             })
             .map_err(|e| format!("failed to spawn session thread: {}", e))?;
 
@@ -132,11 +147,7 @@ impl SessionManager {
 
     /// Destroy a session. Sends shutdown to the session thread and joins it.
     /// Returns an error if the session doesn't exist or belongs to another connection.
-    pub fn destroy_session(
-        &mut self,
-        session_id: &str,
-        connection_id: u64,
-    ) -> Result<(), String> {
+    pub fn destroy_session(&mut self, session_id: &str, connection_id: u64) -> Result<(), String> {
         let entry = self
             .sessions
             .get(session_id)
@@ -199,11 +210,13 @@ impl SessionManager {
     }
 
     /// Number of registered sessions (including those waiting for a slot).
+    #[allow(dead_code)]
     pub fn session_count(&self) -> usize {
         self.sessions.len()
     }
 
     /// Return all session IDs with their owning connection IDs.
+    #[allow(dead_code)]
     pub fn all_sessions(&self) -> Vec<(String, u64)> {
         self.sessions
             .iter()
@@ -212,6 +225,7 @@ impl SessionManager {
     }
 
     /// Number of sessions that have acquired a concurrency slot.
+    #[allow(dead_code)]
     pub fn active_slot_count(&self) -> usize {
         let (lock, _) = &*self.slot_control;
         *lock.lock().unwrap()
@@ -243,6 +257,7 @@ fn send_message(ipc_tx: &IpcSender, frame: &BinaryFrame, frame_buf: &mut Vec<u8>
 /// Session thread: acquires a concurrency slot, defers V8 isolate creation
 /// to first Execute (when bridge code is known for snapshot lookup), and
 /// processes commands until shutdown.
+#[allow(clippy::too_many_arguments)]
 fn session_thread(
     #[cfg_attr(test, allow(unused_variables))] heap_limit_mb: Option<u32>,
     #[cfg_attr(test, allow(unused_variables))] cpu_time_limit_ms: Option<u32>,
@@ -308,10 +323,7 @@ fn session_thread(
             Ok(SessionCommand::Message(_msg)) => {
                 #[cfg(not(test))]
                 match _msg {
-                    BinaryFrame::InjectGlobals {
-                        payload,
-                        ..
-                    } => {
+                    BinaryFrame::InjectGlobals { payload, .. } => {
                         // Store V8-serialized config for injection into fresh context at Execute time
                         last_globals_payload = Some(payload);
                     }
@@ -338,7 +350,10 @@ fn session_thread(
                                 match snapshot_cache.get_or_create(&effective_bridge_code) {
                                     Ok(blob) => {
                                         from_snapshot = true;
-                                        snapshot::create_isolate_from_snapshot((*blob).clone(), heap_limit_mb)
+                                        snapshot::create_isolate_from_snapshot(
+                                            (*blob).clone(),
+                                            heap_limit_mb,
+                                        )
                                     }
                                     Err(e) => {
                                         eprintln!("snapshot creation failed, falling back to fresh isolate: {}", e);
@@ -384,8 +399,15 @@ fn session_thread(
 
                         // Create BridgeCallContext with channel sender (no shared mutex)
                         let channel_rx = match maybe_abort_rx {
-                            Some(ref arx) => ChannelResponseReceiver::with_abort(rx.clone(), arx.clone(), Arc::clone(&deferred_queue)),
-                            None => ChannelResponseReceiver::new(rx.clone(), Arc::clone(&deferred_queue)),
+                            Some(ref arx) => ChannelResponseReceiver::with_abort(
+                                rx.clone(),
+                                arx.clone(),
+                                Arc::clone(&deferred_queue),
+                            ),
+                            None => ChannelResponseReceiver::new(
+                                rx.clone(),
+                                Arc::clone(&deferred_queue),
+                            ),
                         };
                         let bridge_ctx = BridgeCallContext::with_receiver(
                             Box::new(ChannelFrameSender::new(ipc_tx.clone())),
@@ -408,7 +430,8 @@ fn session_thread(
                                 scope,
                                 &bridge_ctx as *const BridgeCallContext,
                                 &pending as *const bridge::PendingPromises,
-                                &session_buffers as *const std::cell::RefCell<bridge::SessionBuffers>,
+                                &session_buffers
+                                    as *const std::cell::RefCell<bridge::SessionBuffers>,
                                 &SYNC_BRIDGE_FNS,
                                 &ASYNC_BRIDGE_FNS,
                             );
@@ -420,7 +443,8 @@ fn session_thread(
                             let scope = &mut v8::HandleScope::new(iso);
                             let ctx = v8::Local::new(scope, &exec_context);
                             let scope = &mut v8::ContextScope::new(scope, ctx);
-                            let (prs_code, prs_err) = execution::run_init_script(scope, &post_restore_script);
+                            let (prs_code, prs_err) =
+                                execution::run_init_script(scope, &post_restore_script);
                             if prs_code != 0 {
                                 let result_frame = BinaryFrame::ExecutionResult {
                                     session_id,
@@ -450,14 +474,26 @@ fn session_thread(
                         // On snapshot-restored context, skip bridge IIFE (already in
                         // snapshot) and run user code only. On fresh context, run full
                         // bridge code + user code as before.
-                        let bridge_code_for_exec = if from_snapshot { "" } else { &effective_bridge_code };
-                        let file_path_opt = if file_path.is_empty() { None } else { Some(file_path.as_str()) };
+                        let bridge_code_for_exec = if from_snapshot {
+                            ""
+                        } else {
+                            &effective_bridge_code
+                        };
+                        let file_path_opt = if file_path.is_empty() {
+                            None
+                        } else {
+                            Some(file_path.as_str())
+                        };
                         let (code, exports, error) = if mode == 0 {
                             let scope = &mut v8::HandleScope::new(iso);
                             let ctx = v8::Local::new(scope, &exec_context);
                             let scope = &mut v8::ContextScope::new(scope, ctx);
-                            let (c, e) =
-                                execution::execute_script(scope, bridge_code_for_exec, &user_code, &mut bridge_cache);
+                            let (c, e) = execution::execute_script(
+                                scope,
+                                bridge_code_for_exec,
+                                &user_code,
+                                &mut bridge_cache,
+                            );
                             (c, None, e)
                         } else {
                             let scope = &mut v8::HandleScope::new(iso);
@@ -478,13 +514,19 @@ fn session_thread(
                             let scope = &mut v8::HandleScope::new(iso);
                             let ctx = v8::Local::new(scope, &exec_context);
                             let scope = &mut v8::ContextScope::new(scope, ctx);
-                            !run_event_loop(scope, &rx, &pending, maybe_abort_rx.as_ref(), Some(&deferred_queue))
+                            !run_event_loop(
+                                scope,
+                                &rx,
+                                &pending,
+                                maybe_abort_rx.as_ref(),
+                                Some(&deferred_queue),
+                            )
                         } else {
                             false
                         };
 
                         // Check if timeout fired
-                        let timed_out = timeout_guard.as_ref().map_or(false, |g| g.timed_out());
+                        let timed_out = timeout_guard.as_ref().is_some_and(|g| g.timed_out());
 
                         // Cancel timeout guard (joins timer thread)
                         if let Some(ref mut guard) = timeout_guard {
@@ -704,9 +746,7 @@ fn dispatch_event_loop_frame(
             } else {
                 (None, None)
             };
-            let _ = crate::bridge::resolve_pending_promise(
-                scope, pending, call_id, result, error,
-            );
+            let _ = crate::bridge::resolve_pending_promise(scope, pending, call_id, result, error);
             // Microtasks already flushed in resolve_pending_promise
             true
         }
@@ -754,7 +794,12 @@ impl ChannelResponseReceiver {
         }
     }
 
-    pub(crate) fn with_abort(rx: Receiver<SessionCommand>, abort_rx: crossbeam_channel::Receiver<()>, deferred: DeferredQueue) -> Self {
+    #[allow(dead_code)]
+    pub(crate) fn with_abort(
+        rx: Receiver<SessionCommand>,
+        abort_rx: crossbeam_channel::Receiver<()>,
+        deferred: DeferredQueue,
+    ) -> Self {
         ChannelResponseReceiver {
             rx,
             abort_rx: Some(abort_rx),
@@ -846,7 +891,8 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(200));
 
             // Duplicate session ID is rejected
-            let err = mgr.create_session("session-bbb".into(), 1, None, None);            assert!(err.is_err());
+            let err = mgr.create_session("session-bbb".into(), 1, None, None);
+            assert!(err.is_err());
             assert!(err.unwrap_err().contains("already exists"));
 
             // Connection binding: connection 2 cannot destroy connection 1's session
@@ -879,9 +925,12 @@ mod tests {
         {
             let mut mgr = test_manager(2);
 
-            mgr.create_session("s1".into(), 1, None, None).expect("create s1");
-            mgr.create_session("s2".into(), 1, None, None).expect("create s2");
-            mgr.create_session("s3".into(), 1, None, None).expect("create s3");
+            mgr.create_session("s1".into(), 1, None, None)
+                .expect("create s1");
+            mgr.create_session("s2".into(), 1, None, None)
+                .expect("create s2");
+            mgr.create_session("s3".into(), 1, None, None)
+                .expect("create s3");
 
             // Allow threads to acquire slots
             std::thread::sleep(std::time::Duration::from_millis(300));

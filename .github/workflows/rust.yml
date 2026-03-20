@@ -15,7 +15,39 @@ on:
       - ".github/workflows/rust.yml"
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.85.0"
+          components: clippy, rustfmt
+
+      - name: Cache Rust build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            crates/v8-runtime/target
+          key: rust-lint-${{ hashFiles('crates/v8-runtime/Cargo.lock') }}
+          restore-keys: |
+            rust-lint-
+
+      - name: Check formatting
+        working-directory: crates/v8-runtime
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy
+        working-directory: crates/v8-runtime
+        run: cargo clippy --all-targets -- -D warnings
+
   build:
+    needs: lint
     strategy:
       fail-fast: false
       matrix:

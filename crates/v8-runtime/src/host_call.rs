@@ -46,6 +46,7 @@ impl FrameSender for ChannelFrameSender {
 }
 
 /// Sends frames directly to a Write impl (used by tests).
+#[allow(dead_code)]
 pub struct WriterFrameSender {
     writer: Mutex<Box<dyn Write + Send>>,
 }
@@ -65,11 +66,13 @@ pub trait ResponseReceiver: Send {
 
 /// ResponseReceiver that reads frames from a byte buffer via ipc_binary::read_frame.
 /// Used by tests and any code that has a pre-serialized byte stream.
+#[allow(dead_code)]
 pub struct ReaderResponseReceiver {
     reader: Mutex<Box<dyn Read + Send>>,
 }
 
 impl ReaderResponseReceiver {
+    #[allow(dead_code)]
     pub fn new(reader: Box<dyn Read + Send>) -> Self {
         ReaderResponseReceiver {
             reader: Mutex::new(reader),
@@ -80,7 +83,8 @@ impl ReaderResponseReceiver {
 impl ResponseReceiver for ReaderResponseReceiver {
     fn recv_response(&self) -> Result<BinaryFrame, String> {
         let mut reader = self.reader.lock().unwrap();
-        ipc_binary::read_frame(&mut *reader).map_err(|e| format!("failed to read BridgeResponse: {}", e))
+        ipc_binary::read_frame(&mut *reader)
+            .map_err(|e| format!("failed to read BridgeResponse: {}", e))
     }
 }
 
@@ -113,6 +117,7 @@ pub struct BridgeCallContext {
 
 /// No-op FrameSender for snapshot stub functions.
 /// Panics if called — stubs must never be invoked during snapshot creation.
+#[allow(dead_code)]
 struct StubFrameSender;
 
 impl FrameSender for StubFrameSender {
@@ -123,6 +128,7 @@ impl FrameSender for StubFrameSender {
 
 /// No-op ResponseReceiver for snapshot stub functions.
 /// Panics if called — stubs must never be invoked during snapshot creation.
+#[allow(dead_code)]
 struct StubResponseReceiver;
 
 impl ResponseReceiver for StubResponseReceiver {
@@ -131,6 +137,7 @@ impl ResponseReceiver for StubResponseReceiver {
     }
 }
 
+#[allow(dead_code)]
 impl BridgeCallContext {
     /// Create a no-op BridgeCallContext for snapshot stub functions.
     /// Panics if sync_call or async_send is called — stubs exist only for
@@ -397,8 +404,7 @@ mod tests {
 
     #[test]
     fn sync_call_error_response() {
-        let response_bytes =
-            make_response_bytes(1, None, Some("ENOENT: no such file".into()));
+        let response_bytes = make_response_bytes(1, None, Some("ENOENT: no such file".into()));
         let ctx = BridgeCallContext::new(
             Box::new(Vec::new()),
             Box::new(Cursor::new(response_bytes)),
@@ -414,11 +420,7 @@ mod tests {
     fn sync_call_call_id_increments() {
         // Prepare two sequential responses
         let mut response_bytes = make_response_bytes(1, Some(vec![0xa1, 0x61]), None);
-        response_bytes.extend_from_slice(&make_response_bytes(
-            2,
-            Some(vec![0xa1, 0x62]),
-            None,
-        ));
+        response_bytes.extend_from_slice(&make_response_bytes(2, Some(vec![0xa1, 0x62]), None));
 
         let ctx = BridgeCallContext::new(
             Box::new(Vec::new()),
@@ -612,9 +614,9 @@ mod tests {
 
         let ctx = BridgeCallContext::with_receiver(
             Box::new(super::ChannelFrameSender::new(tx)),
-            Box::new(super::ReaderResponseReceiver::new(
-                Box::new(Cursor::new(response_bytes)),
-            )),
+            Box::new(super::ReaderResponseReceiver::new(Box::new(Cursor::new(
+                response_bytes,
+            )))),
             "test-session".into(),
             router,
         );
@@ -652,7 +654,9 @@ mod tests {
             let bytes = rx.recv().expect("recv");
             let decoded = ipc_binary::read_frame(&mut Cursor::new(&bytes)).expect("decode");
             match decoded {
-                BinaryFrame::BridgeCall { call_id, payload, .. } => {
+                BinaryFrame::BridgeCall {
+                    call_id, payload, ..
+                } => {
                     assert_eq!(call_id, i);
                     assert_eq!(payload.len(), 100 * (i as usize + 1));
                 }

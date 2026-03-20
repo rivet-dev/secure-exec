@@ -85,8 +85,6 @@ impl Drop for TimeoutGuard {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn timeout_guard_cancel_before_fire() {
         // Timer set to 5 seconds, cancelled immediately — should not fire

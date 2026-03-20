@@ -7,11 +7,7 @@
 /// function is called:
 /// - "child_stdout", "child_stderr", "child_exit" → _childProcessDispatch
 /// - "http_request" → _httpServerDispatch
-pub fn dispatch_stream_event(
-    scope: &mut v8::HandleScope,
-    event_type: &str,
-    payload: &[u8],
-) {
+pub fn dispatch_stream_event(scope: &mut v8::HandleScope, event_type: &str, payload: &[u8]) {
     // Look up the dispatch function on the global object
     let context = scope.get_current_context();
     let global = context.global(scope);

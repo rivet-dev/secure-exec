@@ -66,7 +66,7 @@ pub enum BinaryFrame {
     BridgeResponse {
         session_id: String,
         call_id: u64,
-        status: u8, // 0 = success, 1 = error
+        status: u8,       // 0 = success, 1 = error
         payload: Vec<u8>, // V8-serialized result OR UTF-8 error message
     },
     StreamEvent {
@@ -171,9 +171,13 @@ pub fn read_frame<R: Read>(reader: &mut R) -> io::Result<BinaryFrame> {
 /// Extract session_id from raw frame bytes without full deserialization.
 /// `raw` starts at the first byte after the 4-byte length prefix (i.e. the msg_type byte).
 /// Returns None for Authenticate (which has no session_id).
+#[allow(dead_code)]
 pub fn extract_session_id(raw: &[u8]) -> io::Result<Option<&str>> {
     if raw.len() < 2 {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "frame too short"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "frame too short",
+        ));
     }
     let msg_type = raw[0];
     if msg_type == MSG_AUTHENTICATE || msg_type == MSG_WARM_SNAPSHOT {
@@ -215,7 +219,10 @@ fn encode_body(buf: &mut Vec<u8>, frame: &BinaryFrame) -> io::Result<()> {
             buf.push(MSG_DESTROY_SESSION);
             write_session_id(buf, session_id)?;
         }
-        BinaryFrame::InjectGlobals { session_id, payload } => {
+        BinaryFrame::InjectGlobals {
+            session_id,
+            payload,
+        } => {
             buf.push(MSG_INJECT_GLOBALS);
             write_session_id(buf, session_id)?;
             buf.extend_from_slice(payload);
@@ -523,7 +530,10 @@ fn write_len_prefixed_u16(buf: &mut Vec<u8>, s: &str) -> io::Result<()> {
 
 fn read_u8(buf: &[u8], pos: &mut usize) -> io::Result<u8> {
     if *pos >= buf.len() {
-        return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected end of frame"));
+        return Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "unexpected end of frame",
+        ));
     }
     let v = buf[*pos];
     *pos += 1;
@@ -532,7 +542,10 @@ fn read_u8(buf: &[u8], pos: &mut usize) -> io::Result<u8> {
 
 fn read_u16(buf: &[u8], pos: &mut usize) -> io::Result<u16> {
     if *pos + 2 > buf.len() {
-        return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected end of frame"));
+        return Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "unexpected end of frame",
+        ));
     }
     let v = u16::from_be_bytes([buf[*pos], buf[*pos + 1]]);
     *pos += 2;
@@ -541,7 +554,10 @@ fn read_u16(buf: &[u8], pos: &mut usize) -> io::Result<u16> {
 
 fn read_u32(buf: &[u8], pos: &mut usize) -> io::Result<u32> {
     if *pos + 4 > buf.len() {
-        return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected end of frame"));
+        return Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "unexpected end of frame",
+        ));
     }
     let v = u32::from_be_bytes([buf[*pos], buf[*pos + 1], buf[*pos + 2], buf[*pos + 3]]);
     *pos += 4;
@@ -550,11 +566,20 @@ fn read_u32(buf: &[u8], pos: &mut usize) -> io::Result<u32> {
 
 fn read_u64(buf: &[u8], pos: &mut usize) -> io::Result<u64> {
     if *pos + 8 > buf.len() {
-        return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected end of frame"));
+        return Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "unexpected end of frame",
+        ));
     }
     let v = u64::from_be_bytes([
-        buf[*pos], buf[*pos + 1], buf[*pos + 2], buf[*pos + 3],
-        buf[*pos + 4], buf[*pos + 5], buf[*pos + 6], buf[*pos + 7],
+        buf[*pos],
+        buf[*pos + 1],
+        buf[*pos + 2],
+        buf[*pos + 3],
+        buf[*pos + 4],
+        buf[*pos + 5],
+        buf[*pos + 6],
+        buf[*pos + 7],
     ]);
     *pos += 8;
     Ok(v)
@@ -562,7 +587,10 @@ fn read_u64(buf: &[u8], pos: &mut usize) -> io::Result<u64> {
 
 fn read_i32(buf: &[u8], pos: &mut usize) -> io::Result<i32> {
     if *pos + 4 > buf.len() {
-        return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected end of frame"));
+        return Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "unexpected end of frame",
+        ));
     }
     let v = i32::from_be_bytes([buf[*pos], buf[*pos + 1], buf[*pos + 2], buf[*pos + 3]]);
     *pos += 4;
@@ -571,7 +599,10 @@ fn read_i32(buf: &[u8], pos: &mut usize) -> io::Result<i32> {
 
 fn read_bytes(buf: &[u8], pos: &mut usize, len: usize) -> io::Result<Vec<u8>> {
     if *pos + len > buf.len() {
-        return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected end of frame"));
+        return Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "unexpected end of frame",
+        ));
     }
     let v = buf[*pos..*pos + len].to_vec();
     *pos += len;
@@ -748,7 +779,8 @@ mod tests {
             error: Some(ExecutionErrorBin {
                 error_type: "Error".into(),
                 message: "Cannot find module './missing'".into(),
-                stack: "Error: Cannot find module './missing'\n    at resolve (node:internal)".into(),
+                stack: "Error: Cannot find module './missing'\n    at resolve (node:internal)"
+                    .into(),
                 code: "ERR_MODULE_NOT_FOUND".into(),
             }),
         });
@@ -953,7 +985,10 @@ mod tests {
         let mut cursor = std::io::Cursor::new(&buf);
         let result = read_frame(&mut cursor);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("unknown message type"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("unknown message type"));
     }
 
     #[test]
@@ -981,7 +1016,9 @@ mod tests {
 
         // Raw bytes start after the 4-byte length prefix
         let raw = &buf[4..];
-        let sid = extract_session_id(raw).expect("extract").expect("should have sid");
+        let sid = extract_session_id(raw)
+            .expect("extract")
+            .expect("should have sid");
         assert_eq!(sid, "my-session-42");
     }
 
@@ -1067,10 +1104,7 @@ mod tests {
     #[test]
     fn wire_format_message_type_bytes() {
         let cases: Vec<(BinaryFrame, u8)> = vec![
-            (
-                BinaryFrame::Authenticate { token: "t".into() },
-                0x01,
-            ),
+            (BinaryFrame::Authenticate { token: "t".into() }, 0x01),
             (
                 BinaryFrame::CreateSession {
                     session_id: "s".into(),
@@ -1245,7 +1279,10 @@ mod tests {
             payload: vec![0xBB; 256],
         };
         encode_frame_into(&mut buf, &frame2).expect("encode");
-        assert!(buf.capacity() >= cap_after_first, "capacity should not shrink");
+        assert!(
+            buf.capacity() >= cap_after_first,
+            "capacity should not shrink"
+        );
 
         // Verify round-trip correctness
         let decoded = read_frame(&mut std::io::Cursor::new(&first_bytes)).expect("decode");
@@ -1294,7 +1331,11 @@ mod tests {
 
         // Small frame again — capacity stays at high-water mark
         encode_frame_into(&mut buf, &small).expect("encode");
-        assert_eq!(buf.capacity(), large_cap, "capacity should stay at high-water mark");
+        assert_eq!(
+            buf.capacity(),
+            large_cap,
+            "capacity should stay at high-water mark"
+        );
     }
 
     // -- Overflow guard tests --

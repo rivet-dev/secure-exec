@@ -1,15 +1,15 @@
 // V8 runtime process entry point — UDS listener with socket path security
 
+mod bridge;
+mod execution;
+mod host_call;
 mod ipc;
 mod ipc_binary;
 mod isolate;
-mod execution;
-mod bridge;
-mod host_call;
-mod timeout;
-mod stream;
 mod session;
 mod snapshot;
+mod stream;
+mod timeout;
 
 use std::collections::HashMap;
 use std::fs;
@@ -38,7 +38,9 @@ fn close_inherited_fds() {
         .filter(|&fd| fd > 2)
         .collect();
     for fd in fds {
-        unsafe { libc::close(fd); }
+        unsafe {
+            libc::close(fd);
+        }
     }
 }
 
@@ -65,7 +67,10 @@ fn create_self_pipe() -> io::Result<(RawFd, RawFd)> {
     for &fd in &fds {
         let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
         if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
-            unsafe { libc::close(fds[0]); libc::close(fds[1]); }
+            unsafe {
+                libc::close(fds[0]);
+                libc::close(fds[1]);
+            }
             return Err(io::Error::last_os_error());
         }
         set_cloexec(fd)?;
@@ -78,7 +83,9 @@ fn drain_pipe(fd: RawFd) {
     let mut buf = [0u8; 64];
     loop {
         let n = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
-        if n <= 0 { break; }
+        if n <= 0 {
+            break;
+        }
     }
 }
 
@@ -87,7 +94,11 @@ fn random_hex_128() -> io::Result<String> {
     let mut buf = [0u8; 16];
     let mut f = fs::File::open("/dev/urandom")?;
     f.read_exact(&mut buf)?;
-    Ok(buf.iter().map(|b| format!("{:02x}", b)).collect())
+    Ok(buf.iter().fold(String::with_capacity(32), |mut s, b| {
+        use std::fmt::Write;
+        let _ = write!(s, "{:02x}", b);
+        s
+    }))
 }
 
 /// Create a secure tmpdir with 0700 permissions and return the socket path inside it.
@@ -195,11 +206,18 @@ fn handle_connection(
                 heap_limit_mb,
                 cpu_time_limit_ms,
             } => {
-                let hlm = if heap_limit_mb == 0 { None } else { Some(heap_limit_mb) };
-                let ctl = if cpu_time_limit_ms == 0 { None } else { Some(cpu_time_limit_ms) };
+                let hlm = if heap_limit_mb == 0 {
+                    None
+                } else {
+                    Some(heap_limit_mb)
+                };
+                let ctl = if cpu_time_limit_ms == 0 {
+                    None
+                } else {
+                    Some(cpu_time_limit_ms)
+                };
                 let mut mgr = session_mgr.lock().unwrap();
-                if let Err(e) = mgr.create_session(session_id.clone(), connection_id, hlm, ctl)
-                {
+                if let Err(e) = mgr.create_session(session_id.clone(), connection_id, hlm, ctl) {
                     eprintln!(
                         "connection {}: create session {} failed: {}",
                         connection_id, session_id, e
@@ -258,10 +276,7 @@ fn handle_connection(
             // Handle WarmSnapshot: pre-warm the snapshot cache (fire-and-forget, no response)
             BinaryFrame::WarmSnapshot { bridge_code } => {
                 if let Err(e) = snapshot_cache.get_or_create(&bridge_code) {
-                    eprintln!(
-                        "connection {}: WarmSnapshot failed: {}",
-                        connection_id, e
-                    );
+                    eprintln!("connection {}: WarmSnapshot failed: {}", connection_id, e);
                 }
             }
             _ => {
@@ -317,7 +332,8 @@ fn main() {
     io::stdout().flush().expect("failed to flush stdout");
 
     // Create self-pipe for signal-driven poll(2) wakeup
-    let (sig_read_fd, sig_write_fd) = create_self_pipe().expect("failed to create signal self-pipe");
+    let (sig_read_fd, sig_write_fd) =
+        create_self_pipe().expect("failed to create signal self-pipe");
 
     // Register SIGTERM/SIGINT to write to the self-pipe, waking poll(2)
     signal_hook::flag::register_conditional_default(
@@ -342,8 +358,16 @@ fn main() {
     // Listener stays blocking — poll(2) handles readiness
     let listener_fd = listener.as_raw_fd();
     let mut pollfds = [
-        libc::pollfd { fd: listener_fd, events: libc::POLLIN, revents: 0 },
-        libc::pollfd { fd: sig_read_fd, events: libc::POLLIN, revents: 0 },
+        libc::pollfd {
+            fd: listener_fd,
+            events: libc::POLLIN,
+            revents: 0,
+        },
+        libc::pollfd {
+            fd: sig_read_fd,
+            events: libc::POLLIN,
+            revents: 0,
+        },
     ];
 
     // Accept connections via poll(2)
@@ -442,7 +466,10 @@ fn main() {
     }
 
     // Close self-pipe FDs
-    unsafe { libc::close(sig_read_fd); libc::close(sig_write_fd); }
+    unsafe {
+        libc::close(sig_read_fd);
+        libc::close(sig_write_fd);
+    }
 
     // Graceful shutdown: close listener, remove socket
     drop(listener);
@@ -504,11 +531,7 @@ mod tests {
 
         let flags = unsafe { libc::fcntl(listener.as_raw_fd(), libc::F_GETFD) };
         assert!(flags >= 0, "fcntl should succeed");
-        assert_ne!(
-            flags & libc::FD_CLOEXEC,
-            0,
-            "listener should have CLOEXEC"
-        );
+        assert_ne!(flags & libc::FD_CLOEXEC, 0, "listener should have CLOEXEC");
 
         cleanup(&socket_path, &tmpdir);
     }
@@ -589,7 +612,10 @@ mod tests {
         )
         .expect("write auth");
 
-        assert!(!authenticate_connection(&mut server_stream, "correct-token"));
+        assert!(!authenticate_connection(
+            &mut server_stream,
+            "correct-token"
+        ));
 
         cleanup(&socket_path, &tmpdir);
     }
@@ -653,14 +679,21 @@ mod tests {
         let n = unsafe { libc::write(write_fd, &b as *const u8 as *const libc::c_void, 1) };
         assert_eq!(n, 1);
 
-        let mut pfd = libc::pollfd { fd: read_fd, events: libc::POLLIN, revents: 0 };
+        let mut pfd = libc::pollfd {
+            fd: read_fd,
+            events: libc::POLLIN,
+            revents: 0,
+        };
         let ret = unsafe { libc::poll(&mut pfd, 1, 100) };
         assert_eq!(ret, 1, "poll should return ready");
         assert_ne!(pfd.revents & libc::POLLIN, 0);
 
         drain_pipe(read_fd);
 
-        unsafe { libc::close(read_fd); libc::close(write_fd); }
+        unsafe {
+            libc::close(read_fd);
+            libc::close(write_fd);
+        }
     }
 
     #[test]
@@ -676,7 +709,11 @@ mod tests {
         });
 
         // Poll the listener — should wake when client connects
-        let mut pfd = libc::pollfd { fd: listener_fd, events: libc::POLLIN, revents: 0 };
+        let mut pfd = libc::pollfd {
+            fd: listener_fd,
+            events: libc::POLLIN,
+            revents: 0,
+        };
         let ret = unsafe { libc::poll(&mut pfd, 1, 2000) };
         assert!(ret > 0, "poll should return ready when client connects");
         assert_ne!(pfd.revents & libc::POLLIN, 0);
@@ -714,7 +751,11 @@ mod tests {
         let (tmpdir, socket_path) = create_socket_dir().expect("create socket dir");
         let meta = fs::metadata(&tmpdir).expect("stat tmpdir");
         let mode = meta.permissions().mode() & 0o777;
-        assert_eq!(mode, 0o700, "socket dir should have 0700 permissions, got {:o}", mode);
+        assert_eq!(
+            mode, 0o700,
+            "socket dir should have 0700 permissions, got {:o}",
+            mode
+        );
         cleanup(&socket_path, &tmpdir);
     }
 
@@ -726,20 +767,41 @@ mod tests {
 
         // Write to signal pipe
         let b: u8 = 1;
-        unsafe { libc::write(sig_write, &b as *const u8 as *const libc::c_void, 1); }
+        unsafe {
+            libc::write(sig_write, &b as *const u8 as *const libc::c_void, 1);
+        }
 
         let mut pollfds = [
-            libc::pollfd { fd: listener_fd, events: libc::POLLIN, revents: 0 },
-            libc::pollfd { fd: sig_read, events: libc::POLLIN, revents: 0 },
+            libc::pollfd {
+                fd: listener_fd,
+                events: libc::POLLIN,
+                revents: 0,
+            },
+            libc::pollfd {
+                fd: sig_read,
+                events: libc::POLLIN,
+                revents: 0,
+            },
         ];
         let ret = unsafe { libc::poll(pollfds.as_mut_ptr(), 2, 100) };
         assert!(ret > 0, "poll should wake");
         // Signal pipe should be readable, not listener
-        assert_ne!(pollfds[1].revents & libc::POLLIN, 0, "signal pipe should be ready");
-        assert_eq!(pollfds[0].revents & libc::POLLIN, 0, "listener should not be ready");
+        assert_ne!(
+            pollfds[1].revents & libc::POLLIN,
+            0,
+            "signal pipe should be ready"
+        );
+        assert_eq!(
+            pollfds[0].revents & libc::POLLIN,
+            0,
+            "listener should not be ready"
+        );
 
         drain_pipe(sig_read);
-        unsafe { libc::close(sig_read); libc::close(sig_write); }
+        unsafe {
+            libc::close(sig_read);
+            libc::close(sig_write);
+        }
         cleanup(&socket_path, &tmpdir);
     }
 }
