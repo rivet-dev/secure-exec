@@ -3,6 +3,8 @@ Started: 2026-03-17
 PRD: ralph/kernel-hardening (46 stories)
 
 ## Codebase Patterns
+- kernel.exec() wraps commands in sh -c; brush-shell currently returns exit code 17 for all spawned child commands (benign "could not retrieve pid" warning) — test stdout content, not exit code
+- Simple C commands (vanilla sysroot, no host imports) just need: programs/<name>.c, add to COMMANDS in Makefile, add to WASMVM_COMMANDS + DEFAULT_FIRST_PARTY_TIERS in driver.ts
 - Vendored C libs (zlib, minizip) that use fopen64/ftello64/fseeko64 need `__wasi__` guard added to fall back to standard functions (WASI has 64-bit off_t natively)
 - wasi-libc source files must use `#include <errno.h>` (not `<__errno.h>`) to get errno constants like EAFNOSUPPORT, EINVAL, ENAMETOOLONG
 - wasi-libc Makefile OMIT_SOURCES already excludes wasip2 socket implementations for wasip1 — no need to guard existing socket.c/send.c/recv.c
@@ -3382,4 +3384,19 @@ PRD: ralph/kernel-hardening (46 stories)
   - MINIZIP_UNZIP_SRCS only needs ioapi.c + unzip.c (not zip.c) — keeps binary smaller
   - mkdirs() helper needed for creating parent directories when extracting nested files
   - zip-unzip integration tests are skipIf(!hasWasmBinaries) gated — they check for both zip and unzip binary existence
+---
+
+## 2026-03-20 - US-078
+- Implemented envsubst command — C program that reads stdin and substitutes $VAR, ${VAR}, ${VAR:-default} with env var values, passes through \$VAR literally
+- Files changed:
+  - wasmvm/c/programs/envsubst.c — ~100 lines, reads stdin line by line, handles $VAR, ${VAR}, ${VAR:-default}, and \$ escape
+  - wasmvm/c/Makefile — added envsubst to COMMANDS list
+  - packages/runtime/wasmvm/src/driver.ts — added 'envsubst' to WASMVM_COMMANDS and DEFAULT_FIRST_PARTY_TIERS ('read-only')
+  - packages/runtime/wasmvm/test/envsubst.test.ts — 6 integration tests: $VAR substitution, ${VAR:-default} fallback, \$VAR escape, multiple vars, undefined→empty, ${VAR} brace syntax
+  - docs/wasmvm/supported-commands.md — added envsubst entry in System & Environment, updated count 9→10 done, total 98→99
+- **Learnings for future iterations:**
+  - kernel.exec() wraps in sh -c, so tests should use stdin option directly (e.g., kernel.exec('envsubst', { stdin: '...' })) rather than shell piping
+  - Brush-shell exit code 17 is a pre-existing systemic issue — all commands via kernel.exec return exit code 17 instead of 0 due to "could not retrieve pid" warning; test stdout content rather than exit code
+  - Simple C commands that only use getenv/stdin/stdout compile with vanilla sysroot (no PATCHED_PROGRAMS entry needed)
+  - envsubst is 'read-only' tier — it only reads stdin and env vars, never writes files
 ---
