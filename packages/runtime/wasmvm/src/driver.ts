@@ -103,6 +103,8 @@ export const WASMVM_COMMANDS: readonly string[] = [
   'stty',
   // Codex CLI (host_process spawn via wasi-spawn)
   'codex',
+  // Codex headless agent (non-TUI entry point)
+  'codex-exec',
   // Internal test: WasiChild host_process spawn validation
   'spawn-test-host',
   // Internal test: wasi-http HTTP client validation via host_net
@@ -129,6 +131,8 @@ export const DEFAULT_FIRST_PARTY_TIERS: Readonly<Record<string, PermissionTier>>
   'make': 'full',
   // Codex CLI — spawns child processes via wasi-spawn
   'codex': 'full',
+  // Codex headless agent — spawns processes + uses network
+  'codex-exec': 'full',
   // Internal test — exercises WasiChild host_process spawn
   'spawn-test-host': 'full',
   // Internal test — exercises wasi-http HTTP client via host_net
