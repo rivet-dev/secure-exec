@@ -619,6 +619,38 @@ function createHostProcessImports(getMemory: () => WebAssembly.Memory | null) {
       return ERRNO_SUCCESS;
     },
 
+    /** proc_getppid(ret_pid) -> errno */
+    proc_getppid(ret_pid_ptr: number): number {
+      const mem = getMemory();
+      if (!mem) return ERRNO_EINVAL;
+
+      new DataView(mem.buffer).setUint32(ret_pid_ptr, init.ppid, true);
+      return ERRNO_SUCCESS;
+    },
+
+    /**
+     * fd_dup2(old_fd, new_fd) -> errno
+     * Duplicates old_fd to new_fd. If new_fd is already open, it is closed first.
+     */
+    fd_dup2(old_fd: number, new_fd: number): number {
+      // Permission check: prevent resource exhaustion from restricted tiers
+      if (isSpawnBlocked()) return ERRNO_EACCES;
+
+      const kOldFd = localToKernelFd.get(old_fd) ?? old_fd;
+      const kNewFd = localToKernelFd.get(new_fd) ?? new_fd;
+      const res = rpcCall('fdDup2', { oldFd: kOldFd, newFd: kNewFd });
+      if (res.errno !== 0) return res.errno;
+
+      // Update local FD table to reflect the dup2
+      const errno = fdTable.dup2(old_fd, new_fd);
+      if (errno !== ERRNO_SUCCESS) return errno;
+
+      // Map local new_fd to the same kernel FD as old_fd
+      localToKernelFd.set(new_fd, kOldFd);
+
+      return ERRNO_SUCCESS;
+    },
+
     /** sleep_ms(milliseconds) -> errno — blocks via Atomics.wait */
     sleep_ms(milliseconds: number): number {
       const buf = new Int32Array(new SharedArrayBuffer(4));

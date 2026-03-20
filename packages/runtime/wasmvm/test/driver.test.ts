@@ -1068,6 +1068,20 @@ describe('WasmVM RuntimeDriver', () => {
       expect(result.exitCode).not.toBe(0);
     });
 
+    it('restricted tier command cannot use fd_dup2', async () => {
+      const vfs = new SimpleVFS();
+      kernel = createKernel({ filesystem: vfs as any });
+      await kernel.mount(createWasmVmRuntime({
+        commandDirs: [COMMANDS_DIR],
+        permissions: { '*': 'read-only' },
+      }));
+
+      // fd_dup2 is gated by isSpawnBlocked() — read-only tier should fail
+      // sh -c will try to use dup2 for pipe redirection
+      const result = await kernel.exec('sh -c "echo hello >/dev/null"');
+      expect(result.exitCode).not.toBe(0);
+    });
+
     it('full tier command can use pipes and subprocesses normally', async () => {
       const vfs = new SimpleVFS();
       kernel = createKernel({ filesystem: vfs as any });

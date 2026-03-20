@@ -687,6 +687,10 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
           intResult = kernel.fdDup(pid, msg.args.fd as number);
           break;
         }
+        case 'fdDup2': {
+          kernel.fdDup2(pid, msg.args.oldFd as number, msg.args.newFd as number);
+          break;
+        }
         case 'vfsStat': {
           const stat = await kernel.vfs.stat(msg.args.path as string);
           const enc = new TextEncoder();

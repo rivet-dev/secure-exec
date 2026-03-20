@@ -748,7 +748,7 @@
         "Tests pass"
       ],
       "priority": 38,
-      "passes": false,
+      "passes": true,
       "notes": "Both imports are declared in wasmvm/crates/wasi-ext/src/lib.rs and in the C patches (0001-pipe-dup.patch, 0004-getpid.patch) but NOT provided by the JS host. Any WASM binary that links getppid() or dup2() will fail with a WebAssembly.LinkError. WorkerInitData already carries ppid. File: packages/runtime/wasmvm/src/kernel-worker.ts createHostProcessImports()."
     },
     {
