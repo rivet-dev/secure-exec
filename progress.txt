@@ -3400,3 +3400,20 @@ PRD: ralph/kernel-hardening (46 stories)
   - Simple C commands that only use getenv/stdin/stdout compile with vanilla sysroot (no PATCHED_PROGRAMS entry needed)
   - envsubst is 'read-only' tier — it only reads stdin and env vars, never writes files
 ---
+
+## 2026-03-20 - US-079
+- What was implemented: fd-find compatible file finder command as a standalone WASM binary
+- Files changed:
+  - wasmvm/crates/libs/fd/Cargo.toml — new library crate depending on regex
+  - wasmvm/crates/libs/fd/src/lib.rs — ~250 lines implementing fd-compatible CLI: pattern search, -e ext filter, -t type filter, -d max-depth, -H hidden, -p full-path, -a absolute-path, -i case-insensitive
+  - wasmvm/crates/commands/fd/Cargo.toml — binary crate wrapping secureexec-fd
+  - wasmvm/crates/commands/fd/src/main.rs — minimal main() dispatching to lib
+  - wasmvm/Cargo.toml — added crates/libs/fd and crates/commands/fd to workspace
+  - packages/runtime/wasmvm/src/driver.ts — added 'fd' to WASMVM_COMMANDS and DEFAULT_FIRST_PARTY_TIERS (read-only)
+  - docs/wasmvm/supported-commands.md — added fd entry in Search section, updated counts
+- **Learnings for future iterations:**
+  - fd-find crate uses rayon (threads) which doesn't compile for wasm32-wasip1; build minimal fd-compatible CLI using std::fs + regex instead (~200 lines)
+  - fd differs from find: returns exit 1 when no matches (find returns 0), skips hidden files by default, matches filename by default (not path), doesn't print root search dir
+  - COMMAND_NAMES in Makefile uses $(notdir $(wildcard crates/commands/*)) so new command dirs are auto-discovered — no Makefile change needed
+  - Pre-existing test failures (49) are in shell-terminal, dynamic-module-integration, and c-parity — all due to missing WASM binaries locally
+---
