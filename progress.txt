@@ -4,6 +4,10 @@ PRD: ralph/kernel-hardening (46 stories)
 
 ## Codebase Patterns
 - Net bridge _onError only propagates err.message — err.code/err.errno are not set on socket errors in the sandbox (e.g., ECONNREFUSED code missing); error path fixtures should only serialize message/level, not code/errno
+- ESM dynamic import() is NOT supported natively in isolated-vm V8 — compileESMModule must apply transformDynamicImport() AND inject a module-scoped __dynamicImport wrapper with the referrer path for relative imports
+- globalThis.fetch/Headers/Request/Response are non-writable in the sandbox (exposeCustomGlobal uses writable:false, configurable:false) — cannot override from sandbox code; use network adapter redirect at host level instead
+- process.stdout.write(data, callback) callback must be called synchronously — Pi's runPrintMode awaits a Promise that resolves in the callback; if callback isn't called, the exec() hangs forever
+- Pi SDK uses Anthropic SDK which hardcodes baseURL from model config — ANTHROPIC_BASE_URL env var is overridden; must redirect via network adapter fetch() wrapper, not env var or fetch patch
 - Docker containers on default bridge can reach each other by internal IP (docker inspect IPAddress), not by 127.0.0.1 host-mapped ports — use getContainerInternalIp() for cross-container tunnel destinations
 - process.exit() inside bridge callbacks (childProcessDispatch, timer refs) causes unhandled ProcessExitError — always await a Promise from the callback, then call process.exit() at the top-level await
 - Bridge process.stdout.write strips trailing newlines — NDJSON capture helpers must join with '\n' to restore event delimiters
@@ -2854,4 +2858,22 @@ PRD: ralph/kernel-hardening (46 stories)
   - HKDF implementation requires manual HKDF-Extract (HMAC(salt, ikm)) then HKDF-Expand (iterated HMAC with counter byte)
   - Moving a module from DEFERRED to BRIDGE requires changes in: module-resolver.ts (BRIDGE_MODULES, DEFERRED_CORE_MODULES, BUILTIN_NAMED_EXPORTS), require-setup.ts (deferred set, bridge require handler), bridge-contract.ts, global-exposure.ts, permissions.ts, types.ts, bridge-setup.ts, driver.ts
   - createDefaultNetworkAdapter tracks TCP sockets in a Map<number, net.Socket> keyed by sandbox socketId
+---
+
+## 2026-03-20 - US-029
+- What was implemented: Pi SDK (createAgentSession + runPrintMode) now works end-to-end inside the V8 isolate sandbox
+- Files changed:
+  - packages/secure-exec-node/src/esm-compiler.ts — added transformDynamicImport() for ESM modules + module-scoped __dynamicImport wrapper with referrer path
+  - packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts — added crypto.randomUUID overlay using _cryptoRandomUUID bridge ref
+  - packages/secure-exec-core/src/bridge/network.ts — added Headers.append(), FormData stub, Response.body ReadableStream-like with getReader(), FetchResponse body type
+  - packages/secure-exec-core/src/bridge/process.ts — added callback support to process.stdout/stderr.write(data, encodingOrCallback, callback)
+  - packages/secure-exec/tests/cli-tools/pi-headless.test.ts — replaced fetch interceptor with network adapter redirect, removed mockUrl parameter, cleaned up test structure
+- **Learnings for future iterations:**
+  - isolated-vm V8 does NOT support native `import()` in ESM modules — must transform to __dynamicImport() in compileESMModule, not just in CJS paths
+  - Relative dynamic imports (`import("./foo.js")`) lose their referrer path after transform — must inject a module-scoped wrapper: `const __dynamicImport = (spec) => globalThis.__dynamicImport(spec, "/module/path.js")`
+  - crypto-browserify (node-stdlib-browser polyfill) does not include randomUUID — must overlay from bridge ref
+  - Anthropic SDK checks response.body truthiness and uses getReader() for SSE parsing — Response must have a body with getReader() even when full body is available
+  - Pi's runPrintMode flushes stdout via `process.stdout.write("", callback)` — if callback is never called, exec() hangs forever
+  - SDK expects Headers.append() (Web Fetch API standard) and FormData (for multipart upload detection)
+  - Network adapter fetch() redirect is the correct interception point — sandbox globals are non-writable by security design
 ---
