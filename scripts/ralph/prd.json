@@ -2095,7 +2095,7 @@
         "Tests pass"
       ],
       "priority": 104,
-      "passes": false,
+      "passes": true,
       "notes": "This is the first real WASM binary. codex-exec is the headless (non-TUI) entry point \u2014 it takes a prompt on stdin or as CLI arg and runs the agent loop. This depends on US-099 (build skeleton), US-100 (process spawn), US-102 (HTTP client), US-103 (stubs). The binary should be placed in target/wasm32-wasip1/release/commands/ alongside other WasmVM commands. Add to Makefile's WASM_COMMANDS and PATCHED_PROGRAMS lists."
     },
     {

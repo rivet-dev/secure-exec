@@ -3954,3 +3954,26 @@ PRD: ralph/kernel-hardening (46 stories)
   - The real NetworkProxy uses anyhow::Error — stub uses a local ProxyError type to avoid adding deps
   - Pre-existing failures: resource-exhaustion.test.ts (1 kernel test), git.test.ts (9 tests), shell-terminal.test.ts (5 tests), example-ai-sdk typecheck
 ---
+
+## 2026-03-20 - US-104
+- What was implemented: codex-exec headless agent WASM binary
+  - Created `wasmvm/crates/commands/codex-exec/` binary crate (package `cmd-codex-exec`, binary name `codex-exec`)
+  - Supports `--help` and `--version` flags
+  - Includes `--http-test` and `--stub-test` validation subcommands (same as codex binary)
+  - Headless agent mode reads prompt from args or stdin (placeholder pending codex-core wiring)
+  - Uses wasi-spawn, wasi-http, codex-network-proxy stub, codex-otel stub
+  - Binary compiles and builds for wasm32-wasip1 (80K raw, 70K optimized with wasm-opt)
+  - Added to workspace Cargo.toml members
+  - Added `codex-exec` to WASMVM_COMMANDS and DEFAULT_FIRST_PARTY_TIERS ('full' tier) in driver.ts
+  - Makefile auto-discovers from crates/commands/ directory name — no manual Makefile edit needed
+- Files changed:
+  - wasmvm/crates/commands/codex-exec/Cargo.toml (new)
+  - wasmvm/crates/commands/codex-exec/src/main.rs (new)
+  - wasmvm/Cargo.toml (added workspace member)
+  - wasmvm/Cargo.lock (updated)
+  - packages/runtime/wasmvm/src/driver.ts (added to WASMVM_COMMANDS + tiers)
+- **Learnings for future iterations:**
+  - Makefile COMMAND_NAMES uses $(notdir $(wildcard crates/commands/*)) — auto-discovers from directory names, no manual edit needed
+  - Binary name must match directory name for Makefile's wasm-opt step to find it
+  - Pre-existing failures unchanged: resource-exhaustion.test.ts (1), git.test.ts (9), shell-terminal.test.ts (5), example-ai-sdk typecheck
+---
