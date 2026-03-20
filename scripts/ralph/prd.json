@@ -1000,8 +1000,8 @@
         "Tests pass"
       ],
       "priority": 59,
-      "passes": false,
-      "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 1. Prerequisite for context snapshot."
+      "passes": true,
+      "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 1. Replaced direct property assignment with Object.defineProperties using getters for all 19 fs bridge functions. Each _fs.xxx call now resolves globalThis._fsXxx at call time, enabling snapshot restore to replace bridge globals."
     },
     {
       "id": "US-060",
