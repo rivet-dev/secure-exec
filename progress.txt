@@ -2687,3 +2687,22 @@ PRD: ralph/kernel-hardening (46 stories)
   - v8::StartupData contains *const i8 raw pointer — not Send/Sync. Store snapshot blobs as Arc<Vec<u8>> (via .to_vec()) for cross-thread sharing
   - SnapshotCache holds mutex during snapshot creation (~20ms) — acceptable since it happens once per bridge code variant
 ---
+
+## 2026-03-19 - US-054
+- Added WarmSnapshot IPC message type (0x09) to both Rust ipc_binary.rs and TypeScript ipc-binary.ts
+- Wire format: [msg_type=0x09][sid_len=0][u32 bridge_code_len][bridge_code bytes] — no session_id (like Authenticate)
+- Updated extract_session_id / extractSessionId to return None/null for WarmSnapshot
+- Added BinaryFrame::WarmSnapshot { bridge_code } variant in Rust and { type: "WarmSnapshot"; bridgeCode: string } in TypeScript
+- 4 new Rust tests: roundtrip, empty bridge code, large bridge code, extract_session_id returns None
+- 5 new TypeScript tests: roundtrip, empty, large, extractSessionId null, wire format byte verification
+- Updated wire_format_message_type_bytes test in both Rust and TypeScript to include 0x09
+- Files changed:
+  - crates/v8-runtime/src/ipc_binary.rs — WarmSnapshot variant, encode/decode, extract_session_id, tests
+  - packages/secure-exec-v8/src/ipc-binary.ts — WarmSnapshot type, encodeBody, decodeFrame, extractSessionId
+  - packages/secure-exec-v8/test/ipc-binary.test.ts — 5 new tests
+  - scripts/ralph/prd.json — marked US-054 passes: true
+- **Learnings for future iterations:**
+  - Connection-level messages (no session_id) use sid_len=0 in the wire format, same as Authenticate
+  - extract_session_id must be updated whenever a new connection-level message type is added
+  - WarmSnapshot is fire-and-forget — host sends it and continues without waiting for response
+---

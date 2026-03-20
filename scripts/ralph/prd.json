@@ -914,8 +914,8 @@
         "Tests pass"
       ],
       "priority": 54,
-      "passes": false,
-      "notes": "Spec: docs-internal/specs/v8-startup-snapshot.md. Fire-and-forget message — no response from Rust side."
+      "passes": true,
+      "notes": "Spec: docs-internal/specs/v8-startup-snapshot.md. Fire-and-forget message — no response from Rust side. Message type 0x09 with sid_len=0 (like Authenticate). Wire format: [msg_type][sid_len=0][u32 bridge_code_len][bridge_code]. 4 Rust tests + 5 TS tests added."
     },
     {
       "id": "US-055",
