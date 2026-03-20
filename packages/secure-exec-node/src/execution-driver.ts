@@ -36,16 +36,23 @@ import { createProcessConfigForExecution } from "./bridge-setup.js";
 
 export { NodeExecutionDriverOptions };
 
+// Module-level cache for the static bridge IIFE (identical across all sessions)
+let staticBridgeCodeCache: string | null = null;
+
 /**
- * Compose the default bridge code for snapshot warm-up.
- * Uses timingMitigation='none' and default budget values so the snapshot
- * is ready for the most common session configuration.
+ * Compose the config-independent bridge IIFE. Output is byte-for-byte
+ * identical regardless of session options — uses DEFAULT values for all
+ * config that gets overridden by the post-restore script.
+ * Used for snapshot creation and as the base of every session's bridge code.
  */
-export function composeBridgeCodeForWarmup(): string {
+export function composeStaticBridgeCode(): string {
+	if (staticBridgeCodeCache) return staticBridgeCodeCache;
+
 	const parts: string[] = [];
 
 	parts.push(getIvmCompatShimSource());
 
+	// Default budget values — overridden per-session by post-restore script
 	parts.push(`globalThis._maxTimers = ${DEFAULT_MAX_TIMERS};`);
 	parts.push(`globalThis._maxHandles = ${DEFAULT_MAX_HANDLES};`);
 	parts.push(`globalThis.__runtimeBridgeSetupConfig = ${JSON.stringify({
@@ -61,7 +68,7 @@ export function composeBridgeCodeForWarmup(): string {
 	parts.push(getRawBridgeCode());
 	parts.push(getBridgeAttachCode());
 
-	// Default: no timing mitigation
+	// Default: no timing mitigation (freeze applied via post-restore script)
 	parts.push(getIsolateRuntimeSource("applyTimingMitigationOff"));
 
 	parts.push(getRequireSetupCode());
@@ -73,14 +80,62 @@ export function composeBridgeCodeForWarmup(): string {
 	})};`);
 	parts.push(getIsolateRuntimeSource("applyCustomGlobalPolicy"));
 
-	// Apply default config via __runtimeApplyConfig (no timing freeze for warmup)
+	staticBridgeCodeCache = parts.join("\n");
+	return staticBridgeCodeCache;
+}
+
+/**
+ * Compose the per-session post-restore script. Overrides default config
+ * values from the static IIFE with session-specific values, applies timing
+ * mitigation, and handles polyfill loading.
+ */
+export function composePostRestoreScript(config: {
+	timingMitigation: TimingMitigation;
+	frozenTimeMs: number;
+	maxTimers?: number;
+	maxHandles?: number;
+	initialCwd?: string;
+	payloadLimitBytes?: number;
+	payloadLimitErrorCode?: string;
+}): string {
+	const parts: string[] = [];
+
+	// Override per-session budget values if they differ from defaults
+	if (config.maxTimers !== undefined) {
+		parts.push(`globalThis._maxTimers = ${config.maxTimers};`);
+	}
+	if (config.maxHandles !== undefined) {
+		parts.push(`globalThis._maxHandles = ${config.maxHandles};`);
+	}
+
+	// Override initial cwd for module resolution
+	if (config.initialCwd && config.initialCwd !== DEFAULT_SANDBOX_CWD) {
+		parts.push(`if (globalThis._currentModule) globalThis._currentModule.dirname = ${JSON.stringify(config.initialCwd)};`);
+	}
+
+	// Apply config (timing mitigation, payload limits) via __runtimeApplyConfig
 	parts.push(`globalThis.__runtimeApplyConfig(${JSON.stringify({
-		timingMitigation: "none",
-		payloadLimitBytes: DEFAULT_ISOLATE_JSON_PAYLOAD_BYTES,
-		payloadLimitErrorCode: PAYLOAD_LIMIT_ERROR_CODE,
+		timingMitigation: config.timingMitigation,
+		frozenTimeMs: config.timingMitigation === "freeze" ? config.frozenTimeMs : undefined,
+		payloadLimitBytes: config.payloadLimitBytes,
+		payloadLimitErrorCode: config.payloadLimitErrorCode,
 	})});`);
 
 	return parts.join("\n");
+}
+
+/**
+ * Compose the default bridge code for snapshot warm-up.
+ * Uses timingMitigation='none' and default budget values so the snapshot
+ * is ready for the most common session configuration.
+ */
+export function composeBridgeCodeForWarmup(): string {
+	return composeStaticBridgeCode() + "\n" + composePostRestoreScript({
+		timingMitigation: "off",
+		frozenTimeMs: 0,
+		payloadLimitBytes: DEFAULT_ISOLATE_JSON_PAYLOAD_BYTES,
+		payloadLimitErrorCode: PAYLOAD_LIMIT_ERROR_CODE,
+	});
 }
 
 const MAX_ERROR_MESSAGE_CHARS = 8192;
@@ -99,9 +154,6 @@ export class NodeExecutionDriver implements RuntimeDriver {
 	private v8Session: V8Session | null = null;
 	private v8InitPromise: Promise<void> | null = null;
 	private v8RuntimeOverride: V8Runtime | null;
-
-	// Cached bridge code (same across executions)
-	private bridgeCodeCache: string | null = null;
 
 	constructor(options: NodeExecutionDriverOptions) {
 		this.v8RuntimeOverride = options.v8Runtime ?? null;
@@ -222,81 +274,20 @@ export class NodeExecutionDriver implements RuntimeDriver {
 		});
 	}
 
-	/** Build the config-independent bridge IIFE (cached across executions). */
-	private getBridgeIIFE(): string {
-		if (this.bridgeCodeCache) return this.bridgeCodeCache;
-
-		const parts: string[] = [];
-
-		// 1. ivm-compat shim (wraps bridge functions with .applySync/.applySyncPromise)
-		parts.push(getIvmCompatShimSource());
-
-		// 2. Config value injections
-		if (this.deps.maxTimers !== undefined) {
-			parts.push(`globalThis._maxTimers = ${this.deps.maxTimers};`);
-		}
-		if (this.deps.maxHandles !== undefined) {
-			parts.push(`globalThis._maxHandles = ${this.deps.maxHandles};`);
-		}
-		parts.push(`globalThis.__runtimeBridgeSetupConfig = ${JSON.stringify({
-			initialCwd: this.deps.processConfig.cwd ?? "/",
-			jsonPayloadLimitBytes: this.deps.isolateJsonPayloadLimitBytes,
-			payloadLimitErrorCode: PAYLOAD_LIMIT_ERROR_CODE,
-		})};`);
-
-		// 3. Global exposure helpers
-		parts.push(getIsolateRuntimeSource("globalExposureHelpers"));
-
-		// 4. Initial bridge globals setup (defines __runtimeApplyConfig)
-		parts.push(getInitialBridgeGlobalsSetupCode());
-
-		// 5. Console setup (hooks into _log/_error)
-		parts.push(getConsoleSetupCode());
-
-		// 5b. Filesystem facade (_fs object wrapping individual _fs* bridge functions)
-		parts.push(getIsolateRuntimeSource("setupFsFacade"));
-
-		// 6. Bridge bundle IIFE
-		parts.push(getRawBridgeCode());
-
-		// 7. Bridge attach
-		parts.push(getBridgeAttachCode());
-
-		// 8. Timing mitigation — default performance polyfill (freeze applied via __runtimeApplyConfig)
-		parts.push(getIsolateRuntimeSource("applyTimingMitigationOff"));
-
-		// 9. Require setup
-		parts.push(getRequireSetupCode());
-
-		// 10. CJS module/exports globals (for run() and exec() with filePath)
-		parts.push(getIsolateRuntimeSource("initCommonjsModuleGlobals"));
-
-		// 11. Harden custom globals (non-writable/configurable for hardened, mutable for mutable)
-		parts.push(`globalThis.__runtimeCustomGlobalPolicy = ${JSON.stringify({
-			hardenedGlobals: HARDENED_NODE_CUSTOM_GLOBALS,
-			mutableGlobals: MUTABLE_NODE_CUSTOM_GLOBALS,
-		})};`);
-		parts.push(getIsolateRuntimeSource("applyCustomGlobalPolicy"));
-
-		this.bridgeCodeCache = parts.join("\n");
-		return this.bridgeCodeCache;
-	}
-
-	/** Compose the full bridge code: cached IIFE + per-execution __runtimeApplyConfig call. */
+	/** Compose the full bridge code: static IIFE + per-execution post-restore script. */
 	private composeBridgeCode(
 		timingMitigation: TimingMitigation,
 		frozenTimeMs: number,
 	): string {
-		const iife = this.getBridgeIIFE();
-
-		// Append per-execution config application via __runtimeApplyConfig
-		const configCall = `globalThis.__runtimeApplyConfig(${JSON.stringify({
+		return composeStaticBridgeCode() + "\n" + composePostRestoreScript({
 			timingMitigation,
-			frozenTimeMs: timingMitigation === "freeze" ? frozenTimeMs : undefined,
+			frozenTimeMs,
+			maxTimers: this.deps.maxTimers,
+			maxHandles: this.deps.maxHandles,
+			initialCwd: this.deps.processConfig.cwd ?? DEFAULT_SANDBOX_CWD,
 			payloadLimitBytes: this.deps.isolateJsonPayloadLimitBytes,
 			payloadLimitErrorCode: PAYLOAD_LIMIT_ERROR_CODE,
-		})});`;
-		return iife + "\n" + configCall;
+		});
 	}
 
 	private async executeInternal<T = unknown>(options: {

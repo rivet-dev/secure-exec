@@ -26,7 +26,7 @@ export {
 } from "./polyfills.js";
 
 // Node execution driver
-export { NodeExecutionDriver, composeBridgeCodeForWarmup } from "./execution-driver.js";
+export { NodeExecutionDriver, composeStaticBridgeCode, composePostRestoreScript, composeBridgeCodeForWarmup } from "./execution-driver.js";
 export type { NodeExecutionDriverOptions } from "./isolate-bootstrap.js";
 
 // Node system driver
