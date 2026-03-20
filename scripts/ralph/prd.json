@@ -1388,7 +1388,7 @@
         "Tests pass"
       ],
       "priority": 70,
-      "passes": false,
+      "passes": true,
       "notes": "The main thread (driver.ts) has access to Node.js net module for real TCP connections. The WASM worker communicates via SharedArrayBuffer RPC (same pattern as VFS read/write). Key challenge: recv must block the worker via Atomics.wait until data arrives. Use the same signalBuf/dataBuf pattern as existing RPC. Create a simple TCP echo server in the test for verification."
     },
     {

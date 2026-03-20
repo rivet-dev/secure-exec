@@ -101,6 +101,8 @@ PRD: ralph/kernel-hardening (46 stories)
 - WasmVM stdin pipe: kernel.pipe(pid) + fdDup2(pid, readFd, 0) + polyfill.setStdinReader()
 - Node driver stdin: buffer writeStdin data, closeStdin resolves Promise passed to exec({ stdin })
 - Permission-wrapped VFS affects mount() via populateBin() — fs deny tests must skip driver mounting; childProcess deny tests must include allowAllFs
+- TCP socket recv in driver.ts must use 'data' event (not readable+read()) — read() returns null on Node.js TCP sockets before data arrives
+- Socket RPC handlers use same signalBuf/dataBuf pattern as VFS — add new cases to _handleSyscall switch, use Node.js net module on main thread
 - Bridge process.stdin does NOT emit 'end' for empty stdin ("") — pass undefined for no-stdin case
 - E2E fixture tests: use NodeFileSystem({ root: projectDir }) for real npm package resolution
 - npm/npx in V8 isolate need host filesystem fallback — createHostFallbackVfs wraps kernel VFS
@@ -3232,4 +3234,28 @@ PRD: ralph/kernel-hardening (46 stories)
   - All net_ functions return ENOSYS initially; actual TCP implementation comes in US-070
   - The WASM instantiation imports object in kernel-worker.ts main() accepts additional import modules — just add a new key
   - Pre-existing test failures in shell-terminal.test.ts, dynamic-module-integration.test.ts, c-parity.test.ts, and driver.test.ts (49 tests, all pre-existing)
+---
+
+## 2026-03-20 - US-070
+- Implemented TCP socket RPC: net_socket, net_connect, net_send, net_recv, net_close
+- Worker side (kernel-worker.ts): replaced ENOSYS stubs with rpcCall-based implementations, added isNetworkBlocked permission check
+- Main thread side (driver.ts): added socket table (_sockets Map), RPC handlers for netSocket/netConnect/netSend/netRecv/netClose using Node.js net module
+- Added isNetworkBlocked to permission-check.ts (only 'full' tier allowed)
+- Added ERRNO_ECONNREFUSED (14) to wasi-constants.ts
+- Created net-socket.test.ts with TCP echo server integration tests (13 tests)
+- Added isNetworkBlocked tests to permission-check.test.ts (4 tests)
+- Files changed:
+  - packages/runtime/wasmvm/src/driver.ts
+  - packages/runtime/wasmvm/src/kernel-worker.ts
+  - packages/runtime/wasmvm/src/permission-check.ts
+  - packages/runtime/wasmvm/src/wasi-constants.ts
+  - packages/runtime/wasmvm/test/permission-check.test.ts
+  - packages/runtime/wasmvm/test/net-socket.test.ts (new)
+- **Learnings for future iterations:**
+  - Socket RPC uses same signalBuf/dataBuf pattern as VFS — works with Atomics.wait blocking
+  - TCP recv must use 'data' event, not readable+read() — read() returns null on sockets before data arrives
+  - Address format for net_connect is "host:port" serialized as byte buffer from WASM memory
+  - Socket table is per-driver (not per-process) — cleanup in dispose()
+  - netSocket allocates a slot with null initially; actual Node.js Socket is created in netConnect
+  - Private _handleSyscall can be tested via bracket notation (driver as any)._handleSyscall()
 ---
