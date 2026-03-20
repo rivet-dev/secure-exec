@@ -2443,7 +2443,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                crate::session::run_event_loop(scope, &rx, &pending, None)
+                crate::session::run_event_loop(scope, &rx, &pending, None, None)
             };
 
             assert!(completed, "event loop should complete normally");
@@ -2516,7 +2516,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                crate::session::run_event_loop(scope, &rx, &pending, None)
+                crate::session::run_event_loop(scope, &rx, &pending, None, None)
             };
 
             assert!(completed);
@@ -2568,7 +2568,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                crate::session::run_event_loop(scope, &rx, &pending, None)
+                crate::session::run_event_loop(scope, &rx, &pending, None, None)
             };
 
             assert!(!completed, "event loop should return false on termination");
@@ -2617,7 +2617,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                crate::session::run_event_loop(scope, &rx, &pending, None)
+                crate::session::run_event_loop(scope, &rx, &pending, None, None)
             };
 
             assert!(!completed, "event loop should return false on shutdown");
@@ -2636,7 +2636,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                crate::session::run_event_loop(scope, &rx, &pending, None)
+                crate::session::run_event_loop(scope, &rx, &pending, None, None)
             };
 
             assert!(completed);
@@ -2712,7 +2712,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                crate::session::run_event_loop(scope, &rx, &pending, None)
+                crate::session::run_event_loop(scope, &rx, &pending, None, None)
             };
 
             assert!(completed);
@@ -2779,7 +2779,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                crate::session::run_event_loop(scope, &rx, &pending, None);
+                crate::session::run_event_loop(scope, &rx, &pending, None, None);
             }
 
             // .then handler should have run (microtasks flushed)
@@ -2865,7 +2865,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                crate::session::run_event_loop(scope, &rx, &pending, None)
+                crate::session::run_event_loop(scope, &rx, &pending, None, None)
             };
 
             assert!(completed);
@@ -2944,7 +2944,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                crate::session::run_event_loop(scope, &rx, &pending, None)
+                crate::session::run_event_loop(scope, &rx, &pending, None, None)
             };
 
             assert!(completed);
@@ -3020,7 +3020,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                crate::session::run_event_loop(scope, &rx, &pending, None)
+                crate::session::run_event_loop(scope, &rx, &pending, None, None)
             };
 
             assert!(completed);
@@ -3089,7 +3089,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                crate::session::run_event_loop(scope, &rx, &pending, None)
+                crate::session::run_event_loop(scope, &rx, &pending, None, None)
             };
 
             assert!(completed);
@@ -3162,7 +3162,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                crate::session::run_event_loop(scope, &rx, &pending, None);
+                crate::session::run_event_loop(scope, &rx, &pending, None, None);
             }
 
             // Microtask enqueued by the dispatch callback should have run
@@ -3290,7 +3290,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                crate::session::run_event_loop(scope, &cmd_rx, &pending, Some(&abort_rx))
+                crate::session::run_event_loop(scope, &cmd_rx, &pending, Some(&abort_rx), None)
             };
 
             assert!(!completed, "event loop should have been terminated");

@@ -1,6 +1,6 @@
 // Session management: create/destroy sessions with V8 isolates on dedicated threads
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 
@@ -40,6 +40,15 @@ struct SessionEntry {
 
 /// Concurrency slot tracker shared across session threads
 type SlotControl = Arc<(Mutex<usize>, Condvar)>;
+
+/// Shared deferred message queue for non-BridgeResponse frames consumed by
+/// sync bridge calls. The event loop drains these before blocking on the channel.
+pub(crate) type DeferredQueue = Arc<Mutex<VecDeque<BinaryFrame>>>;
+
+/// Create a new empty deferred queue.
+pub(crate) fn new_deferred_queue() -> DeferredQueue {
+    Arc::new(Mutex::new(VecDeque::new()))
+}
 
 /// Manages V8 sessions with concurrency limiting and connection binding.
 ///
@@ -370,10 +379,13 @@ fn session_thread(
                             (None, None)
                         };
 
+                        // Create deferred queue for sync bridge call filtering
+                        let deferred_queue = new_deferred_queue();
+
                         // Create BridgeCallContext with channel sender (no shared mutex)
                         let channel_rx = match maybe_abort_rx {
-                            Some(ref arx) => ChannelResponseReceiver::with_abort(rx.clone(), arx.clone()),
-                            None => ChannelResponseReceiver::new(rx.clone()),
+                            Some(ref arx) => ChannelResponseReceiver::with_abort(rx.clone(), arx.clone(), Arc::clone(&deferred_queue)),
+                            None => ChannelResponseReceiver::new(rx.clone(), Arc::clone(&deferred_queue)),
                         };
                         let bridge_ctx = BridgeCallContext::with_receiver(
                             Box::new(ChannelFrameSender::new(ipc_tx.clone())),
@@ -466,7 +478,7 @@ fn session_thread(
                             let scope = &mut v8::HandleScope::new(iso);
                             let ctx = v8::Local::new(scope, &exec_context);
                             let scope = &mut v8::ContextScope::new(scope, ctx);
-                            !run_event_loop(scope, &rx, &pending, maybe_abort_rx.as_ref())
+                            !run_event_loop(scope, &rx, &pending, maybe_abort_rx.as_ref(), Some(&deferred_queue))
                         } else {
                             false
                         };
@@ -608,6 +620,10 @@ pub(crate) const ASYNC_BRIDGE_FNS: [&str; 7] = [
 /// Polls the session channel for BridgeResponse, StreamEvent, and
 /// TerminateExecution messages, dispatching each into V8 with microtask flush.
 ///
+/// When `deferred` is provided, drains queued messages from sync bridge calls
+/// before blocking on the channel. This prevents StreamEvent loss when sync
+/// bridge calls consume non-BridgeResponse messages from the shared channel.
+///
 /// When `abort_rx` is provided (timeout is configured), uses `select!` to
 /// also monitor the abort channel — if the timeout fires and drops the sender,
 /// the abort channel unblocks and terminates execution.
@@ -618,8 +634,22 @@ pub(crate) fn run_event_loop(
     rx: &Receiver<SessionCommand>,
     pending: &crate::bridge::PendingPromises,
     abort_rx: Option<&crossbeam_channel::Receiver<()>>,
+    deferred: Option<&DeferredQueue>,
 ) -> bool {
     while pending.len() > 0 {
+        // Drain deferred messages queued by sync bridge calls before blocking
+        if let Some(dq) = deferred {
+            let frames: Vec<BinaryFrame> = dq.lock().unwrap().drain(..).collect();
+            for frame in frames {
+                if !dispatch_event_loop_frame(scope, frame, pending) {
+                    return false;
+                }
+            }
+            if pending.len() == 0 {
+                break;
+            }
+        }
+
         // Receive next command, with optional abort monitoring
         let cmd = if let Some(abort) = abort_rx {
             crossbeam_channel::select! {
@@ -641,104 +671,129 @@ pub(crate) fn run_event_loop(
         };
 
         match cmd {
-            SessionCommand::Message(frame) => match frame {
-                BinaryFrame::BridgeResponse {
-                    call_id,
-                    status,
-                    payload,
-                    ..
-                } => {
-                    let (result, error) = if status == 1 {
-                        (None, Some(String::from_utf8_lossy(&payload).to_string()))
-                    } else if !payload.is_empty() {
-                        // status=0: V8-serialized, status=2: raw binary (Uint8Array)
-                        (Some(payload), None)
-                    } else {
-                        (None, None)
-                    };
-                    let _ = crate::bridge::resolve_pending_promise(
-                        scope, pending, call_id, result, error,
-                    );
-                    // Microtasks already flushed in resolve_pending_promise
-                }
-                BinaryFrame::StreamEvent {
-                    event_type,
-                    payload,
-                    ..
-                } => {
-                    crate::stream::dispatch_stream_event(scope, &event_type, &payload);
-                    scope.perform_microtask_checkpoint();
-                }
-                BinaryFrame::TerminateExecution { .. } => {
-                    scope.terminate_execution();
+            SessionCommand::Message(frame) => {
+                if !dispatch_event_loop_frame(scope, frame, pending) {
                     return false;
                 }
-                _ => {
-                    // Ignore other messages during event loop
-                }
-            },
+            }
             SessionCommand::Shutdown => return false,
         }
     }
     true
 }
 
+/// Dispatch a single BinaryFrame within the event loop.
+/// Returns true to continue the loop, false to terminate execution.
+fn dispatch_event_loop_frame(
+    scope: &mut v8::HandleScope,
+    frame: BinaryFrame,
+    pending: &crate::bridge::PendingPromises,
+) -> bool {
+    match frame {
+        BinaryFrame::BridgeResponse {
+            call_id,
+            status,
+            payload,
+            ..
+        } => {
+            let (result, error) = if status == 1 {
+                (None, Some(String::from_utf8_lossy(&payload).to_string()))
+            } else if !payload.is_empty() {
+                // status=0: V8-serialized, status=2: raw binary (Uint8Array)
+                (Some(payload), None)
+            } else {
+                (None, None)
+            };
+            let _ = crate::bridge::resolve_pending_promise(
+                scope, pending, call_id, result, error,
+            );
+            // Microtasks already flushed in resolve_pending_promise
+            true
+        }
+        BinaryFrame::StreamEvent {
+            event_type,
+            payload,
+            ..
+        } => {
+            crate::stream::dispatch_stream_event(scope, &event_type, &payload);
+            scope.perform_microtask_checkpoint();
+            true
+        }
+        BinaryFrame::TerminateExecution { .. } => {
+            scope.terminate_execution();
+            false
+        }
+        _ => {
+            // Ignore other messages during event loop
+            true
+        }
+    }
+}
+
 /// ResponseReceiver that receives BinaryFrame directly from the session channel.
 ///
-/// Eliminates the re-serialization cycle: frames arrive already deserialized
-/// from the connection handler and are passed straight to sync_call without
-/// encoding/decoding through the old ChannelMessageReader → read_frame path.
+/// Only returns BridgeResponse frames from recv_response(). Non-BridgeResponse
+/// messages (StreamEvent, TerminateExecution) consumed during sync bridge calls
+/// are queued in the deferred queue for later processing by the event loop.
 ///
 /// When `abort_rx` is set (timeout configured), uses `select!` to also monitor
 /// the abort channel. If the timeout fires, the abort sender is dropped, which
 /// unblocks the select and returns a timeout error.
-#[cfg(not(test))]
-struct ChannelResponseReceiver {
+pub(crate) struct ChannelResponseReceiver {
     rx: Receiver<SessionCommand>,
     abort_rx: Option<crossbeam_channel::Receiver<()>>,
+    deferred: DeferredQueue,
 }
 
-#[cfg(not(test))]
 impl ChannelResponseReceiver {
-    fn new(rx: Receiver<SessionCommand>) -> Self {
+    pub(crate) fn new(rx: Receiver<SessionCommand>, deferred: DeferredQueue) -> Self {
         ChannelResponseReceiver {
             rx,
             abort_rx: None,
+            deferred,
         }
     }
 
-    fn with_abort(rx: Receiver<SessionCommand>, abort_rx: crossbeam_channel::Receiver<()>) -> Self {
+    pub(crate) fn with_abort(rx: Receiver<SessionCommand>, abort_rx: crossbeam_channel::Receiver<()>, deferred: DeferredQueue) -> Self {
         ChannelResponseReceiver {
             rx,
             abort_rx: Some(abort_rx),
+            deferred,
         }
     }
 }
 
-#[cfg(not(test))]
 impl crate::host_call::ResponseReceiver for ChannelResponseReceiver {
     fn recv_response(&self) -> Result<BinaryFrame, String> {
-        // Wait for next command, with optional abort monitoring
-        let cmd = if let Some(ref abort) = self.abort_rx {
-            crossbeam_channel::select! {
-                recv(self.rx) -> result => match result {
+        loop {
+            // Wait for next command, with optional abort monitoring
+            let cmd = if let Some(ref abort) = self.abort_rx {
+                crossbeam_channel::select! {
+                    recv(self.rx) -> result => match result {
+                        Ok(cmd) => cmd,
+                        Err(_) => return Err("channel closed".into()),
+                    },
+                    recv(abort) -> _ => {
+                        return Err("execution timed out".into());
+                    },
+                }
+            } else {
+                match self.rx.recv() {
                     Ok(cmd) => cmd,
                     Err(_) => return Err("channel closed".into()),
-                },
-                recv(abort) -> _ => {
-                    return Err("execution timed out".into());
-                },
-            }
-        } else {
-            match self.rx.recv() {
-                Ok(cmd) => cmd,
-                Err(_) => return Err("channel closed".into()),
-            }
-        };
+                }
+            };
 
-        match cmd {
-            SessionCommand::Message(frame) => Ok(frame),
-            SessionCommand::Shutdown => Err("session shutdown".into()),
+            match cmd {
+                SessionCommand::Message(frame) => {
+                    if matches!(&frame, BinaryFrame::BridgeResponse { .. }) {
+                        return Ok(frame);
+                    }
+                    // Queue non-BridgeResponse for later event loop processing
+                    self.deferred.lock().unwrap().push_back(frame);
+                }
+                SessionCommand::Shutdown => return Err("session shutdown".into()),
+            }
         }
     }
 }
@@ -870,5 +925,54 @@ mod tests {
             mgr.destroy_session("conn2-s1", 200).expect("destroy");
             assert_eq!(mgr.session_count(), 0);
         }
+    }
+
+    #[test]
+    fn channel_response_receiver_filters_bridge_response() {
+        use crate::host_call::ResponseReceiver;
+
+        // Sync bridge call interleaved with StreamEvent does not drop the StreamEvent
+        let (tx, rx) = crossbeam_channel::bounded(10);
+        let deferred = new_deferred_queue();
+        let receiver = ChannelResponseReceiver::new(rx, Arc::clone(&deferred));
+
+        // Send: StreamEvent, TerminateExecution, then BridgeResponse
+        tx.send(SessionCommand::Message(BinaryFrame::StreamEvent {
+            session_id: "s1".into(),
+            event_type: "child_stdout".into(),
+            payload: vec![0x01, 0x02],
+        }))
+        .unwrap();
+        tx.send(SessionCommand::Message(BinaryFrame::TerminateExecution {
+            session_id: "s1".into(),
+        }))
+        .unwrap();
+        tx.send(SessionCommand::Message(BinaryFrame::BridgeResponse {
+            session_id: "s1".into(),
+            call_id: 1,
+            status: 0,
+            payload: vec![0xAB],
+        }))
+        .unwrap();
+
+        // recv_response should skip StreamEvent and TerminateExecution, return BridgeResponse
+        let frame = receiver.recv_response().unwrap();
+        assert!(
+            matches!(&frame, BinaryFrame::BridgeResponse { call_id: 1, .. }),
+            "expected BridgeResponse with call_id=1, got {:?}",
+            frame
+        );
+
+        // Deferred queue should contain the StreamEvent and TerminateExecution
+        let dq = deferred.lock().unwrap();
+        assert_eq!(dq.len(), 2, "expected 2 deferred messages");
+        assert!(
+            matches!(&dq[0], BinaryFrame::StreamEvent { event_type, .. } if event_type == "child_stdout"),
+            "first deferred should be StreamEvent"
+        );
+        assert!(
+            matches!(&dq[1], BinaryFrame::TerminateExecution { .. }),
+            "second deferred should be TerminateExecution"
+        );
     }
 }
