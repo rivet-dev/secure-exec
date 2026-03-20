@@ -31,16 +31,28 @@ export async function shutdownSharedV8(): Promise<void> {
 	if (sharedV8) {
 		await sharedV8.dispose();
 		sharedV8 = null;
+		sharedDriver = null;
+		sharedFactory = null;
 	}
 }
+
+// Shared driver and factory — reuse across all bench runtimes.
+// createNodeDriver() scans node_modules for symlinks on every call (~15ms),
+// so creating it once eliminates the main source of cold-start variance.
+let sharedDriver: ReturnType<typeof createNodeDriver> | null = null;
+let sharedFactory: ReturnType<typeof createNodeRuntimeDriverFactory> | null = null;
 
 export function createBenchRuntime(): NodeRuntime {
 	if (!sharedV8) {
 		throw new Error("Call initSharedV8() before createBenchRuntime()");
 	}
+	if (!sharedDriver) {
+		sharedDriver = createNodeDriver();
+		sharedFactory = createNodeRuntimeDriverFactory({ v8Runtime: sharedV8 });
+	}
 	return new NodeRuntime({
-		systemDriver: createNodeDriver(),
-		runtimeDriverFactory: createNodeRuntimeDriverFactory({ v8Runtime: sharedV8 }),
+		systemDriver: sharedDriver,
+		runtimeDriverFactory: sharedFactory!,
 	});
 }
 

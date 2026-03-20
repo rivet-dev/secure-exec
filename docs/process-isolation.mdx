@@ -45,9 +45,14 @@ import {
   createNodeRuntimeDriverFactory,
 } from "secure-exec";
 
+// Reuse the driver and factory across runtimes — createNodeDriver() scans
+// node_modules on each call, so creating it once avoids repeated filesystem work.
+const driver = createNodeDriver();
+const factory = createNodeRuntimeDriverFactory();
+
 const rt = new NodeRuntime({
-  systemDriver: createNodeDriver(),
-  runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+  systemDriver: driver,
+  runtimeDriverFactory: factory,
 });
 ```
 
@@ -62,25 +67,21 @@ NodeRuntime C ──── Tenant 2 Process (sessions: C1)
 ```
 
 ```ts
-import { createNodeV8Runtime } from "secure-exec";
 import {
   NodeRuntime,
   createNodeDriver,
   createNodeRuntimeDriverFactory,
+  createNodeV8Runtime,
 } from "secure-exec";
+
+const driver = createNodeDriver();
 
 // Create a dedicated process for this tenant
 const tenantProcess = await createNodeV8Runtime({ maxSessions: 10 });
+const factory = createNodeRuntimeDriverFactory({ v8Runtime: tenantProcess });
 
-const rt1 = new NodeRuntime({
-  systemDriver: createNodeDriver(),
-  runtimeDriverFactory: createNodeRuntimeDriverFactory({ v8Runtime: tenantProcess }),
-});
-
-const rt2 = new NodeRuntime({
-  systemDriver: createNodeDriver(),
-  runtimeDriverFactory: createNodeRuntimeDriverFactory({ v8Runtime: tenantProcess }),
-});
+const rt1 = new NodeRuntime({ systemDriver: driver, runtimeDriverFactory: factory });
+const rt2 = new NodeRuntime({ systemDriver: driver, runtimeDriverFactory: factory });
 
 // rt1 and rt2 share tenantProcess, isolated from the global process
 ```
@@ -95,23 +96,24 @@ NodeRuntime B ──── Process B (session: B1)
 ```
 
 ```ts
-import { createNodeV8Runtime } from "secure-exec";
 import {
   NodeRuntime,
   createNodeDriver,
   createNodeRuntimeDriverFactory,
+  createNodeV8Runtime,
 } from "secure-exec";
 
+const driver = createNodeDriver();
 const processA = await createNodeV8Runtime();
 const processB = await createNodeV8Runtime();
 
 const rtA = new NodeRuntime({
-  systemDriver: createNodeDriver(),
+  systemDriver: driver,
   runtimeDriverFactory: createNodeRuntimeDriverFactory({ v8Runtime: processA }),
 });
 
 const rtB = new NodeRuntime({
-  systemDriver: createNodeDriver(),
+  systemDriver: driver,
   runtimeDriverFactory: createNodeRuntimeDriverFactory({ v8Runtime: processB }),
 });
 ```
@@ -133,17 +135,12 @@ Choose based on your isolation requirements. The shared topology is the most mem
 ```ts
 // This process allows up to 5 concurrent sessions
 const process = await createNodeV8Runtime({ maxSessions: 5 });
+const driver = createNodeDriver();
+const factory = createNodeRuntimeDriverFactory({ v8Runtime: process });
 
 // Both runtimes share the 5-session budget
-const rt1 = new NodeRuntime({
-  systemDriver: createNodeDriver(),
-  runtimeDriverFactory: createNodeRuntimeDriverFactory({ v8Runtime: process }),
-});
-
-const rt2 = new NodeRuntime({
-  systemDriver: createNodeDriver(),
-  runtimeDriverFactory: createNodeRuntimeDriverFactory({ v8Runtime: process }),
-});
+const rt1 = new NodeRuntime({ systemDriver: driver, runtimeDriverFactory: factory });
+const rt2 = new NodeRuntime({ systemDriver: driver, runtimeDriverFactory: factory });
 ```
 
 Per-execution resource limits (`memoryLimit`, `cpuTimeLimitMs`) still apply per-session regardless of topology. See [Resource Limits](/features/resource-limits) for details.
@@ -158,10 +155,11 @@ When a V8 process crashes (OOM, segfault, panic):
 
 ```ts
 const process = await createNodeV8Runtime();
+const driver = createNodeDriver();
 const factory = createNodeRuntimeDriverFactory({ v8Runtime: process });
 
 const rt = new NodeRuntime({
-  systemDriver: createNodeDriver(),
+  systemDriver: driver,
   runtimeDriverFactory: factory,
   memoryLimit: 8, // small heap to trigger OOM
 });
@@ -179,10 +177,9 @@ Cold-starting a new session costs ~6ms (thread spawn + isolate creation from sna
 
 ```ts
 const process = await createNodeV8Runtime({
-  warmupBridgeCode: bridgeCode,
-  warmPoolSize: 3,           // default: 3 when bridgeCode provided, 0 otherwise
-  defaultWarmHeapLimitMb: 128,
-  waitForWarmPool: true,     // default: true — block until pool is ready
+  warmPoolSize: 5,             // default: 5, set to 0 to disable
+  defaultWarmHeapLimitMb: 128, // default: 128
+  waitForWarmPool: true,       // default: true — block until pool is ready
 });
 ```
 

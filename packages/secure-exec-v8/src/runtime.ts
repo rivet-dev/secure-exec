@@ -101,6 +101,9 @@ export async function createV8Runtime(
 	options?: V8RuntimeOptions,
 ): Promise<V8Runtime> {
 	const binaryPath = options?.binaryPath ?? resolveBinaryPath();
+	if (process.env.SECURE_EXEC_TRACE_IPC) {
+		console.error(`[trace] binary: ${binaryPath}`);
+	}
 
 	// Build child environment
 	const childEnv: Record<string, string> = {
@@ -139,9 +142,12 @@ export async function createV8Runtime(
 	});
 
 	// Collect stderr for error reporting
+	const traceIpc = !!process.env.SECURE_EXEC_TRACE_IPC;
 	let stderrBuf = "";
 	child.stderr!.on("data", (chunk: Buffer) => {
-		stderrBuf += chunk.toString();
+		const str = chunk.toString();
+		if (traceIpc) process.stderr.write(str);
+		stderrBuf += str;
 		// Cap buffer to avoid unbounded growth
 		if (stderrBuf.length > 8192) {
 			stderrBuf = stderrBuf.slice(-4096);
@@ -306,19 +312,27 @@ export async function createV8Runtime(
 						throw new Error("IPC client is not connected");
 					}
 
+					const _t0 = performance.now();
+
 					// Inject globals — V8-serialize { processConfig, osConfig }
 					const globalsPayload = v8.serialize({
 						processConfig: execOptions.processConfig,
 						osConfig: execOptions.osConfig,
 					});
+
+					const _tSerialize = performance.now();
+
 					client.send({
 						type: "InjectGlobals",
 						sessionId,
 						payload: globalsPayload,
 					});
 
+					const _tInjectSent = performance.now();
+
 					// Set up result promise
 					return new Promise((resolve, _reject) => {
+						const _tPromiseStart = performance.now();
 						// Register session message handler
 						sessionHandlers.set(sessionId, (frame) => {
 							switch (frame.type) {
@@ -389,6 +403,11 @@ export async function createV8Runtime(
 								case "ExecutionResult": {
 									// Clean up handler and resolve
 									sessionHandlers.delete(sessionId);
+									const _tResult = performance.now();
+									if (process.env.SECURE_EXEC_TRACE_IPC) {
+										const sid = sessionId.slice(0, 8);
+										console.error(`[ipc:${sid}] serialize=${(_tSerialize - _t0).toFixed(2)}ms inject_send=${(_tInjectSent - _tSerialize).toFixed(2)}ms ipc_wait=${(_tResult - _tPromiseStart).toFixed(2)}ms total=${(_tResult - _t0).toFixed(2)}ms`);
+									}
 									resolve({
 										code: frame.exitCode,
 										exports: frame.exports,

@@ -14,18 +14,21 @@ const RUNS = 30;
 
 async function main() {
 	const v8 = await createNodeV8Runtime();
+	// Reuse driver/factory — createNodeDriver() scans node_modules (~15ms per call)
+	const driver = createNodeDriver();
+	const factory = createNodeRuntimeDriverFactory({ v8Runtime: v8 });
 
 	// First cold — warms the snapshot cache
 	const warmupRt = new NodeRuntime({
-		systemDriver: createNodeDriver(),
-		runtimeDriverFactory: createNodeRuntimeDriverFactory({ v8Runtime: v8 }),
+		systemDriver: driver,
+		runtimeDriverFactory: factory,
 	});
 	await warmupRt.run(TRIVIAL_CODE);
 	await warmupRt.terminate();
 
 	console.error("Snapshot cached. Profiling cold + warm paths.\n");
 
-	// Measure cold starts (new runtime each time, snapshot is cached)
+	// Measure cold starts (new runtime each time, driver/factory reused)
 	const coldConstruct: number[] = [];
 	const coldFirstRun: number[] = [];
 	const warmRun: number[] = [];
@@ -33,8 +36,8 @@ async function main() {
 	for (let i = 0; i < RUNS; i++) {
 		const t0 = performance.now();
 		const rt = new NodeRuntime({
-			systemDriver: createNodeDriver(),
-			runtimeDriverFactory: createNodeRuntimeDriverFactory({ v8Runtime: v8 }),
+			systemDriver: driver,
+			runtimeDriverFactory: factory,
 		});
 		const t1 = performance.now();
 		await rt.run(TRIVIAL_CODE);

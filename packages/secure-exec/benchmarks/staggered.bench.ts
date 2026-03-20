@@ -57,10 +57,14 @@ async function benchStaggered(): Promise<StaggeredResult> {
 			const p = (async () => {
 				const t0 = performance.now();
 				const rt = createBenchRuntime();
+				const t1 = performance.now();
 				await rt.run(TRIVIAL_CODE);
-				const ttiMs = performance.now() - t0;
-				const readyAt = performance.now() - wallStart;
-				ramp.push({ launchedAt: round(launchedAt), readyAt: round(readyAt), ttiMs: round(ttiMs) });
+				const t2 = performance.now();
+				const ttiMs = t2 - t0;
+				const constructMs = t1 - t0;
+				const runMs = t2 - t1;
+				const readyAt = t2 - wallStart;
+				ramp.push({ launchedAt: round(launchedAt), readyAt: round(readyAt), ttiMs: round(ttiMs), constructMs: round(constructMs), runMs: round(runMs) });
 				await rt.terminate();
 				return ttiMs;
 			})();
@@ -120,12 +124,14 @@ async function main() {
 
 	// Ramp profile table
 	printTable(
-		["#", "launched at", "ready at", "TTI"],
-		result.rampProfile.map((r, i) => [
+		["#", "launched at", "ready at", "TTI", "construct", "run"],
+		result.rampProfile.map((r: any, i: number) => [
 			i + 1,
 			`+${r.launchedAt}ms`,
 			`+${r.readyAt}ms`,
 			`${r.ttiMs}ms`,
+			`${r.constructMs}ms`,
+			`${r.runMs}ms`,
 		]),
 	);
 

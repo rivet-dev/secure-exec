@@ -17,6 +17,10 @@ import { createNodeDriver } from "secure-exec";
 const driver = createNodeDriver();
 ```
 
+<Tip>
+**Reuse the driver across runtimes.** `createNodeDriver()` scans `node_modules` for symlinks on each call, which can take 10-15ms in large monorepos. Create it once and pass the same instance to all `NodeRuntime` constructors.
+</Tip>
+
 ## Configuring capabilities
 
 Pass options to enable and configure specific host capabilities.
