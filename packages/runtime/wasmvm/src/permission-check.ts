@@ -20,6 +20,11 @@ export function isSpawnBlocked(tier: PermissionTier): boolean {
   return tier !== 'full';
 }
 
+/** Check if the tier blocks network operations. Only 'full' allows net_ functions. */
+export function isNetworkBlocked(tier: PermissionTier): boolean {
+  return tier !== 'full';
+}
+
 /**
  * Validate a permission tier string, defaulting to 'isolated' for unknown values.
  * Prevents unknown tier strings from falling through inconsistently.

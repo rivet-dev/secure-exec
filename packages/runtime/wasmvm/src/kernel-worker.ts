@@ -44,6 +44,7 @@ import {
 import {
   isWriteBlocked as _isWriteBlocked,
   isSpawnBlocked as _isSpawnBlocked,
+  isNetworkBlocked as _isNetworkBlocked,
   isPathInCwd as _isPathInCwd,
   validatePermissionTier,
 } from './permission-check.ts';
@@ -63,6 +64,11 @@ function isWriteBlocked(): boolean {
 /** Check if the tier blocks subprocess spawning. */
 function isSpawnBlocked(): boolean {
   return _isSpawnBlocked(permissionTier);
+}
+
+/** Check if the tier blocks network operations. */
+function isNetworkBlocked(): boolean {
+  return _isNetworkBlocked(permissionTier);
 }
 
 /**
@@ -766,28 +772,66 @@ function createHostNetImports(getMemory: () => WebAssembly.Memory | null) {
 
   return {
     /** net_socket(domain, type, protocol, ret_fd) -> errno */
-    net_socket(_domain: number, _type: number, _protocol: number, _ret_fd_ptr: number): number {
-      return ENOSYS;
+    net_socket(domain: number, type: number, protocol: number, ret_fd_ptr: number): number {
+      if (isNetworkBlocked()) return ERRNO_EACCES;
+      const mem = getMemory();
+      if (!mem) return ERRNO_EINVAL;
+
+      const res = rpcCall('netSocket', { domain, type, protocol });
+      if (res.errno !== 0) return res.errno;
+
+      new DataView(mem.buffer).setUint32(ret_fd_ptr, res.intResult, true);
+      return ERRNO_SUCCESS;
     },
 
     /** net_connect(fd, addr_ptr, addr_len) -> errno */
-    net_connect(_fd: number, _addr_ptr: number, _addr_len: number): number {
-      return ENOSYS;
+    net_connect(fd: number, addr_ptr: number, addr_len: number): number {
+      if (isNetworkBlocked()) return ERRNO_EACCES;
+      const mem = getMemory();
+      if (!mem) return ERRNO_EINVAL;
+
+      const addrBytes = new Uint8Array(mem.buffer, addr_ptr, addr_len);
+      const addr = new TextDecoder().decode(addrBytes);
+
+      const res = rpcCall('netConnect', { fd, addr });
+      return res.errno;
     },
 
     /** net_send(fd, buf_ptr, buf_len, flags, ret_sent) -> errno */
-    net_send(_fd: number, _buf_ptr: number, _buf_len: number, _flags: number, _ret_sent_ptr: number): number {
-      return ENOSYS;
+    net_send(fd: number, buf_ptr: number, buf_len: number, flags: number, ret_sent_ptr: number): number {
+      if (isNetworkBlocked()) return ERRNO_EACCES;
+      const mem = getMemory();
+      if (!mem) return ERRNO_EINVAL;
+
+      const sendData = new Uint8Array(mem.buffer).slice(buf_ptr, buf_ptr + buf_len);
+      const res = rpcCall('netSend', { fd, data: Array.from(sendData), flags });
+      if (res.errno !== 0) return res.errno;
+
+      new DataView(mem.buffer).setUint32(ret_sent_ptr, res.intResult, true);
+      return ERRNO_SUCCESS;
     },
 
     /** net_recv(fd, buf_ptr, buf_len, flags, ret_received) -> errno */
-    net_recv(_fd: number, _buf_ptr: number, _buf_len: number, _flags: number, _ret_received_ptr: number): number {
-      return ENOSYS;
+    net_recv(fd: number, buf_ptr: number, buf_len: number, flags: number, ret_received_ptr: number): number {
+      if (isNetworkBlocked()) return ERRNO_EACCES;
+      const mem = getMemory();
+      if (!mem) return ERRNO_EINVAL;
+
+      const res = rpcCall('netRecv', { fd, length: buf_len, flags });
+      if (res.errno !== 0) return res.errno;
+
+      // Copy received data into WASM memory
+      const dest = new Uint8Array(mem.buffer, buf_ptr, buf_len);
+      dest.set(res.data.subarray(0, Math.min(res.data.length, buf_len)));
+      new DataView(mem.buffer).setUint32(ret_received_ptr, res.data.length, true);
+      return ERRNO_SUCCESS;
     },
 
     /** net_close(fd) -> errno */
-    net_close(_fd: number): number {
-      return ENOSYS;
+    net_close(fd: number): number {
+      if (isNetworkBlocked()) return ERRNO_EACCES;
+      const res = rpcCall('netClose', { fd });
+      return res.errno;
     },
 
     /** net_getaddrinfo(host_ptr, host_len, port_ptr, port_len, ret_addr, ret_addr_len) -> errno */

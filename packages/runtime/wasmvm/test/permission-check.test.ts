@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { isWriteBlocked, isSpawnBlocked, isPathInCwd, resolvePermissionTier, validatePermissionTier } from '../src/permission-check.ts';
+import { isWriteBlocked, isSpawnBlocked, isNetworkBlocked, isPathInCwd, resolvePermissionTier, validatePermissionTier } from '../src/permission-check.ts';
 
 describe('isWriteBlocked', () => {
   it('full tier allows writes', () => {
@@ -144,6 +144,24 @@ describe('isSpawnBlocked', () => {
 
   it('isolated tier blocks spawning', () => {
     expect(isSpawnBlocked('isolated')).toBe(true);
+  });
+});
+
+describe('isNetworkBlocked', () => {
+  it('full tier allows network', () => {
+    expect(isNetworkBlocked('full')).toBe(false);
+  });
+
+  it('read-write tier blocks network', () => {
+    expect(isNetworkBlocked('read-write')).toBe(true);
+  });
+
+  it('read-only tier blocks network', () => {
+    expect(isNetworkBlocked('read-only')).toBe(true);
+  });
+
+  it('isolated tier blocks network', () => {
+    expect(isNetworkBlocked('isolated')).toBe(true);
   });
 });
 

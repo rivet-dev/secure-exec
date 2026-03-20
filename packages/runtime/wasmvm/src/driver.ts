@@ -40,6 +40,7 @@ import { ModuleCache } from './module-cache.ts';
 import { readdir, stat } from 'node:fs/promises';
 import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { connect as tcpConnect, type Socket } from 'node:net';
 
 /**
  * All commands available in the WasmVM runtime.
@@ -205,6 +206,9 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
   private _activeWorkers = new Map<number, WorkerHandle>();
   private _workerAdapter = new WorkerAdapter();
   private _moduleCache = new ModuleCache();
+  // Socket table: socketId → Node.js Socket (per-driver, not per-process)
+  private _sockets = new Map<number, Socket>();
+  private _nextSocketId = 1;
 
   get commands(): string[] { return this._commands; }
 
@@ -347,6 +351,11 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
       try { await worker.terminate(); } catch { /* best effort */ }
     }
     this._activeWorkers.clear();
+    // Clean up open sockets
+    for (const sock of this._sockets.values()) {
+      try { sock.destroy(); } catch { /* best effort */ }
+    }
+    this._sockets.clear();
     this._moduleCache.clear();
     this._kernel = null;
   }
@@ -799,6 +808,127 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
           responseData = bytes;
           break;
         }
+        // ----- Networking (TCP sockets) -----
+        case 'netSocket': {
+          const socketId = this._nextSocketId++;
+          // Allocate slot — actual connection is deferred to netConnect
+          this._sockets.set(socketId, null as unknown as Socket);
+          intResult = socketId;
+          break;
+        }
+        case 'netConnect': {
+          const socketId = msg.args.fd as number;
+          if (!this._sockets.has(socketId)) {
+            errno = ERRNO_MAP.EBADF;
+            break;
+          }
+
+          const addr = msg.args.addr as string;
+          // Parse "host:port" format
+          const lastColon = addr.lastIndexOf(':');
+          if (lastColon === -1) {
+            errno = ERRNO_MAP.EINVAL;
+            break;
+          }
+          const host = addr.slice(0, lastColon);
+          const port = parseInt(addr.slice(lastColon + 1), 10);
+          if (isNaN(port)) {
+            errno = ERRNO_MAP.EINVAL;
+            break;
+          }
+
+          // Connect synchronously from the worker's perspective (blocking via Atomics)
+          try {
+            const sock = await new Promise<Socket>((resolve, reject) => {
+              const s = tcpConnect({ host, port }, () => resolve(s));
+              s.on('error', reject);
+            });
+            this._sockets.set(socketId, sock);
+          } catch (err) {
+            errno = ERRNO_MAP.ECONNREFUSED;
+          }
+          break;
+        }
+        case 'netSend': {
+          const socketId = msg.args.fd as number;
+          const sock = this._sockets.get(socketId);
+          if (!sock) {
+            errno = ERRNO_MAP.EBADF;
+            break;
+          }
+
+          const sendData = Buffer.from(msg.args.data as number[]);
+          const written = await new Promise<number>((resolve, reject) => {
+            sock.write(sendData, (err) => {
+              if (err) reject(err);
+              else resolve(sendData.length);
+            });
+          });
+          intResult = written;
+          break;
+        }
+        case 'netRecv': {
+          const socketId = msg.args.fd as number;
+          const sock = this._sockets.get(socketId);
+          if (!sock) {
+            errno = ERRNO_MAP.EBADF;
+            break;
+          }
+
+          const maxLen = msg.args.length as number;
+          // Wait for data via 'data' event, or EOF via 'end'
+          const recvData = await new Promise<Uint8Array>((resolve) => {
+            const onData = (chunk: Buffer) => {
+              cleanup();
+              // Return at most maxLen bytes, push remainder back
+              if (chunk.length > maxLen) {
+                sock.unshift(chunk.subarray(maxLen));
+                resolve(new Uint8Array(chunk.subarray(0, maxLen)));
+              } else {
+                resolve(new Uint8Array(chunk));
+              }
+            };
+            const onEnd = () => {
+              cleanup();
+              resolve(new Uint8Array(0));
+            };
+            const onError = () => {
+              cleanup();
+              resolve(new Uint8Array(0));
+            };
+            const cleanup = () => {
+              sock.removeListener('data', onData);
+              sock.removeListener('end', onEnd);
+              sock.removeListener('error', onError);
+            };
+            sock.once('data', onData);
+            sock.once('end', onEnd);
+            sock.once('error', onError);
+          });
+
+          if (recvData.length > DATA_BUFFER_BYTES) {
+            errno = 76; // EIO
+            break;
+          }
+          if (recvData.length > 0) {
+            data.set(recvData, 0);
+          }
+          responseData = recvData;
+          intResult = recvData.length;
+          break;
+        }
+        case 'netClose': {
+          const socketId = msg.args.fd as number;
+          const sock = this._sockets.get(socketId);
+          if (!sock) {
+            errno = ERRNO_MAP.EBADF;
+            break;
+          }
+          sock.destroy();
+          this._sockets.delete(socketId);
+          break;
+        }
+
         default:
           errno = ERRNO_MAP.ENOSYS; // ENOSYS
       }
