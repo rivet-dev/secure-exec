@@ -444,6 +444,7 @@ export class WasiPolyfill {
         offset += n;
         totalRead += n;
       }
+
     } else if (resource.type === 'pipe') {
       const pipe = resource.pipe;
       if (pipe && pipe.buffer) {
@@ -521,6 +522,7 @@ export class WasiPolyfill {
         const result = this._fileIO.fdWrite(fd, writeData);
         if (result.errno !== ERRNO_SUCCESS) return result.errno;
       }
+
     } else if (resource.type === 'pipe') {
       const pipe = resource.pipe;
       for (const iov of iovecs) {
@@ -559,6 +561,8 @@ export class WasiPolyfill {
     const result = this._fileIO.fdSeek(fd, offsetBig, whence);
     if (result.errno !== ERRNO_SUCCESS) return result.errno;
 
+    // Sync local cursor so fd_tell returns consistent values
+    entry.cursor = result.newOffset;
     this._view().setBigUint64(newoffset_ptr, result.newOffset, true);
     return ERRNO_SUCCESS;
   }

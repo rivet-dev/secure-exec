@@ -98,6 +98,10 @@ class SimpleVFS {
   async readTextFile(path: string): Promise<string> {
     return new TextDecoder().decode(await this.readFile(path));
   }
+  async pread(path: string, offset: number, length: number): Promise<Uint8Array> {
+    const data = await this.readFile(path);
+    return data.slice(offset, offset + length);
+  }
   async readDir(path: string): Promise<string[]> {
     const prefix = path === '/' ? '/' : path + '/';
     const entries: string[] = [];
@@ -277,6 +281,23 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
 
     expect(wasm.exitCode).toBe(native.exitCode);
     expect(wasmFileContent).toBe(nativeFileContent);
+
+    await rm(tmpDir, { recursive: true });
+  });
+
+  it('pread_pwrite_access: pread/pwrite/access syscalls match', async () => {
+    // Native: uses real /tmp
+    const tmpDir = await mkdtemp(join(tmpdir(), 'c-parity-'));
+    const nativeEnv = { ...process.env, HOME: tmpDir };
+    const native = await runNative('pread_pwrite_access', [], { env: nativeEnv });
+
+    // WASM: uses VFS /tmp
+    await vfs.createDir('/tmp');
+    const wasm = await kernel.exec('pread_pwrite_access');
+
+    expect(wasm.exitCode).toBe(native.exitCode);
+    expect(wasm.stdout).toBe(native.stdout);
+    expect(wasm.stdout).toContain('total: 0 failures');
 
     await rm(tmpDir, { recursive: true });
   });

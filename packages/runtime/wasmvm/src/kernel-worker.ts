@@ -197,6 +197,11 @@ function createKernelFileIO(): WasiFileIO {
   return {
     fdRead(fd, maxBytes) {
       const res = rpcCall('fdRead', { fd: kernelFd(fd), length: maxBytes });
+      // Sync local cursor so fd_tell returns consistent values
+      if (res.errno === 0 && res.data.length > 0) {
+        const entry = fdTable.get(fd);
+        if (entry) entry.cursor += BigInt(res.data.length);
+      }
       return { errno: res.errno, data: res.data };
     },
     fdWrite(fd, data) {
@@ -205,6 +210,11 @@ function createKernelFileIO(): WasiFileIO {
         return { errno: ERRNO_EACCES, written: 0 };
       }
       const res = rpcCall('fdWrite', { fd: kernelFd(fd), data: Array.from(data) });
+      // Sync local cursor so fd_tell returns consistent values
+      if (res.errno === 0 && res.intResult > 0) {
+        const entry = fdTable.get(fd);
+        if (entry) entry.cursor += BigInt(res.intResult);
+      }
       return { errno: res.errno, written: res.intResult };
     },
     fdOpen(path, dirflags, oflags, fdflags, rightsBase, rightsInheriting) {
