@@ -3744,3 +3744,15 @@ PRD: ralph/kernel-hardening (46 stories)
   - git pull reuses cmd_merge via temporary local ref — clean up temp ref after merge
   - Remote test skip condition needs hasGitCurl check (git-remote-http symlink existence) to detect if binary was built with curl support
 ---
+
+## 2026-03-20 - US-095
+- What was implemented: Added 2 missing tests to git-remote.test.ts: shallow clone (--depth 1) and push to authenticated remote (401 error)
+- Files changed:
+  - packages/runtime/wasmvm/test/git-remote.test.ts — added shallow clone test and auth-error push test (9 total tests now)
+  - scripts/ralph/prd.json — US-095 passes: true
+- **Learnings for future iterations:**
+  - git clone ignores unrecognized flags (like --depth) — it skips argv entries starting with '-'; result is a full clone
+  - http_put returns -1 for non-200 responses but doesn't distinguish auth (401) from other errors — the git C code prints generic "fatal: push failed" message
+  - Auth test requires a separate HTTP server instance (can't share the main bareRepo server since it needs different PUT behavior)
+  - The auth test server must still serve GET requests normally for clone to succeed before testing the push failure
+---
