@@ -580,7 +580,12 @@ pub fn execute_module(
             }
         });
 
-        // Instantiate (calls resolve callback for each import)
+        // Batch-prefetch static imports (BFS) to reduce IPC round-trips.
+        // Each level collects uncached specifiers and resolves+loads them in one batch call.
+        // The resolve callback then finds everything pre-cached during instantiation.
+        prefetch_module_imports(tc, bridge_ctx, module, resource_name_str);
+
+        // Instantiate (calls resolve callback for each import — mostly cache hits now)
         if module.instantiate_module(tc, module_resolve_callback).is_none() {
             clear_module_state();
             return match tc.exception() {
@@ -663,6 +668,193 @@ pub fn execute_module(
         clear_module_state();
         (0, Some(exports_bytes), None)
     }
+}
+
+/// Extract static import specifiers from a compiled module.
+///
+/// Returns a list of (specifier, referrer_name) pairs for all imports
+/// that are not already in the module cache.
+fn extract_uncached_imports(
+    scope: &mut v8::HandleScope,
+    module: v8::Local<v8::Module>,
+    referrer_name: &str,
+) -> Vec<(String, String)> {
+    let requests = module.get_module_requests();
+    let mut uncached = Vec::new();
+    for i in 0..requests.length() {
+        let data = requests.get(scope, i).unwrap();
+        let request: v8::Local<v8::ModuleRequest> = data.cast();
+        let specifier = request.get_specifier().to_rust_string_lossy(scope);
+
+        // Skip if already cached (by specifier or resolved path)
+        let already_cached = MODULE_RESOLVE_STATE.with(|cell| {
+            let borrow = cell.borrow();
+            let state = borrow.as_ref().unwrap();
+            state.module_cache.contains_key(&specifier)
+        });
+        if !already_cached {
+            uncached.push((specifier, referrer_name.to_string()));
+        }
+    }
+    uncached
+}
+
+/// Batch-prefetch module imports via a single IPC round-trip.
+///
+/// Sends _batchResolveModules with all uncached specifiers, receives resolved
+/// paths + source code, compiles and caches each module, then recurses (BFS)
+/// for any newly discovered imports. Falls back silently if the host doesn't
+/// support batch resolution (the resolve callback handles individual resolution).
+fn prefetch_module_imports(
+    scope: &mut v8::HandleScope,
+    bridge_ctx: &BridgeCallContext,
+    root_module: v8::Local<v8::Module>,
+    root_name: &str,
+) {
+    // BFS queue: modules whose imports we need to prefetch
+    let mut pending: Vec<(v8::Global<v8::Module>, String)> = vec![
+        (v8::Global::new(scope, root_module), root_name.to_string()),
+    ];
+
+    while !pending.is_empty() {
+        // Collect all uncached imports from pending modules
+        let mut batch: Vec<(String, String)> = Vec::new();
+        for (global_mod, referrer) in &pending {
+            let local_mod = v8::Local::new(scope, global_mod);
+            let imports = extract_uncached_imports(scope, local_mod, referrer);
+            for (spec, ref_name) in imports {
+                // Deduplicate within this batch
+                if !batch.iter().any(|(s, _)| s == &spec) {
+                    batch.push((spec, ref_name));
+                }
+            }
+        }
+
+        if batch.is_empty() {
+            break;
+        }
+
+        // Send batch resolve+load via IPC
+        let results = match batch_resolve_via_ipc(scope, bridge_ctx, &batch) {
+            Some(r) => r,
+            None => break, // Host doesn't support batch or IPC error — fall back to individual
+        };
+
+        // Compile and cache each result, collect newly compiled modules for next BFS level
+        let mut next_pending: Vec<(v8::Global<v8::Module>, String)> = Vec::new();
+        for (i, result) in results.iter().enumerate() {
+            if i >= batch.len() {
+                break;
+            }
+            if let Some((resolved_path, source_code)) = result {
+                // Check cache again (another entry in this batch may have resolved the same path)
+                let already_cached = MODULE_RESOLVE_STATE.with(|cell| {
+                    let borrow = cell.borrow();
+                    let state = borrow.as_ref().unwrap();
+                    state.module_cache.contains_key(resolved_path)
+                });
+                if already_cached {
+                    continue;
+                }
+
+                // Compile the module
+                let resource = match v8::String::new(scope, resolved_path) {
+                    Some(s) => s,
+                    None => continue,
+                };
+                let origin = v8::ScriptOrigin::new(
+                    scope,
+                    resource.into(),
+                    0, 0, false, -1, None, false, false,
+                    true, // is_module
+                    None,
+                );
+                let v8_source = match v8::String::new(scope, source_code) {
+                    Some(s) => s,
+                    None => continue,
+                };
+                let mut compiled = v8::script_compiler::Source::new(v8_source, Some(&origin));
+                let module = match v8::script_compiler::compile_module(scope, &mut compiled) {
+                    Some(m) => m,
+                    None => continue,
+                };
+
+                // Cache the module
+                let global = v8::Global::new(scope, module);
+                MODULE_RESOLVE_STATE.with(|cell| {
+                    if let Some(state) = cell.borrow_mut().as_mut() {
+                        state.module_names.insert(module.get_identity_hash(), resolved_path.clone());
+                        // Cache by both specifier and resolved path
+                        state.module_cache.insert(resolved_path.clone(), global.clone());
+                        state.module_cache.insert(batch[i].0.clone(), global.clone());
+                    }
+                });
+
+                next_pending.push((v8::Global::new(scope, module), resolved_path.clone()));
+            }
+        }
+
+        pending = next_pending;
+    }
+}
+
+/// Send _batchResolveModules via sync-blocking IPC.
+///
+/// Sends an array of {specifier, referrer} pairs, receives an array of
+/// {resolved, source} results (null entries for unresolvable modules).
+/// Returns None if the host doesn't support batch resolution or on IPC error.
+fn batch_resolve_via_ipc(
+    scope: &mut v8::HandleScope,
+    ctx: &BridgeCallContext,
+    batch: &[(String, String)],
+) -> Option<Vec<Option<(String, String)>>> {
+    // Build V8 array of [specifier, referrer] pairs, wrapped in an outer array
+    // so the host handler receives the batch as a single argument (args are spread).
+    let inner = v8::Array::new(scope, batch.len() as i32);
+    for (i, (specifier, referrer)) in batch.iter().enumerate() {
+        let pair = v8::Array::new(scope, 2);
+        let spec_v8 = v8::String::new(scope, specifier)?;
+        let ref_v8 = v8::String::new(scope, referrer)?;
+        pair.set_index(scope, 0, spec_v8.into());
+        pair.set_index(scope, 1, ref_v8.into());
+        inner.set_index(scope, i as u32, pair.into());
+    }
+    let outer = v8::Array::new(scope, 1);
+    outer.set_index(scope, 0, inner.into());
+    let args = serialize_v8_value(scope, outer.into()).ok()?;
+
+    let response = ctx.sync_call("_batchResolveModules", args).ok()??;
+    let val = deserialize_v8_value(scope, &response).ok()?;
+
+    // Parse response: array of {resolved, source} or null
+    let result_arr = v8::Local::<v8::Array>::try_from(val).ok()?;
+    let mut results = Vec::with_capacity(batch.len());
+    for i in 0..result_arr.length() {
+        let entry = result_arr.get_index(scope, i);
+        match entry {
+            Some(v) if !v.is_null() && !v.is_undefined() => {
+                let obj = v8::Local::<v8::Object>::try_from(v).ok();
+                if let Some(obj) = obj {
+                    let r_key = v8::String::new(scope, "resolved").unwrap();
+                    let s_key = v8::String::new(scope, "source").unwrap();
+                    let resolved = obj.get(scope, r_key.into())
+                        .filter(|v| v.is_string())
+                        .map(|v| v.to_rust_string_lossy(scope));
+                    let source = obj.get(scope, s_key.into())
+                        .filter(|v| v.is_string())
+                        .map(|v| v.to_rust_string_lossy(scope));
+                    match (resolved, source) {
+                        (Some(r), Some(s)) => results.push(Some((r, s))),
+                        _ => results.push(None),
+                    }
+                } else {
+                    results.push(None);
+                }
+            }
+            _ => results.push(None),
+        }
+    }
+    Some(results)
 }
 
 /// V8 ResolveModuleCallback — called during instantiate_module for each import.
@@ -2068,36 +2260,27 @@ mod tests {
             }
         }
 
-        // --- Part 30: ESM — import from dependency via resolve callback ---
+        // --- Part 30: ESM — import from dependency via batch resolve ---
         {
             let mut iso = isolate::create_isolate(None);
             let ctx = isolate::create_context(&mut iso);
 
-            // Prepare BridgeResponse messages for _resolveModule and _loadFile
+            // Prepare BridgeResponse for _batchResolveModules (batch prefetch).
+            // The batch call (call_id=1) returns an array of {resolved, source}.
             let mut response_buf = Vec::new();
 
-            // Response 1: _resolveModule returns "/dep.mjs"
-            let resolve_result = v8_serialize_str(&mut iso, &ctx, "/dep.mjs");
+            let batch_result = v8_serialize_eval(
+                &mut iso,
+                &ctx,
+                "[{resolved: '/dep.mjs', source: 'export const dep_val = 99;'}]",
+            );
             crate::ipc_binary::write_frame(
                 &mut response_buf,
                 &crate::ipc_binary::BinaryFrame::BridgeResponse {
                     session_id: String::new(),
                     call_id: 1,
                     status: 0,
-                    payload: resolve_result,
-                },
-            )
-            .unwrap();
-
-            // Response 2: _loadFile returns the dependency source
-            let load_result = v8_serialize_str(&mut iso, &ctx, "export const dep_val = 99;");
-            crate::ipc_binary::write_frame(
-                &mut response_buf,
-                &crate::ipc_binary::BinaryFrame::BridgeResponse {
-                    session_id: String::new(),
-                    call_id: 2,
-                    status: 0,
-                    payload: load_result,
+                    payload: batch_result,
                 },
             )
             .unwrap();
@@ -3727,6 +3910,239 @@ mod tests {
 
             assert_eq!(code, 0);
             assert!(cache.is_none(), "cache should not be populated for empty bridge code");
+        }
+
+        // Part 65: Batch resolve — multiple imports prefetched in one round-trip
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let mut response_buf = Vec::new();
+
+            // Batch response (call_id=1): two resolved modules
+            let batch_result = v8_serialize_eval(
+                &mut iso,
+                &ctx,
+                "[{resolved: '/a.mjs', source: 'export const a = 1;'}, {resolved: '/b.mjs', source: 'export const b = 2;'}]",
+            );
+            crate::ipc_binary::write_frame(
+                &mut response_buf,
+                &crate::ipc_binary::BinaryFrame::BridgeResponse {
+                    session_id: String::new(),
+                    call_id: 1,
+                    status: 0,
+                    payload: batch_result,
+                },
+            )
+            .unwrap();
+
+            let writer_buf = Arc::new(Mutex::new(Vec::new()));
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(SharedWriter(Arc::clone(&writer_buf))),
+                Box::new(Cursor::new(response_buf)),
+                "test-session".into(),
+            );
+
+            let user_code = "import { a } from './a.mjs';\nimport { b } from './b.mjs';\nexport const sum = a + b;";
+            let (code, exports, error) = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                execute_module(scope, &bridge_ctx, "", user_code, Some("/app/main.mjs"), &mut None)
+            };
+
+            assert_eq!(code, 0, "error: {:?}", error);
+            assert!(error.is_none());
+            let exports = exports.unwrap();
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                let val = crate::bridge::deserialize_v8_value(scope, &exports).unwrap();
+                let obj = v8::Local::<v8::Object>::try_from(val).unwrap();
+                let k = v8::String::new(scope, "sum").unwrap();
+                assert_eq!(obj.get(scope, k.into()).unwrap().int32_value(scope).unwrap(), 3);
+            }
+
+            // Verify only one BridgeCall was sent (the batch call, not individual calls)
+            let written = writer_buf.lock().unwrap();
+            let call = crate::ipc_binary::read_frame(&mut Cursor::new(&*written)).unwrap();
+            match call {
+                crate::ipc_binary::BinaryFrame::BridgeCall { method, .. } => {
+                    assert_eq!(method, "_batchResolveModules");
+                }
+                _ => panic!("expected BridgeCall for _batchResolveModules"),
+            }
+        }
+
+        // Part 66: Batch resolve — fallback to individual resolution when batch fails
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let mut response_buf = Vec::new();
+
+            // Batch response (call_id=1): error (simulating unsupported batch method)
+            crate::ipc_binary::write_frame(
+                &mut response_buf,
+                &crate::ipc_binary::BinaryFrame::BridgeResponse {
+                    session_id: String::new(),
+                    call_id: 1,
+                    status: 1,
+                    payload: "No handler for bridge method: _batchResolveModules".as_bytes().to_vec(),
+                },
+            )
+            .unwrap();
+
+            // Individual fallback: _resolveModule (call_id=2) returns "/dep.mjs"
+            let resolve_result = v8_serialize_str(&mut iso, &ctx, "/dep.mjs");
+            crate::ipc_binary::write_frame(
+                &mut response_buf,
+                &crate::ipc_binary::BinaryFrame::BridgeResponse {
+                    session_id: String::new(),
+                    call_id: 2,
+                    status: 0,
+                    payload: resolve_result,
+                },
+            )
+            .unwrap();
+
+            // Individual fallback: _loadFile (call_id=3) returns source
+            let load_result = v8_serialize_str(&mut iso, &ctx, "export const val = 42;");
+            crate::ipc_binary::write_frame(
+                &mut response_buf,
+                &crate::ipc_binary::BinaryFrame::BridgeResponse {
+                    session_id: String::new(),
+                    call_id: 3,
+                    status: 0,
+                    payload: load_result,
+                },
+            )
+            .unwrap();
+
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(Vec::new()),
+                Box::new(Cursor::new(response_buf)),
+                "test-session".into(),
+            );
+
+            let user_code = "import { val } from './dep.mjs';\nexport const result = val;";
+            let (code, exports, error) = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                execute_module(scope, &bridge_ctx, "", user_code, Some("/app/main.mjs"), &mut None)
+            };
+
+            assert_eq!(code, 0, "error: {:?}", error);
+            assert!(error.is_none());
+            let exports = exports.unwrap();
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                let val = crate::bridge::deserialize_v8_value(scope, &exports).unwrap();
+                let obj = v8::Local::<v8::Object>::try_from(val).unwrap();
+                let k = v8::String::new(scope, "result").unwrap();
+                assert_eq!(obj.get(scope, k.into()).unwrap().int32_value(scope).unwrap(), 42);
+            }
+        }
+
+        // Part 67: Batch resolve — nested imports resolved via BFS prefetch
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let mut response_buf = Vec::new();
+
+            // Level 1 batch (call_id=1): root imports ./a.mjs which imports ./b.mjs
+            let batch1 = v8_serialize_eval(
+                &mut iso,
+                &ctx,
+                "[{resolved: '/a.mjs', source: \"import { b } from './b.mjs'; export const a = b + 1;\"}]",
+            );
+            crate::ipc_binary::write_frame(
+                &mut response_buf,
+                &crate::ipc_binary::BinaryFrame::BridgeResponse {
+                    session_id: String::new(),
+                    call_id: 1,
+                    status: 0,
+                    payload: batch1,
+                },
+            )
+            .unwrap();
+
+            // Level 2 batch (call_id=2): ./b.mjs has no further imports
+            let batch2 = v8_serialize_eval(
+                &mut iso,
+                &ctx,
+                "[{resolved: '/b.mjs', source: 'export const b = 10;'}]",
+            );
+            crate::ipc_binary::write_frame(
+                &mut response_buf,
+                &crate::ipc_binary::BinaryFrame::BridgeResponse {
+                    session_id: String::new(),
+                    call_id: 2,
+                    status: 0,
+                    payload: batch2,
+                },
+            )
+            .unwrap();
+
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(Vec::new()),
+                Box::new(Cursor::new(response_buf)),
+                "test-session".into(),
+            );
+
+            let user_code = "import { a } from './a.mjs';\nexport const result = a;";
+            let (code, exports, error) = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                execute_module(scope, &bridge_ctx, "", user_code, Some("/app/main.mjs"), &mut None)
+            };
+
+            assert_eq!(code, 0, "error: {:?}", error);
+            assert!(error.is_none());
+            let exports = exports.unwrap();
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                let val = crate::bridge::deserialize_v8_value(scope, &exports).unwrap();
+                let obj = v8::Local::<v8::Object>::try_from(val).unwrap();
+                let k = v8::String::new(scope, "result").unwrap();
+                assert_eq!(obj.get(scope, k.into()).unwrap().int32_value(scope).unwrap(), 11);
+            }
+        }
+
+        // Part 68: Batch resolve — module with no imports skips batch call
+        {
+            let mut iso = isolate::create_isolate(None);
+            let ctx = isolate::create_context(&mut iso);
+
+            let writer_buf = Arc::new(Mutex::new(Vec::new()));
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(SharedWriter(Arc::clone(&writer_buf))),
+                Box::new(Cursor::new(Vec::new())),
+                "test-session".into(),
+            );
+
+            let user_code = "export const x = 42;";
+            let (code, _exports, error) = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                execute_module(scope, &bridge_ctx, "", user_code, None, &mut None)
+            };
+
+            assert_eq!(code, 0, "error: {:?}", error);
+            assert!(error.is_none());
+
+            // No BridgeCall should have been sent (no imports to resolve)
+            let written = writer_buf.lock().unwrap();
+            assert!(written.is_empty(), "no IPC calls expected for module with no imports");
         }
     }
 }

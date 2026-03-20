@@ -170,6 +170,31 @@ export function buildBridgeHandlers(options: BuildBridgeHandlersOptions): Bridge
 		return transformDynamicImport(source);
 	};
 
+	// Batch module resolution — resolves multiple specifiers in one IPC round-trip.
+	// Each entry is [specifier, referrer]. Returns array of {resolved, source} or null.
+	handlers["_batchResolveModules"] = async (requests: unknown): Promise<unknown> => {
+		if (!Array.isArray(requests)) return [];
+		const results = await Promise.all(
+			requests.map(async (entry: unknown) => {
+				try {
+					const pair = entry as [string, string];
+					const specifier = String(pair[0]);
+					const referrer = String(pair[1]);
+					const builtinSpecifier = normalizeBuiltinSpecifier(specifier);
+					if (builtinSpecifier) return null; // builtins don't need source loading
+					const resolved = await resolveModule(specifier, referrer, deps.filesystem, "require", deps.resolutionCache);
+					if (!resolved) return null;
+					const source = await loadFile(resolved, deps.filesystem);
+					if (source === null) return null;
+					return { resolved, source: transformDynamicImport(source) };
+				} catch {
+					return null;
+				}
+			}),
+		);
+		return results;
+	};
+
 	// Timer
 	handlers[K.scheduleTimer] = (delayMs: unknown) => {
 		checkBridgeBudget(deps);

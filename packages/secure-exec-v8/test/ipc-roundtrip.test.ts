@@ -605,4 +605,104 @@ describe.skipIf(skipUnlessBinary)("V8 IPC round-trip", () => {
 
 		await session.destroy();
 	});
+
+	// --- Batch module resolution ---
+
+	it("batch-resolves multiple ESM imports in one round-trip", async () => {
+		const rt = await createRuntime();
+		const session = await rt.createSession();
+
+		// Track which bridge methods are called
+		const methodCalls: string[] = [];
+
+		const result = await session.execute(
+			defaultExecOptions({
+				mode: "run",
+				userCode: `
+					import { a } from './a.mjs';
+					import { b } from './b.mjs';
+					import { c } from './c.mjs';
+					export const sum = a + b + c;
+				`,
+				filePath: "/app/main.mjs",
+				bridgeHandlers: {
+					_batchResolveModules: async (requests: unknown) => {
+						methodCalls.push("_batchResolveModules");
+						const reqs = requests as [string, string][];
+						return reqs.map(([specifier]) => {
+							const name = specifier.replace("./", "").replace(".mjs", "");
+							const values: Record<string, number> = { a: 10, b: 20, c: 30 };
+							const val = values[name] ?? 0;
+							return {
+								resolved: `/${name}.mjs`,
+								source: `export const ${name} = ${val};`,
+							};
+						});
+					},
+					_resolveModule: (request: unknown, _fromDir: unknown) => {
+						methodCalls.push("_resolveModule");
+						const name = String(request).replace("./", "").replace(".mjs", "");
+						return `/${name}.mjs`;
+					},
+					_loadFile: (path: unknown) => {
+						methodCalls.push("_loadFile");
+						const name = String(path).replace("/", "").replace(".mjs", "");
+						const values: Record<string, number> = { a: 10, b: 20, c: 30 };
+						return `export const ${name} = ${values[name] ?? 0};`;
+					},
+				},
+			}),
+		);
+
+		expect(result.code).toBe(0);
+		expect(result.error).toBeFalsy();
+
+		// Verify correct result
+		const v8 = await import("node:v8");
+		const exports = v8.deserialize(result.exports!) as { sum: number };
+		expect(exports.sum).toBe(60);
+
+		// Verify batch was used (not individual calls)
+		expect(methodCalls).toContain("_batchResolveModules");
+		expect(methodCalls).not.toContain("_resolveModule");
+		expect(methodCalls).not.toContain("_loadFile");
+
+		await session.destroy();
+	});
+
+	it("falls back to individual resolution when batch handler errors", async () => {
+		const rt = await createRuntime();
+		const session = await rt.createSession();
+
+		const result = await session.execute(
+			defaultExecOptions({
+				mode: "run",
+				userCode: `
+					import { val } from './dep.mjs';
+					export const result = val;
+				`,
+				filePath: "/app/main.mjs",
+				bridgeHandlers: {
+					_batchResolveModules: async () => {
+						throw new Error("batch not supported");
+					},
+					_resolveModule: (_request: unknown, _fromDir: unknown) => {
+						return "/dep.mjs";
+					},
+					_loadFile: (_path: unknown) => {
+						return "export const val = 99;";
+					},
+				},
+			}),
+		);
+
+		expect(result.code).toBe(0);
+		expect(result.error).toBeFalsy();
+
+		const v8 = await import("node:v8");
+		const exports = v8.deserialize(result.exports!) as { result: number };
+		expect(exports.result).toBe(99);
+
+		await session.destroy();
+	});
 });
