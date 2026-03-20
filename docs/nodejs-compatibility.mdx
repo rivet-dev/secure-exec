@@ -108,6 +108,27 @@ The [project-matrix test suite](https://github.com/rivet-dev/secure-exec/tree/ma
 
 To request a new package be added to the test suite, [open an issue](https://github.com/rivet-dev/secure-exec/issues/new?labels=package-request&title=Package+request:+%5Bpackage-name%5D).
 
+## Known Unsupported npm Packages (Native Extensions)
+
+These popular packages ship native binaries or platform-specific `.node` addons and cannot run inside a secure-exec V8 isolate. Native addons require Node's native module loader (`dlopen`), which is not available in the sandbox. The overlay module loader explicitly rejects `.node` files.
+
+| Package | Weekly Downloads | Why It Fails | Pure-JS Alternative |
+| --- | --- | --- | --- |
+| [esbuild](https://npmjs.com/package/esbuild) | 116M | Spawns a platform-specific Go binary; JS API is a thin IPC wrapper | [`esbuild-wasm`](https://npmjs.com/package/esbuild-wasm) (same API, ~3x slower) |
+| [rollup](https://npmjs.com/package/rollup) (v4+) | 78M | Rust parser via napi-rs (`@rollup/rollup-linux-x64-gnu`, etc.) | [`@rollup/wasm-node`](https://npmjs.com/package/@rollup/wasm-node) (WASM fallback) |
+| [vite](https://npmjs.com/package/vite) | 65M | Hard dependency on esbuild (dep optimization) and rollup (bundling) | [webpack](https://npmjs.com/package/webpack) (pure JS) |
+| [tailwindcss](https://npmjs.com/package/tailwindcss) (v4) | 51M | Rust Oxide engine via napi-rs (`@tailwindcss/oxide-*`) | [`tailwindcss@3`](https://npmjs.com/package/tailwindcss) (pure JS PostCSS plugin) |
+| [next](https://npmjs.com/package/next) | 27M | Rust SWC compiler (`@next/swc-*`); also depends on esbuild | No pure-JS equivalent |
+| [sass-embedded](https://npmjs.com/package/sass-embedded) | — | Wraps a native Dart executable | [`sass`](https://npmjs.com/package/sass) (dart2js compiled, pure JS) |
+| [node-sass](https://npmjs.com/package/node-sass) | — | C++ LibSass binding via node-gyp (deprecated) | [`sass`](https://npmjs.com/package/sass) |
+| [bcrypt](https://npmjs.com/package/bcrypt) | — | C++ binding via node-gyp | [`bcryptjs`](https://npmjs.com/package/bcryptjs) (pure JS) |
+| [@swc/core](https://npmjs.com/package/@swc/core) | — | Rust/napi-rs transpiler | [typescript](https://npmjs.com/package/typescript) `transpileModule()` or [babel](https://npmjs.com/package/@babel/core) |
+| [sharp](https://npmjs.com/package/sharp) | — | C++ libvips binding via prebuild | [jimp](https://npmjs.com/package/jimp) (pure JS, slower) |
+| [better-sqlite3](https://npmjs.com/package/better-sqlite3) | — | C++ SQLite binding via node-gyp | [sql.js](https://npmjs.com/package/sql.js) (WASM-based SQLite) |
+| [canvas](https://npmjs.com/package/canvas) | — | C++ Cairo/Pango binding via node-gyp | [@napi-rs/canvas](https://npmjs.com/package/@napi-rs/canvas) is also native; no pure-JS equivalent |
+
+Packages in the [Tested Packages](#tested-packages) table that overlap with this list (e.g. `next`, `vite`) have fixtures that test module resolution and limited API surface, not the full native build pipeline.
+
 ## Logging Behavior
 
 - `console.log`/`warn`/`error` are supported and serialize arguments with circular-safe bounded formatting.
