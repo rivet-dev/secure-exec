@@ -231,6 +231,27 @@ export class ProcessTable {
 		return entry.ppid;
 	}
 
+	/**
+	 * Send a signal to a process group, skipping session leaders.
+	 * Returns count of processes actually signaled.
+	 * Used for PTY-originated SIGINT where the session leader (shell)
+	 * cannot handle signals gracefully (WasmVM worker.terminate()).
+	 */
+	killGroupExcludeLeaders(pgid: number, signal: number): number {
+		if (signal < 0 || signal > 64) {
+			throw new KernelError("EINVAL", `invalid signal ${signal}`);
+		}
+		let count = 0;
+		for (const entry of this.entries.values()) {
+			if (entry.pgid === pgid && entry.status === "running") {
+				if (entry.pid === entry.sid) continue; // Skip session leaders
+				if (signal !== 0) entry.driverProcess.kill(signal);
+				count++;
+			}
+		}
+		return count;
+	}
+
 	/** Check if any running process belongs to the given process group. */
 	hasProcessGroup(pgid: number): boolean {
 		for (const entry of this.entries.values()) {

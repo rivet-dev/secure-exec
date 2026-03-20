@@ -177,8 +177,8 @@ describe("shell-terminal", () => {
 		// Type partial input then ^C
 		await harness.type("hel\x03");
 
-		// PTY echo shows "hel", ^C triggers SIGINT (no echo from PTY),
-		// mock shell writes "^C\r\n$ " in kill handler
+		// PTY echoes "hel", then ^C triggers session-leader SIGINT
+		// interception: PTY echoes "^C\r\n" and injects newline → fresh prompt
 		expect(harness.screenshotTrimmed()).toBe(
 			["$ hel^C", "$ "].join("\n"),
 		);
@@ -188,6 +188,28 @@ describe("shell-terminal", () => {
 
 		expect(harness.screenshotTrimmed()).toBe(
 			["$ hel^C", "$ echo hi", "hi", "$ "].join("\n"),
+		);
+	});
+
+	it("^C on empty prompt — shows ^C, fresh prompt, no error", async () => {
+		const driver = new MockShellDriver();
+		const { kernel } = await createTestKernel({ drivers: [driver] });
+		harness = new TerminalHarness(kernel);
+
+		await harness.waitFor("$");
+
+		// ^C on empty prompt
+		await harness.type("\x03");
+
+		expect(harness.screenshotTrimmed()).toBe(
+			["$ ^C", "$ "].join("\n"),
+		);
+
+		// Shell still functional — type a command
+		await harness.type("echo ok\n");
+
+		expect(harness.screenshotTrimmed()).toBe(
+			["$ ^C", "$ echo ok", "ok", "$ "].join("\n"),
 		);
 	});
 

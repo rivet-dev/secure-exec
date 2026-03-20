@@ -55,8 +55,14 @@ class KernelImpl implements Kernel {
 	private fdTableManager = new FDTableManager();
 	private processTable = new ProcessTable();
 	private pipeManager = new PipeManager();
-	private ptyManager = new PtyManager((pgid, signal) => {
-		try { this.processTable.kill(-pgid, signal); } catch { /* no-op if pgid gone */ }
+	private ptyManager = new PtyManager((pgid, signal, excludeLeaders) => {
+		try {
+			if (excludeLeaders) {
+				return this.processTable.killGroupExcludeLeaders(pgid, signal);
+			}
+			this.processTable.kill(-pgid, signal);
+		} catch { /* no-op if pgid gone */ }
+		return 0;
 	});
 	private commandRegistry = new CommandRegistry();
 	private userManager: UserManager;
@@ -239,6 +245,7 @@ class KernelImpl implements Kernel {
 		// Shell becomes its own process group leader, set as PTY foreground
 		this.processTable.setpgid(proc.pid, proc.pid);
 		this.ptyManager.setForegroundPgid(masterDescId, proc.pid);
+		this.ptyManager.setSessionLeader(masterDescId, proc.pid);
 
 		// Close controller's copy of slave FD (child inherited its own copy via fork).
 		// Without this, slave refCount stays >0 after shell exits, preventing EOF on master.

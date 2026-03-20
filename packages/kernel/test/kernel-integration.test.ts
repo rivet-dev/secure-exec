@@ -3326,13 +3326,14 @@ describe("kernel + MockRuntimeDriver integration", () => {
 
 			const shell = kernel.openShell();
 
-			// ^C should generate SIGINT but shell survives
+			// ^C intercepted at PTY level for session leader — shell is
+			// protected from SIGINT (kill not called on session leader)
 			shell.write("\x03");
 
 			await new Promise((r) => setTimeout(r, 10));
 
-			// SIGINT delivered to foreground process group
-			expect(killSignals).toContain(2);
+			// Session leader is excluded from SIGINT delivery
+			expect(killSignals).not.toContain(2);
 
 			// Shell still running — wait should not have resolved
 			expect(shell.pid).toBeGreaterThan(0);

@@ -50,6 +50,8 @@ interface PtyState {
 	lineBuffer: number[];
 	/** Foreground process group for signal delivery */
 	foregroundPgid: number;
+	/** Session leader's pgid — used to intercept SIGINT at the PTY level */
+	sessionLeaderPgid: number;
 }
 
 /** Maximum buffered bytes per PTY direction before writes are rejected (EAGAIN). */
@@ -62,12 +64,16 @@ export class PtyManager {
 	private ptys: Map<number, PtyState> = new Map();
 	/** Map description ID → pty ID and which end */
 	private descToPty: Map<number, { ptyId: number; end: "master" | "slave" }> = new Map();
-	/** Callback for signal delivery (pgid, signal) */
-	private onSignal: ((pgid: number, signal: number) => void) | null;
+	/**
+	 * Signal delivery callback: (pgid, signal, excludeLeaders) → number of
+	 * processes signaled. When excludeLeaders is true, session leaders are
+	 * skipped (WasmVM workers can't handle graceful signals).
+	 */
+	private onSignal: ((pgid: number, signal: number, excludeLeaders: boolean) => number) | null;
 	private nextPtyId = 0;
 	private nextPtyDescId = 200_000; // High range to avoid FD/pipe ID collisions
 
-	constructor(onSignal?: (pgid: number, signal: number) => void) {
+	constructor(onSignal?: (pgid: number, signal: number, excludeLeaders: boolean) => number) {
 		this.onSignal = onSignal ?? null;
 	}
 
@@ -108,6 +114,7 @@ export class PtyManager {
 			termios: defaultTermios(),
 			lineBuffer: [],
 			foregroundPgid: 0,
+			sessionLeaderPgid: 0,
 		};
 
 		this.ptys.set(id, state);
@@ -290,6 +297,14 @@ export class PtyManager {
 		state.foregroundPgid = pgid;
 	}
 
+	/** Set the session leader pgid for SIGINT interception on this PTY. */
+	setSessionLeader(descriptionId: number, pgid: number): void {
+		const ptyId = this.getPtyId(descriptionId);
+		const state = this.ptys.get(ptyId);
+		if (!state) throw new KernelError("EBADF", "PTY not found");
+		state.sessionLeaderPgid = pgid;
+	}
+
 	/** Get terminal attributes for the PTY containing this description. */
 	getTermios(descriptionId: number): Termios {
 		const ptyId = this.getPtyId(descriptionId);
@@ -394,9 +409,44 @@ export class PtyManager {
 				const signal = this.signalForByte(state, byte);
 				if (signal !== null) {
 					if (termios.icanon) state.lineBuffer.length = 0;
+
+					// Session-leader SIGINT interception: echo ^C, protect
+					// the shell, and inject a newline to trigger a fresh prompt
+					// when no children are running.
+					if (
+						signal === 2 &&
+						state.sessionLeaderPgid > 0 &&
+						state.foregroundPgid === state.sessionLeaderPgid
+					) {
+						// Echo ^C + newline so the user sees the interruption
+						if (termios.echo) {
+							this.echoOutput(state, new Uint8Array([0x5e, 0x43, 0x0d, 0x0a]));
+						}
+
+						// Kill children in the group (session leader is skipped).
+						// Returns count of non-leader processes signaled.
+						let childrenKilled = 0;
+						if (state.foregroundPgid > 0) {
+							try {
+								childrenKilled = this.onSignal?.(state.foregroundPgid, signal, true) ?? 0;
+							} catch {
+								// Signal delivery failure must not break line discipline
+							}
+						}
+
+						// No children running → shell is at the prompt blocking on
+						// fdRead. Inject a newline to unblock it and trigger a
+						// fresh prompt.
+						if (childrenKilled === 0) {
+							this.deliverInput(state, new Uint8Array([0x0a]));
+						}
+						continue;
+					}
+
+					// Normal signal delivery (non-SIGINT or non-session-leader)
 					if (state.foregroundPgid > 0) {
 						try {
-							this.onSignal?.(state.foregroundPgid, signal);
+							this.onSignal?.(state.foregroundPgid, signal, false);
 						} catch {
 							// Signal delivery failure must not break line discipline
 						}
