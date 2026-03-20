@@ -255,14 +255,14 @@
 
 | Category | Done | Builtin (to replace) | Custom (to replace) | Missing | Stub | Shell | Excluded |
 |----------|------|---------------------|---------------------|---------|------|-------|----------|
-| File Operations | 21 | 0 | 0 | 0 | 1 | 0 | 0 |
+| File Operations | 22 | 0 | 0 | 0 | 1 | 0 | 0 |
 | Text Processing | 29 | 0 | 0 | 0 | 0 | 0 | 0 |
 | Output / Printing | 4 | 0 | 0 | 0 | 0 | 0 | 0 |
 | Checksums & Encoding | 12 | 0 | 0 | 0 | 0 | 0 | 0 |
 | Navigation & Path | 4 | 0 | 0 | 0 | 0 | 1 | 0 |
 | Disk & Filesystem | 1 | 0 | 0 | 0 | 1 | 0 | 0 |
-| System & Environment | 10 | 0 | 0 | 0 | 2 | 1 | 0 |
-| Process & Execution | 10 | 2 | 0 | 0 | 0 | 0 | 0 |
+| System & Environment | 8 | 1 | 0 | 0 | 2 | 1 | 0 |
+| Process & Execution | 13 | 2 | 0 | 0 | 0 | 0 | 0 |
 | Search | 1 | 0 | 1 | 0 | 0 | 0 | 0 |
 | Formatting | 1 | 0 | 0 | 0 | 0 | 0 | 0 |
 | Compression | 6 | 0 | 0 | 0 | 0 | 0 | 0 |
@@ -271,7 +271,7 @@
 | Network | 2 | 0 | 0 | 0 | 0 | 0 | 0 |
 | Version Control | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
 | Package Management | 2 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | **109** | **1** | **1** | **1** | **4** | **13** | **2** |
+| **Total** | **111** | **3** | **1** | **1** | **4** | **13** | **2** |
 
 ---
 

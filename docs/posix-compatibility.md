@@ -51,11 +51,13 @@ The kernel (`packages/kernel/`) is the foundational POSIX layer. All runtimes mo
 | SIGWINCH (28) | Implemented | Delivered via `shell.resize()` to foreground process group |
 | Signal 0 (existence check) | Implemented | Succeeds if process exists, ESRCH if not |
 | Process group signaling | Implemented | `kill(-pgid, signal)` sends to all processes in group |
-| SIGPIPE (13) | **Missing** | Writing to closed pipe raises EPIPE error but does NOT send SIGPIPE signal. **Critical gap.** |
-| SIGSTOP (19) / SIGCONT (18) | **Missing** | Types defined but never generated or handled. No job control. |
-| SIGTSTP (20) via Ctrl+Z | **Missing** | `vsusp` control char exists but pressing Ctrl+Z does nothing |
-| SIGQUIT (3) via Ctrl+\ | **Missing** | Type defined but not implemented |
-| SIGHUP (1) | **Missing** | Not generated on terminal hangup or process group orphaning |
+| SIGPIPE (13) | Implemented | `PipeManager.write()` delivers SIGPIPE via `onBrokenPipe` callback before EPIPE error |
+| SIGCHLD (17) | Implemented | Delivered to parent on child exit; default action: ignore (no termination) |
+| SIGALRM (14) | Implemented | `alarm(pid, seconds)` schedules delivery; default action: terminate (128+14) |
+| SIGSTOP (19) / SIGCONT (18) | Implemented | `stop()` sets status to "stopped", `cont()` resumes; delivered via `kill()` |
+| SIGTSTP (20) via Ctrl+Z | Implemented | PTY line discipline generates SIGTSTP; process suspended via `stop()` |
+| SIGQUIT (3) via Ctrl+\ | Implemented | PTY line discipline generates SIGQUIT; echoes `^\` |
+| SIGHUP (1) | Implemented | Generated on PTY master close; delivered to foreground process group |
 | Signal masks (sigprocmask) | **Missing** | Processes cannot block/unblock signals |
 | Signal handlers (sigaction) | Not possible | Untrusted code cannot register handlers; kernel owns lifecycle |
 | Real-time signals | Not possible | No RT signal infrastructure |
@@ -72,10 +74,11 @@ The kernel (`packages/kernel/`) is the foundational POSIX layer. All runtimes mo
 | FD inheritance on fork | Implemented | Child FD table forked with all parent FDs, refCounts bumped |
 | Shared cursors | Implemented | Multiple FDs sharing a FileDescription share cursor position |
 | /dev/fd/N | Implemented | `fdOpen()` interprets `/dev/fd/N` as dup(N) |
-| FD_CLOEXEC flag | **Missing** | Not stored or honored per-FD; heuristic close for stdio pipe dups only |
-| fcntl() | **Missing** | No F_SETFD, F_GETFD, F_SETFL, F_DUPFD |
+| FD_CLOEXEC flag | Implemented | Stored per-FD; set via `fcntl(F_SETFD)` or `O_CLOEXEC` at open time |
+| fcntl() | Implemented | F_DUPFD, F_DUPFD_CLOEXEC, F_GETFD, F_SETFD, F_GETFL |
+| O_CLOEXEC | Implemented | Recognized at open time; sets `cloexec` flag on FD entry |
 | O_NONBLOCK | **Missing** | All reads/writes are blocking or Promise-based |
-| O_CLOEXEC | **Missing** | Not recognized at open time |
+| File locking (flock) | Implemented | Advisory flock with LOCK_SH, LOCK_EX, LOCK_UN, LOCK_NB |
 | select / poll / epoll | Not possible | JavaScript async model; all I/O is Promise-based |
 
 ### TTY / PTY
@@ -93,10 +96,10 @@ The kernel (`packages/kernel/`) is the foundational POSIX layer. All runtimes mo
 | isatty() | Implemented | Returns true if FD points to PTY slave |
 | Line buffer limit | Implemented | `MAX_CANON = 4096` |
 | PTY buffer limits | Implemented | `MAX_PTY_BUFFER_BYTES = 65536` (64KB per direction) |
-| SIGTSTP on ^Z | **Missing** | Recognized but not implemented |
+| SIGTSTP on ^Z | Implemented | PTY line discipline delivers SIGTSTP; echoes `^Z` |
 | VMIN / VTIME | **Missing** | Reads always block until next data or EOF |
 | Flow control (^S/^Q) | **Missing** | XON/XOFF not implemented |
-| SIGHUP on master close | **Missing** | No hangup signal on terminal disconnect |
+| SIGHUP on master close | Implemented | Sends SIGHUP to foreground process group on PTY master close |
 | Advanced local modes | **Missing** | IEXTEN, ECHOE, ECHOK, ECHONL, NOFLSH, TOSTOP not exposed |
 
 ### Pipes
@@ -110,7 +113,7 @@ The kernel (`packages/kernel/`) is the foundational POSIX layer. All runtimes mo
 | Buffer limits | Implemented | `MAX_PIPE_BUFFER_BYTES = 65536` (64KB); EAGAIN on full |
 | Cross-runtime pipes | Implemented | WasmVM and Node processes can pipe to each other |
 | Pipe FD inheritance | Implemented | Part of forked FD table |
-| SIGPIPE on broken pipe | **Missing** | Writes to closed pipe throw EPIPE but no signal delivery |
+| SIGPIPE on broken pipe | Implemented | `PipeManager.write()` delivers SIGPIPE via `onBrokenPipe` callback, then EPIPE |
 | Named pipes (FIFO) | **Missing** | Only anonymous pipes |
 | Atomic writes under PIPE_BUF | **Missing** | Writes are not atomic; buffered chunks can split |
 
@@ -124,7 +127,7 @@ The kernel (`packages/kernel/`) is the foundational POSIX layer. All runtimes mo
 | Zombie state | Implemented | Process stays in table for 60s after exit |
 | Zombie cleanup | Implemented | Automatic reap after `ZOMBIE_TTL_MS` |
 | POSIX wstatus encoding | Implemented | `waitpid` returns POSIX-encoded wstatus; `WIFEXITED`/`WEXITSTATUS`/`WIFSIGNALED`/`WTERMSIG` helpers in `@secure-exec/kernel` |
-| WNOHANG flag | **Missing** | No non-blocking waitpid variant |
+| WNOHANG flag | Implemented | Returns null immediately if process is still running |
 | WUNTRACED / WCONTINUED | **Missing** | No stopped/continued process tracking |
 
 ### Virtual File System
@@ -150,7 +153,7 @@ The kernel (`packages/kernel/`) is the foundational POSIX layer. All runtimes mo
 | /dev/stdin, /dev/stdout, /dev/stderr | Implemented | Character devices with fixed inodes |
 | /dev/fd/ | Implemented | Pseudo-directory listing open FDs per process |
 | ACLs / xattr | **Missing** | Only rwx model; no extended attributes |
-| File locking (flock/fcntl) | **Missing** | No advisory or mandatory locks |
+| File locking (fcntl locks) | **Missing** | Only `flock()` advisory locks; no `fcntl()` F_SETLK/F_GETLK |
 | /proc filesystem | **Missing** | No /proc/self, /proc/[pid]/* |
 
 ### Environment & Working Directory
@@ -161,8 +164,8 @@ The kernel (`packages/kernel/`) is the foundational POSIX layer. All runtimes mo
 | Env override on spawn | Implemented | `kernel.spawn(cmd, args, { env })` |
 | Per-process cwd | Implemented | Stored in ProcessEntry, inherited on spawn |
 | cwd override on spawn | Implemented | `kernel.spawn(cmd, args, { cwd })` |
-| setenv / unsetenv after spawn | **Missing** | Env is immutable post-creation |
-| chdir() after spawn | **Missing** | cwd is immutable post-creation |
+| setenv / unsetenv after spawn | Implemented | `kernel.setenv(pid, key, value)` / `kernel.unsetenv(pid, key)` mutate process env |
+| chdir() after spawn | Implemented | `kernel.chdir(pid, path)` validates path exists and is a directory |
 
 ---
 
@@ -192,8 +195,8 @@ The WasmVM runtime (`packages/runtime/wasmvm/`) runs WASM binaries in Web Worker
 
 - **Async signal delivery**: WASM execution is synchronous within Worker; only `worker.terminate()` (SIGKILL equivalent) works
 - **Threads**: `wasm32-wasip1` doesn't support pthreads; `std::thread::spawn` panics
-- **Networking**: WASI Preview 1 has no socket API; browser sandbox prevents network access
-- **Job control**: fg/bg/jobs stubbed; no SIGTSTP/SIGSTOP/SIGCONT in WASM
+- **Networking**: HTTP via `host_net` import module (used by curl, wget, git); raw sockets not supported
+- **Job control**: fg/bg/jobs stubbed; SIGTSTP/SIGSTOP/SIGCONT delivered but background scheduling limited
 - **Terminal handling**: isatty() works; termios/stty operations stubbed
 - **chmod enforcement**: WASI has no chmod syscall; VFS-level metadata only, no actual permission enforcement on reads/writes
 
@@ -225,7 +228,7 @@ The Node bridge (`packages/secure-exec-core/src/bridge/`) provides Node.js API c
 | Module | Tier | Status |
 |--------|------|--------|
 | fs | 1 | Comprehensive: readFile, writeFile, stat, mkdir, symlink, chmod, streams, opendir, glob. Missing: watch/watchFile (Tier 4). |
-| child_process | 1 | spawn, exec, execFile (sync + async). Routes through kernel command registry. fork() permanently unsupported. |
+| child_process | 1 | spawn, exec, execFile (sync + async). Routes through kernel command registry. npm/npx routed through Node RuntimeDriver (host npm-cli.js/npx-cli.js in V8 isolate). fork() permanently unsupported. |
 | process | 1 | pid, ppid, env, cwd, argv, exit, stdin/stdout/stderr, platform, arch. No signal handlers. |
 | os | 1 | platform, arch, hostname, homedir, tmpdir, cpus, totalmem, freemem. Values from injected config, not host. |
 | path | 2 | Full polyfill via path-browserify. |
@@ -293,13 +296,13 @@ The Python bridge (`packages/secure-exec-python/`) runs Python via Pyodide (CPyt
 | Area | Kernel | WasmVM | Node Bridge | Python Bridge |
 |------|--------|--------|-------------|---------------|
 | File I/O | 95% | 85% | 90% | 40% |
-| Processes | 75% | 60% | 70% | 30% |
-| Pipes | 85% | 75% | 80% | N/A |
-| Signals | 60% | 5% | 10% | 0% |
-| TTY/PTY | 90% | 20% | 15% | 0% |
-| Environment | 95% | 95% | 85% | 80% |
+| Processes | 85% | 65% | 75% | 30% |
+| Pipes | 95% | 80% | 85% | N/A |
+| Signals | 80% | 10% | 10% | 0% |
+| TTY/PTY | 95% | 25% | 15% | 0% |
+| Environment | 100% | 95% | 85% | 80% |
 | Shell | N/A | 80% | N/A | N/A |
-| Networking | N/A | 0% | 75% | 10% |
+| Networking | N/A | 30% | 75% | 10% |
 
 ---
 
@@ -314,7 +317,7 @@ These gaps cannot be fixed without fundamental changes to the execution model:
 | Signal handlers in user code | Untrusted code can't register handlers | Kernel owns lifecycle |
 | Non-blocking I/O (select/poll/epoll) | JavaScript async model | Promise-based I/O |
 | pthreads in WASM | wasm32-wasip1 doesn't support threads | One Worker per process |
-| Network sockets in WASM | WASI Preview 1 has no socket API | HTTP via Node bridge only |
+| Network sockets in WASM | WASI Preview 1 has no socket API | HTTP via `host_net` import module (curl, wget, git) and Node bridge |
 | mmap / shared memory | WASM memory separate from host FS | read/write only |
 | ptrace / process debugging | No debug interface across WASM boundary | Not possible |
 | setuid / setgid | Incompatible with sandbox model | Fixed uid/gid |
