@@ -1106,8 +1106,8 @@
         "Typecheck passes"
       ],
       "priority": 75,
-      "passes": false,
-      "notes": "PR review finding: sync_call consumes and discards non-BridgeResponse messages from the shared session channel."
+      "passes": true,
+      "notes": "Fixed: recv_response now loops, only returning BridgeResponse frames. Non-BridgeResponse messages (StreamEvent, TerminateExecution) are queued in a DeferredQueue. run_event_loop drains the deferred queue before blocking on the channel. Test verifies interleaved StreamEvent is preserved."
     },
     {
       "id": "US-076",
@@ -1123,8 +1123,8 @@
         "Tests pass"
       ],
       "priority": 76,
-      "passes": false,
-      "notes": "PR review finding: Orphan Rust child process on host exit; permanently cached rejection on startup failure."
+      "passes": true,
+      "notes": "Fixed: disposeSharedV8Runtime() exported from @secure-exec/node and re-exported from secure-exec. process.on('beforeExit') registered to auto-dispose. .catch() handler resets sharedV8RuntimePromise on failure for retry. Tests verify dispose+recreate and multi-cycle resilience."
     },
     {
       "id": "US-077",
@@ -1445,8 +1445,8 @@
         "Tests pass"
       ],
       "priority": 76,
-      "passes": false,
-      "notes": "Workaround: benchmarks use process.exit(0) after completion. Root cause likely unclosed socket or event listener keeping Node event loop alive after terminate(). Related to US-076 (shared lifecycle) but distinct issue."
+      "passes": true,
+      "notes": "Fixed: child process and stdio streams are unrefed after spawn. IPC socket is ref-counted by active sessions (ref when sessions exist, unref when idle). dispose() destroys stdio streams and removes all listeners. Benchmarks use disposeSharedV8Runtime() instead of process.exit(0). beforeExit handler works correctly since unrefed handles don't prevent event loop drain."
     }
   ]
 }

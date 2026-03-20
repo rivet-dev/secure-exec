@@ -2864,3 +2864,60 @@ PRD: ralph/kernel-hardening (46 stories)
   - Condvar + Mutex<Option<Result>> is the idiomatic Rust pattern for "first thread creates, others wait and share result"
   - HashMap<u64, Arc<InFlightEntry>> for per-key coordination avoids global lock during expensive operations
 ---
+## 2026-03-20 - US-075
+- Fixed ChannelResponseReceiver::recv_response to only return BridgeResponse frames
+- Added DeferredQueue type (Arc<Mutex<VecDeque<BinaryFrame>>>) shared between ChannelResponseReceiver and run_event_loop
+- recv_response now loops, queuing non-BridgeResponse messages (StreamEvent, TerminateExecution) in deferred queue
+- run_event_loop drains deferred queue before blocking on the channel via new dispatch_event_loop_frame helper
+- Removed #[cfg(not(test))] from ChannelResponseReceiver to enable direct testing
+- Files changed:
+  - crates/v8-runtime/src/session.rs — DeferredQueue, ChannelResponseReceiver filtering, run_event_loop deferred drain, dispatch_event_loop_frame helper, test
+  - crates/v8-runtime/src/execution.rs — Updated all 13 run_event_loop call sites to pass new deferred parameter (None)
+- **Learnings for future iterations:**
+  - crossbeam channel clone gives handle to same underlying channel — messages are distributed, not duplicated; consumers compete
+  - Extracting dispatch_event_loop_frame reduces duplication between deferred drain and channel recv paths
+  - All 81 cargo tests pass (up from 79); 28/28 typecheck tasks pass
+---
+
+## 2026-03-20 - US-076
+- Implemented shared V8 runtime lifecycle management and retry on failure
+- Added `disposeSharedV8Runtime()` function that kills the Rust child process and resets singleton state
+- Added `.catch()` handler on `sharedV8RuntimePromise` to reset on failure (allows retry instead of permanently cached rejection)
+- Registered `process.on('beforeExit')` handler to auto-dispose the shared runtime, preventing orphan Rust processes
+- Exported `disposeSharedV8Runtime` from `@secure-exec/node` and re-exported from `secure-exec`
+- Files changed:
+  - packages/secure-exec-node/src/execution-driver.ts — disposeSharedV8Runtime(), .catch() retry, beforeExit handler
+  - packages/secure-exec-node/src/index.ts — export disposeSharedV8Runtime
+  - packages/secure-exec/src/index.ts — re-export disposeSharedV8Runtime from @secure-exec/node
+  - packages/secure-exec/tests/runtime-driver/node/v8-lifecycle.test.ts — new test file: dispose kills child, multi-cycle resilience
+- **Learnings for future iterations:**
+  - `process.on('beforeExit')` fires when event loop drains — safe for cleanup, does not fire mid-test in vitest
+  - disposeSharedV8Runtime must handle in-progress creation (await then dispose) to avoid orphaned processes
+  - Pre-existing test failures in index.test.ts (100/116) and resource-limits.test.ts (3/3) — not caused by this change
+  - 28/28 typecheck tasks pass; 2/2 new tests pass
+---
+
+## 2026-03-20 - US-085
+- Fixed V8 process cleanup hang on terminate/dispose
+- Root cause: child process, its stdio streams, and the IPC socket all kept the Node event loop alive after dispose()
+- Fix: three-part approach:
+  1. Unref child process and stdio immediately after spawn (they don't need to keep event loop alive on their own)
+  2. IPC socket ref-counted by active sessions: ref when sessions exist, unref when no sessions
+  3. dispose() destroys child stdio streams, removes all listeners, and uses ref'd timeout for SIGKILL fallback
+- IpcClient gains ref()/unref() methods; close() now removeAllListeners before destroy
+- Benchmarks replaced process.exit(0) hacks with disposeSharedV8Runtime()
+- beforeExit handler now works correctly: unrefed handles allow event loop to drain, triggering cleanup
+- Files changed:
+  - packages/secure-exec-v8/src/runtime.ts — unref child/stdio, ref-count IPC socket, cleanup in dispose
+  - packages/secure-exec-v8/src/ipc-client.ts — ref/unref methods, removeAllListeners in close
+  - packages/secure-exec/benchmarks/quick-bench.ts — disposeSharedV8Runtime instead of process.exit
+  - packages/secure-exec/benchmarks/coldstart.bench.ts — disposeSharedV8Runtime instead of process.exit
+  - packages/secure-exec/tests/runtime-driver/node/v8-lifecycle.test.ts — new test: process exits cleanly
+- **Learnings for future iterations:**
+  - child.unref() unrefs the child process handle, not its stdio streams — must unref each separately
+  - child.stdout pipes from child_process.spawn have unref() at runtime but TypeScript types them as Readable (needs cast)
+  - Socket.unref() prevents the socket from keeping the event loop alive but events still fire while loop runs for other reasons
+  - The IPC socket must stay ref'd while there are pending execute() calls, otherwise event loop drains before results arrive
+  - Pre-existing test failures unchanged: crash-isolation (3), resource-limits (3), test-suite (1)
+  - 28/28 typecheck tasks pass; 22/22 tests pass (lifecycle + snapshot)
+---
