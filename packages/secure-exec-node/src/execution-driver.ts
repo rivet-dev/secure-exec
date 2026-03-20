@@ -7,6 +7,11 @@ let sharedV8Runtime: V8Runtime | null = null;
 let sharedV8RuntimePromise: Promise<V8Runtime> | null = null;
 
 async function getSharedV8Runtime(): Promise<V8Runtime> {
+	// If the cached runtime's process has died (e.g. OOM crash), recycle it
+	if (sharedV8Runtime && !sharedV8Runtime.isAlive) {
+		sharedV8Runtime = null;
+		sharedV8RuntimePromise = null;
+	}
 	if (sharedV8Runtime) return sharedV8Runtime;
 	if (!sharedV8RuntimePromise) {
 		sharedV8RuntimePromise = createV8Runtime({
@@ -293,10 +298,21 @@ export class NodeExecutionDriver implements RuntimeDriver {
 	private async ensureV8(): Promise<V8Session> {
 		if (this.v8Session) return this.v8Session;
 		if (!this.v8InitPromise) {
-			this.v8InitPromise = this.initV8();
+			this.v8InitPromise = this.initV8().catch((err) => {
+				// Reset so next call retries (e.g. after process crash)
+				this.v8InitPromise = null;
+				this.v8Session = null;
+				throw err;
+			});
 		}
 		await this.v8InitPromise;
 		return this.v8Session!;
+	}
+
+	/** Reset cached session state so next ensureV8() re-initializes. */
+	private resetV8Session(): void {
+		this.v8Session = null;
+		this.v8InitPromise = null;
 	}
 
 	private async getV8Runtime(): Promise<V8Runtime> {
@@ -437,6 +453,11 @@ export class NodeExecutionDriver implements RuntimeDriver {
 
 			// Map V8ExecutionResult to RunResult
 			if (result.error) {
+				// V8 process crash — reset session so next call re-initializes
+				if (result.error.code === "ERR_V8_PROCESS_CRASH") {
+					this.resetV8Session();
+				}
+
 				// Check for timeout
 				if (result.error.message && /timed out|time limit exceeded/i.test(result.error.message)) {
 					return {
@@ -481,6 +502,8 @@ export class NodeExecutionDriver implements RuntimeDriver {
 				exports,
 			};
 		} catch (err) {
+			// Reset session on fatal errors so next call re-initializes
+			this.resetV8Session();
 			const errMessage = err instanceof Error ? err.message : String(err);
 			return {
 				code: 1,

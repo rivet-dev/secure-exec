@@ -37,6 +37,8 @@ export interface V8RuntimeOptions {
 
 /** Manages the Rust V8 child process and session lifecycle. */
 export interface V8Runtime {
+	/** Whether the Rust child process is still alive. */
+	readonly isAlive: boolean;
 	/** Create a new session (V8 isolate) in the runtime process. */
 	createSession(options?: V8SessionOptions): Promise<V8Session>;
 	/** Kill the child process and clean up. */
@@ -264,6 +266,9 @@ export async function createV8Runtime(
 	}
 
 	const runtime: V8Runtime = {
+		get isAlive() {
+			return processAlive && !disposed && ipcClient !== null;
+		},
 		async createSession(sessionOptions?: V8SessionOptions): Promise<V8Session> {
 			ensureAlive();
 			if (!ipcClient) {
