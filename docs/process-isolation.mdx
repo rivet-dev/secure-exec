@@ -3,6 +3,8 @@ title: Process Isolation
 description: Configure V8 process topology to control crash blast radius and resource partitioning.
 ---
 
+<Warning>Process isolation depends on `@secure-exec/v8`, which is experimental. APIs and behavior may change without notice.</Warning>
+
 By default, all `NodeRuntime` instances share a single V8 child process. Every `exec()` or `run()` call creates a session (separate V8 isolate on a separate OS thread), but all sessions live in the same OS process.
 
 This is efficient — one process, one UDS connection, shared startup cost — but it means a V8 OOM or crash in **any** session kills **all** sessions across **all** runtimes.

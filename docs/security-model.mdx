@@ -125,6 +125,8 @@ Two controls prevent runaway execution:
 
 The bridge also enforces isolate-boundary payload limits so oversized base64 file transfers and oversized isolate-originated JSON payloads are rejected deterministically with `ERR_SANDBOX_PAYLOAD_TOO_LARGE` instead of exhausting host memory. Hosts can tune these limits within bounded safe ranges, but cannot disable enforcement.
 
+- **FD table limit**: Each isolate can hold up to **1024 open file descriptors**. Attempts to open beyond this limit are rejected with `EMFILE`. This prevents sandbox code from exhausting host-level FD resources.
+
 ## Logging Contract
 
 - Console output is **not buffered** into runtime-managed execution result fields by default (`exec()`/`run()` do not expose `stdout`/`stderr` result fields).
