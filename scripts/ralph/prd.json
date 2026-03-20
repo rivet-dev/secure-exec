@@ -1179,7 +1179,7 @@
         "Tests pass"
       ],
       "priority": 60,
-      "passes": false,
+      "passes": true,
       "notes": "Currently waitpid returns raw exit code number. POSIX encodes how the process terminated (normal vs signal) into the status word. The C parity tests (kill_child.c) use WIFEXITED/WIFSIGNALED macros which depend on this encoding. Files: packages/kernel/src/process-table.ts, new file packages/kernel/src/wstatus.ts."
     },
     {
@@ -1198,7 +1198,7 @@
         "Tests pass"
       ],
       "priority": 61,
-      "passes": false,
+      "passes": true,
       "notes": "Files: packages/kernel/src/process-table.ts (waitpid method), packages/kernel/src/types.ts (KernelInterface)."
     },
     {
@@ -1217,7 +1217,7 @@
         "Tests pass"
       ],
       "priority": 62,
-      "passes": false,
+      "passes": true,
       "notes": "Files: packages/kernel/src/fd-table.ts (FileDescription, fork method), packages/kernel/src/kernel.ts (fdOpen, new methods), packages/kernel/src/types.ts. Currently all FDs are inherited. The kernel has a heuristic close for stdio pipe dups but no general mechanism."
     },
     {

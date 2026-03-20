@@ -3028,3 +3028,69 @@ PRD: ralph/kernel-hardening (46 stories)
   - PipeManager.write() is synchronous — onBrokenPipe fires synchronously before EPIPE throw, which means the process is killed mid-write
   - Pre-existing typecheck error in resource-exhaustion.test.ts (TS18047) — not caused by this change
 ---
+
+## 2026-03-20 - US-060
+- What was implemented: POSIX wstatus encoding for waitpid — created wstatus.ts with encoding/decoding helpers, updated ProcessEntry with exitReason field, updated waitpid to return POSIX-encoded status, removed 128+signal hack from WasmVM driver
+- Files changed:
+  - packages/kernel/src/wstatus.ts — new file with encodeExitStatus, encodeSignalStatus, WIFEXITED, WEXITSTATUS, WIFSIGNALED, WTERMSIG
+  - packages/kernel/src/types.ts — added exitReason: 'normal' | 'signal' | null to ProcessEntry
+  - packages/kernel/src/process-table.ts — markExited sets exitReason, waitpid returns POSIX-encoded wstatus
+  - packages/kernel/src/index.ts — exports wstatus helpers
+  - packages/runtime/wasmvm/src/driver.ts — removed 128+signal hack, passes through POSIX wstatus directly
+  - packages/kernel/test/process-table.test.ts — added 4 wstatus encoding tests (exit(42), SIGKILL, SIGTERM, exit(0))
+  - docs/posix-compatibility.md — marked wstatus encoding as Implemented
+- **Learnings for future iterations:**
+  - ProcessEntry already tracked termSignal separately from exitCode — POSIX encoding just packs them into a single int at the waitpid return boundary
+  - Mock DriverProcess in tests: don't reference killResolve from kill() callback unless wait() has been called first (Promise executor runs lazily)
+  - WasmVM driver.ts waitpid case was doing its own encoding (128+signal) — with POSIX encoding in process-table, the driver passes through directly
+  - resource-exhaustion.test.ts has a pre-existing flaky PTY test (unrelated to this change)
+---
+
+## 2026-03-20 - US-061
+- Implemented waitpid WNOHANG flag for non-blocking child process status check
+- Added WNOHANG constant (value 1, POSIX standard) to types.ts and exported from kernel index.ts
+- Updated ProcessTable.waitpid to accept optional numeric options parameter — returns null when WNOHANG is set and process is still running
+- Updated KernelInterface.waitpid return type to allow null
+- Forwarded options parameter through kernel.ts bridge to processTable.waitpid
+- Updated WasmVM driver.ts and kernel-worker.ts to forward and handle WNOHANG (null → intResult=-1 → ret_pid=0 convention for WASM side)
+- Added 5 new tests: WNOHANG on running process (null), WNOHANG on exited process (result), blocking wait still works, WNOHANG then normal wait sequence, WNOHANG with invalid PID
+- Fixed existing tests for nullable waitpid return type (non-null assertions)
+- Files changed:
+  - packages/kernel/src/types.ts — WNOHANG constant, nullable waitpid return
+  - packages/kernel/src/process-table.ts — WNOHANG logic in waitpid
+  - packages/kernel/src/kernel.ts — forward options parameter
+  - packages/kernel/src/index.ts — export WNOHANG
+  - packages/kernel/test/process-table.test.ts — 5 new tests + nullable fixes
+  - packages/runtime/wasmvm/src/driver.ts — forward options, handle null
+  - packages/runtime/wasmvm/src/kernel-worker.ts — forward options, handle WNOHANG null case
+- **Learnings for future iterations:**
+  - KernelInterface.waitpid already had `options?: number` in the signature from earlier work, but ProcessTable.waitpid didn't accept it — always check both ends of the bridge
+  - Changing a kernel return type to nullable ripples through tests and WasmVM driver — update all callers or add non-null assertions
+  - WasmVM kernel-worker uses -1 as sentinel for "no result" (WNOHANG null) since intResult is a number; ret_pid=0 signals WNOHANG to the C side
+  - resource-exhaustion.test.ts has a pre-existing typecheck error (`echo` possibly null) unrelated to this work
+---
+
+## 2026-03-20 - US-062
+- Implemented FD_CLOEXEC and O_CLOEXEC flags for close-on-exec semantics
+- Added `cloexec: boolean` field to FileDescription interface (default false)
+- Added `O_CLOEXEC` constant (0o2000000) to types.ts and exported from index.ts
+- Updated `ProcessFDTable.open()` to detect O_CLOEXEC, set cloexec=true, strip flag from stored flags
+- Updated `ProcessFDTable.fork()` to skip FDs with cloexec=true
+- Added `fdSetCloexec(pid, fd, value)` and `fdGetCloexec(pid, fd)` to KernelInterface and kernel.ts
+- Added `cloexec: false` to all FileDescription creation sites (pipe-manager.ts, pty.ts, fd-table.ts, resource-exhaustion.test.ts)
+- Files changed:
+  - packages/kernel/src/types.ts — FileDescription.cloexec, O_CLOEXEC constant, KernelInterface methods
+  - packages/kernel/src/fd-table.ts — O_CLOEXEC import, open() cloexec detection, fork() cloexec skip
+  - packages/kernel/src/kernel.ts — fdSetCloexec/fdGetCloexec implementation
+  - packages/kernel/src/pipe-manager.ts — cloexec: false in pipe FileDescriptions
+  - packages/kernel/src/pty.ts — cloexec: false in PTY FileDescriptions
+  - packages/kernel/src/index.ts — export O_CLOEXEC
+  - packages/kernel/test/fd-table.test.ts — 4 new tests (O_CLOEXEC open, default cloexec, fork skip, clear cloexec)
+  - packages/kernel/test/kernel-integration.test.ts — 4 new tests (cloexec spawn EBADF, no-cloexec inherit, fdSetCloexec then spawn, EBADF for invalid FD)
+  - packages/kernel/test/resource-exhaustion.test.ts — added cloexec: false to testAllocDesc
+- **Learnings for future iterations:**
+  - Adding a field to FileDescription requires updating all creation sites: fd-table.ts allocDesc, pipe-manager.ts, pty.ts, and test fixtures
+  - O_CLOEXEC should be stripped from stored flags (it's a creation-time flag, not a persistent open flag)
+  - Pre-existing typecheck error in resource-exhaustion.test.ts (`echo` possibly null) is unrelated
+  - Pre-existing flaky PTY buffer test in resource-exhaustion.test.ts is unrelated
+---
