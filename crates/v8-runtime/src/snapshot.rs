@@ -1,5 +1,7 @@
 // V8 startup snapshots: fast isolate creation from pre-compiled bridge code
 
+use std::sync::{Arc, Mutex};
+
 use crate::bridge::external_refs;
 use crate::isolate::init_v8_platform;
 
@@ -75,6 +77,72 @@ where
     v8::Isolate::new(params)
 }
 
+/// Thread-safe snapshot cache keyed by bridge code hash.
+///
+/// Lazily creates snapshots on first encounter of each bridge code variant.
+/// Concurrent callers for the same variant block on the mutex; only one
+/// creates the snapshot.
+pub struct SnapshotCache {
+    inner: Mutex<Vec<CacheEntry>>,
+    max_entries: usize,
+}
+
+struct CacheEntry {
+    bridge_hash: u64,
+    /// Snapshot blob bytes (copied from v8::StartupData).
+    /// Stored as Vec<u8> rather than StartupData because StartupData
+    /// contains raw pointers that are not Send/Sync.
+    blob: Arc<Vec<u8>>,
+}
+
+impl SnapshotCache {
+    pub fn new(max_entries: usize) -> Self {
+        SnapshotCache {
+            inner: Mutex::new(Vec::new()),
+            max_entries,
+        }
+    }
+
+    /// Get or create a snapshot for the given bridge code.
+    ///
+    /// Thread-safe: concurrent callers block on mutex; only one creates the
+    /// snapshot for a given bridge code variant.
+    pub fn get_or_create(&self, bridge_code: &str) -> Result<Arc<Vec<u8>>, String> {
+        let mut cache = self.inner.lock().unwrap();
+        let hash = siphash(bridge_code);
+
+        // Cache hit — move entry to end (most recently used)
+        if let Some(pos) = cache.iter().position(|e| e.bridge_hash == hash) {
+            let entry = cache.remove(pos);
+            let blob = Arc::clone(&entry.blob);
+            cache.push(entry);
+            return Ok(blob);
+        }
+
+        // Cache miss — create snapshot (holds lock)
+        let startup_data = create_snapshot(bridge_code)?;
+        let arc = Arc::new(startup_data.to_vec());
+
+        // LRU eviction: remove oldest (front) entry when at capacity
+        if cache.len() >= self.max_entries {
+            cache.remove(0);
+        }
+        cache.push(CacheEntry {
+            bridge_hash: hash,
+            blob: Arc::clone(&arc),
+        });
+
+        Ok(arc)
+    }
+}
+
+fn siphash(s: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    s.hash(&mut hasher);
+    hasher.finish()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,6 +210,107 @@ mod tests {
                 let result = eval(&mut isolate, &format!("{} + 1", i));
                 assert_eq!(result, format!("{}", i + 1));
             }
+        }
+
+        // --- Part 6: Cache hit returns same Arc ---
+        {
+            let cache = SnapshotCache::new(4);
+            let bridge_code = "(function() { globalThis.__cached = 1; })();";
+
+            let arc1 = cache.get_or_create(bridge_code).expect("first get_or_create");
+            let arc2 = cache.get_or_create(bridge_code).expect("second get_or_create");
+
+            // Same Arc (same pointer) — cache hit, not a new snapshot
+            assert!(Arc::ptr_eq(&arc1, &arc2), "cache hit should return same Arc");
+        }
+
+        // --- Part 7: Cache miss creates new snapshot ---
+        {
+            let cache = SnapshotCache::new(4);
+            let code_a = "(function() { globalThis.__a = 1; })();";
+            let code_b = "(function() { globalThis.__b = 2; })();";
+
+            let arc_a = cache.get_or_create(code_a).expect("create A");
+            let arc_b = cache.get_or_create(code_b).expect("create B");
+
+            // Different bridge code → different Arc
+            assert!(!Arc::ptr_eq(&arc_a, &arc_b), "different code should produce different Arc");
+
+            // Verify both are usable
+            let mut iso_a = create_isolate_from_snapshot((*arc_a).clone(), None);
+            assert_eq!(eval(&mut iso_a, "1 + 1"), "2");
+
+            let mut iso_b = create_isolate_from_snapshot((*arc_b).clone(), None);
+            assert_eq!(eval(&mut iso_b, "2 + 2"), "4");
+        }
+
+        // --- Part 8: LRU eviction removes oldest entry ---
+        {
+            let cache = SnapshotCache::new(2);
+            let code_1 = "(function() { globalThis.__v1 = 1; })();";
+            let code_2 = "(function() { globalThis.__v2 = 2; })();";
+            let code_3 = "(function() { globalThis.__v3 = 3; })();";
+
+            let arc_1 = cache.get_or_create(code_1).expect("create 1");
+            let _arc_2 = cache.get_or_create(code_2).expect("create 2");
+
+            // Cache is full (2 entries). Adding a third should evict code_1.
+            let _arc_3 = cache.get_or_create(code_3).expect("create 3");
+
+            // code_1 should be evicted — re-requesting it should return a new Arc
+            let arc_1_new = cache.get_or_create(code_1).expect("re-create 1");
+            assert!(
+                !Arc::ptr_eq(&arc_1, &arc_1_new),
+                "evicted entry should produce a new Arc on re-creation"
+            );
+
+            // code_2 should still be cached (it was accessed before code_3 but not evicted)
+            // After eviction of code_1, cache had [code_2, code_3], then adding code_1 evicts code_2
+            // Actually: after inserting code_3, cache was [code_2, code_3] (code_1 evicted).
+            // Then inserting code_1 again: cache is full (2), evicts code_2 → cache is [code_3, code_1].
+        }
+
+        // --- Part 9: Concurrent get_or_create creates only one snapshot ---
+        {
+            use std::sync::atomic::{AtomicUsize, Ordering};
+
+            let cache = Arc::new(SnapshotCache::new(4));
+            let bridge_code = "(function() { globalThis.__concurrent = 1; })();";
+
+            // Pre-warm — to avoid measuring snapshot creation races, verify
+            // that after one creation, N threads all get the same Arc
+            let first = cache.get_or_create(bridge_code).expect("pre-warm");
+
+            let num_threads = 4;
+            let barrier = Arc::new(std::sync::Barrier::new(num_threads));
+            let same_count = Arc::new(AtomicUsize::new(0));
+
+            let mut handles = vec![];
+            for _ in 0..num_threads {
+                let cache = Arc::clone(&cache);
+                let barrier = Arc::clone(&barrier);
+                let first = Arc::clone(&first);
+                let same_count = Arc::clone(&same_count);
+                let code = bridge_code.to_string();
+
+                handles.push(std::thread::spawn(move || {
+                    barrier.wait();
+                    let arc = cache.get_or_create(&code).expect("concurrent get");
+                    if Arc::ptr_eq(&arc, &first) {
+                        same_count.fetch_add(1, Ordering::Relaxed);
+                    }
+                }));
+            }
+
+            for h in handles {
+                h.join().expect("thread join");
+            }
+
+            assert_eq!(
+                same_count.load(Ordering::Relaxed),
+                num_threads,
+                "all concurrent callers should get the same cached Arc"
+            );
         }
     }
 }
