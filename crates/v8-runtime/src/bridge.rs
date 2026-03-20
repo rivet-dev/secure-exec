@@ -3,11 +3,30 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_void;
+use std::sync::OnceLock;
 
+use v8::MapFnTo;
 use v8::ValueDeserializerHelper;
 use v8::ValueSerializerHelper;
 
 use crate::host_call::BridgeCallContext;
+
+/// External references for V8 snapshot serialization.
+/// Maps function pointer indices in the snapshot to current addresses.
+/// Must be identical at snapshot creation and restore time.
+pub fn external_refs() -> &'static v8::ExternalReferences {
+    static REFS: OnceLock<v8::ExternalReferences> = OnceLock::new();
+    REFS.get_or_init(|| {
+        v8::ExternalReferences::new(&[
+            v8::ExternalReference {
+                function: sync_bridge_callback.map_fn_to(),
+            },
+            v8::ExternalReference {
+                function: async_bridge_callback.map_fn_to(),
+            },
+        ])
+    })
+}
 
 // Minimal delegate for V8 ValueSerializer — throws DataCloneError as a V8 exception
 struct DefaultSerializerDelegate;

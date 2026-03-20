@@ -9,6 +9,7 @@ mod host_call;
 mod timeout;
 mod stream;
 mod session;
+mod snapshot;
 
 use std::collections::HashMap;
 use std::fs;
