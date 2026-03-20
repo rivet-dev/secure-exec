@@ -6,6 +6,7 @@ PRD: ralph/kernel-hardening (46 stories)
 - kernel.exec() wraps commands in sh -c; brush-shell currently returns exit code 17 for all spawned child commands (benign "could not retrieve pid" warning) — test stdout content, not exit code
 - SimpleVFS in test files MUST include async chmod() method — kernel vfsWrite calls vfs.chmod() on new files for umask handling
 - Simple C commands (vanilla sysroot, no host imports) just need: programs/<name>.c, add to COMMANDS in Makefile, add to WASMVM_COMMANDS + DEFAULT_FIRST_PARTY_TIERS in driver.ts
+- ALL GNU tools (make, coreutils, grep, sed, etc.) are GPL — NEVER vendor their source; always use permissive reimplementations or write from scratch (Apache-2.0/MIT/BSD)
 - Vendored C libs (zlib, minizip) that use fopen64/ftello64/fseeko64 need `__wasi__` guard added to fall back to standard functions (WASI has 64-bit off_t natively)
 - wasi-libc source files must use `#include <errno.h>` (not `<__errno.h>`) to get errno constants like EAFNOSUPPORT, EINVAL, ENAMETOOLONG
 - wasi-libc Makefile OMIT_SOURCES already excludes wasip2 socket implementations for wasip1 — no need to guard existing socket.c/send.c/recv.c
@@ -3470,4 +3471,24 @@ PRD: ralph/kernel-hardening (46 stories)
   - File-based sqlite3 DBs fail with "disk I/O error" in kernel-worker mode because fd_filestat_get (fstat) and fd_filestat_set_size (ftruncate) are not implemented in kernel-worker.ts — only the standalone polyfill handles these
   - Multi-statement SQL via stdin is unreliable regardless of delivery method (kernel.exec stdin option, shell pipe, or file redirect) — all go through the same fgetc buffering in WASI
   - Meta-commands (.tables, .schema, .dump) only work via stdin (not command arg), so they can't be tested directly due to multi-statement stdin limitation — use equivalent SQL queries against sqlite_master instead
+---
+
+## 2026-03-20 - US-083
+- Implemented clean-room POSIX make in C (`wasmvm/c/programs/make.c`, ~1850 lines)
+- GNU make 4.4.1 source was GPL-3, which is prohibited by license policy — wrote from scratch instead
+- Features: targets, deps, variables (=, :=, ?=, +=), automatic variables ($@, $<, $^, $*, $?), conditionals (ifeq/ifneq/ifdef/ifndef), pattern rules, include directive, .PHONY, backslash continuation
+- Built-in functions: shell, wildcard, subst, patsubst, filter, filter-out, sort, word/words, firstword/lastword, dir/notdir, basename/suffix, addprefix/addsuffix, foreach, if, or, and, error/warning/info, strip, abspath
+- Recipe execution via posix_spawn (not fork/exec)
+- Flags: -f, -C, -n (dry-run), -s (silent), -k (keep-going), -j (ignored), --version, --help
+- Files changed:
+  - wasmvm/c/programs/make.c (new — clean-room POSIX make)
+  - wasmvm/c/Makefile (added make to COMMANDS and PATCHED_PROGRAMS)
+  - packages/runtime/wasmvm/src/driver.ts (added make to WASMVM_COMMANDS and DEFAULT_FIRST_PARTY_TIERS)
+  - docs/wasmvm/supported-commands.md (added make entry, updated summary counts)
+- **Learnings for future iterations:**
+  - GNU make, GNU coreutils, etc. are ALL GPL — always check license before vendoring; use permissive reimplementations (uutils, awk-rs, ripgrep, etc.) per CLAUDE.md policy
+  - posix_spawn_compat.h provides all the types needed for C programs that spawn processes — include it instead of spawn.h/sys/wait.h
+  - Single-file C programs (no external libs) just need to be added to PATCHED_PROGRAMS in Makefile — the default compilation rule handles them
+  - Driver auto-discovers commands via commandDirs — adding to WASMVM_COMMANDS is only for legacy mode fallback
+  - DEFAULT_FIRST_PARTY_TIERS in driver.ts must set 'full' for any command that spawns subprocesses (like make)
 ---

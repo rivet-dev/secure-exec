@@ -1658,8 +1658,8 @@
         "Tests pass"
       ],
       "priority": 83,
-      "passes": false,
-      "notes": "GNU make is ~30 .c files. The biggest challenges: 1) job.c uses fork+exec \u2014 needs posix_spawn path, 2) job server uses pipe+signals \u2014 disable with --disable-job-server, 3) signal handlers for SIGCHLD \u2014 stub or use our kernel signals, 4) getloadavg \u2014 stub to return 0. make 4.4+ has native posix_spawn support which aligns with our architecture."
+      "passes": true,
+      "notes": "Implemented as a clean-room POSIX make in C (Apache-2.0) instead of vendoring GNU make (GPL-3) due to license policy. Supports targets, deps, variables, automatic vars, conditionals, pattern rules, include, built-in functions, and posix_spawn-based recipe execution."
     },
     {
       "id": "US-084",
