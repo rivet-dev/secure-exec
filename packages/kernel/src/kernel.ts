@@ -29,6 +29,7 @@ import { FDTableManager, ProcessFDTable } from "./fd-table.js";
 import { ProcessTable } from "./process-table.js";
 import { PipeManager } from "./pipe-manager.js";
 import { PtyManager } from "./pty.js";
+import { FileLockManager } from "./file-lock.js";
 import { CommandRegistry } from "./command-registry.js";
 import { wrapFileSystem, checkChildProcess } from "./permissions.js";
 import { UserManager } from "./user.js";
@@ -71,6 +72,7 @@ class KernelImpl implements Kernel {
 		} catch { /* no-op if pgid gone */ }
 		return 0;
 	});
+	private fileLockManager = new FileLockManager();
 	private commandRegistry = new CommandRegistry();
 	private userManager: UserManager;
 	private drivers: RuntimeDriver[] = [];
@@ -706,12 +708,11 @@ class KernelImpl implements Kernel {
 				// Close FD first (decrements refCount on shared FileDescription)
 				table.close(fd);
 
-				// Only signal pipe/pty closure when last reference is dropped
-				if (isPipe && entry.description.refCount <= 0) {
-					this.pipeManager.close(descId);
-				}
-				if (isPty && entry.description.refCount <= 0) {
-					this.ptyManager.close(descId);
+				// Only signal pipe/pty/lock closure when last reference is dropped
+				if (entry.description.refCount <= 0) {
+					if (isPipe) this.pipeManager.close(descId);
+					if (isPty) this.ptyManager.close(descId);
+					this.fileLockManager.releaseByDescription(descId);
 				}
 			},
 			fdSeek: async (pid, fd, offset, whence) => {
@@ -835,6 +836,15 @@ class KernelImpl implements Kernel {
 					default:
 						throw new KernelError("EINVAL", `unsupported fcntl command ${cmd}`);
 				}
+			},
+
+			// Advisory file locking
+			flock: (pid, fd, operation) => {
+				assertOwns(pid);
+				const table = this.getTable(pid);
+				const entry = table.get(fd);
+				if (!entry) throw new KernelError("EBADF", `bad file descriptor ${fd}`);
+				this.fileLockManager.flock(entry.description.path, entry.description.id, operation);
 			},
 
 			// Process operations
@@ -1160,13 +1170,16 @@ class KernelImpl implements Kernel {
 		const table = this.fdTableManager.get(pid);
 		if (!table) return;
 
-		// Collect pipe/PTY descriptions before closing so we can check refCounts after
-		const managedDescs: { id: number; description: { refCount: number }; type: "pipe" | "pty" }[] = [];
+		// Collect managed descriptions before closing so we can check refCounts after
+		const managedDescs: { id: number; description: { refCount: number }; type: "pipe" | "pty" | "lock" }[] = [];
 		for (const entry of table) {
-			if (this.pipeManager.isPipe(entry.description.id)) {
-				managedDescs.push({ id: entry.description.id, description: entry.description, type: "pipe" });
-			} else if (this.ptyManager.isPty(entry.description.id)) {
-				managedDescs.push({ id: entry.description.id, description: entry.description, type: "pty" });
+			const descId = entry.description.id;
+			if (this.pipeManager.isPipe(descId)) {
+				managedDescs.push({ id: descId, description: entry.description, type: "pipe" });
+			} else if (this.ptyManager.isPty(descId)) {
+				managedDescs.push({ id: descId, description: entry.description, type: "pty" });
+			} else if (this.fileLockManager.hasLock(descId)) {
+				managedDescs.push({ id: descId, description: entry.description, type: "lock" });
 			}
 		}
 
@@ -1177,7 +1190,8 @@ class KernelImpl implements Kernel {
 		for (const { id, description, type } of managedDescs) {
 			if (description.refCount <= 0) {
 				if (type === "pipe") this.pipeManager.close(id);
-				else this.ptyManager.close(id);
+				else if (type === "pty") this.ptyManager.close(id);
+				else if (type === "lock") this.fileLockManager.releaseByDescription(id);
 			}
 		}
 	}

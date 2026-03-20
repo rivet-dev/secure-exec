@@ -257,6 +257,10 @@ export interface KernelInterface {
 	fdGetCloexec(pid: number, fd: number): boolean;
 	fcntl(pid: number, fd: number, cmd: number, arg?: number): number;
 
+	// Advisory file locking
+	/** Apply or remove an advisory lock on the file referenced by fd. */
+	flock(pid: number, fd: number, operation: number): void;
+
 	// Process operations
 	spawn(
 		command: string,

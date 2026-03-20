@@ -60,6 +60,7 @@ export { PipeManager } from "./pipe-manager.js";
 export { PtyManager } from "./pty.js";
 export type { LineDisciplineConfig } from "./pty.js";
 export { CommandRegistry } from "./command-registry.js";
+export { FileLockManager, LOCK_SH, LOCK_EX, LOCK_UN, LOCK_NB } from "./file-lock.js";
 export { UserManager } from "./user.js";
 export type { UserConfig } from "./user.js";
 
