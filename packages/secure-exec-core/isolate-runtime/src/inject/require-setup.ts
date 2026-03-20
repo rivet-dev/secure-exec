@@ -1464,6 +1464,26 @@
           return promisesModule;
         }
 
+        // Special handling for stream/web module.
+        // Expose V8's built-in Web Streams API objects.
+        if (name === 'stream/web') {
+          if (__internalModuleCache['stream/web']) return __internalModuleCache['stream/web'];
+          var streamWebModule = {
+            ReadableStream: globalThis.ReadableStream,
+            ReadableStreamDefaultReader: globalThis.ReadableStreamDefaultReader,
+            WritableStream: globalThis.WritableStream,
+            WritableStreamDefaultWriter: globalThis.WritableStreamDefaultWriter,
+            TransformStream: globalThis.TransformStream,
+            ByteLengthQueuingStrategy: globalThis.ByteLengthQueuingStrategy,
+            CountQueuingStrategy: globalThis.CountQueuingStrategy,
+            TextEncoderStream: globalThis.TextEncoderStream,
+            TextDecoderStream: globalThis.TextDecoderStream,
+          };
+          __internalModuleCache['stream/web'] = streamWebModule;
+          _debugRequire('loaded', name, 'stream-web-special');
+          return streamWebModule;
+        }
+
         // Special handling for child_process module
         if (name === 'child_process') {
           if (__internalModuleCache['child_process']) return __internalModuleCache['child_process'];

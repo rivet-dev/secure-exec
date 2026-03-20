@@ -59,6 +59,8 @@ export interface DriverDeps {
 	resolutionCache: ResolutionCache;
 	/** Optional callback for PTY setRawMode — wired by kernel when PTY is attached. */
 	onPtySetRawMode?: (mode: boolean) => void;
+	/** Translate sandbox paths to host filesystem paths (from ModuleAccessFileSystem). */
+	sandboxToHostPath?: (sandboxPath: string) => string | null;
 }
 
 // Constants

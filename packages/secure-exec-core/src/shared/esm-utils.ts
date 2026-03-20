@@ -73,7 +73,7 @@ export function wrapCJSForESMWithModulePath(
 	    const __dirname = ${JSON.stringify(moduleDir)};
 	    const require = (name) => globalThis._requireFrom(name, __dirname);
 	    const module = { exports: {} };
-	    const exports = module.exports;
+	    let exports = module.exports;
 	    ${code}
 	    const __cjs = module.exports;
 	    export default __cjs;

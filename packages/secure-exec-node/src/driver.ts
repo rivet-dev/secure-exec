@@ -291,13 +291,7 @@ export function createDefaultNetworkAdapter(options?: {
 	let nextUpgradeSocketId = 1;
 	let onUpgradeSocketData: ((socketId: number, dataBase64: string) => void) | null = null;
 	let onUpgradeSocketEnd: ((socketId: number) => void) | null = null;
-	// Track TCP sockets for net bridge
-	const tcpSockets = new Map<number, net.Socket>();
-	let onNetSocketData: ((socketId: number, dataBase64: string) => void) | null = null;
-	let onNetSocketConnect: ((socketId: number) => void) | null = null;
-	let onNetSocketEnd: ((socketId: number) => void) | null = null;
-	let onNetSocketClose: ((socketId: number, hadError: boolean) => void) | null = null;
-	let onNetSocketError: ((socketId: number, message: string) => void) | null = null;
+
 
 	return {
 		async httpServerListen(options) {
@@ -741,71 +735,6 @@ export function createDefaultNetworkAdapter(options?: {
 			});
 		},
 
-		async netSocketConnect(opts) {
-			return new Promise((resolve, reject) => {
-				const socket = new net.Socket();
-				tcpSockets.set(opts.socketId, socket);
-				let resolved = false;
-
-				socket.on("connect", () => {
-					resolved = true;
-					if (onNetSocketConnect) onNetSocketConnect(opts.socketId);
-					resolve({ socketId: opts.socketId });
-				});
-
-				socket.on("data", (chunk) => {
-					if (onNetSocketData) {
-						onNetSocketData(opts.socketId, chunk.toString("base64"));
-					}
-				});
-
-				socket.on("end", () => {
-					if (onNetSocketEnd) onNetSocketEnd(opts.socketId);
-				});
-
-				socket.on("close", (hadError) => {
-					tcpSockets.delete(opts.socketId);
-					if (onNetSocketClose) onNetSocketClose(opts.socketId, hadError);
-				});
-
-				socket.on("error", (err) => {
-					if (onNetSocketError) onNetSocketError(opts.socketId, err.message);
-					if (!resolved) {
-						resolved = true;
-						reject(err);
-					}
-				});
-
-				socket.connect(opts.port, opts.host);
-			});
-		},
-
-		netSocketWrite(socketId, dataBase64) {
-			const socket = tcpSockets.get(socketId);
-			if (!socket || socket.destroyed) return false;
-			return socket.write(Buffer.from(dataBase64, "base64"));
-		},
-
-		netSocketEnd(socketId) {
-			const socket = tcpSockets.get(socketId);
-			if (socket && !socket.destroyed) socket.end();
-		},
-
-		netSocketDestroy(socketId) {
-			const socket = tcpSockets.get(socketId);
-			if (socket) {
-				socket.destroy();
-				tcpSockets.delete(socketId);
-			}
-		},
-
-		setNetSocketCallbacks(callbacks) {
-			onNetSocketData = callbacks.onData;
-			onNetSocketConnect = callbacks.onConnect;
-			onNetSocketEnd = callbacks.onEnd;
-			onNetSocketClose = callbacks.onClose;
-			onNetSocketError = callbacks.onError;
-		},
 	};
 }
 

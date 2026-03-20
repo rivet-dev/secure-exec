@@ -102,6 +102,7 @@ type BridgeDeps = Pick<
 	| "activeHostTimers"
 	| "resolutionCache"
 	| "onPtySetRawMode"
+	| "sandboxToHostPath"
 >;
 
 export function emitConsoleEvent(
@@ -227,6 +228,14 @@ export async function setupRequire(
 	// Used as fallback inside applySync contexts where applySyncPromise can't
 	// pump the event loop (e.g. require() inside net socket data callbacks).
 	const { createRequire } = await import("node:module");
+	const { realpathSync: fsRealpathSync } = await import("node:fs");
+	// Translate sandbox /root/node_modules/ paths to host paths for require.resolve
+	const translateSandboxPath = (sandboxDir: string): string => {
+		if (!deps.sandboxToHostPath) return sandboxDir;
+		const hostPath = deps.sandboxToHostPath(sandboxDir);
+		if (!hostPath) return sandboxDir;
+		try { return fsRealpathSync(hostPath); } catch { return hostPath; }
+	};
 	const resolveModuleSyncRef = new ivm.Reference(
 		(request: string, fromDir: string): string | null => {
 			const builtinSpecifier = normalizeBuiltinSpecifier(request);
@@ -234,7 +243,8 @@ export async function setupRequire(
 				return builtinSpecifier;
 			}
 			try {
-				const hostRequire = createRequire(fromDir + "/noop.js");
+				const hostDir = translateSandboxPath(fromDir);
+				const hostRequire = createRequire(hostDir + "/noop.js");
 				const result = hostRequire.resolve(request);
 				return result;
 			} catch {
@@ -261,10 +271,18 @@ export async function setupRequire(
 	const loadFileSyncRef = new ivm.Reference(
 		(filePath: string): string | null => {
 			try {
-				const source = readFileSync(filePath, "utf8");
+				// Try host-translated path first for overlay paths
+				const hostPath = translateSandboxPath(filePath);
+				const source = readFileSync(hostPath, "utf8");
 				return transformDynamicImport(source);
 			} catch {
-				return null;
+				// Fallback to original path
+				try {
+					const source = readFileSync(filePath, "utf8");
+					return transformDynamicImport(source);
+				} catch {
+					return null;
+				}
 			}
 		},
 	);

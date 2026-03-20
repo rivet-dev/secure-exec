@@ -30,6 +30,11 @@ export class NodeExecutionDriver implements RuntimeDriver {
 
 		const isolate = this.runtimeCreateIsolate(this.memoryLimit);
 		const permissions = system.permissions;
+		// Extract sandboxToHostPath before wrapping (wrapFileSystem strips custom methods)
+		const unwrappedFs = system.filesystem as unknown as Record<string, unknown>;
+		const sandboxToHostPath = typeof unwrappedFs?.toHostPath === "function"
+			? (unwrappedFs.toHostPath as (p: string) => string | null).bind(system.filesystem)
+			: undefined;
 		const filesystem = system.filesystem
 			? wrapFileSystem(system.filesystem, permissions)
 			: createFsStub();
@@ -90,6 +95,7 @@ export class NodeExecutionDriver implements RuntimeDriver {
 			dynamicImportCache: new Map(),
 			dynamicImportPending: new Map(),
 			resolutionCache: createResolutionCache(),
+			sandboxToHostPath,
 		};
 	}
 

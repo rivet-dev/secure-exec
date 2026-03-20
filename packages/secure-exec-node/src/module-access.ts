@@ -209,6 +209,14 @@ export class ModuleAccessFileSystem implements VirtualFileSystem {
 		);
 	}
 
+	/**
+	 * Translate a sandbox path to the host filesystem path.
+	 * Returns null if the path is not within the overlay.
+	 */
+	toHostPath(virtualPath: string): string | null {
+		return this.overlayHostPathFor(virtualPath);
+	}
+
 	private overlayHostPathFor(virtualPath: string): string | null {
 		if (!startsWithPath(virtualPath, SANDBOX_NODE_MODULES_ROOT)) {
 			return null;

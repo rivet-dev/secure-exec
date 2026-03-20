@@ -28,6 +28,101 @@ import {
 import type { DriverDeps } from "./isolate-bootstrap.js";
 import { getModuleFormat, resolveESMPath } from "./module-resolver.js";
 
+/**
+ * Resolve star export conflicts in ESM source to avoid V8's strict
+ * "conflicting star exports" error. Node.js makes conflicting names
+ * ambiguous (undefined); V8 throws instead. This transforms the source
+ * to use explicit named re-exports that skip duplicates.
+ */
+async function deconflictStarExports(
+	deps: CompilerDeps,
+	source: string,
+	filePath: string,
+): Promise<string> {
+	// Find all export * from '...' statements
+	const starExportRe = /^export\s+\*\s+from\s+['"]([^'"]+)['"];?\s*$/gm;
+	const starExports: { specifier: string; fullMatch: string }[] = [];
+	let match;
+	while ((match = starExportRe.exec(source)) !== null) {
+		starExports.push({ specifier: match[1], fullMatch: match[0] });
+	}
+
+	// No conflicts possible with 0 or 1 star exports
+	if (starExports.length < 2) return source;
+
+	// Resolve each star-export target and extract its named exports
+	const moduleExports: Map<string, string[]> = new Map();
+	for (const star of starExports) {
+		let resolved: string | null;
+		try {
+			resolved = await resolveESMPath(deps, star.specifier, filePath);
+		} catch {
+			continue;
+		}
+		if (!resolved) continue;
+		let targetSource: string | null;
+		try {
+			targetSource = await loadFile(resolved, deps.filesystem);
+		} catch {
+			continue;
+		}
+		if (!targetSource) continue;
+		// Extract export names via regex (covers export const/let/var/function/class and export { ... })
+		const names: string[] = [];
+		const namedDeclRe = /export\s+(?:const|let|var|function|class|async\s+function)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/g;
+		let m;
+		while ((m = namedDeclRe.exec(targetSource)) !== null) names.push(m[1]);
+		const namedBracketRe = /export\s*\{([^}]+)\}/g;
+		while ((m = namedBracketRe.exec(targetSource)) !== null) {
+			for (const part of m[1].split(",")) {
+				const name = part.trim().split(/\s+as\s+/).pop()?.trim();
+				if (name && name !== "default") names.push(name);
+			}
+		}
+		// Also handle export * (re-exports from further modules)
+		// For simplicity, don't recurse — just note unknown names
+		moduleExports.set(star.specifier, [...new Set(names)]);
+	}
+
+	// Find conflicting names (exported by 2+ star sources)
+	const seen = new Map<string, string>(); // name → first specifier
+	const conflicts = new Set<string>();
+	for (const star of starExports) {
+		const names = moduleExports.get(star.specifier) ?? [];
+		for (const name of names) {
+			if (seen.has(name) && seen.get(name) !== star.specifier) {
+				conflicts.add(name);
+			} else {
+				seen.set(name, star.specifier);
+			}
+		}
+	}
+
+	if (conflicts.size === 0) return source;
+
+	// Rewrite conflicting star exports: keep first source's export *,
+	// replace later ones with explicit exports excluding conflicting names
+	let result = source;
+	const firstSources = new Set<string>();
+	for (const [name, specifier] of seen) {
+		if (conflicts.has(name)) firstSources.add(specifier);
+	}
+
+	for (const star of starExports) {
+		if (firstSources.has(star.specifier)) continue; // keep export * for first source
+		const names = moduleExports.get(star.specifier) ?? [];
+		const nonConflicting = names.filter(n => !conflicts.has(n));
+		if (nonConflicting.length === names.length) continue; // no conflicts in this one
+		// Replace export * with explicit exports excluding conflicting names
+		const replacement = nonConflicting.length > 0
+			? `export { ${nonConflicting.join(", ")} } from '${star.specifier}';`
+			: `/* star export conflict resolved: ${star.specifier} */`;
+		result = result.replace(star.fullMatch, replacement);
+	}
+
+	return result;
+}
+
 type CompilerDeps = Pick<
 	DriverDeps,
 	| "isolate"
@@ -124,8 +219,16 @@ export async function compileESMModule(
 			// Transform CommonJS modules into ESM default exports.
 			code = wrapCJSForESMWithModulePath(source, filePath);
 		} else {
-			code = source;
+			// Resolve star export conflicts to avoid V8's strict error
+			code = await deconflictStarExports(deps, source, filePath);
 		}
+	}
+
+	// Polyfill import.meta.url — isolated-vm does not set it automatically.
+	// Replace with a file:// URL derived from the module's sandbox path.
+	if (code.includes("import.meta.url")) {
+		const fileUrl = `file://${filePath}`;
+		code = code.replace(/import\.meta\.url/g, JSON.stringify(fileUrl));
 	}
 
 	// Compile the module

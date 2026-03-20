@@ -38,6 +38,9 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SECURE_EXEC_ROOT = path.resolve(__dirname, '../..');
+// Use workspace root for moduleAccess so pnpm hoisted transitive deps
+// (e.g. @mariozechner/pi-ai) are reachable via .pnpm/node_modules/
+const WORKSPACE_ROOT = path.resolve(SECURE_EXEC_ROOT, '../..');
 
 // ---------------------------------------------------------------------------
 // Skip helpers
@@ -147,7 +150,7 @@ function createPiSandboxRuntime(opts: {
   return createTestNodeRuntime({
     driver: createNodeDriver({
       filesystem: new NodeFileSystem(),
-      moduleAccess: { cwd: SECURE_EXEC_ROOT },
+      moduleAccess: { cwd: WORKSPACE_ROOT },
       networkAdapter: createDefaultNetworkAdapter({
         initialExemptPorts: new Set([opts.port]),
       }),
