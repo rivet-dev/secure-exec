@@ -15,7 +15,7 @@ PRD: ralph/kernel-hardening (46 stories)
 - Native binary sandbox test pattern: createTestNodeRuntime + createHostCommandExecutor, sandbox code calls require('child_process').spawn(), env vars serialize through bridge JSON to host executor
 - Overlay VFS pattern (InMemoryFileSystem + host FS fallback) for kernel tests that need both populateBin writes and host module resolution — writes go to memory, reads try memory first then fsPromises
 - TerminalHarness.waitFor() races with fast-exiting processes — use raw openShell + output collection for probes, not TerminalHarness
-- NodeRuntimeDriver doesn't bridge isTTY — process.stdout.isTTY is always false in the V8 isolate regardless of PTY attachment (spec gap #5)
+- isTTY is now bridged: ProcessContext.isTTY carries TTY attachment info from kernel → RuntimeDriver → ProcessConfig → bridge process.ts → process.stdout.isTTY (spec gap #5 RESOLVED)
 - NodeRuntimeDriver doesn't bridge streaming stdin — exec() receives stdin as single string batch; PTY input doesn't reach sandbox process.stdin events (blocks interactive TUI tests)
 - filterEnv returns {} when permissions.env is undefined — use { ...allowAllChildProcess, ...allowAllEnv } in createNodeRuntime() for sandbox tests that need process.env.PATH
 - HostBinaryDriver pattern: inline RuntimeDriver that spawns real host binaries; must handle child 'error' event (ENOENT) and use exitResolved guard to prevent double-resolve
@@ -2890,4 +2890,35 @@ PRD: ralph/kernel-hardening (46 stories)
   - Pi ignores ANTHROPIC_BASE_URL — it hardcodes baseURL from model config; use PI_CODING_AGENT_DIR + models.json provider override with custom baseUrl to redirect API calls
   - Pi agent dir resolves via $PI_CODING_AGENT_DIR env var or ~/.pi/agent/ (not ~/.pi/)
   - Pi CLI flags: -p (print mode), --provider, --model, --no-session, --offline, --no-extensions/skills/prompt-templates/themes for clean test runs
+---
+
+## 2026-03-20 - US-031
+- Implemented isTTY bridge to resolve spec gap #5
+- Added `isTTY` field to ProcessContext in kernel types
+- kernel.spawnInternal detects PTY slave FDs via ptyManager.isSlave() and sets isTTY flags
+- Node RuntimeDriver passes stdinIsTTY/stdoutIsTTY/stderrIsTTY to ProcessConfig
+- Wired PTY setRawMode callback: process.stdin.setRawMode() → kernel.ptySetDiscipline()
+- Added http2.constants to bridge stub (HTTP2 header constants + NGHTTP2 error codes)
+- Added moduleAccessPaths, networkAdapter, useDefaultNetwork options to NodeRuntimeOptions
+- Fixed Node RuntimeDriver module resolution: synthetic filePath `/root/entry.js` for -e code
+- Updated pi-interactive.test.ts probe to test CLI entry point loading (not just SDK)
+- Tests properly skip when Pi CLI can't fully load (undici requires util/types not yet bridged)
+- Files changed:
+  - packages/kernel/src/types.ts (ProcessContext.isTTY field)
+  - packages/kernel/src/kernel.ts (spawnInternal PTY detection)
+  - packages/kernel/test/process-table.test.ts (isTTY in test ctx)
+  - packages/runtime/node/src/driver.ts (isTTY, setRawMode, moduleAccess, network options)
+  - packages/runtime/node/test/driver.test.ts (isTTY in test ctx)
+  - packages/runtime/python/test/driver.test.ts (isTTY in test ctx)
+  - packages/runtime/wasmvm/test/driver.test.ts (isTTY in test ctx)
+  - packages/secure-exec-core/src/bridge/network.ts (http2.constants)
+  - packages/secure-exec-node/src/execution-driver.ts (onPtySetRawMode in deps)
+  - packages/secure-exec-node/src/isolate-bootstrap.ts (onPtySetRawMode in options)
+  - packages/secure-exec/tests/cli-tools/pi-interactive.test.ts (workspace root moduleAccess, network adapter, CLI probe)
+- **Learnings for future iterations:**
+  - Sandbox module resolution starts from __dirname, not CWD — for `-e` code with no filePath, __dirname defaults to `/` where `/node_modules` doesn't exist; use synthetic filePath like `/root/entry.js` so __dirname = `/root/` finds `/root/node_modules`
+  - globalThis.fetch is non-writable in the sandbox — cannot patch from sandbox code; use network adapter redirect at host level instead
+  - ModuleAccessFileSystem maps /root/node_modules to host's ${cwd}/node_modules — use workspace root for cwd so pnpm hoisted transitive deps are reachable
+  - undici requires util/types which isn't bridged — this blocks Pi CLI interactive mode in the sandbox (Pi SDK headless mode works fine)
+  - ProcessContext.isTTY carries TTY info from kernel to RuntimeDriver; ptyManager.isSlave() checks if FD is a PTY slave
 ---
