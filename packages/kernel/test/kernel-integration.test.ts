@@ -3901,11 +3901,56 @@ describe("kernel + MockRuntimeDriver integration", () => {
 			const proc = kernel.spawn("new-cmd", []);
 			await proc.wait();
 
-			// populateBinEntry is async fire-and-forget — wait for it to settle
-			await new Promise((r) => setTimeout(r, 0));
+			// Flush pending bin entries — no setTimeout hack needed
+			await kernel.flushPendingBinEntries();
 
 			// After spawn, /bin/new-cmd should be populated
 			expect(await vfs.exists("/bin/new-cmd")).toBe(true);
+		});
+
+		it("on-demand discovery creates /bin stub before subsequent spawn resolves via PATH", async () => {
+			let vfs: TestFileSystem;
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { exitCode: 0 },
+				"discover-cmd": { exitCode: 42 },
+				"/bin/discover-cmd": { exitCode: 42 },
+			});
+			driver.tryResolve = (command: string) => command === "discover-cmd";
+
+			({ kernel, vfs } = await createTestKernel({ drivers: [driver] }));
+
+			// First spawn discovers the command
+			const proc1 = kernel.spawn("discover-cmd", []);
+			await proc1.wait();
+
+			// Flush ensures /bin stub exists before PATH-based lookup
+			await kernel.flushPendingBinEntries();
+
+			// /bin/discover-cmd must exist now
+			expect(await vfs.exists("/bin/discover-cmd")).toBe(true);
+
+			// Subsequent spawn via PATH (/bin/discover-cmd) resolves via registry
+			const proc2 = kernel.spawn("/bin/discover-cmd", []);
+			const code2 = await proc2.wait();
+			expect(code2).toBe(42);
+		});
+
+		it("rapid consecutive spawns of a newly-discovered command both succeed (no race)", async () => {
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { exitCode: 0 },
+				"rapid-cmd": { exitCode: 7 },
+			});
+			driver.tryResolve = (command: string) => command === "rapid-cmd";
+
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			// Two rapid spawns — first triggers tryResolve, second uses registry
+			const proc1 = kernel.spawn("rapid-cmd", []);
+			const proc2 = kernel.spawn("rapid-cmd", []);
+
+			const [code1, code2] = await Promise.all([proc1.wait(), proc2.wait()]);
+			expect(code1).toBe(7);
+			expect(code2).toBe(7);
 		});
 	});
 });

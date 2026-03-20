@@ -73,6 +73,7 @@ class KernelImpl implements Kernel {
 	private env: Record<string, string>;
 	private cwd: string;
 	private disposed = false;
+	private pendingBinEntries: Promise<void>[] = [];
 
 	constructor(options: KernelOptions) {
 		// Apply device layer over the base filesystem
@@ -142,8 +143,22 @@ class KernelImpl implements Kernel {
 		this.drivers.length = 0;
 	}
 
+	/**
+	 * Flush pending /bin stub entries created by on-demand command discovery.
+	 * Ensures VFS is consistent before shell PATH lookups.
+	 */
+	async flushPendingBinEntries(): Promise<void> {
+		if (this.pendingBinEntries.length > 0) {
+			await Promise.all(this.pendingBinEntries);
+			this.pendingBinEntries.length = 0;
+		}
+	}
+
 	async exec(command: string, options?: ExecOptions): Promise<ExecResult> {
 		this.assertNotDisposed();
+
+		// Flush pending /bin stubs before shell PATH lookup
+		await this.flushPendingBinEntries();
 
 		// Route through shell
 		const shell = this.commandRegistry.resolve("sh");
@@ -404,7 +419,13 @@ class KernelImpl implements Kernel {
 				for (const d of this.drivers) {
 					if (d.tryResolve?.(basename)) {
 						this.commandRegistry.registerCommand(basename, d);
-						this.commandRegistry.populateBinEntry(this.vfs, basename);
+						// Store pending promise so exec() can flush before shell PATH lookup
+						const p = this.commandRegistry.populateBinEntry(this.vfs, basename);
+						this.pendingBinEntries.push(p);
+						p.then(() => {
+							const idx = this.pendingBinEntries.indexOf(p);
+							if (idx >= 0) this.pendingBinEntries.splice(idx, 1);
+						});
 						driver = d;
 						break;
 					}

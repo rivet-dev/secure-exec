@@ -47,6 +47,12 @@ export interface Kernel {
 	spawn(command: string, args: string[], options?: SpawnOptions): ManagedProcess;
 
 	/**
+	 * Flush pending /bin stub entries created by on-demand command discovery.
+	 * Ensures VFS is consistent before shell PATH lookups.
+	 */
+	flushPendingBinEntries(): Promise<void>;
+
+	/**
 	 * Open an interactive shell on a PTY.
 	 * Wires PTY + process groups + termios for terminal use.
 	 */
