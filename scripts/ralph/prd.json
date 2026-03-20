@@ -1803,7 +1803,7 @@
         "Tests pass"
       ],
       "priority": 90,
-      "passes": false,
+      "passes": true,
       "notes": "Git is ~200 .c files. Start with plumbing commands that have fewer dependencies. Configure with NO_MMAP=1 to use read-based fallback. The biggest challenge is run-command.c which heavily uses fork+exec \u2014 git 2.36+ has posix_spawn support (GIT_SPAWN=posix_spawn). Compile with CFLAGS=-DSHA256_BLK for built-in SHA-256."
     },
     {

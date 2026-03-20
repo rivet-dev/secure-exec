@@ -3626,3 +3626,23 @@ PRD: ralph/kernel-hardening (46 stories)
   - wget exit code 8 = server error (HTTP 4xx/5xx), exit code 1 = general error
   - C commands with same name as build artifact need no COMMAND_MAP entry in Makefile install
 ---
+
+## 2026-03-20 - US-090
+- What was implemented: Clean-room git plumbing implementation (hash-object, cat-file, init) with SHA-1 + zlib
+- Git is GPL-2.0 so we wrote a permissive reimplementation (Apache-2.0), same pattern as make.c
+- Files changed:
+  - wasmvm/c/libs/git/sha1.h, sha1.c — SHA-1 implementation from FIPS 180-1 spec
+  - wasmvm/c/libs/git/git-objects.h, git-objects.c — git loose object read/write/hash
+  - wasmvm/c/libs/git/LICENSE — Apache-2.0
+  - wasmvm/c/programs/git.c — unified git command dispatcher (hash-object, cat-file, init)
+  - wasmvm/c/Makefile — added git build rules linking SHA-1 + zlib, added to COMMANDS
+  - wasmvm/patches/git/README.md — documents WASM-incompatible patterns avoided
+  - packages/runtime/wasmvm/src/driver.ts — added 'git' to WASMVM_COMMANDS and DEFAULT_FIRST_PARTY_TIERS
+- **Learnings for future iterations:**
+  - Git is GPL-2.0, must use clean-room reimplementation (same pattern as make.c)
+  - Git loose object format: zlib-compressed "<type> <size>\0<content>", SHA-1 of uncompressed form
+  - Objects stored at .git/objects/<first-2-hex>/<remaining-38-hex>
+  - SHA-1 verified against real git — hashes match exactly
+  - git program doesn't need patched sysroot (no host_process/host_user imports) — uses vanilla sysroot
+  - Native build links vendored zlib sources directly (no -lz), same as WASM build
+---
