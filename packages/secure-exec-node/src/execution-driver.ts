@@ -9,7 +9,7 @@ export interface NodeV8RuntimeOptions {
 	binaryPath?: string;
 	/** Maximum concurrent sessions. */
 	maxSessions?: number;
-	/** Number of pre-warmed sessions. Default 3 (warm claim ~2ms vs ~6ms cold). */
+	/** Number of pre-warmed sessions. Default 5 (warm claim ~2ms vs ~6ms cold). */
 	warmPoolSize?: number;
 	/** Default heap limit (MB) for warm pool sessions. Default 128. */
 	defaultWarmHeapLimitMb?: number;
@@ -24,7 +24,7 @@ export interface NodeV8RuntimeOptions {
  *
  * This is the recommended way to create a V8 runtime — it automatically
  * provides the bridge code for snapshot warmup and configures a warm pool
- * of 3 pre-created isolates (~2ms claim vs ~6ms cold start).
+ * of 5 pre-created isolates (~2ms claim vs ~6ms cold start).
  */
 export async function createNodeV8Runtime(
 	options?: NodeV8RuntimeOptions,

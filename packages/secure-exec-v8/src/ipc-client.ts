@@ -86,11 +86,6 @@ export class IpcClient {
 		});
 	}
 
-	/** Send the auth token as the first message after connecting. */
-	authenticate(token: string): void {
-		this.send({ type: "Authenticate", token });
-	}
-
 	/** Send a binary frame to the Rust process. */
 	send(frame: BinaryFrame): void {
 		if (!this.socket || !this.connected) {

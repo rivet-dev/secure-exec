@@ -1,7 +1,7 @@
 /**
  * Integration tests for the full V8 runtime IPC round-trip.
  *
- * Exercises: spawn Rust process, authenticate, create session,
+ * Exercises: spawn Rust process, create session,
  * inject globals, execute code with sync and async bridge calls,
  * and destroy/cleanup.
  */
@@ -85,7 +85,7 @@ describe.skipIf(skipUnlessBinary)("V8 IPC round-trip", () => {
 
 	// --- Lifecycle ---
 
-	it("spawns the Rust binary, authenticates, and disposes cleanly", async () => {
+	it("spawns the Rust binary and disposes cleanly", async () => {
 		const rt = await createRuntime();
 		// If we got here, spawn + auth succeeded
 		await rt.dispose();

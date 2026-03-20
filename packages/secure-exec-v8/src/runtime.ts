@@ -33,7 +33,7 @@ export interface V8RuntimeOptions {
 	maxSessions?: number;
 	/** Bridge code to pre-warm the snapshot cache with (fire-and-forget). Skipped if SECURE_EXEC_NO_SNAPSHOT_WARMUP=1. */
 	warmupBridgeCode?: string;
-	/** Number of pre-warmed sessions to maintain. Default 3, 0 to disable. */
+	/** Number of pre-warmed sessions to maintain. Default 5, 0 to disable. */
 	warmPoolSize?: number;
 	/** Default heap limit (MB) for warm pool sessions. Default 128. */
 	defaultWarmHeapLimitMb?: number;
@@ -94,21 +94,20 @@ function resolveBinaryPath(): string {
 /**
  * Spawn the Rust V8 runtime process and return a handle.
  *
- * Generates a 128-bit auth token, passes it via SECURE_EXEC_V8_TOKEN,
- * reads the socket path from stdout, connects over UDS, and authenticates.
+ * Reads the socket path from stdout, connects over UDS, and optionally
+ * initializes the warm pool.
  */
 export async function createV8Runtime(
 	options?: V8RuntimeOptions,
 ): Promise<V8Runtime> {
 	const binaryPath = options?.binaryPath ?? resolveBinaryPath();
-
-	// Generate 128-bit random auth token
-	const authToken = randomBytes(16).toString("hex");
+	if (process.env.SECURE_EXEC_TRACE_IPC) {
+		console.error(`[trace] binary: ${binaryPath}`);
+	}
 
 	// Build child environment
 	const childEnv: Record<string, string> = {
 		...process.env as Record<string, string>,
-		SECURE_EXEC_V8_TOKEN: authToken,
 	};
 	if (options?.maxSessions != null) {
 		childEnv.SECURE_EXEC_V8_MAX_SESSIONS = String(options.maxSessions);
@@ -143,9 +142,12 @@ export async function createV8Runtime(
 	});
 
 	// Collect stderr for error reporting
+	const traceIpc = !!process.env.SECURE_EXEC_TRACE_IPC;
 	let stderrBuf = "";
 	child.stderr!.on("data", (chunk: Buffer) => {
-		stderrBuf += chunk.toString();
+		const str = chunk.toString();
+		if (traceIpc) process.stderr.write(str);
+		stderrBuf += str;
 		// Cap buffer to avoid unbounded growth
 		if (stderrBuf.length > 8192) {
 			stderrBuf = stderrBuf.slice(-4096);
@@ -196,7 +198,6 @@ export async function createV8Runtime(
 
 	try {
 		await ipcClient.connect();
-		ipcClient.authenticate(authToken);
 
 		// Send Init to configure warm pool + snapshot cache.
 		// Warm pool defaults to 3 when bridge code is provided (snapshot-based
@@ -204,7 +205,7 @@ export async function createV8Runtime(
 		// pool is disabled since there's no snapshot to pre-create from.
 		const warmPoolSize = process.env.SECURE_EXEC_NO_SNAPSHOT_WARMUP === "1"
 			? 0
-			: (options?.warmPoolSize ?? (options?.warmupBridgeCode ? 3 : 0));
+			: (options?.warmPoolSize ?? (options?.warmupBridgeCode ? 5 : 0));
 		if (warmPoolSize > 0) {
 			const initReady = new Promise<void>((resolve, reject) => {
 				const timeout = setTimeout(() => {
@@ -311,19 +312,27 @@ export async function createV8Runtime(
 						throw new Error("IPC client is not connected");
 					}
 
+					const _t0 = performance.now();
+
 					// Inject globals — V8-serialize { processConfig, osConfig }
 					const globalsPayload = v8.serialize({
 						processConfig: execOptions.processConfig,
 						osConfig: execOptions.osConfig,
 					});
+
+					const _tSerialize = performance.now();
+
 					client.send({
 						type: "InjectGlobals",
 						sessionId,
 						payload: globalsPayload,
 					});
 
+					const _tInjectSent = performance.now();
+
 					// Set up result promise
 					return new Promise((resolve, _reject) => {
+						const _tPromiseStart = performance.now();
 						// Register session message handler
 						sessionHandlers.set(sessionId, (frame) => {
 							switch (frame.type) {
@@ -394,6 +403,11 @@ export async function createV8Runtime(
 								case "ExecutionResult": {
 									// Clean up handler and resolve
 									sessionHandlers.delete(sessionId);
+									const _tResult = performance.now();
+									if (process.env.SECURE_EXEC_TRACE_IPC) {
+										const sid = sessionId.slice(0, 8);
+										console.error(`[ipc:${sid}] serialize=${(_tSerialize - _t0).toFixed(2)}ms inject_send=${(_tInjectSent - _tSerialize).toFixed(2)}ms ipc_wait=${(_tResult - _tPromiseStart).toFixed(2)}ms total=${(_tResult - _t0).toFixed(2)}ms`);
+									}
 									resolve({
 										code: frame.exitCode,
 										exports: frame.exports,

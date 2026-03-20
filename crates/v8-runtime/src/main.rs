@@ -107,43 +107,6 @@ fn cleanup(socket_path: &PathBuf, tmpdir: &PathBuf) {
     let _ = fs::remove_dir(tmpdir);
 }
 
-/// Constant-time byte comparison to prevent timing oracle on auth token.
-/// Returns true if both slices have equal length and identical contents.
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
-}
-
-/// Authenticate a new connection by reading the first message as an Authenticate token.
-/// Returns true if authentication succeeds, false otherwise.
-fn authenticate_connection(stream: &mut UnixStream, expected_token: &str) -> bool {
-    // Connection is blocking — read the first message
-    match ipc_binary::read_frame(stream) {
-        Ok(BinaryFrame::Authenticate { token }) => {
-            if constant_time_eq(token.as_bytes(), expected_token.as_bytes()) {
-                true
-            } else {
-                eprintln!("auth failed: invalid token");
-                false
-            }
-        }
-        Ok(_) => {
-            eprintln!("auth failed: first message must be Authenticate");
-            false
-        }
-        Err(e) => {
-            eprintln!("auth failed: read error: {}", e);
-            false
-        }
-    }
-}
-
 /// Dedicated writer thread per connection: drains the frame channel and
 /// writes complete frames atomically to the socket. Session threads send
 /// pre-serialized byte vectors through the channel, so no shared mutex
@@ -160,7 +123,7 @@ fn ipc_writer_thread(rx: crossbeam_channel::Receiver<Vec<u8>>, mut writer: UnixS
 /// Global connection ID counter
 static NEXT_CONNECTION_ID: AtomicU64 = AtomicU64::new(1);
 
-/// Handle an authenticated connection: read messages and dispatch to sessions.
+/// Handle a connection: read messages and dispatch to sessions.
 fn handle_connection(
     mut stream: UnixStream,
     connection_id: u64,
@@ -184,13 +147,6 @@ fn handle_connection(
 
         // Dispatch frame
         match frame {
-            BinaryFrame::Authenticate { .. } => {
-                eprintln!(
-                    "connection {}: unexpected Authenticate after handshake",
-                    connection_id
-                );
-                break;
-            }
             BinaryFrame::CreateSession {
                 session_id,
                 heap_limit_mb,
@@ -325,10 +281,6 @@ fn main() {
     // Shared snapshot cache for fast isolate creation across all connections/sessions
     let snapshot_cache = Arc::new(SnapshotCache::new(4));
 
-    // Read auth token from environment
-    let auth_token = std::env::var("SECURE_EXEC_V8_TOKEN")
-        .expect("SECURE_EXEC_V8_TOKEN environment variable must be set");
-
     // Determine max concurrency from env or default to available CPUs
     let max_concurrency = std::env::var("SECURE_EXEC_V8_MAX_SESSIONS")
         .ok()
@@ -414,17 +366,9 @@ fn main() {
         // Listener readable — accept new connection
         if pollfds[0].revents & libc::POLLIN != 0 {
             match listener.accept() {
-                Ok((mut stream, _addr)) => {
+                Ok((stream, _addr)) => {
                     // Set CLOEXEC on accepted connection
                     set_cloexec(stream.as_raw_fd()).expect("failed to set CLOEXEC on connection");
-
-                    // Accepted stream is already blocking (listener is blocking)
-
-                    // Require authentication as the first message
-                    if !authenticate_connection(&mut stream, &auth_token) {
-                        drop(stream);
-                        continue;
-                    }
 
                     // Create per-connection writer thread and IPC channel
                     let writer_stream = stream.try_clone().expect("failed to clone UDS stream");
@@ -451,7 +395,7 @@ fn main() {
                         Arc::clone(&snapshot_cache),
                     )));
 
-                    // Authenticated — spawn connection handler thread
+                    // Spawn connection handler thread
                     let mgr = Arc::clone(&session_mgr);
                     let snap = Arc::clone(&snapshot_cache);
                     std::thread::Builder::new()
@@ -594,86 +538,6 @@ mod tests {
     }
 
     #[test]
-    fn auth_accepts_valid_token() {
-        let (listener, socket_path, tmpdir) = temp_listener();
-        let token = "test-secret-token-abc123";
-
-        // Client connects and sends valid Authenticate
-        let mut client = UnixStream::connect(&socket_path).expect("connect");
-        let (mut server_stream, _) = listener.accept().expect("accept");
-
-        ipc_binary::write_frame(
-            &mut client,
-            &BinaryFrame::Authenticate {
-                token: token.into(),
-            },
-        )
-        .expect("write auth");
-
-        assert!(authenticate_connection(&mut server_stream, token));
-
-        cleanup(&socket_path, &tmpdir);
-    }
-
-    #[test]
-    fn auth_rejects_wrong_token() {
-        let (listener, socket_path, tmpdir) = temp_listener();
-
-        let mut client = UnixStream::connect(&socket_path).expect("connect");
-        let (mut server_stream, _) = listener.accept().expect("accept");
-
-        ipc_binary::write_frame(
-            &mut client,
-            &BinaryFrame::Authenticate {
-                token: "wrong-token".into(),
-            },
-        )
-        .expect("write auth");
-
-        assert!(!authenticate_connection(&mut server_stream, "correct-token"));
-
-        cleanup(&socket_path, &tmpdir);
-    }
-
-    #[test]
-    fn auth_rejects_non_authenticate_message() {
-        let (listener, socket_path, tmpdir) = temp_listener();
-
-        let mut client = UnixStream::connect(&socket_path).expect("connect");
-        let (mut server_stream, _) = listener.accept().expect("accept");
-
-        // Send a CreateSession instead of Authenticate
-        ipc_binary::write_frame(
-            &mut client,
-            &BinaryFrame::CreateSession {
-                session_id: "1".into(),
-                heap_limit_mb: 0,
-                cpu_time_limit_ms: 0,
-            },
-        )
-        .expect("write");
-
-        assert!(!authenticate_connection(&mut server_stream, "any-token"));
-
-        cleanup(&socket_path, &tmpdir);
-    }
-
-    #[test]
-    fn auth_rejects_empty_connection() {
-        let (listener, socket_path, tmpdir) = temp_listener();
-
-        let client = UnixStream::connect(&socket_path).expect("connect");
-        let (mut server_stream, _) = listener.accept().expect("accept");
-
-        // Drop client immediately — server will get EOF
-        drop(client);
-
-        assert!(!authenticate_connection(&mut server_stream, "any-token"));
-
-        cleanup(&socket_path, &tmpdir);
-    }
-
-    #[test]
     fn self_pipe_creation_and_wakeup() {
         let (read_fd, write_fd) = create_self_pipe().expect("create self-pipe");
 
@@ -726,28 +590,6 @@ mod tests {
         let _client = handle.join().expect("client thread");
 
         cleanup(&socket_path, &tmpdir);
-    }
-
-    #[test]
-    fn constant_time_eq_matches_equal_strings() {
-        assert!(constant_time_eq(b"hello", b"hello"));
-        assert!(constant_time_eq(b"", b""));
-        assert!(constant_time_eq(b"abc123xyz", b"abc123xyz"));
-    }
-
-    #[test]
-    fn constant_time_eq_rejects_different_strings() {
-        assert!(!constant_time_eq(b"hello", b"world"));
-        assert!(!constant_time_eq(b"hello", b"hellx"));
-        // Single-bit difference
-        assert!(!constant_time_eq(b"\x00", b"\x01"));
-    }
-
-    #[test]
-    fn constant_time_eq_rejects_different_lengths() {
-        assert!(!constant_time_eq(b"hello", b"hell"));
-        assert!(!constant_time_eq(b"", b"x"));
-        assert!(!constant_time_eq(b"abc", b"abcd"));
     }
 
     #[test]

@@ -7,7 +7,7 @@
  *   - Both sequential and concurrent modes at various batch sizes
  *
  * NOTE: The shared V8 process is spawned before the benchmark loop
- * (initSharedV8), so these numbers do NOT include V8 process startup.
+ * (setupBench), so these numbers do NOT include V8 process startup.
  * They measure only isolate/session creation + execution latency.
  *
  * With the warm pool enabled (default), "cold start" actually claims a
@@ -26,8 +26,8 @@ import {
 	TRIVIAL_CODE,
 	WARMUP_ITERATIONS,
 	createBenchRuntime,
-	initSharedV8,
-	shutdownSharedV8,
+	setupBench,
+	teardownBench,
 	getHardware,
 	printTable,
 	round,
@@ -136,7 +136,7 @@ async function main() {
 
 	// Pre-spawn the shared V8 process so the bench loop only measures isolate creation
 	console.error(`\nSpawning shared V8 process...`);
-	await initSharedV8();
+	await setupBench();
 	console.error(`V8 process ready.\n`);
 
 	const results: ColdStartEntry[] = [];
@@ -181,7 +181,7 @@ async function main() {
 	// JSON to stdout
 	console.log(JSON.stringify({ hardware, results }, null, 2));
 
-	await shutdownSharedV8();
+	await teardownBench();
 }
 
 main().catch((err) => {

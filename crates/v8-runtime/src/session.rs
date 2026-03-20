@@ -497,6 +497,10 @@ fn session_thread(
                         mode,
                         file_path,
                     } => {
+                        let _trace = std::env::var("SECURE_EXEC_TRACE_IPC").is_ok();
+                        let _trace_sid: String = if session_id.len() > 8 { session_id[..8].to_string() } else { session_id.clone() };
+                        let _t0 = std::time::Instant::now();
+
                         // Use cached bridge code when host sends empty (0-length = use cached)
                         let effective_bridge_code = if bridge_code.is_empty() {
                             last_bridge_code.as_deref().unwrap_or("").to_string()
@@ -529,6 +533,7 @@ fn session_thread(
                             v8_isolate = Some(iso);
                         }
 
+                        let _t_isolate = std::time::Instant::now();
                         let iso = v8_isolate.as_mut().unwrap();
 
                         // Create execution context: Context::new on a snapshot-restored
@@ -536,6 +541,7 @@ fn session_thread(
                         // (bridge IIFE already executed, all infrastructure set up).
                         // On a non-snapshot isolate, this gives a blank context.
                         let exec_context = isolate::create_context(iso);
+                        let _t_ctx = std::time::Instant::now();
 
                         // Inject globals from last InjectGlobals payload
                         if let Some(ref payload) = last_globals_payload {
@@ -544,6 +550,8 @@ fn session_thread(
                             let scope = &mut v8::ContextScope::new(scope, ctx);
                             execution::inject_globals_from_payload(scope, payload);
                         }
+
+                        let _t_globals = std::time::Instant::now();
 
                         // Create abort channel for timeout enforcement
                         let (maybe_abort_tx, maybe_abort_rx) = if cpu_time_limit_ms.is_some() {
@@ -585,6 +593,8 @@ fn session_thread(
                             );
                         }
 
+                        let _t_bridge_fns = std::time::Instant::now();
+
                         // Run post-restore init script (config, mutable state reset)
                         // after bridge fn replacement but before user code
                         if !post_restore_script.is_empty() {
@@ -618,6 +628,8 @@ fn session_thread(
                             _ => None,
                         };
 
+                        let _t_post_restore = std::time::Instant::now();
+
                         // On snapshot-restored context, skip bridge IIFE (already in
                         // snapshot) and run user code only. On fresh context, run full
                         // bridge code + user code as before.
@@ -643,6 +655,8 @@ fn session_thread(
                                 &mut bridge_cache,
                             )
                         };
+
+                        let _t_exec = std::time::Instant::now();
 
                         // Run event loop if there are pending async promises
                         let terminated = if pending.len() > 0 {
@@ -701,6 +715,21 @@ fn session_thread(
                                 }),
                             }
                         };
+
+                        if _trace {
+                            let sid = &_trace_sid;
+                            eprintln!(
+                                "[v8:{}] isolate={:.2}ms ctx={:.2}ms globals={:.2}ms bridge_fns={:.2}ms post_restore={:.2}ms exec={:.2}ms total={:.2}ms",
+                                sid,
+                                _t_isolate.duration_since(_t0).as_secs_f64() * 1000.0,
+                                _t_ctx.duration_since(_t_isolate).as_secs_f64() * 1000.0,
+                                _t_globals.duration_since(_t_ctx).as_secs_f64() * 1000.0,
+                                _t_bridge_fns.duration_since(_t_globals).as_secs_f64() * 1000.0,
+                                _t_post_restore.duration_since(_t_bridge_fns).as_secs_f64() * 1000.0,
+                                _t_exec.duration_since(_t_post_restore).as_secs_f64() * 1000.0,
+                                _t_exec.duration_since(_t0).as_secs_f64() * 1000.0,
+                            );
+                        }
 
                         send_message(&ipc_tx, &result_frame, &mut msg_frame_buf);
                     }
