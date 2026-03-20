@@ -2937,3 +2937,15 @@ PRD: ralph/kernel-hardening (46 stories)
   - stream-json output requires --verbose flag to produce NDJSON events
   - Bridge strips trailing newlines from process.stdout.write() — use newline-join when reconstructing NDJSON
 ---
+
+## 2026-03-20 - US-033
+- Implemented Claude Code headless binary mode verification test
+- Created claude-headless-binary.test.ts with 8 tests covering the raw binary spawn path
+- Tests: boot+exit0, text output (canary), JSON output format, stream-json NDJSON, env forwarding, exit code propagation (bad API key/good prompt), SIGINT via bridge kill()
+- Files changed:
+  - packages/secure-exec/tests/cli-tools/claude-headless-binary.test.ts — new test file
+- **Learnings for future iterations:**
+  - Claude headless binary test follows the same pattern as pi-headless-binary.test.ts — createHostCommandExecutor + createTestNodeRuntime + buildSpawnCode with claudeEnv
+  - The unhandled rejection (getDispatchRef/getSync) during dispose is a pre-existing infrastructure issue in bridge-setup.js — it occurs in all CLI tool tests and doesn't affect test results
+  - Claude Code --output-format json returns { type: 'result', result: '...' } structure
+---

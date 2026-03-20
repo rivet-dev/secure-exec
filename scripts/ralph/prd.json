@@ -594,8 +594,8 @@
         "Tests pass"
       ],
       "priority": 33,
-      "passes": false,
-      "notes": "This tests the raw binary spawn path without the SDK layer. Verifies stdio piping, env forwarding, and exit code propagation through the child_process bridge for Claude Code specifically."
+      "passes": true,
+      "notes": "Completed. Test file claude-headless-binary.test.ts verifies raw binary spawn path: boot+exit0, text output (canary), JSON output format, stream-json NDJSON, env forwarding (ANTHROPIC_BASE_URL reaches mock server), exit code propagation (bad API key → non-zero, good prompt → 0), SIGINT via bridge kill(). All 8 tests pass."
     },
     {
       "id": "US-034",
