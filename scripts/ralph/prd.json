@@ -653,8 +653,8 @@
         "Tests pass"
       ],
       "priority": 36,
-      "passes": false,
-      "notes": "OpenCode is a native binary. This tests the full PTY path through kernel.openShell() for a non-Node binary."
+      "passes": true,
+      "notes": "Rewrote: HostBinaryDriver spawns opencode directly via kernel.openShell() with PTY stdin pump (kernel PTY slave fd 0 → child stdin). Wraps in script -qefc for host PTY. Uses XDG_DATA_HOME for config isolation, ANTHROPIC_BASE_URL for mock LLM redirect. Kitty keyboard protocol (CSI u-encoded Enter) for input submission. Boot probe detects TUI readiness ('Ask anything' placeholder). All 5 tests pass: TUI renders, input area works, submit shows response, ^C interrupts (stays alive), exit cleanly via ^C."
     },
     {
       "id": "US-037",

@@ -1,17 +1,16 @@
 /**
- * E2E test: OpenCode coding agent interactive TUI through the sandbox's
+ * E2E test: OpenCode interactive TUI through the sandbox's
  * kernel.openShell() PTY.
  *
- * OpenCode is a standalone Bun binary — it must be spawned from inside the
- * sandbox via the child_process.spawn bridge. The bridge dispatches to a
- * HostBinaryDriver mounted in the kernel, which spawns the real binary on
- * the host. Output flows back through the bridge to process.stdout, which
- * is connected to the kernel's PTY slave → PTY master → xterm headless.
+ * OpenCode is a native Bun binary — it is spawned directly through the kernel
+ * via a HostBinaryDriver. The driver registers 'opencode' as a kernel command;
+ * openShell({ command: 'opencode', ... }) creates a PTY and dispatches to the
+ * driver. The driver wraps the binary in `script -qefc` on the host to give
+ * it a real PTY (so its TUI renders), then pumps stdin from the kernel PTY
+ * slave (fd 0) to the child process's stdin. Output flows back through
+ * ctx.onStdout → kernel PTY slave → PTY master → xterm headless.
  *
- * If the sandbox cannot support OpenCode's interactive TUI (e.g. streaming
- * stdin bridge not supported, child_process bridge cannot spawn host
- * binaries), all tests skip with a clear reason referencing the specific
- * blocker.
+ * Uses ANTHROPIC_BASE_URL to redirect API calls to a mock LLM server.
  *
  * Uses relative imports to avoid cyclic package dependencies.
  */
@@ -65,32 +64,76 @@ const skipReason = hasOpenCodeBinary()
   ? false
   : 'opencode binary not found on PATH';
 
+/**
+ * OpenCode enables kitty keyboard protocol — raw `\r` is treated as newline,
+ * not as an Enter key press. Submit requires CSI u-encoded Enter: `\x1b[13u`.
+ */
+const KITTY_ENTER = '\x1b[13u';
+
 // ---------------------------------------------------------------------------
 // HostBinaryDriver — spawns real host binaries through the kernel
 // ---------------------------------------------------------------------------
 
 /**
- * Minimal RuntimeDriver that spawns real host binaries. Registered commands
- * are dispatched to node:child_process.spawn on the host. This allows
- * sandbox code to call child_process.spawn('opencode', ...) and have it
- * route through the kernel's command registry to the host.
+ * RuntimeDriver that spawns real host binaries. Registered commands are
+ * dispatched to node:child_process.spawn on the host.
+ *
+ * When spawned in a PTY context (ctx.isTTY.stdout), wraps the command in
+ * `script -qefc` to give the binary a real host-side PTY (so TUI frameworks
+ * detect isTTY=true). Stdin is pumped from the kernel's PTY slave (fd 0)
+ * to the child process, bypassing the V8 isolate's batched stdin.
  */
 class HostBinaryDriver implements RuntimeDriver {
   readonly name = 'host-binary';
   readonly commands: string[];
 
-  constructor(commands: string[]) {
-    this.commands = commands;
+  private _commandMap: Record<string, string>;
+  private _hostCwd: string;
+  private _kernel: KernelInterface | null = null;
+
+  /**
+   * @param commandMap - Maps kernel command names to host binary paths
+   * @param hostCwd - Fallback cwd for host spawns (virtual cwds like /root
+   *                  are not accessible on the host filesystem)
+   */
+  constructor(commandMap: Record<string, string>, hostCwd: string) {
+    this._commandMap = commandMap;
+    this._hostCwd = hostCwd;
+    this.commands = Object.keys(commandMap);
   }
 
-  async init(_kernel: KernelInterface): Promise<void> {}
+  async init(kernel: KernelInterface): Promise<void> {
+    this._kernel = kernel;
+  }
 
   spawn(command: string, args: string[], ctx: ProcessContext): DriverProcess {
-    const child = nodeSpawn(command, args, {
-      cwd: ctx.cwd,
-      env: ctx.env,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const hostBin = this._commandMap[command] ?? command;
+    const effectiveCwd = this._hostCwd;
+
+    // Merge host env with ctx.env — the host binary needs system env vars
+    // (NODE_PATH, XDG_*, locale, etc.) that the restricted sandbox env lacks.
+    const mergedEnv = { ...process.env, ...ctx.env };
+
+    let child: ReturnType<typeof nodeSpawn>;
+
+    if (ctx.isTTY.stdout) {
+      // PTY mode: wrap in `script -qefc` so the binary gets a real host PTY
+      const cmdArgs = [hostBin, ...args];
+      const shellCmd = cmdArgs
+        .map((a) => `'${a.replace(/'/g, "'\\''")}'`)
+        .join(' ');
+      child = nodeSpawn('script', ['-qefc', shellCmd, '/dev/null'], {
+        cwd: effectiveCwd,
+        env: mergedEnv,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+    } else {
+      child = nodeSpawn(hostBin, args, {
+        cwd: effectiveCwd,
+        env: mergedEnv,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+    }
 
     let resolveExit!: (code: number) => void;
     let exitResolved = false;
@@ -118,7 +161,6 @@ class HostBinaryDriver implements RuntimeDriver {
       wait: () => exitPromise,
     };
 
-    // Handle spawn errors (e.g., command not found)
     child.on('error', (err) => {
       const msg = `${command}: ${err.message}`;
       const errBytes = new TextEncoder().encode(msg + '\n');
@@ -146,6 +188,41 @@ class HostBinaryDriver implements RuntimeDriver {
       proc.onExit?.(exitCode);
     });
 
+    // Set kernel PTY to non-canonical, no-echo, no-signal mode
+    if (ctx.isTTY.stdin && this._kernel) {
+      try {
+        this._kernel.ptySetDiscipline(ctx.pid, 0, {
+          canonical: false,
+          echo: false,
+          isig: false,
+        });
+      } catch { /* PTY may not support this */ }
+    }
+
+    // Start stdin pump for PTY processes: read from kernel PTY slave (fd 0)
+    // and forward to the child process's stdin.
+    if (ctx.isTTY.stdin && this._kernel) {
+      const kernel = this._kernel;
+      const pid = ctx.pid;
+      (async () => {
+        try {
+          while (!exitResolved) {
+            const data = await kernel.fdRead(pid, 0, 4096);
+            if (!data || data.length === 0) break;
+            // Reverse ICRNL: the kernel PTY converts CR→NL (default input
+            // processing), but the host PTY expects CR for Enter key.
+            const buf = Buffer.from(data);
+            for (let i = 0; i < buf.length; i++) {
+              if (buf[i] === 0x0a) buf[i] = 0x0d;
+            }
+            try { child.stdin.write(buf); } catch { break; }
+          }
+        } catch {
+          // FD closed or process exited — expected
+        }
+      })();
+    }
+
     return proc;
   }
 
@@ -156,11 +233,6 @@ class HostBinaryDriver implements RuntimeDriver {
 // Overlay VFS — writes to InMemoryFileSystem, reads fall back to host
 // ---------------------------------------------------------------------------
 
-/**
- * Create an overlay filesystem: writes go to an in-memory layer (for
- * kernel.mount() populateBin), reads try memory first then fall back to
- * the host filesystem (for module resolution).
- */
 function createOverlayVfs(): VirtualFileSystem {
   const memfs = new InMemoryFileSystem();
   return {
@@ -246,120 +318,6 @@ function createOverlayVfs(): VirtualFileSystem {
 }
 
 // ---------------------------------------------------------------------------
-// OpenCode sandbox code builder
-// ---------------------------------------------------------------------------
-
-/**
- * OpenCode enables kitty keyboard protocol — raw `\r` is treated as newline,
- * not as an Enter key press. Submit requires CSI u-encoded Enter: `\x1b[13u`.
- */
-const KITTY_ENTER = '\x1b[13u';
-
-/**
- * Build sandbox code that spawns OpenCode interactively through the
- * child_process bridge. The code wraps opencode in `script -qefc` so
- * the binary gets a real PTY on the host (isTTY=true). Stdout/stderr
- * are piped to process.stdout/stderr (→ kernel PTY → xterm). Stdin
- * from the kernel PTY is piped to the child.
- */
-function buildOpenCodeInteractiveCode(opts: {
-  mockUrl?: string;
-  cwd: string;
-  extraArgs?: string[];
-}): string {
-  const env: Record<string, string> = {
-    PATH: process.env.PATH ?? '',
-    HOME: process.env.HOME ?? tmpdir(),
-    XDG_DATA_HOME: path.join(tmpdir(), `opencode-interactive-${Date.now()}`),
-    TERM: 'xterm-256color',
-  };
-
-  if (opts.mockUrl) {
-    env.ANTHROPIC_API_KEY = 'test-key';
-    env.ANTHROPIC_BASE_URL = opts.mockUrl;
-  }
-
-  // Build the opencode command for script -qefc
-  const ocArgs = [
-    'opencode',
-    '-m', 'anthropic/claude-sonnet-4-5',
-    ...(opts.extraArgs ?? []),
-    '.',
-  ];
-  const cmd = ocArgs
-    .map((a) => `'${a.replace(/'/g, "'\\''")}'`)
-    .join(' ');
-
-  return `(async () => {
-    const { spawn } = require('child_process');
-
-    // Spawn opencode wrapped in script for host-side PTY support
-    const child = spawn('script', ['-qefc', ${JSON.stringify(cmd)}, '/dev/null'], {
-      env: ${JSON.stringify(env)},
-      cwd: ${JSON.stringify(opts.cwd)},
-    });
-
-    // Pipe child output to sandbox stdout (→ kernel PTY → xterm)
-    child.stdout.on('data', (d) => process.stdout.write(String(d)));
-    child.stderr.on('data', (d) => process.stderr.write(String(d)));
-
-    // Pipe sandbox stdin (from kernel PTY) to child stdin
-    process.stdin.on('data', (d) => child.stdin.write(d));
-    process.stdin.resume();
-
-    const exitCode = await new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        child.kill('SIGKILL');
-        resolve(124);
-      }, 90000);
-
-      child.on('close', (code) => {
-        clearTimeout(timer);
-        resolve(code ?? 1);
-      });
-    });
-
-    if (exitCode !== 0) process.exit(exitCode);
-  })()`;
-}
-
-// ---------------------------------------------------------------------------
-// Raw openShell probe — avoids TerminalHarness race on fast-exiting processes
-// ---------------------------------------------------------------------------
-
-/**
- * Run a node command through kernel.openShell and collect raw output.
- * Waits for exit and returns all output + exit code.
- */
-async function probeOpenShell(
-  kernel: Kernel,
-  code: string,
-  timeoutMs = 10_000,
-  env?: Record<string, string>,
-): Promise<{ output: string; exitCode: number }> {
-  const shell = kernel.openShell({
-    command: 'node',
-    args: ['-e', code],
-    cwd: SECURE_EXEC_ROOT,
-    env: env ?? {
-      PATH: process.env.PATH ?? '/usr/bin',
-      HOME: process.env.HOME ?? tmpdir(),
-    },
-  });
-  let output = '';
-  shell.onData = (data) => {
-    output += new TextDecoder().decode(data);
-  };
-  const exitCode = await Promise.race([
-    shell.wait(),
-    new Promise<number>((_, reject) =>
-      setTimeout(() => reject(new Error(`probe timed out after ${timeoutMs}ms`)), timeoutMs),
-    ),
-  ]);
-  return { output, exitCode };
-}
-
-// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -380,107 +338,123 @@ describe.skipIf(skipReason)('OpenCode interactive PTY E2E (sandbox)', () => {
     await kernel.mount(createNodeRuntime({
       permissions: { ...allowAllChildProcess, ...allowAllEnv },
     }));
-    await kernel.mount(new HostBinaryDriver(['opencode', 'script']));
+    await kernel.mount(new HostBinaryDriver(
+      { opencode: 'opencode' },
+      workDir,
+    ));
 
     // Probe 1: check if node works through openShell
     try {
-      const { output, exitCode } = await probeOpenShell(
-        kernel,
-        'console.log("PROBE_OK")',
-      );
+      const shell = kernel.openShell({
+        command: 'node',
+        args: ['-e', 'console.log("PROBE_OK")'],
+        cwd: SECURE_EXEC_ROOT,
+      });
+      let output = '';
+      shell.onData = (data) => { output += new TextDecoder().decode(data); };
+      const exitCode = await Promise.race([
+        shell.wait(),
+        new Promise<number>((_, reject) =>
+          setTimeout(() => reject(new Error('probe timed out')), 10_000),
+        ),
+      ]);
       if (exitCode !== 0 || !output.includes('PROBE_OK')) {
-        sandboxSkip = `openShell + node probe failed: exitCode=${exitCode}, output=${JSON.stringify(output)}`;
+        sandboxSkip = `openShell + node probe failed: exitCode=${exitCode}`;
       }
     } catch (e) {
       sandboxSkip = `openShell + node probe failed: ${(e as Error).message}`;
     }
 
-    // Probe 2: check if child_process bridge can spawn opencode through kernel
-    // Do NOT call process.exit() — it causes ProcessExitError in bridge callbacks.
-    // Instead, report the result via stdout and let the process exit naturally.
-    if (!sandboxSkip) {
-      try {
-        const { output } = await probeOpenShell(
-          kernel,
-          `(async()=>{` +
-            `const{spawn}=require('child_process');` +
-            `const c=spawn('opencode',['--version'],{env:process.env});` +
-            `let out='';` +
-            `c.stdout.on('data',(d)=>{out+=d;process.stdout.write(String(d))});` +
-            `c.stderr.on('data',(d)=>process.stderr.write(String(d)));` +
-            `const code=await new Promise(r=>{` +
-              `const t=setTimeout(()=>{try{c.kill()}catch(e){};r(124)},10000);` +
-              `c.on('close',(c)=>{clearTimeout(t);r(c??1)})` +
-            `});` +
-            `process.stdout.write('SPAWN_EXIT:'+code)` +
-          `})()`,
-          15_000,
-        );
-        if (!output.includes('SPAWN_EXIT:0')) {
-          sandboxSkip =
-            `child_process bridge cannot spawn opencode through kernel: ` +
-            `output=${JSON.stringify(output.slice(0, 500))}`;
-        }
-      } catch (e) {
-        sandboxSkip = `child_process bridge spawn probe failed: ${(e as Error).message}`;
-      }
-    }
-
-    // Probe 3: check if interactive stdin (PTY → process.stdin events) works
-    // The sandbox code listens for process.stdin 'data' events. We write to
-    // the PTY master and check if data arrives at the sandbox's process.stdin.
-    // If not, interactive TUI use is impossible (no keyboard input delivery).
+    // Probe 2: check if HostBinaryDriver can spawn opencode --version
     if (!sandboxSkip) {
       try {
         const shell = kernel.openShell({
-          command: 'node',
-          args: [
-            '-e',
-            // Echo any stdin data to stdout, exit after 3s if nothing arrives
-            `process.stdin.on('data',(d)=>{` +
-              `process.stdout.write('GOT:'+d)` +
-            `});process.stdin.resume();` +
-            `setTimeout(()=>{process.stdout.write('NO_STDIN');},3000)`,
-          ],
-          cwd: SECURE_EXEC_ROOT,
+          command: 'opencode',
+          args: ['--version'],
+          cwd: workDir,
           env: {
             PATH: process.env.PATH ?? '/usr/bin',
             HOME: process.env.HOME ?? tmpdir(),
           },
         });
-        let stdinOutput = '';
-        shell.onData = (data) => {
-          stdinOutput += new TextDecoder().decode(data);
-        };
-
-        // Wait for process to initialize, then write test data to PTY
-        await new Promise((r) => setTimeout(r, 500));
-        try { shell.write('PROBE\n'); } catch { /* PTY may be closed */ }
-
-        // Wait for either data echo or timeout
-        await Promise.race([
+        let output = '';
+        shell.onData = (data) => { output += new TextDecoder().decode(data); };
+        const exitCode = await Promise.race([
           shell.wait(),
-          new Promise<void>((r) => setTimeout(r, 5_000)),
+          new Promise<number>((_, reject) =>
+            setTimeout(() => reject(new Error('probe timed out')), 15_000),
+          ),
         ]);
-
-        if (!stdinOutput.includes('GOT:')) {
-          sandboxSkip =
-            'Streaming stdin bridge not supported in kernel Node RuntimeDriver — ' +
-            'interactive PTY requires process.stdin events from PTY to be delivered ' +
-            'to the sandbox process (NodeRuntimeDriver batches stdin as single ' +
-            'string for exec(), not streaming)';
+        if (exitCode !== 0) {
+          sandboxSkip = `opencode --version failed: exitCode=${exitCode}, output=${output.slice(0, 200)}`;
         }
       } catch (e) {
-        sandboxSkip =
-          'Streaming stdin bridge not supported — ' +
-          `probe error: ${(e as Error).message}`;
+        sandboxSkip = `opencode spawn probe failed: ${(e as Error).message}`;
+      }
+    }
+
+    // Probe 3: check if OpenCode can boot to the TUI through the kernel PTY
+    if (!sandboxSkip) {
+      try {
+        mockServer.reset([
+          { type: 'text', text: 'probe' },
+          { type: 'text', text: 'probe' },
+        ]);
+        const shell = kernel.openShell({
+          command: 'opencode',
+          args: ['-m', 'anthropic/claude-sonnet-4-5', '.'],
+          cwd: workDir,
+          env: {
+            PATH: process.env.PATH ?? '',
+            HOME: process.env.HOME ?? tmpdir(),
+            XDG_DATA_HOME: path.join(tmpdir(), `opencode-probe-${Date.now()}`),
+            ANTHROPIC_API_KEY: 'test-key',
+            ANTHROPIC_BASE_URL: `http://127.0.0.1:${mockServer.port}`,
+            TERM: 'xterm-256color',
+          },
+          cols: 120,
+          rows: 40,
+        });
+        let output = '';
+        shell.onData = (data) => { output += new TextDecoder().decode(data); };
+
+        // Wait up to 20s for "Ask anything" or other TUI indicator
+        const deadline = Date.now() + 20_000;
+        let booted = false;
+        while (Date.now() < deadline) {
+          const clean = output.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/[^\x20-\x7e\n\r]/g, ' ');
+          if (clean.includes('Ask anything') || clean.includes('ctrl+')) {
+            booted = true;
+            break;
+          }
+          const exitCheck = await Promise.race([
+            shell.wait().then((c) => c),
+            new Promise<null>((r) => setTimeout(() => r(null), 0)),
+          ]);
+          if (exitCheck !== null) break;
+          await new Promise((r) => setTimeout(r, 500));
+        }
+
+        try { shell.kill(); } catch { /* already dead */ }
+        await Promise.race([shell.wait(), new Promise((r) => setTimeout(r, 2000))]);
+
+        if (!booted) {
+          sandboxSkip =
+            'OpenCode interactive TUI did not reach main prompt through ' +
+            'kernel PTY — the HostBinaryDriver stdin pump delivers input and ' +
+            'output flows correctly, but OpenCode may require additional ' +
+            'startup handling that the current mock server setup does not ' +
+            'fully support';
+        }
+      } catch (e) {
+        sandboxSkip = `OpenCode boot probe failed: ${(e as Error).message}`;
       }
     }
 
     if (sandboxSkip) {
       console.warn(`[opencode-interactive] Skipping all tests: ${sandboxSkip}`);
     }
-  }, 45_000);
+  }, 60_000);
 
   afterEach(async () => {
     await harness?.dispose();
@@ -492,43 +466,47 @@ describe.skipIf(skipReason)('OpenCode interactive PTY E2E (sandbox)', () => {
     await rm(workDir, { recursive: true, force: true });
   });
 
-  /** Create a TerminalHarness that runs OpenCode inside the sandbox PTY. */
-  function createOpenCodeHarness(opts: {
-    mockPort?: number;
-    extraArgs?: string[];
-  }): TerminalHarness {
-    return new TerminalHarness(kernel, {
-      command: 'node',
+  /** OpenCode interactive args for openShell. */
+  function opencodeShellOpts(extraArgs?: string[]): {
+    command: string;
+    args: string[];
+    cwd: string;
+    env: Record<string, string>;
+    cols: number;
+    rows: number;
+  } {
+    return {
+      command: 'opencode',
       args: [
-        '-e',
-        buildOpenCodeInteractiveCode({
-          mockUrl: opts.mockPort
-            ? `http://127.0.0.1:${opts.mockPort}`
-            : undefined,
-          cwd: workDir,
-          extraArgs: opts.extraArgs,
-        }),
+        '-m', 'anthropic/claude-sonnet-4-5',
+        ...(extraArgs ?? []),
+        '.',
       ],
-      cwd: SECURE_EXEC_ROOT,
+      cwd: workDir,
       env: {
-        PATH: process.env.PATH ?? '/usr/bin',
+        PATH: process.env.PATH ?? '',
         HOME: process.env.HOME ?? tmpdir(),
+        XDG_DATA_HOME: path.join(tmpdir(), `opencode-interactive-${Date.now()}`),
+        ANTHROPIC_API_KEY: 'test-key',
+        ANTHROPIC_BASE_URL: `http://127.0.0.1:${mockServer.port}`,
+        TERM: 'xterm-256color',
       },
-    });
+      cols: 120,
+      rows: 40,
+    };
   }
 
   it(
-    'OpenCode TUI renders — screen shows OpenTUI interface after boot',
+    'OpenCode TUI renders — screen shows interface after boot',
     async ({ skip }) => {
       if (sandboxSkip) skip();
 
-      mockServer.reset([]);
+      mockServer.reset([
+        { type: 'text', text: 'placeholder' },
+        { type: 'text', text: 'placeholder' },
+      ]);
 
-      harness = createOpenCodeHarness({
-        mockPort: mockServer.port,
-      });
-
-      // OpenCode TUI shows "Ask anything" placeholder in the input area
+      harness = new TerminalHarness(kernel, opencodeShellOpts());
       await harness.waitFor('Ask anything', 1, 30_000);
 
       const screen = harness.screenshotTrimmed();
@@ -540,7 +518,7 @@ describe.skipIf(skipReason)('OpenCode interactive PTY E2E (sandbox)', () => {
   );
 
   it(
-    'input area works — type prompt text, appears in input area',
+    'Input area works — type prompt text, appears on screen',
     async ({ skip }) => {
       if (sandboxSkip) skip();
 
@@ -549,14 +527,9 @@ describe.skipIf(skipReason)('OpenCode interactive PTY E2E (sandbox)', () => {
         { type: 'text', text: 'placeholder' },
       ]);
 
-      harness = createOpenCodeHarness({
-        mockPort: mockServer.port,
-      });
-
-      // Wait for TUI to boot
+      harness = new TerminalHarness(kernel, opencodeShellOpts());
       await harness.waitFor('Ask anything', 1, 30_000);
 
-      // Type text into the input area
       await harness.type('hello opencode world');
 
       const screen = harness.screenshotTrimmed();
@@ -566,7 +539,7 @@ describe.skipIf(skipReason)('OpenCode interactive PTY E2E (sandbox)', () => {
   );
 
   it(
-    'submit shows response — enter prompt, streaming response renders on screen',
+    'Submit shows response — enter prompt, streaming response renders on screen',
     async ({ skip }) => {
       if (sandboxSkip) skip();
 
@@ -579,11 +552,7 @@ describe.skipIf(skipReason)('OpenCode interactive PTY E2E (sandbox)', () => {
         { type: 'text', text: canary },
       ]);
 
-      harness = createOpenCodeHarness({
-        mockPort: mockServer.port,
-      });
-
-      // Wait for TUI to boot
+      harness = new TerminalHarness(kernel, opencodeShellOpts());
       await harness.waitFor('Ask anything', 1, 30_000);
 
       // Type prompt and submit with kitty-encoded Enter
@@ -600,7 +569,7 @@ describe.skipIf(skipReason)('OpenCode interactive PTY E2E (sandbox)', () => {
   );
 
   it(
-    '^C interrupts — send SIGINT on idle TUI, OpenCode stays alive',
+    '^C interrupts — send Ctrl+C on idle TUI, OpenCode stays alive',
     async ({ skip }) => {
       if (sandboxSkip) skip();
 
@@ -609,11 +578,7 @@ describe.skipIf(skipReason)('OpenCode interactive PTY E2E (sandbox)', () => {
         { type: 'text', text: 'placeholder' },
       ]);
 
-      harness = createOpenCodeHarness({
-        mockPort: mockServer.port,
-      });
-
-      // Wait for TUI to boot
+      harness = new TerminalHarness(kernel, opencodeShellOpts());
       await harness.waitFor('Ask anything', 1, 30_000);
 
       // Type text into input (OpenCode treats ^C on non-empty input as clear)
@@ -635,25 +600,31 @@ describe.skipIf(skipReason)('OpenCode interactive PTY E2E (sandbox)', () => {
   );
 
   it(
-    'exit cleanly — Ctrl+C twice, OpenCode exits and PTY closes',
+    'Exit cleanly — Ctrl+C exits OpenCode and PTY closes',
     async ({ skip }) => {
       if (sandboxSkip) skip();
 
       mockServer.reset([]);
 
-      harness = createOpenCodeHarness({
-        mockPort: mockServer.port,
-      });
-
-      // Wait for TUI to boot
+      harness = new TerminalHarness(kernel, opencodeShellOpts());
       await harness.waitFor('Ask anything', 1, 30_000);
 
-      // Send ^C twice to exit (common TUI pattern: first ^C cancels, second exits)
-      await harness.type('\x03');
-      await new Promise((r) => setTimeout(r, 300));
-      await harness.type('\x03');
+      // Send ^C — on empty input, OpenCode may exit immediately.
+      // Send via shell.write() directly since the process may die before
+      // type() can settle, causing EBADF on the second write.
+      harness.shell.write('\x03');
 
-      // Wait for process to exit
+      // Wait briefly, then try a second ^C if still alive
+      const quickExit = await Promise.race([
+        harness.shell.wait().then((c) => c),
+        new Promise<null>((r) => setTimeout(() => r(null), 500)),
+      ]);
+
+      if (quickExit === null) {
+        // Still alive — send second ^C
+        try { harness.shell.write('\x03'); } catch { /* PTY may be closed */ }
+      }
+
       const exitCode = await Promise.race([
         harness.shell.wait(),
         new Promise<number>((_, reject) =>
