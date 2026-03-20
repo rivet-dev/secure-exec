@@ -70,7 +70,7 @@ export const WASMVM_COMMANDS: readonly string[] = [
   // Build tools (C programs)
   'make',
   // Version control (C programs)
-  'git',
+  'git', 'git-remote-http', 'git-remote-https',
   // Shim commands
   'env', 'envsubst', 'nice', 'nohup', 'stdbuf', 'timeout', 'xargs',
   // uutils: text/encoding
@@ -121,8 +121,10 @@ export const DEFAULT_FIRST_PARTY_TIERS: Readonly<Record<string, PermissionTier>>
   'stdbuf': 'full',
   // Build tools — spawns child processes to run recipes
   'make': 'full',
-  // Version control — reads/writes .git objects
+  // Version control — reads/writes .git objects, remote operations use network
   'git': 'full',
+  'git-remote-http': 'full',
+  'git-remote-https': 'full',
   // Read-only tools — never need to write files
   'grep': 'read-only',
   'egrep': 'read-only',

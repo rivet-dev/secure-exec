@@ -4,6 +4,7 @@
  * Supports:
  *   Plumbing: hash-object, cat-file
  *   Porcelain: init, add, commit, status, log, diff, branch, checkout, merge, tag
+ *   Remote:   remote, clone, fetch, push, pull (HTTP/HTTPS via libcurl)
  *
  * This implementation is NOT based on Git source code.
  * Licensed under Apache-2.0.
@@ -17,6 +18,10 @@
 #include <unistd.h>
 #include <dirent.h>
 #include <time.h>
+
+#ifdef HAS_CURL
+#include <curl/curl.h>
+#endif
 
 #include "git-objects.h"
 #include "git-index.h"
@@ -2054,12 +2059,816 @@ static int cmd_tag(int argc, char **argv) {
     return 0;
 }
 
+/* --- Config file helpers (for remote URLs) --- */
+
+/* Read a remote's URL from .git/config */
+static int git_config_get_remote_url(const char *git_dir, const char *name,
+                                     char *url_out, size_t url_sz) {
+    char config_path[4096];
+    snprintf(config_path, sizeof(config_path), "%s/config", git_dir);
+
+    size_t len;
+    uint8_t *data = read_file(config_path, &len);
+    if (!data) return -1;
+
+    char section[256];
+    snprintf(section, sizeof(section), "[remote \"%s\"]", name);
+
+    char *pos = strstr((char *)data, section);
+    if (!pos) { free(data); return -1; }
+    pos += strlen(section);
+
+    /* Find "url = " within this section (before next section header) */
+    char *next_sec = strstr(pos, "\n[");
+    char *url_key = strstr(pos, "url = ");
+    if (!url_key || (next_sec && url_key > next_sec)) { free(data); return -1; }
+
+    url_key += 6;
+    while (*url_key == ' ' || *url_key == '\t') url_key++;
+
+    char *eol = strchr(url_key, '\n');
+    if (!eol) eol = (char *)data + len;
+
+    size_t ulen = (size_t)(eol - url_key);
+    while (ulen > 0 && (url_key[ulen - 1] == '\r' || url_key[ulen - 1] == ' '))
+        ulen--;
+    if (ulen >= url_sz) ulen = url_sz - 1;
+    memcpy(url_out, url_key, ulen);
+    url_out[ulen] = '\0';
+
+    free(data);
+    return 0;
+}
+
+/* Append a [remote] section to .git/config */
+static int git_config_add_remote(const char *git_dir, const char *name, const char *url) {
+    char config_path[4096];
+    snprintf(config_path, sizeof(config_path), "%s/config", git_dir);
+
+    FILE *f = fopen(config_path, "a");
+    if (!f) return -1;
+
+    fprintf(f, "[remote \"%s\"]\n", name);
+    fprintf(f, "\turl = %s\n", url);
+    fprintf(f, "\tfetch = +refs/heads/*:refs/remotes/%s/*\n", name);
+    fclose(f);
+    return 0;
+}
+
+/* Check if an object exists locally */
+static int has_object(const char *git_dir, const char *hex) {
+    char path[4096];
+    snprintf(path, sizeof(path), "%s/objects/%.2s/%s", git_dir, hex, hex + 2);
+    struct stat st;
+    return stat(path, &st) == 0;
+}
+
+/* --- HTTP transport (requires libcurl) --- */
+
+#ifdef HAS_CURL
+
+typedef struct {
+    uint8_t *data;
+    size_t size;
+    size_t capacity;
+} HttpBuf;
+
+static void httpbuf_init(HttpBuf *b) {
+    b->data = NULL; b->size = 0; b->capacity = 0;
+}
+
+static void httpbuf_free(HttpBuf *b) {
+    free(b->data); b->data = NULL; b->size = 0; b->capacity = 0;
+}
+
+static size_t httpbuf_write_cb(char *ptr, size_t sz, size_t nm, void *ud) {
+    HttpBuf *b = (HttpBuf *)ud;
+    size_t total = sz * nm;
+    if (b->size + total > b->capacity) {
+        size_t nc = (b->capacity + total) * 2;
+        if (nc < 4096) nc = 4096;
+        b->data = realloc(b->data, nc);
+        b->capacity = nc;
+    }
+    memcpy(b->data + b->size, ptr, total);
+    b->size += total;
+    return total;
+}
+
+/* HTTP GET into buffer. Returns 0 on success. */
+static int http_get(const char *url, HttpBuf *buf) {
+    CURL *curl = curl_easy_init();
+    if (!curl) return -1;
+
+    httpbuf_init(buf);
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, httpbuf_write_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, buf);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+
+    CURLcode res = curl_easy_perform(curl);
+    long code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
+    curl_easy_cleanup(curl);
+
+    if (res != CURLE_OK || code != 200) {
+        httpbuf_free(buf);
+        return -1;
+    }
+    return 0;
+}
+
+/* HTTP PUT data to URL. Returns 0 on success. */
+static int http_put(const char *url, const uint8_t *data, size_t len) {
+    CURL *curl = curl_easy_init();
+    if (!curl) return -1;
+
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PUT");
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)len);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+
+    struct curl_slist *headers = NULL;
+    headers = curl_slist_append(headers, "Content-Type: application/octet-stream");
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+    CURLcode res = curl_easy_perform(curl);
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+    return (res == CURLE_OK) ? 0 : -1;
+}
+
+/* Download a loose object from remote if missing locally */
+static int download_object(const char *base_url, const char *git_dir, const char *hex) {
+    if (has_object(git_dir, hex)) return 0;
+
+    char url[4096];
+    snprintf(url, sizeof(url), "%s/objects/%.2s/%s", base_url, hex, hex + 2);
+
+    HttpBuf buf;
+    if (http_get(url, &buf) != 0) return -1;
+
+    char obj_dir[4096];
+    snprintf(obj_dir, sizeof(obj_dir), "%s/objects/%.2s", git_dir, hex);
+    mkdir(obj_dir, 0755);
+
+    char obj_path[4096];
+    snprintf(obj_path, sizeof(obj_path), "%s/objects/%.2s/%s", git_dir, hex, hex + 2);
+
+    FILE *f = fopen(obj_path, "wb");
+    if (!f) { httpbuf_free(&buf); return -1; }
+    fwrite(buf.data, 1, buf.size, f);
+    fclose(f);
+    httpbuf_free(&buf);
+    return 0;
+}
+
+/* Download a tree and all blobs/subtrees it references */
+static int download_tree(const char *base_url, const char *git_dir, const char *tree_hex) {
+    if (download_object(base_url, git_dir, tree_hex) != 0) return -1;
+
+    GitTreeEntry *entries = NULL;
+    size_t nentries = 0;
+    if (git_read_tree(git_dir, tree_hex, &entries, &nentries) != 0) return -1;
+
+    for (size_t i = 0; i < nentries; i++) {
+        char ehex[GIT_SHA1_HEXSZ + 1];
+        git_bin_to_hex(entries[i].sha1, ehex);
+
+        int rc = (entries[i].mode == 040000)
+            ? download_tree(base_url, git_dir, ehex)
+            : download_object(base_url, git_dir, ehex);
+        if (rc != 0) { free(entries); return -1; }
+    }
+    free(entries);
+    return 0;
+}
+
+/* Recursively download a commit and all its dependencies */
+static int download_commit_graph(const char *base_url, const char *git_dir,
+                                 const char *commit_hex) {
+    if (has_object(git_dir, commit_hex)) return 0;
+    if (download_object(base_url, git_dir, commit_hex) != 0) return -1;
+
+    char tree_hex[GIT_SHA1_HEXSZ + 1], parent_hex[GIT_SHA1_HEXSZ + 1];
+    if (git_read_commit(git_dir, commit_hex, tree_hex, parent_hex, NULL, NULL) != 0)
+        return -1;
+
+    if (download_tree(base_url, git_dir, tree_hex) != 0) return -1;
+
+    char parents[16][GIT_SHA1_HEXSZ + 1];
+    int np = git_read_commit_parents(git_dir, commit_hex, parents, 16);
+    for (int i = 0; i < np; i++) {
+        if (parents[i][0] && !has_object(git_dir, parents[i])) {
+            if (download_commit_graph(base_url, git_dir, parents[i]) != 0)
+                return -1;
+        }
+    }
+    return 0;
+}
+
+/* Upload a loose object to remote via HTTP PUT */
+static int upload_object(const char *base_url, const char *git_dir, const char *hex) {
+    char obj_path[4096];
+    snprintf(obj_path, sizeof(obj_path), "%s/objects/%.2s/%s", git_dir, hex, hex + 2);
+
+    size_t len;
+    uint8_t *data = read_file(obj_path, &len);
+    if (!data) return -1;
+
+    char url[4096];
+    snprintf(url, sizeof(url), "%s/objects/%.2s/%s", base_url, hex, hex + 2);
+
+    int rc = http_put(url, data, len);
+    free(data);
+    return rc;
+}
+
+/* Recursively upload a commit and all its new objects */
+static int upload_commit_graph(const char *base_url, const char *git_dir,
+                               const char *commit_hex, const char *stop_hex) {
+    if (stop_hex && strcmp(commit_hex, stop_hex) == 0) return 0;
+
+    if (upload_object(base_url, git_dir, commit_hex) != 0) return -1;
+
+    char tree_hex[GIT_SHA1_HEXSZ + 1], parent_hex[GIT_SHA1_HEXSZ + 1];
+    if (git_read_commit(git_dir, commit_hex, tree_hex, parent_hex, NULL, NULL) != 0)
+        return -1;
+
+    /* Upload tree and blobs */
+    GitTreeEntry *entries = NULL;
+    size_t nentries = 0;
+    upload_object(base_url, git_dir, tree_hex);
+    if (git_read_tree(git_dir, tree_hex, &entries, &nentries) == 0) {
+        for (size_t i = 0; i < nentries; i++) {
+            char ehex[GIT_SHA1_HEXSZ + 1];
+            git_bin_to_hex(entries[i].sha1, ehex);
+            upload_object(base_url, git_dir, ehex);
+        }
+        free(entries);
+    }
+
+    /* Upload parent commits (stop at known boundary) */
+    char parents[16][GIT_SHA1_HEXSZ + 1];
+    int np = git_read_commit_parents(git_dir, commit_hex, parents, 16);
+    for (int i = 0; i < np; i++) {
+        if (parents[i][0] && (!stop_hex || strcmp(parents[i], stop_hex) != 0))
+            upload_commit_graph(base_url, git_dir, parents[i], stop_hex);
+    }
+    return 0;
+}
+
+/* Update a remote ref via HTTP PUT */
+static int http_update_ref(const char *base_url, const char *ref, const char *hex) {
+    char url[4096];
+    snprintf(url, sizeof(url), "%s/%s", base_url, ref);
+
+    char body[64];
+    snprintf(body, sizeof(body), "%s\n", hex);
+    return http_put(url, (const uint8_t *)body, strlen(body));
+}
+
+#endif /* HAS_CURL */
+
+/* --- remote --- */
+
+static int cmd_remote(int argc, char **argv) {
+    char *git_dir = git_find_repo();
+    if (!git_dir) { fprintf(stderr, "fatal: not a git repository\n"); return 128; }
+
+    int verbose = 0;
+    const char *subcmd = NULL;
+    int sub_start = -1;
+
+    for (int i = 0; i < argc; i++) {
+        if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0)
+            verbose = 1;
+        else if (strcmp(argv[i], "--help") == 0) {
+            fprintf(stderr, "usage: git remote [-v] [add <name> <url>]\n");
+            free(git_dir); return 0;
+        } else if (argv[i][0] != '-' && !subcmd) {
+            subcmd = argv[i];
+            sub_start = i + 1;
+        }
+    }
+
+    if (!subcmd) {
+        /* List remotes */
+        char config_path[4096];
+        snprintf(config_path, sizeof(config_path), "%s/config", git_dir);
+        size_t len;
+        uint8_t *data = read_file(config_path, &len);
+        if (data) {
+            char *p = (char *)data;
+            while ((p = strstr(p, "[remote \"")) != NULL) {
+                p += 9;
+                char *end = strchr(p, '"');
+                if (!end) break;
+                char rname[256];
+                size_t rlen = (size_t)(end - p);
+                if (rlen >= sizeof(rname)) rlen = sizeof(rname) - 1;
+                memcpy(rname, p, rlen);
+                rname[rlen] = '\0';
+
+                if (verbose) {
+                    char rurl[4096];
+                    if (git_config_get_remote_url(git_dir, rname, rurl, sizeof(rurl)) == 0) {
+                        printf("%s\t%s (fetch)\n", rname, rurl);
+                        printf("%s\t%s (push)\n", rname, rurl);
+                    } else {
+                        printf("%s\n", rname);
+                    }
+                } else {
+                    printf("%s\n", rname);
+                }
+                p = end + 1;
+            }
+            free(data);
+        }
+        free(git_dir);
+        return 0;
+    }
+
+    if (strcmp(subcmd, "add") == 0) {
+        const char *name = NULL, *url = NULL;
+        for (int i = sub_start; i < argc; i++) {
+            if (argv[i][0] == '-') continue;
+            if (!name) name = argv[i];
+            else if (!url) url = argv[i];
+        }
+        if (!name || !url) {
+            fprintf(stderr, "usage: git remote add <name> <url>\n");
+            free(git_dir); return 1;
+        }
+
+        /* Check if remote already exists */
+        char existing[4096];
+        if (git_config_get_remote_url(git_dir, name, existing, sizeof(existing)) == 0) {
+            fprintf(stderr, "fatal: remote %s already exists.\n", name);
+            free(git_dir); return 3;
+        }
+
+        if (git_config_add_remote(git_dir, name, url) != 0) {
+            fprintf(stderr, "fatal: could not add remote '%s'\n", name);
+            free(git_dir); return 1;
+        }
+
+        /* Create refs/remotes/<name>/ directory */
+        char ref_dir[4096];
+        snprintf(ref_dir, sizeof(ref_dir), "%s/refs/remotes/%s", git_dir, name);
+        mkdirp(ref_dir, 0755);
+
+        free(git_dir);
+        return 0;
+    }
+
+    fprintf(stderr, "error: unknown subcommand: %s\n", subcmd);
+    free(git_dir);
+    return 1;
+}
+
+/* --- clone --- */
+
+static int cmd_clone(int argc, char **argv) {
+    const char *url = NULL;
+    const char *dir = NULL;
+
+    for (int i = 0; i < argc; i++) {
+        if (strcmp(argv[i], "--help") == 0) {
+            fprintf(stderr, "usage: git clone <url> [<directory>]\n");
+            return 0;
+        } else if (argv[i][0] != '-') {
+            if (!url) url = argv[i];
+            else if (!dir) dir = argv[i];
+        }
+    }
+
+    if (!url) {
+        fprintf(stderr, "usage: git clone <url> [<directory>]\n");
+        return 1;
+    }
+
+#ifndef HAS_CURL
+    fprintf(stderr, "fatal: git clone requires HTTP support (built without libcurl)\n");
+    return 1;
+#else
+    /* Derive directory name from URL if not given */
+    char auto_dir[256] = "";
+    if (!dir) {
+        const char *last_slash = strrchr(url, '/');
+        const char *base = last_slash ? last_slash + 1 : url;
+        snprintf(auto_dir, sizeof(auto_dir), "%s", base);
+        size_t alen = strlen(auto_dir);
+        if (alen > 4 && strcmp(auto_dir + alen - 4, ".git") == 0)
+            auto_dir[alen - 4] = '\0';
+        if (auto_dir[0] == '\0') snprintf(auto_dir, sizeof(auto_dir), "repo");
+        dir = auto_dir;
+    }
+
+    printf("Cloning into '%s'...\n", dir);
+
+    if (mkdir(dir, 0755) != 0 && errno != EEXIST) {
+        fprintf(stderr, "fatal: could not create directory '%s'\n", dir);
+        return 128;
+    }
+
+    char prev_cwd[4096];
+    getcwd(prev_cwd, sizeof(prev_cwd));
+    if (chdir(dir) != 0) {
+        fprintf(stderr, "fatal: could not chdir to '%s'\n", dir);
+        return 128;
+    }
+
+    /* git init */
+    char *init_args[1] = { NULL };
+    cmd_init(0, init_args);
+
+    char *git_dir = git_find_repo();
+    if (!git_dir) {
+        chdir(prev_cwd);
+        fprintf(stderr, "fatal: init failed\n");
+        return 128;
+    }
+
+    /* Add remote origin */
+    git_config_add_remote(git_dir, "origin", url);
+    char rdir[4096];
+    snprintf(rdir, sizeof(rdir), "%s/refs/remotes/origin", git_dir);
+    mkdirp(rdir, 0755);
+
+    /* Fetch info/refs */
+    char refs_url[4096];
+    snprintf(refs_url, sizeof(refs_url), "%s/info/refs", url);
+
+    HttpBuf refs_buf;
+    if (http_get(refs_url, &refs_buf) != 0) {
+        fprintf(stderr, "fatal: repository '%s' not found\n", url);
+        free(git_dir); chdir(prev_cwd); return 128;
+    }
+
+    /* Parse refs and download objects */
+    char default_branch[256] = "";
+    char default_hex[GIT_SHA1_HEXSZ + 1] = "";
+    char *line = (char *)refs_buf.data;
+    char *data_end = (char *)refs_buf.data + refs_buf.size;
+
+    while (line < data_end) {
+        char *nl = memchr(line, '\n', (size_t)(data_end - line));
+        if (!nl) nl = data_end;
+
+        /* Each line: <40hex>\t<refname> */
+        if (nl - line >= 42 && line[40] == '\t') {
+            char ref_hex[GIT_SHA1_HEXSZ + 1];
+            memcpy(ref_hex, line, 40);
+            ref_hex[40] = '\0';
+
+            size_t rlen = (size_t)(nl - line - 41);
+            char ref_name[256];
+            if (rlen >= sizeof(ref_name)) rlen = sizeof(ref_name) - 1;
+            memcpy(ref_name, line + 41, rlen);
+            /* Trim trailing whitespace */
+            while (rlen > 0 && (ref_name[rlen - 1] == '\r' || ref_name[rlen - 1] == ' '))
+                rlen--;
+            ref_name[rlen] = '\0';
+
+            /* Download commit graph */
+            if (download_commit_graph(url, git_dir, ref_hex) != 0) {
+                fprintf(stderr, "warning: failed to download objects for %s\n", ref_name);
+                line = nl + 1;
+                continue;
+            }
+
+            /* Store remote tracking ref */
+            if (strncmp(ref_name, "refs/heads/", 11) == 0) {
+                char remote_ref[256];
+                snprintf(remote_ref, sizeof(remote_ref),
+                         "refs/remotes/origin/%s", ref_name + 11);
+                git_update_ref(git_dir, remote_ref, ref_hex);
+
+                /* Also create local branch */
+                git_update_ref(git_dir, ref_name, ref_hex);
+
+                /* Pick default branch: prefer main, then master, then first */
+                const char *bname = ref_name + 11;
+                if (default_hex[0] == '\0' ||
+                    strcmp(bname, "main") == 0 ||
+                    (strcmp(bname, "master") == 0 && strcmp(default_branch, "main") != 0)) {
+                    memcpy(default_hex, ref_hex, GIT_SHA1_HEXSZ + 1);
+                    snprintf(default_branch, sizeof(default_branch), "%s", ref_name);
+                }
+            } else if (strncmp(ref_name, "refs/tags/", 10) == 0) {
+                git_update_ref(git_dir, ref_name, ref_hex);
+            }
+        }
+        line = nl + 1;
+    }
+    httpbuf_free(&refs_buf);
+
+    if (default_hex[0] == '\0') {
+        fprintf(stderr, "warning: remote HEAD refers to nonexistent ref\n");
+        free(git_dir); chdir(prev_cwd); return 0;
+    }
+
+    /* Set HEAD to default branch */
+    char head_path[4096];
+    snprintf(head_path, sizeof(head_path), "%s/HEAD", git_dir);
+    FILE *hf = fopen(head_path, "w");
+    if (hf) { fprintf(hf, "ref: %s\n", default_branch); fclose(hf); }
+
+    /* Checkout the default branch */
+    char tree_hex[GIT_SHA1_HEXSZ + 1], p_hex[GIT_SHA1_HEXSZ + 1];
+    if (git_read_commit(git_dir, default_hex, tree_hex, p_hex, NULL, NULL) == 0) {
+        char work_dir[4096];
+        get_work_dir(git_dir, work_dir, sizeof(work_dir));
+
+        GitIndex idx;
+        git_index_init(&idx);
+        restore_tree(git_dir, work_dir, tree_hex, "", &idx);
+        git_index_write(&idx, git_dir);
+        git_index_free(&idx);
+    }
+
+    free(git_dir);
+    chdir(prev_cwd);
+    return 0;
+#endif /* HAS_CURL */
+}
+
+/* --- fetch --- */
+
+static int cmd_fetch(int argc, char **argv) {
+    const char *remote_name = "origin";
+
+    for (int i = 0; i < argc; i++) {
+        if (strcmp(argv[i], "--help") == 0) {
+            fprintf(stderr, "usage: git fetch [<remote>]\n");
+            return 0;
+        } else if (argv[i][0] != '-') {
+            remote_name = argv[i];
+        }
+    }
+
+    char *git_dir = git_find_repo();
+    if (!git_dir) { fprintf(stderr, "fatal: not a git repository\n"); return 128; }
+
+#ifndef HAS_CURL
+    fprintf(stderr, "fatal: git fetch requires HTTP support (built without libcurl)\n");
+    free(git_dir); return 1;
+#else
+    char url[4096];
+    if (git_config_get_remote_url(git_dir, remote_name, url, sizeof(url)) != 0) {
+        fprintf(stderr, "fatal: '%s' does not appear to be a git repository\n", remote_name);
+        free(git_dir); return 128;
+    }
+
+    /* Fetch info/refs */
+    char refs_url[4096];
+    snprintf(refs_url, sizeof(refs_url), "%s/info/refs", url);
+
+    HttpBuf refs_buf;
+    if (http_get(refs_url, &refs_buf) != 0) {
+        fprintf(stderr, "fatal: could not read from remote repository '%s'\n", url);
+        free(git_dir); return 128;
+    }
+
+    int updated = 0;
+    char *line = (char *)refs_buf.data;
+    char *data_end = (char *)refs_buf.data + refs_buf.size;
+
+    while (line < data_end) {
+        char *nl = memchr(line, '\n', (size_t)(data_end - line));
+        if (!nl) nl = data_end;
+
+        if (nl - line >= 42 && line[40] == '\t') {
+            char ref_hex[GIT_SHA1_HEXSZ + 1];
+            memcpy(ref_hex, line, 40);
+            ref_hex[40] = '\0';
+
+            size_t rlen = (size_t)(nl - line - 41);
+            char ref_name[256];
+            if (rlen >= sizeof(ref_name)) rlen = sizeof(ref_name) - 1;
+            memcpy(ref_name, line + 41, rlen);
+            while (rlen > 0 && (ref_name[rlen - 1] == '\r' || ref_name[rlen - 1] == ' '))
+                rlen--;
+            ref_name[rlen] = '\0';
+
+            if (strncmp(ref_name, "refs/heads/", 11) == 0) {
+                char remote_ref[256];
+                snprintf(remote_ref, sizeof(remote_ref),
+                         "refs/remotes/%s/%s", remote_name, ref_name + 11);
+
+                /* Check if we already have this ref at this commit */
+                char existing[GIT_SHA1_HEXSZ + 1];
+                if (git_resolve_ref(git_dir, remote_ref, existing) == 0 &&
+                    strcmp(existing, ref_hex) == 0) {
+                    line = nl + 1;
+                    continue;
+                }
+
+                /* Download new objects */
+                if (download_commit_graph(url, git_dir, ref_hex) == 0) {
+                    git_update_ref(git_dir, remote_ref, ref_hex);
+                    printf(" * [updated] %s -> %s/%s\n",
+                           ref_name + 11, remote_name, ref_name + 11);
+                    updated++;
+                }
+            }
+        }
+        line = nl + 1;
+    }
+    httpbuf_free(&refs_buf);
+
+    if (updated == 0)
+        printf("Already up to date.\n");
+    else
+        printf("From %s\n", url);
+
+    free(git_dir);
+    return 0;
+#endif
+}
+
+/* --- pull --- */
+
+static int cmd_pull(int argc, char **argv) {
+    const char *remote_name = "origin";
+
+    for (int i = 0; i < argc; i++) {
+        if (strcmp(argv[i], "--help") == 0) {
+            fprintf(stderr, "usage: git pull [<remote>]\n");
+            return 0;
+        } else if (argv[i][0] != '-') {
+            remote_name = argv[i];
+        }
+    }
+
+    char *git_dir = git_find_repo();
+    if (!git_dir) { fprintf(stderr, "fatal: not a git repository\n"); return 128; }
+
+    /* Read current HEAD ref name (e.g. refs/heads/main) */
+    char head_hex[GIT_SHA1_HEXSZ + 1], head_ref[256];
+    if (git_read_head(git_dir, head_hex, head_ref, sizeof(head_ref)) != 0) {
+        fprintf(stderr, "fatal: not on any branch\n");
+        free(git_dir); return 1;
+    }
+
+    /* Extract branch name from refs/heads/<branch> */
+    const char *branch = head_ref;
+    if (strncmp(branch, "refs/heads/", 11) == 0)
+        branch = head_ref + 11;
+
+    free(git_dir);
+
+    /* Fetch first */
+    char *fetch_args[2] = { (char *)remote_name, NULL };
+    int rc = cmd_fetch(1, fetch_args);
+    if (rc != 0) return rc;
+
+    /* Then merge the remote tracking ref */
+    git_dir = git_find_repo();
+    if (!git_dir) return 128;
+
+    char remote_ref[256];
+    snprintf(remote_ref, sizeof(remote_ref), "refs/remotes/%s/%s", remote_name, branch);
+
+    char remote_hex[GIT_SHA1_HEXSZ + 1];
+    if (git_resolve_ref(git_dir, remote_ref, remote_hex) != 0) {
+        fprintf(stderr, "There is no tracking information for the current branch.\n");
+        free(git_dir); return 1;
+    }
+
+    /* Re-read HEAD (might have been updated during fetch phase) */
+    char cur_hex[GIT_SHA1_HEXSZ + 1], cur_ref[256];
+    git_read_head(git_dir, cur_hex, cur_ref, sizeof(cur_ref));
+    free(git_dir);
+
+    if (strcmp(cur_hex, remote_hex) == 0) {
+        printf("Already up to date.\n");
+        return 0;
+    }
+
+    /* Merge remote branch into current */
+    /* Reuse the branch name for merge - simulate "git merge remotes/origin/<branch>" */
+    /* We set up the ref so merge can find it */
+    git_dir = git_find_repo();
+    if (!git_dir) return 128;
+
+    /* Create a temporary local ref for the merge source */
+    char merge_ref[256];
+    snprintf(merge_ref, sizeof(merge_ref), "refs/heads/__pull_merge_tmp__");
+    git_update_ref(git_dir, merge_ref, remote_hex);
+    free(git_dir);
+
+    char *merge_args[2] = { "__pull_merge_tmp__", NULL };
+    rc = cmd_merge(1, merge_args);
+
+    /* Clean up temporary ref */
+    git_dir = git_find_repo();
+    if (git_dir) {
+        char tmp_path[4096];
+        snprintf(tmp_path, sizeof(tmp_path), "%s/refs/heads/__pull_merge_tmp__", git_dir);
+        unlink(tmp_path);
+        free(git_dir);
+    }
+
+    return rc;
+}
+
+/* --- push --- */
+
+static int cmd_push(int argc, char **argv) {
+    const char *remote_name = "origin";
+    const char *refspec = NULL;
+
+    for (int i = 0; i < argc; i++) {
+        if (strcmp(argv[i], "--help") == 0) {
+            fprintf(stderr, "usage: git push [<remote>] [<branch>]\n");
+            return 0;
+        } else if (argv[i][0] != '-') {
+            if (!refspec && strcmp(argv[i], remote_name) != 0)
+                refspec = argv[i];
+            else
+                remote_name = argv[i];
+        }
+    }
+
+    char *git_dir = git_find_repo();
+    if (!git_dir) { fprintf(stderr, "fatal: not a git repository\n"); return 128; }
+
+#ifndef HAS_CURL
+    fprintf(stderr, "fatal: git push requires HTTP support (built without libcurl)\n");
+    free(git_dir); return 1;
+#else
+    char url[4096];
+    if (git_config_get_remote_url(git_dir, remote_name, url, sizeof(url)) != 0) {
+        fprintf(stderr, "fatal: '%s' does not appear to be a git repository\n", remote_name);
+        free(git_dir); return 128;
+    }
+
+    /* Determine what branch to push */
+    char head_hex[GIT_SHA1_HEXSZ + 1], head_ref[256];
+    if (git_read_head(git_dir, head_hex, head_ref, sizeof(head_ref)) != 0) {
+        fprintf(stderr, "fatal: not on any branch\n");
+        free(git_dir); return 1;
+    }
+
+    const char *branch = head_ref;
+    if (strncmp(branch, "refs/heads/", 11) == 0)
+        branch = head_ref + 11;
+    if (refspec) branch = refspec;
+
+    char local_ref[256];
+    snprintf(local_ref, sizeof(local_ref), "refs/heads/%s", branch);
+    char local_hex[GIT_SHA1_HEXSZ + 1];
+    if (git_resolve_ref(git_dir, local_ref, local_hex) != 0) {
+        fprintf(stderr, "error: src refspec %s does not match any\n", branch);
+        free(git_dir); return 1;
+    }
+
+    /* Find remote tracking ref to determine boundary for upload */
+    char remote_ref[256];
+    snprintf(remote_ref, sizeof(remote_ref), "refs/remotes/%s/%s", remote_name, branch);
+    char remote_hex[GIT_SHA1_HEXSZ + 1] = "";
+    git_resolve_ref(git_dir, remote_ref, remote_hex); /* may fail — no remote yet */
+
+    /* Upload objects */
+    const char *stop = remote_hex[0] ? remote_hex : NULL;
+    if (upload_commit_graph(url, git_dir, local_hex, stop) != 0) {
+        fprintf(stderr, "fatal: failed to push objects to '%s'\n", url);
+        free(git_dir); return 1;
+    }
+
+    /* Update remote ref */
+    char target_ref[256];
+    snprintf(target_ref, sizeof(target_ref), "refs/heads/%s", branch);
+    if (http_update_ref(url, target_ref, local_hex) != 0) {
+        fprintf(stderr, "fatal: failed to update remote ref '%s'\n", target_ref);
+        free(git_dir); return 1;
+    }
+
+    /* Update local remote tracking ref */
+    git_update_ref(git_dir, remote_ref, local_hex);
+
+    printf("To %s\n", url);
+    if (remote_hex[0])
+        printf("   %.7s..%.7s  %s -> %s\n", remote_hex, local_hex, branch, branch);
+    else
+        printf(" * [new branch]  %s -> %s\n", branch, branch);
+
+    free(git_dir);
+    return 0;
+#endif
+}
+
 /* --- main dispatcher --- */
 
 static void usage(void) {
     fprintf(stderr, "usage: git <command> [<args>]\n\n");
     fprintf(stderr, "Commands:\n");
     fprintf(stderr, "   init          Create an empty Git repository\n");
+    fprintf(stderr, "   clone         Clone a repository via HTTP(S)\n");
     fprintf(stderr, "   add           Add file contents to the index\n");
     fprintf(stderr, "   commit        Record changes to the repository\n");
     fprintf(stderr, "   status        Show the working tree status\n");
@@ -2069,6 +2878,10 @@ static void usage(void) {
     fprintf(stderr, "   checkout      Switch branches or restore files\n");
     fprintf(stderr, "   merge         Join two development histories\n");
     fprintf(stderr, "   tag           Create, list, or delete tags\n");
+    fprintf(stderr, "   remote        Manage remote repositories\n");
+    fprintf(stderr, "   fetch         Download objects from remote\n");
+    fprintf(stderr, "   pull          Fetch and merge remote changes\n");
+    fprintf(stderr, "   push          Send local commits to remote\n");
     fprintf(stderr, "   hash-object   Compute object ID\n");
     fprintf(stderr, "   cat-file      Display object content\n");
 }
@@ -2093,6 +2906,11 @@ int main(int argc, char **argv) {
     if (strcmp(cmd, "checkout") == 0)    return cmd_checkout(argc - 2, argv + 2);
     if (strcmp(cmd, "merge") == 0)       return cmd_merge(argc - 2, argv + 2);
     if (strcmp(cmd, "tag") == 0)         return cmd_tag(argc - 2, argv + 2);
+    if (strcmp(cmd, "remote") == 0)      return cmd_remote(argc - 2, argv + 2);
+    if (strcmp(cmd, "clone") == 0)       return cmd_clone(argc - 2, argv + 2);
+    if (strcmp(cmd, "fetch") == 0)       return cmd_fetch(argc - 2, argv + 2);
+    if (strcmp(cmd, "pull") == 0)        return cmd_pull(argc - 2, argv + 2);
+    if (strcmp(cmd, "push") == 0)        return cmd_push(argc - 2, argv + 2);
     if (strcmp(cmd, "--version") == 0) {
         printf("git version 2.47.1 (secure-exec)\n");
         return 0;

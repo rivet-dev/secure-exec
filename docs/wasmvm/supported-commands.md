@@ -219,7 +219,9 @@
 
 | Command | just-bash | Status | Implementation | Target |
 |---------|-----------|--------|----------------|--------|
-| git | yes | done | C program (clean-room Apache-2.0, SHA-1 + zlib): init, add, commit, status, log, diff, hash-object, cat-file | branching, merge, remote |
+| git | yes | done | C program (clean-room Apache-2.0, SHA-1 + zlib + libcurl): init, add, commit, status, log, diff, branch, checkout, merge, tag, remote, clone, fetch, push, pull, hash-object, cat-file | — |
+| git-remote-http | — | done | Symlink → git (HTTP transport for clone/fetch/push) | — |
+| git-remote-https | — | done | Symlink → git (HTTPS transport for clone/fetch/push) | — |
 
 ## Deferred
 
@@ -260,8 +262,8 @@
 | Shell Builtins | 0 | 0 | 0 | 0 | 0 | 11 | 0 |
 | Data Processing | 3 | 0 | 0 | 1 | 0 | 0 | 2 |
 | Network | 2 | 0 | 0 | 0 | 0 | 0 | 0 |
-| Version Control | 1 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | **105** | **1** | **1** | **1** | **4** | **13** | **2** |
+| Version Control | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
+| **Total** | **107** | **1** | **1** | **1** | **4** | **13** | **2** |
 
 ---
 

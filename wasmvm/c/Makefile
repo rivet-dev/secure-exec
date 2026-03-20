@@ -66,7 +66,7 @@ COMMANDS_DIR ?= ../target/wasm32-wasip1/release/commands
 COMMANDS := zip unzip envsubst sqlite3 make curl wget git
 
 # Programs requiring patched sysroot (Tier 2+ custom host imports)
-PATCHED_PROGRAMS := isatty_test getpid_test getppid_test getppid_verify userinfo pipe_test dup_test spawn_child spawn_exit_code pipeline kill_child waitpid_return waitpid_edge syscall_coverage getpwuid_test signal_tests pipe_edge tcp_echo http_get dns_lookup sqlite3_cli make curl_test curl_cli wget
+PATCHED_PROGRAMS := isatty_test getpid_test getppid_test getppid_verify userinfo pipe_test dup_test spawn_child spawn_exit_code pipeline kill_child waitpid_return waitpid_edge syscall_coverage getpwuid_test signal_tests pipe_edge tcp_echo http_get dns_lookup sqlite3_cli make curl_test curl_cli wget git
 
 # Discover all .c source files in programs/
 ALL_SOURCES := $(wildcard programs/*.c)
@@ -254,19 +254,22 @@ $(NATIVE_DIR)/curl_cli: programs/curl_cli.c
 	@mkdir -p $(NATIVE_DIR)
 	$(NATIVE_CC) $(NATIVE_CFLAGS) -o $@ programs/curl_cli.c -lcurl
 
-# git: clean-room git implementation (init, add, commit, status, log, diff, hash-object, cat-file) — links SHA-1 + zlib
+# git: clean-room git implementation — links SHA-1 + zlib + libcurl (HTTP/HTTPS remote support)
 GIT_SRCS     := libs/git/sha1.c libs/git/git-objects.c libs/git/git-index.c
 GIT_INCLUDES := -Ilibs/git -Ilibs/zlib
+GIT_DEFS     := -DHAS_CURL
 
-$(BUILD_DIR)/git: programs/git.c $(GIT_SRCS) $(ZLIB_SRCS) $(WASI_SDK_DIR)/bin/clang
+$(BUILD_DIR)/git: programs/git.c $(GIT_SRCS) $(ZLIB_SRCS) $(CURL_SRCS) $(WASI_SDK_DIR)/bin/clang
 	@mkdir -p $(BUILD_DIR)
-	$(CC) $(WASM_CFLAGS) $(GIT_INCLUDES) -o $@.wasm programs/git.c $(GIT_SRCS) $(ZLIB_SRCS)
-	wasm-opt -O3 --strip-debug $@.wasm -o $@
+	$(CC) $(WASM_CFLAGS) $(GIT_DEFS) $(GIT_INCLUDES) $(CURL_DEFS) $(CURL_INCLUDES) \
+	    -lwasi-emulated-signal \
+	    -o $@.wasm programs/git.c $(GIT_SRCS) $(ZLIB_SRCS) $(CURL_SRCS)
+	wasm-opt -O3 --strip-debug --all-features $@.wasm -o $@
 	@rm -f $@.wasm
 
 $(NATIVE_DIR)/git: programs/git.c $(GIT_SRCS) $(ZLIB_SRCS)
 	@mkdir -p $(NATIVE_DIR)
-	$(NATIVE_CC) $(NATIVE_CFLAGS) $(GIT_INCLUDES) -o $@ programs/git.c $(GIT_SRCS) $(ZLIB_SRCS)
+	$(NATIVE_CC) $(NATIVE_CFLAGS) $(GIT_DEFS) $(GIT_INCLUDES) -o $@ programs/git.c $(GIT_SRCS) $(ZLIB_SRCS) -lcurl
 
 # wget: minimal wget built on libcurl
 $(BUILD_DIR)/wget: programs/wget.c $(CURL_SRCS) $(WASI_SDK_DIR)/bin/clang
@@ -326,6 +329,11 @@ install:
 		fi; \
 	done; \
 	echo "Installed $$INSTALLED C command(s) to $(COMMANDS_DIR)"
+	@# Create symlinks for git remote helpers
+	@if [ -f "$(COMMANDS_DIR)/git" ]; then \
+		ln -sf git "$(COMMANDS_DIR)/git-remote-http"; \
+		ln -sf git "$(COMMANDS_DIR)/git-remote-https"; \
+	fi
 
 # --- Clean ---
 
