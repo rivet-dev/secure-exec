@@ -3,6 +3,7 @@ Started: 2026-03-17
 PRD: ralph/kernel-hardening (46 stories)
 
 ## Codebase Patterns
+- C programs linking libcurl need: CURL_DEFS + CURL_INCLUDES + CURL_SRCS in Makefile rule, -lwasi-emulated-signal, --all-features for wasm-opt, and must be in PATCHED_PROGRAMS list
 - kernel.exec() wraps commands in sh -c; brush-shell currently returns exit code 17 for all spawned child commands (benign "could not retrieve pid" warning) — test stdout content, not exit code
 - SimpleVFS in test files MUST include async chmod() method — kernel vfsWrite calls vfs.chmod() on new files for umask handling
 - Simple C commands (vanilla sysroot, no host imports) just need: programs/<name>.c, add to COMMANDS in Makefile, add to WASMVM_COMMANDS + DEFAULT_FIRST_PARTY_TIERS in driver.ts
@@ -3724,4 +3725,22 @@ PRD: ralph/kernel-hardening (46 stories)
   - find_merge_base uses BFS from both commits with ancestor set intersection
   - Merge commits need manual commit object construction (two "parent" lines) since git_write_commit only supports one parent
   - US-092 old tests have pre-existing failures (VFS.exists for .git dirs, git log empty output) unrelated to US-093 changes
+---
+
+## 2026-03-20 - US-094
+- What was implemented: git remote commands (clone, fetch, push, pull) with HTTP/HTTPS transport via libcurl
+- Files changed:
+  - wasmvm/c/programs/git.c — added ~800 lines: config file parser, HTTP transport (dumb protocol), cmd_remote, cmd_clone, cmd_fetch, cmd_pull, cmd_push
+  - wasmvm/c/Makefile — updated git build rule to link libcurl, added git to PATCHED_PROGRAMS, added git-remote-http/https symlinks in install target
+  - packages/runtime/wasmvm/src/driver.ts — registered git-remote-http and git-remote-https in WASMVM_COMMANDS and DEFAULT_FIRST_PARTY_TIERS
+  - packages/runtime/wasmvm/test/git-remote.test.ts — new test suite with local HTTP server serving programmatically constructed bare repo (7 tests)
+  - docs/wasmvm/supported-commands.md — updated git entry with full command list, added git-remote-http/https entries, updated summary counts
+- **Learnings for future iterations:**
+  - Git dumb HTTP protocol: info/refs file lists <sha1>\t<refname>\n; loose objects at /objects/<xx>/<38hex> (zlib-compressed)
+  - git push via dumb protocol uses HTTP PUT for both objects and refs — test server must accept PUT requests
+  - Linking libcurl to git requires adding to PATCHED_PROGRAMS (host_net imports), CURL_DEFS, CURL_INCLUDES, -lwasi-emulated-signal, and --all-features for wasm-opt
+  - Test bare repos can be constructed programmatically in TypeScript using crypto.createHash('sha1') + zlib.deflateSync — no need for real git binary on host
+  - git clone flow: init → add remote → fetch info/refs → download_commit_graph (recursive) → set HEAD → restore_tree (checkout)
+  - git pull reuses cmd_merge via temporary local ref — clean up temp ref after merge
+  - Remote test skip condition needs hasGitCurl check (git-remote-http symlink existence) to detect if binary was built with curl support
 ---
