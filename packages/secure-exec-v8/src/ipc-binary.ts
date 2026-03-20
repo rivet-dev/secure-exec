@@ -177,8 +177,8 @@ export function decodeFrame(buf: Buffer): BinaryFrame {
 			};
 		}
 		case MSG_BRIDGE_RESPONSE: {
-			const callId = buf.readUInt32BE(pos);
-			pos += 4;
+			const callId = Number(buf.readBigUInt64BE(pos));
+			pos += 8;
 			const status = buf[pos++];
 			const payload = Buffer.from(buf.subarray(pos));
 			return { type: "BridgeResponse", sessionId, callId, status, payload };
@@ -200,8 +200,8 @@ export function decodeFrame(buf: Buffer): BinaryFrame {
 			return { type: "WarmSnapshot", bridgeCode };
 		}
 		case MSG_BRIDGE_CALL: {
-			const callId = buf.readUInt32BE(pos);
-			pos += 4;
+			const callId = Number(buf.readBigUInt64BE(pos));
+			pos += 8;
 			const mLen = buf.readUInt16BE(pos);
 			pos += 2;
 			const method = buf.toString("utf8", pos, pos + mLen);
@@ -332,9 +332,9 @@ function encodeBody(frame: BinaryFrame): Buffer {
 		case "BridgeResponse": {
 			parts.push(Buffer.from([MSG_BRIDGE_RESPONSE]));
 			parts.push(encodeSessionId(frame.sessionId));
-			const fixed = Buffer.alloc(5);
-			fixed.writeUInt32BE(frame.callId, 0);
-			fixed[4] = frame.status;
+			const fixed = Buffer.alloc(9);
+			fixed.writeBigUInt64BE(BigInt(frame.callId), 0);
+			fixed[8] = frame.status;
 			parts.push(fixed);
 			parts.push(frame.payload);
 			break;
@@ -367,8 +367,8 @@ function encodeBody(frame: BinaryFrame): Buffer {
 		case "BridgeCall": {
 			parts.push(Buffer.from([MSG_BRIDGE_CALL]));
 			parts.push(encodeSessionId(frame.sessionId));
-			const callIdBuf = Buffer.alloc(4);
-			callIdBuf.writeUInt32BE(frame.callId, 0);
+			const callIdBuf = Buffer.alloc(8);
+			callIdBuf.writeBigUInt64BE(BigInt(frame.callId), 0);
 			parts.push(callIdBuf);
 			const mBuf = Buffer.from(frame.method, "utf8");
 			const mLen = Buffer.alloc(2);

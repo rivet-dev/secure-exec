@@ -578,10 +578,10 @@ describe("wire format interop", () => {
 		expect(body[0]).toBe(0x81); // msg_type
 		expect(body[1]).toBe(1); // sid_len
 		expect(body.toString("utf8", 2, 3)).toBe("X"); // sid
-		expect(body.readUInt32BE(3)).toBe(42); // call_id
-		expect(body.readUInt16BE(7)).toBe(2); // method_len
-		expect(body.toString("utf8", 9, 11)).toBe("fn"); // method
-		expect(Buffer.compare(body.subarray(11), Buffer.from([0xaa, 0xbb]))).toBe(
+		expect(Number(body.readBigUInt64BE(3))).toBe(42); // call_id (u64)
+		expect(body.readUInt16BE(11)).toBe(2); // method_len
+		expect(body.toString("utf8", 13, 15)).toBe("fn"); // method
+		expect(Buffer.compare(body.subarray(15), Buffer.from([0xaa, 0xbb]))).toBe(
 			0,
 		); // payload
 	});

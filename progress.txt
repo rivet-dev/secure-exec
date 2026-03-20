@@ -149,7 +149,8 @@ PRD: ralph/kernel-hardening (46 stories)
 - Source policy tests (isolate-runtime-injection-policy, bridge-registry-policy) read specific source files by path — update them when moving code between files
 - esmModuleCache has a sibling esmModuleReverseCache (Map<ivm.Module, string>) for O(1) module→path lookup — both must be updated together and cleared together in execution.ts
 - V8 runtime event loop uses crossbeam Receiver<SessionCommand> — run_event_loop(scope, rx, pending) polls channel for BridgeResponse/StreamEvent/TerminateExecution
-- CallIdRouter (Arc<Mutex<HashMap<u32,String>>>) maps call_id→session_id for BridgeResponse routing; populated by BridgeCallContext, consumed by connection handler
+- CallIdRouter (Arc<Mutex<HashMap<u64,String>>>) maps call_id→session_id for BridgeResponse routing; populated by BridgeCallContext, consumed by connection handler
+- call_id is u64 throughout IPC stack (Rust AtomicU64 + 8-byte BE wire format + TS BigInt↔Number conversion); prevents wrap-around after ~4B calls
 - ChannelResponseReceiver implements ResponseReceiver trait — passes BinaryFrame directly from session channel to sync_call without re-serialization; BridgeCallContext::new() wraps reader in ReaderResponseReceiver (for tests), with_receiver() takes ResponseReceiver directly (production)
 - Per-connection SessionManager: each UDS connection gets its own SharedWriter and CallIdRouter (not global)
 - After iso.terminate_execution() in tests, call iso.cancel_terminate_execution() to allow continued isolate use
@@ -2815,4 +2816,25 @@ PRD: ralph/kernel-hardening (46 stories)
   - `DirBuilderExt::mode()` (from `std::os::unix::fs`) sets permissions atomically via mkdir(2) — always prefer over create_dir + set_permissions
   - V8 isolate teardown SIGSEGV is pre-existing and test-order-dependent — the process crashes during exit cleanup when both execution and snapshot tests run in the same process, but all test assertions pass before the crash
   - `PermissionsExt` import moved to test module only since production code no longer needs it
+---
+
+## 2026-03-19 - US-073
+- What was implemented:
+  - Changed call_id from u32 to u64 across the entire IPC stack (Rust + TypeScript)
+  - Rust: AtomicU32→AtomicU64 in host_call.rs, HashMap<u32>→HashMap<u64> in CallIdRouter and PendingPromises, updated BinaryFrame types
+  - Rust IPC: added read_u64 helper, BridgeCall/BridgeResponse encode/decode now use 8-byte BE for call_id
+  - TypeScript IPC: readBigUInt64BE/writeBigUInt64BE with Number() conversion for callId in BridgeCall/BridgeResponse
+  - Fixed accept error handling: transient errors (EMFILE, ENFILE, ECONNABORTED, EINTR, EAGAIN) log and continue; fatal errors break
+- Files changed:
+  - crates/v8-runtime/src/host_call.rs — AtomicU32→AtomicU64, HashSet<u32>→HashSet<u64>, CallIdRouter HashMap<u32>→<u64>, async_send return u64
+  - crates/v8-runtime/src/ipc_binary.rs — BinaryFrame call_id: u32→u64, added read_u64, updated encode/decode
+  - crates/v8-runtime/src/bridge.rs — PendingPromises HashMap<u32>→<u64>, resolve_pending_promise call_id: u64
+  - crates/v8-runtime/src/main.rs — transient vs fatal accept error handling
+  - packages/secure-exec-v8/src/ipc-binary.ts — BigInt for 8-byte call_id read/write
+  - packages/secure-exec-v8/test/ipc-binary.test.ts — updated wire format byte offset test for 8-byte call_id
+- **Learnings for future iterations:**
+  - On Linux, EAGAIN == EWOULDBLOCK (same errno value) — don't include both in match arms or you get unreachable pattern warning
+  - Wire format changes (u32→u64) require rebuilding the Rust binary (cargo build --release) before integration tests pass
+  - BinaryFrame::BridgeCall/BridgeResponse call_id field type change propagates automatically through destructuring patterns in session.rs and main.rs
+  - TS BigInt↔Number conversion via Number(buf.readBigUInt64BE()) and BigInt(frame.callId) works cleanly for counters within Number.MAX_SAFE_INTEGER
 ---

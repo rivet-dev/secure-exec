@@ -64,7 +64,7 @@ pub enum BinaryFrame {
     },
     BridgeResponse {
         session_id: String,
-        call_id: u32,
+        call_id: u64,
         status: u8, // 0 = success, 1 = error
         payload: Vec<u8>, // V8-serialized result OR UTF-8 error message
     },
@@ -83,7 +83,7 @@ pub enum BinaryFrame {
     // Rust → Host
     BridgeCall {
         session_id: String,
-        call_id: u32,
+        call_id: u64,
         method: String,
         payload: Vec<u8>, // V8-serialized args
     },
@@ -388,7 +388,7 @@ fn decode_body(buf: &[u8]) -> io::Result<BinaryFrame> {
             })
         }
         MSG_BRIDGE_RESPONSE => {
-            let call_id = read_u32(buf, &mut pos)?;
+            let call_id = read_u64(buf, &mut pos)?;
             let status = read_u8(buf, &mut pos)?;
             let payload = buf[pos..].to_vec();
             Ok(BinaryFrame::BridgeResponse {
@@ -415,7 +415,7 @@ fn decode_body(buf: &[u8]) -> io::Result<BinaryFrame> {
             Ok(BinaryFrame::WarmSnapshot { bridge_code })
         }
         MSG_BRIDGE_CALL => {
-            let call_id = read_u32(buf, &mut pos)?;
+            let call_id = read_u64(buf, &mut pos)?;
             let m_len = read_u16(buf, &mut pos)? as usize;
             let method = read_utf8(buf, &mut pos, m_len)?;
             let payload = buf[pos..].to_vec();
@@ -536,6 +536,18 @@ fn read_u32(buf: &[u8], pos: &mut usize) -> io::Result<u32> {
     }
     let v = u32::from_be_bytes([buf[*pos], buf[*pos + 1], buf[*pos + 2], buf[*pos + 3]]);
     *pos += 4;
+    Ok(v)
+}
+
+fn read_u64(buf: &[u8], pos: &mut usize) -> io::Result<u64> {
+    if *pos + 8 > buf.len() {
+        return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected end of frame"));
+    }
+    let v = u64::from_be_bytes([
+        buf[*pos], buf[*pos + 1], buf[*pos + 2], buf[*pos + 3],
+        buf[*pos + 4], buf[*pos + 5], buf[*pos + 6], buf[*pos + 7],
+    ]);
+    *pos += 8;
     Ok(v)
 }
 
