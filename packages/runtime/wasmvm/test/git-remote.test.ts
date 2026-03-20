@@ -532,4 +532,103 @@ describe.skipIf(skipReason())('git remote operations', { timeout: 60_000 }, () =
     // Should fail with error about not being able to connect
     expect(result.stdout + result.stderr).toMatch(/fatal|error|not found|repository/i);
   });
+
+  // --- shallow clone ---
+
+  it('git clone with --depth 1 completes successfully', async () => {
+    // Our git implementation does not support shallow clones via dumb HTTP,
+    // but --depth flag should be gracefully ignored (full clone performed)
+    buildBareRepoWithOneCommit();
+    gitServer = await startGitServer(bareRepo);
+    await setup();
+
+    const result = await git(`clone --depth 1 ${gitServer.url} /work/shallow`);
+
+    // Clone should succeed (--depth ignored, full clone)
+    expect(result.stdout).toContain("Cloning into 'shallow'");
+    const content = await vfs.readTextFile('/work/shallow/hello.txt');
+    expect(content).toBe('hello world\n');
+    expect(await vfs.exists('/work/shallow/.git')).toBe(true);
+  });
+
+  // --- auth error ---
+
+  it('push without credentials to authenticated remote fails with error', async () => {
+    // Start a server that requires auth (returns 401 for PUT requests)
+    const authRepo = createBareRepo();
+    const blob = createGitBlob('hello world\n');
+    addObject(authRepo, blob.hex, blob.data);
+    const tree = createGitTree([{ mode: '100644', name: 'hello.txt', hex: blob.hex }]);
+    addObject(authRepo, tree.hex, tree.data);
+    const commit = createGitCommit({ treeHex: tree.hex, message: 'initial', timestamp: 1710000000 });
+    addObject(authRepo, commit.hex, commit.data);
+    setRef(authRepo, 'refs/heads/main', commit.hex);
+
+    // Server allows GET (clone) but returns 401 for PUT (push)
+    const authServer = await new Promise<{ server: Server; port: number; url: string }>((resolve) => {
+      const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+        if (req.method === 'PUT') {
+          res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="git"' });
+          res.end('Authentication required');
+          return;
+        }
+        // Serve GET requests normally
+        const path = req.url ?? '/';
+        if (path === '/info/refs') {
+          res.writeHead(200, { 'Content-Type': 'text/plain' });
+          res.end(generateInfoRefs(authRepo));
+          return;
+        }
+        if (path === '/HEAD') {
+          res.writeHead(200, { 'Content-Type': 'text/plain' });
+          res.end('ref: refs/heads/main\n');
+          return;
+        }
+        const objMatch = path.match(/^\/objects\/([0-9a-f]{2})\/([0-9a-f]{38})$/);
+        if (objMatch) {
+          const hex = objMatch[1] + objMatch[2];
+          const data = authRepo.objects.get(hex);
+          if (data) {
+            res.writeHead(200, { 'Content-Type': 'application/x-git-loose-object' });
+            res.end(data);
+            return;
+          }
+        }
+        const refMatch = path.match(/^\/(refs\/.+)$/);
+        if (refMatch) {
+          const refHex = authRepo.refs.get(refMatch[1]);
+          if (refHex) {
+            res.writeHead(200, { 'Content-Type': 'text/plain' });
+            res.end(refHex + '\n');
+            return;
+          }
+        }
+        res.writeHead(404);
+        res.end('Not found');
+      });
+      server.listen(0, '127.0.0.1', () => {
+        const addr = server.address() as { port: number };
+        resolve({ server, port: addr.port, url: `http://127.0.0.1:${addr.port}` });
+      });
+    });
+
+    try {
+      await setup();
+
+      // Clone succeeds (GET requests work)
+      await git(`clone ${authServer.url} /work/authed`);
+
+      // Make a local commit to push
+      await vfs.writeFile('/work/authed/new.txt', 'new content\n');
+      await git('add new.txt', '/work/authed');
+      await git('commit -m "local change"', '/work/authed');
+
+      // Push should fail (PUT returns 401)
+      const pushResult = await git('push', '/work/authed');
+      const output = pushResult.stdout + pushResult.stderr;
+      expect(output).toMatch(/fatal|error|fail|denied|reject/i);
+    } finally {
+      await new Promise<void>((resolve) => authServer.server.close(() => resolve()));
+    }
+  });
 });
