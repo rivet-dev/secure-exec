@@ -2,18 +2,18 @@
  * Phase-level profiling: isolate where time goes in cold vs warm.
  */
 
-import { createV8Runtime } from "@secure-exec/v8";
 import {
 	NodeRuntime,
 	createNodeDriver,
 	createNodeRuntimeDriverFactory,
-} from "../src/index.js";
+	createNodeV8Runtime,
+} from "@secure-exec/node";
 
 const TRIVIAL_CODE = `export const x = 1;`;
 const RUNS = 30;
 
 async function main() {
-	const v8 = await createV8Runtime();
+	const v8 = await createNodeV8Runtime();
 
 	// First cold — warms the snapshot cache
 	const warmupRt = new NodeRuntime({

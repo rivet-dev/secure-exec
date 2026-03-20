@@ -473,9 +473,9 @@ await jail.set("_fsReadFile", new ivm.Reference(async (path) => { ... }));
 const script = await isolate.compileScript(code);
 await script.run(context);
 
-// After (@secure-exec/v8)
-import { createV8Runtime } from "@secure-exec/v8";
-const runtime = createV8Runtime();
+// After (@secure-exec/node)
+import { createNodeV8Runtime } from "@secure-exec/node";
+const runtime = createNodeV8Runtime();
 const session = runtime.createSession({ heapLimitMb: 128 });
 const result = await session.execute(code, {
   _fsReadFile: async (path: string) => { ... },

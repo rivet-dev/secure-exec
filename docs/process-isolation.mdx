@@ -62,7 +62,7 @@ NodeRuntime C ──── Tenant 2 Process (sessions: C1)
 ```
 
 ```ts
-import { createV8Runtime } from "@secure-exec/v8";
+import { createNodeV8Runtime } from "@secure-exec/node";
 import {
   NodeRuntime,
   createNodeDriver,
@@ -70,7 +70,7 @@ import {
 } from "@secure-exec/node";
 
 // Create a dedicated process for this tenant
-const tenantProcess = await createV8Runtime({ maxSessions: 10 });
+const tenantProcess = await createNodeV8Runtime({ maxSessions: 10 });
 
 const rt1 = new NodeRuntime({
   systemDriver: createNodeDriver(),
@@ -95,15 +95,15 @@ NodeRuntime B ──── Process B (session: B1)
 ```
 
 ```ts
-import { createV8Runtime } from "@secure-exec/v8";
+import { createNodeV8Runtime } from "@secure-exec/node";
 import {
   NodeRuntime,
   createNodeDriver,
   createNodeRuntimeDriverFactory,
 } from "@secure-exec/node";
 
-const processA = await createV8Runtime();
-const processB = await createV8Runtime();
+const processA = await createNodeV8Runtime();
+const processB = await createNodeV8Runtime();
 
 const rtA = new NodeRuntime({
   systemDriver: createNodeDriver(),
@@ -132,7 +132,7 @@ Choose based on your isolation requirements. The shared topology is the most mem
 
 ```ts
 // This process allows up to 5 concurrent sessions
-const process = await createV8Runtime({ maxSessions: 5 });
+const process = await createNodeV8Runtime({ maxSessions: 5 });
 
 // Both runtimes share the 5-session budget
 const rt1 = new NodeRuntime({
@@ -157,7 +157,7 @@ When a V8 process crashes (OOM, segfault, panic):
 3. **New sessions cannot be created on the crashed process.** Create a new `V8Runtime` to recover.
 
 ```ts
-const process = await createV8Runtime();
+const process = await createNodeV8Runtime();
 const factory = createNodeRuntimeDriverFactory({ v8Runtime: process });
 
 const rt = new NodeRuntime({
@@ -171,14 +171,14 @@ const result = await rt.exec("const a = []; while(true) a.push(new Array(1e6))")
 // Host process is still alive
 ```
 
-Runtimes using the default shared process share crash fate — if the global process dies, all runtimes are affected. Use explicit `createV8Runtime()` handles to control which runtimes share a crash domain.
+Runtimes using the default shared process share crash fate — if the global process dies, all runtimes are affected. Use explicit `createNodeV8Runtime()` handles to control which runtimes share a crash domain.
 
 ## Warm pool
 
 Cold-starting a new session costs ~6ms (thread spawn + isolate creation from snapshot). The warm pool eliminates this by pre-creating sessions with isolates already initialized.
 
 ```ts
-const process = await createV8Runtime({
+const process = await createNodeV8Runtime({
   warmupBridgeCode: bridgeCode,
   warmPoolSize: 3,           // default: 3 when bridgeCode provided, 0 otherwise
   defaultWarmHeapLimitMb: 128,
@@ -199,7 +199,7 @@ Set `warmPoolSize: 0` to disable the pool entirely (falls back to the cold path 
 The caller owns the `V8Runtime` handle and is responsible for disposing it when done.
 
 ```ts
-const process = await createV8Runtime();
+const process = await createNodeV8Runtime();
 
 // ... use process ...
 

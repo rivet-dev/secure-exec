@@ -2,9 +2,9 @@ import {
 	NodeRuntime,
 	createNodeDriver,
 	createNodeRuntimeDriverFactory,
-} from "../src/index.js";
-import { createV8Runtime } from "@secure-exec/v8";
-import type { V8Runtime } from "@secure-exec/v8";
+	createNodeV8Runtime,
+} from "@secure-exec/node";
+import type { V8Runtime } from "@secure-exec/node";
 import os from "node:os";
 
 export const BATCH_SIZES = [1, 10, 50, 100, 200];
@@ -20,7 +20,7 @@ let sharedV8: V8Runtime | null = null;
 
 export async function initSharedV8(): Promise<V8Runtime> {
 	if (!sharedV8) {
-		sharedV8 = await createV8Runtime();
+		sharedV8 = await createNodeV8Runtime();
 	}
 	return sharedV8;
 }

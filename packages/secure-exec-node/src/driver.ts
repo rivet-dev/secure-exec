@@ -41,7 +41,7 @@ export interface NodeRuntimeDriverFactoryOptions {
 	createIsolate?(memoryLimit: number): unknown;
 	/** V8 runtime process to use for sessions.
 	 *  If omitted, uses the global shared process (current behavior). */
-	v8Runtime?: import("@secure-exec/v8").V8Runtime;
+	v8Runtime?: import("./execution-driver.js").V8Runtime;
 }
 
 /** Thin VFS adapter that delegates directly to `node:fs/promises`. */

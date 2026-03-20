@@ -1,5 +1,39 @@
-import { createV8Runtime } from "@secure-exec/v8";
-import type { V8Runtime, V8Session, V8ExecutionResult } from "@secure-exec/v8";
+import { createV8Runtime as createV8RuntimeRaw } from "@secure-exec/v8";
+import type { V8Runtime, V8Session, V8ExecutionResult, V8RuntimeOptions, BridgeHandlers } from "@secure-exec/v8";
+
+export type { V8Runtime, V8RuntimeOptions, BridgeHandlers };
+
+/** Options for createNodeV8Runtime — extends V8RuntimeOptions with Node defaults. */
+export interface NodeV8RuntimeOptions {
+	/** Path to the Rust binary. Auto-detected if omitted. */
+	binaryPath?: string;
+	/** Maximum concurrent sessions. */
+	maxSessions?: number;
+	/** Number of pre-warmed sessions. Default 3 (warm claim ~2ms vs ~6ms cold). */
+	warmPoolSize?: number;
+	/** Default heap limit (MB) for warm pool sessions. Default 128. */
+	defaultWarmHeapLimitMb?: number;
+	/** Default CPU time limit (ms) for warm pool sessions. Default 0 (no limit). */
+	defaultWarmCpuTimeLimitMs?: number;
+	/** Whether to wait for warm pool to fill before returning. Default true. */
+	waitForWarmPool?: boolean;
+}
+
+/**
+ * Create a V8 runtime with Node bridge code baked in.
+ *
+ * This is the recommended way to create a V8 runtime — it automatically
+ * provides the bridge code for snapshot warmup and configures a warm pool
+ * of 3 pre-created isolates (~2ms claim vs ~6ms cold start).
+ */
+export async function createNodeV8Runtime(
+	options?: NodeV8RuntimeOptions,
+): Promise<V8Runtime> {
+	return createV8RuntimeRaw({
+		warmupBridgeCode: composeBridgeCodeForWarmup(),
+		...options,
+	});
+}
 
 // Shared V8 runtime — spawns one Rust child process, reused across all drivers.
 // Sessions are isolated (separate V8 isolates in separate threads on the Rust side).
@@ -9,9 +43,7 @@ let sharedV8RuntimePromise: Promise<V8Runtime> | null = null;
 async function getSharedV8Runtime(): Promise<V8Runtime> {
 	if (sharedV8Runtime) return sharedV8Runtime;
 	if (!sharedV8RuntimePromise) {
-		sharedV8RuntimePromise = createV8Runtime({
-			warmupBridgeCode: composeBridgeCodeForWarmup(),
-		}).then((r) => {
+		sharedV8RuntimePromise = createNodeV8Runtime().then((r) => {
 			sharedV8Runtime = r;
 			return r;
 		});

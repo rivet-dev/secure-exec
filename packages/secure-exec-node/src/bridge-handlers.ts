@@ -34,7 +34,7 @@ import {
 	RESOURCE_BUDGET_ERROR_CODE,
 } from "./isolate-bootstrap.js";
 import type { DriverDeps } from "./isolate-bootstrap.js";
-import type { BridgeHandlers } from "@secure-exec/v8";
+import type { BridgeHandlers } from "./execution-driver.js";
 import type { StdioHook, StdioEvent } from "@secure-exec/core/internal/shared/api-types";
 
 // Estimate serialized size of a network response object for payload limit checks
