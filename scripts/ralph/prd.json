@@ -843,8 +843,8 @@
         "Typecheck passes"
       ],
       "priority": 50,
-      "passes": false,
-      "notes": "Spec: docs-internal/specs/v8-process-isolation.md"
+      "passes": true,
+      "notes": "Spec: docs-internal/specs/v8-process-isolation.md. 6 tests: cross-process crash isolation (OOM in one doesn't affect another), ERR_V8_PROCESS_CRASH verification, post-crash session creation on healthy runtime, shared crash fate (same process), multi-session crash fate, independent session namespaces."
     },
     {
       "id": "US-051",

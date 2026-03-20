@@ -2623,3 +2623,20 @@ PRD: ralph/kernel-hardening (46 stories)
   - ChannelFrameSender.send_frame takes &self (not &mut self) because it's shared via BridgeCallContext — use RefCell for interior mutability on frame buffer
   - V8 callbacks access session-level state via raw pointers in External data — SessionBuffers pointer added alongside BridgeCallContext pointer
 ---
+
+## 2026-03-19 - US-050
+- Added process isolation integration tests proving separate V8Runtime instances are crash-isolated
+- 6 tests covering all acceptance criteria:
+  1. Crash in one V8Runtime does not affect another (OOM in one, simple code in other)
+  2. Crashed runtime reports ERR_V8_PROCESS_CRASH while healthy runtime returns exit code 0
+  3. Healthy runtime can create new sessions after peer runtime crashes
+  4. Runtimes using the same v8Runtime handle share crash fate (OOM + blocking bridge calls)
+  5. Multiple sessions on same process all get ERR_V8_PROCESS_CRASH on OOM
+  6. Separate V8Runtime processes have independent session namespaces
+- Files changed:
+  - packages/secure-exec-v8/test/process-isolation.test.ts (new) — 6 integration tests
+  - scripts/ralph/prd.json — marked US-050 passes: true
+- **Learnings for future iterations:**
+  - To test shared crash fate reliably, non-OOM sessions must block on a bridge call (Promise that never resolves) — otherwise fast-completing sessions may return code 0 before the OOM crash
+  - afterEach cleanup uses Promise.allSettled on runtimes array to handle dispose on already-crashed runtimes gracefully
+---
