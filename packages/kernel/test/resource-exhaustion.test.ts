@@ -18,6 +18,7 @@ const testAllocDesc: DescriptionAllocator = (path, flags) => ({
 	cursor: 0n,
 	flags,
 	refCount: 1,
+	cloexec: false,
 });
 
 describe("pipe buffer limit", () => {

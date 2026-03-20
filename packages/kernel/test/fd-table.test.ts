@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { ProcessFDTable, FDTableManager } from "../src/fd-table.js";
-import { O_RDONLY, O_WRONLY, FILETYPE_REGULAR_FILE, FILETYPE_CHARACTER_DEVICE } from "../src/types.js";
+import { O_RDONLY, O_WRONLY, O_CLOEXEC, FILETYPE_REGULAR_FILE, FILETYPE_CHARACTER_DEVICE } from "../src/types.js";
 
 describe("ProcessFDTable", () => {
 	it("pre-allocates stdio FDs 0, 1, 2", () => {
@@ -95,5 +95,53 @@ describe("ProcessFDTable", () => {
 		const table = manager.create(1);
 
 		expect(() => table.stat(999)).toThrow("EBADF");
+	});
+
+	it("open with O_CLOEXEC sets cloexec on the description", () => {
+		const manager = new FDTableManager();
+		const table = manager.create(1);
+
+		const fd = table.open("/tmp/test.txt", O_RDONLY | O_CLOEXEC);
+		const entry = table.get(fd)!;
+		expect(entry.description.cloexec).toBe(true);
+		// O_CLOEXEC should be stripped from stored flags
+		expect(entry.description.flags).toBe(O_RDONLY);
+	});
+
+	it("open without O_CLOEXEC defaults cloexec to false", () => {
+		const manager = new FDTableManager();
+		const table = manager.create(1);
+
+		const fd = table.open("/tmp/test.txt", O_RDONLY);
+		expect(table.get(fd)!.description.cloexec).toBe(false);
+	});
+
+	it("fork skips FDs with cloexec set", () => {
+		const manager = new FDTableManager();
+		const parent = manager.create(1);
+
+		const normalFd = parent.open("/tmp/normal.txt", O_RDONLY);
+		const cloexecFd = parent.open("/tmp/secret.txt", O_RDONLY | O_CLOEXEC);
+
+		const child = manager.fork(1, 2);
+
+		// Normal FD is inherited
+		expect(child.get(normalFd)).toBeDefined();
+		// Cloexec FD is NOT inherited
+		expect(child.get(cloexecFd)).toBeUndefined();
+	});
+
+	it("fork inherits FDs where cloexec was cleared via fdSetCloexec", () => {
+		const manager = new FDTableManager();
+		const parent = manager.create(1);
+
+		const fd = parent.open("/tmp/test.txt", O_RDONLY | O_CLOEXEC);
+		expect(parent.get(fd)!.description.cloexec).toBe(true);
+
+		// Clear cloexec
+		parent.get(fd)!.description.cloexec = false;
+
+		const child = manager.fork(1, 2);
+		expect(child.get(fd)).toBeDefined();
 	});
 });

@@ -51,6 +51,7 @@ export class PipeManager {
 			cursor: 0n,
 			flags: O_RDONLY,
 			refCount: 0, // Not in any FD table yet — openWith() will bump
+			cloexec: false,
 		};
 
 		const writeDesc: FileDescription = {
@@ -59,6 +60,7 @@ export class PipeManager {
 			cursor: 0n,
 			flags: O_WRONLY,
 			refCount: 0, // Not in any FD table yet — openWith() will bump
+			cloexec: false,
 		};
 
 		const state: PipeState = {

@@ -253,6 +253,8 @@ export interface KernelInterface {
 	fdDup(pid: number, fd: number): number;
 	fdDup2(pid: number, oldFd: number, newFd: number): void;
 	fdStat(pid: number, fd: number): FDStat;
+	fdSetCloexec(pid: number, fd: number, value: boolean): void;
+	fdGetCloexec(pid: number, fd: number): boolean;
 
 	// Process operations
 	spawn(
@@ -338,6 +340,8 @@ export interface FileDescription {
 	cursor: bigint;
 	flags: number;
 	refCount: number;
+	/** Close-on-exec flag (FD_CLOEXEC). When true, FD is not inherited by child processes. */
+	cloexec: boolean;
 }
 
 export interface FDEntry {
@@ -355,6 +359,7 @@ export const O_CREAT = 0o100;
 export const O_EXCL = 0o200;
 export const O_TRUNC = 0o1000;
 export const O_APPEND = 0o2000;
+export const O_CLOEXEC = 0o2000000;
 
 // Seek whence
 export const SEEK_SET = 0;

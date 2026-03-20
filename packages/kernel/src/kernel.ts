@@ -792,6 +792,20 @@ class KernelImpl implements Kernel {
 				assertOwns(pid);
 				return this.getTable(pid).stat(fd);
 			},
+			fdSetCloexec: (pid, fd, value) => {
+				assertOwns(pid);
+				const table = this.getTable(pid);
+				const entry = table.get(fd);
+				if (!entry) throw new KernelError("EBADF", `bad file descriptor ${fd}`);
+				entry.description.cloexec = value;
+			},
+			fdGetCloexec: (pid, fd) => {
+				assertOwns(pid);
+				const table = this.getTable(pid);
+				const entry = table.get(fd);
+				if (!entry) throw new KernelError("EBADF", `bad file descriptor ${fd}`);
+				return entry.description.cloexec;
+			},
 
 			// Process operations
 			spawn: (command, args, ctx) => {

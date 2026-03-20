@@ -7,6 +7,7 @@ import {
 } from "./helpers.js";
 import type { Kernel, Permissions, ProcessContext, RuntimeDriver, DriverProcess, KernelInterface } from "../src/types.js";
 import { FILETYPE_PIPE, FILETYPE_CHARACTER_DEVICE } from "../src/types.js";
+import { createKernel } from "../src/kernel.js";
 import { filterEnv, wrapFileSystem } from "../src/permissions.js";
 import { MAX_CANON, MAX_PTY_BUFFER_BYTES } from "../src/pty.js";
 
@@ -4318,6 +4319,225 @@ describe("kernel + MockRuntimeDriver integration", () => {
 			const proc = kernel.spawn("pipe-checker", []);
 			await proc.wait();
 			expect(caughtEpipe).toBe(true);
+		});
+	});
+
+	// -----------------------------------------------------------------------
+	// FD_CLOEXEC and O_CLOEXEC flags (US-062)
+	// -----------------------------------------------------------------------
+
+	describe("FD_CLOEXEC and O_CLOEXEC", () => {
+		it("open with O_CLOEXEC sets cloexec, child gets EBADF on that FD", async () => {
+			const O_CLOEXEC = 0o2000000;
+			let childReadError: Error | null = null;
+
+			const driver: RuntimeDriver = {
+				name: "cloexec-test",
+				commands: ["parent", "child"],
+				async init() {},
+				spawn(command, _args, ctx) {
+					let exitResolve: (code: number) => void;
+					const exitPromise = new Promise<number>((r) => { exitResolve = r; });
+					const proc: DriverProcess = {
+						writeStdin() {},
+						closeStdin() {},
+						kill() { exitResolve!(128 + 15); proc.onExit?.(128 + 15); },
+						wait() { return exitPromise; },
+						onStdout: null,
+						onStderr: null,
+						onExit: null,
+					};
+
+					if (command === "parent") {
+						const ki = (driver as any)._ki as KernelInterface;
+						// Open a file with O_CLOEXEC
+						const fd = ki.fdOpen(ctx.pid, "/tmp/secret.txt", O_CLOEXEC);
+						expect(ki.fdGetCloexec(ctx.pid, fd)).toBe(true);
+
+						// Spawn child — child should NOT inherit the cloexec FD
+						const child = ki.spawn("child", [], { ppid: ctx.pid, env: ctx.env, cwd: ctx.cwd });
+						child.wait().then(() => {
+							exitResolve!(0);
+							proc.onExit?.(0);
+						});
+					} else if (command === "child") {
+						const ki = (driver as any)._ki as KernelInterface;
+						// Try to read FD 3 — should throw EBADF since it was cloexec in parent
+						try {
+							ki.fdStat(ctx.pid, 3);
+						} catch (e) {
+							childReadError = e as Error;
+						}
+						queueMicrotask(() => { exitResolve!(0); proc.onExit?.(0); });
+					}
+					return proc;
+				},
+				async dispose() {},
+			};
+
+			(driver as any)._ki = null;
+			const origInit = driver.init;
+			driver.init = async (ki) => {
+				(driver as any)._ki = ki;
+				return origInit.call(driver, ki);
+			};
+
+			const vfs = new TestFileSystem();
+			await vfs.writeFile("/tmp/secret.txt", "secret-data");
+			const k = createKernel({ filesystem: vfs });
+			kernel = k;
+			await k.mount(driver);
+
+			const proc = k.spawn("parent", []);
+			await proc.wait();
+
+			expect(childReadError).not.toBeNull();
+			expect((childReadError as any).code).toBe("EBADF");
+		});
+
+		it("open without O_CLOEXEC — child can read the FD", async () => {
+			let childCanRead = false;
+
+			const driver: RuntimeDriver = {
+				name: "nocloexec-test",
+				commands: ["parent", "child"],
+				async init() {},
+				spawn(command, _args, ctx) {
+					let exitResolve: (code: number) => void;
+					const exitPromise = new Promise<number>((r) => { exitResolve = r; });
+					const proc: DriverProcess = {
+						writeStdin() {},
+						closeStdin() {},
+						kill() { exitResolve!(128 + 15); proc.onExit?.(128 + 15); },
+						wait() { return exitPromise; },
+						onStdout: null,
+						onStderr: null,
+						onExit: null,
+					};
+
+					if (command === "parent") {
+						const ki = (driver as any)._ki as KernelInterface;
+						// Open file without O_CLOEXEC
+						const fd = ki.fdOpen(ctx.pid, "/tmp/visible.txt", 0);
+						expect(ki.fdGetCloexec(ctx.pid, fd)).toBe(false);
+
+						const child = ki.spawn("child", [], { ppid: ctx.pid, env: ctx.env, cwd: ctx.cwd });
+						child.wait().then(() => {
+							exitResolve!(0);
+							proc.onExit?.(0);
+						});
+					} else if (command === "child") {
+						const ki = (driver as any)._ki as KernelInterface;
+						// FD 3 should exist — inherited from parent
+						const stat = ki.fdStat(ctx.pid, 3);
+						childCanRead = stat !== undefined;
+						queueMicrotask(() => { exitResolve!(0); proc.onExit?.(0); });
+					}
+					return proc;
+				},
+				async dispose() {},
+			};
+
+			(driver as any)._ki = null;
+			const origInit = driver.init;
+			driver.init = async (ki) => {
+				(driver as any)._ki = ki;
+				return origInit.call(driver, ki);
+			};
+
+			const vfs = new TestFileSystem();
+			await vfs.writeFile("/tmp/visible.txt", "visible-data");
+			const k = createKernel({ filesystem: vfs });
+			kernel = k;
+			await k.mount(driver);
+
+			const proc = k.spawn("parent", []);
+			await proc.wait();
+
+			expect(childCanRead).toBe(true);
+		});
+
+		it("fdSetCloexec after open — FD not inherited by child", async () => {
+			let childReadError: Error | null = null;
+
+			const driver: RuntimeDriver = {
+				name: "setcloexec-test",
+				commands: ["parent", "child"],
+				async init() {},
+				spawn(command, _args, ctx) {
+					let exitResolve: (code: number) => void;
+					const exitPromise = new Promise<number>((r) => { exitResolve = r; });
+					const proc: DriverProcess = {
+						writeStdin() {},
+						closeStdin() {},
+						kill() { exitResolve!(128 + 15); proc.onExit?.(128 + 15); },
+						wait() { return exitPromise; },
+						onStdout: null,
+						onStderr: null,
+						onExit: null,
+					};
+
+					if (command === "parent") {
+						const ki = (driver as any)._ki as KernelInterface;
+						// Open without O_CLOEXEC, then set it via fdSetCloexec
+						const fd = ki.fdOpen(ctx.pid, "/tmp/later-secret.txt", 0);
+						expect(ki.fdGetCloexec(ctx.pid, fd)).toBe(false);
+
+						ki.fdSetCloexec(ctx.pid, fd, true);
+						expect(ki.fdGetCloexec(ctx.pid, fd)).toBe(true);
+
+						const child = ki.spawn("child", [], { ppid: ctx.pid, env: ctx.env, cwd: ctx.cwd });
+						child.wait().then(() => {
+							exitResolve!(0);
+							proc.onExit?.(0);
+						});
+					} else if (command === "child") {
+						const ki = (driver as any)._ki as KernelInterface;
+						try {
+							ki.fdStat(ctx.pid, 3);
+						} catch (e) {
+							childReadError = e as Error;
+						}
+						queueMicrotask(() => { exitResolve!(0); proc.onExit?.(0); });
+					}
+					return proc;
+				},
+				async dispose() {},
+			};
+
+			(driver as any)._ki = null;
+			const origInit = driver.init;
+			driver.init = async (ki) => {
+				(driver as any)._ki = ki;
+				return origInit.call(driver, ki);
+			};
+
+			const vfs = new TestFileSystem();
+			await vfs.writeFile("/tmp/later-secret.txt", "secret");
+			const k = createKernel({ filesystem: vfs });
+			kernel = k;
+			await k.mount(driver);
+
+			const proc = k.spawn("parent", []);
+			await proc.wait();
+
+			expect(childReadError).not.toBeNull();
+			expect((childReadError as any).code).toBe("EBADF");
+		});
+
+		it("fdSetCloexec/fdGetCloexec throws EBADF for invalid FD", async () => {
+			const driver = new MockRuntimeDriver(["test-cmd"], {
+				"test-cmd": { exitCode: 0 },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("test-cmd", []);
+			const ki = driver.kernelInterface!;
+
+			expect(() => ki.fdSetCloexec(proc.pid, 999, true)).toThrow("EBADF");
+			expect(() => ki.fdGetCloexec(proc.pid, 999)).toThrow("EBADF");
+
+			await proc.wait();
 		});
 	});
 });

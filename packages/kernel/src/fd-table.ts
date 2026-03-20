@@ -16,6 +16,7 @@ import {
 	O_WRONLY,
 	O_RDWR,
 	O_APPEND,
+	O_CLOEXEC,
 	KernelError,
 } from "./types.js";
 
@@ -86,7 +87,10 @@ export class ProcessFDTable {
 	/** Open a new FD for the given path and flags */
 	open(path: string, flags: number, filetype?: number): number {
 		const fd = this.allocateFd();
-		const description = this.allocDesc(path, flags);
+		const cloexec = (flags & O_CLOEXEC) !== 0;
+		const storedFlags = flags & ~O_CLOEXEC;
+		const description = this.allocDesc(path, storedFlags);
+		if (cloexec) description.cloexec = true;
 		this.entries.set(fd, {
 			fd,
 			description,
@@ -171,11 +175,12 @@ export class ProcessFDTable {
 		};
 	}
 
-	/** Create a copy of this table for a child process (FD inheritance). */
+	/** Create a copy of this table for a child process (FD inheritance). Skips cloexec FDs. */
 	fork(): ProcessFDTable {
 		const child = new ProcessFDTable(this.allocDesc);
 		child.nextFd = this.nextFd;
 		for (const [fd, entry] of this.entries) {
+			if (entry.description.cloexec) continue;
 			entry.description.refCount++;
 			child.entries.set(fd, {
 				fd,
@@ -227,6 +232,7 @@ export class FDTableManager {
 		cursor: 0n,
 		flags,
 		refCount: 1,
+		cloexec: false,
 	});
 
 	/** Create a new FD table for a process with standard FDs. */
