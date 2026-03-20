@@ -1323,7 +1323,7 @@
         "Tests pass"
       ],
       "priority": 67,
-      "passes": false,
+      "passes": true,
       "notes": "Four signals, each ~10-20 lines of implementation. SIGCHLD: in markExited, call kill(ppid, SIGCHLD). SIGALRM: store timer per process, fire signal when timer expires. SIGHUP: in PTY close handler. SIGQUIT: in pty.ts processInput alongside existing ^C handler. Files: packages/kernel/src/process-table.ts, packages/kernel/src/pty.ts, packages/kernel/src/kernel.ts."
     },
     {

@@ -3169,3 +3169,25 @@ PRD: ralph/kernel-hardening (46 stories)
   - TestFileSystem directories are stored as a Set (no metadata) — need separate dirModes map for chmod tracking
   - Pre-existing flaky test in resource-exhaustion.test.ts (PTY stress) and pre-existing typecheck error in example-ai-sdk (missing deps)
 ---
+
+## 2026-03-20 - US-067
+- Implemented four new signals: SIGCHLD, SIGALRM, SIGHUP, SIGQUIT
+- SIGCHLD (17): delivered to parent via driverProcess.kill(SIGCHLD) in ProcessTable.markExited() — default action is ignore (no termination)
+- SIGALRM (14): alarm(pid, seconds) method on ProcessTable and KernelInterface — schedules SIGALRM via setTimeout, default action terminates (128+14=142), alarm(0) cancels, second alarm replaces first
+- SIGHUP (1): sent to foreground process group when PTY master is closed (in pty.ts close())
+- SIGQUIT (3): echo ^\ (0x5e 0x5c + CR+LF) in pty.ts processInput before signal delivery
+- Added SIGHUP, SIGALRM, SIGCHLD constants to types.ts and exported from index.ts
+- Files changed:
+  - packages/kernel/src/types.ts — SIGHUP, SIGALRM, SIGCHLD constants + alarm() on KernelInterface
+  - packages/kernel/src/index.ts — export new signal constants
+  - packages/kernel/src/process-table.ts — SIGCHLD in markExited(), alarm() method, alarmTimers cleanup
+  - packages/kernel/src/pty.ts — SIGHUP on master close, ^\ echo for SIGQUIT
+  - packages/kernel/src/kernel.ts — wire alarm() in createKernelInterface
+  - packages/kernel/test/process-table.test.ts — 6 new tests (SIGCHLD delivery, SIGCHLD skip on dead parent, alarm fire, alarm cancel, alarm replace)
+  - packages/kernel/test/kernel-integration.test.ts — 2 new tests (SIGHUP on master close, ^\ echo for SIGQUIT)
+- **Learnings for future iterations:**
+  - SIGCHLD default action is ignore — cannot go through kill() path which sets termSignal and terminates; call driverProcess.kill(SIGCHLD) directly on parent
+  - ProcessTable.alarm needs cleanup in both markExited (cancel on process death) and terminateAll (clear all timers)
+  - PTY signal echo (^C, ^\) goes through echoOutput which writes to output buffer (master reads) — not input buffer
+  - vi.useFakeTimers() is needed for deterministic alarm tests since alarm uses setTimeout internally
+---
