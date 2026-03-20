@@ -15,7 +15,7 @@ import { workerData, parentPort } from 'node:worker_threads';
 import { readFile } from 'node:fs/promises';
 import { WasiPolyfill, WasiProcExit } from './wasi-polyfill.ts';
 import { UserManager } from './user.ts';
-import { FDTable } from '../test/helpers/test-fd-table.ts';
+import { FDTable } from './fd-table.ts';
 import {
   FILETYPE_CHARACTER_DEVICE,
   FILETYPE_REGULAR_FILE,

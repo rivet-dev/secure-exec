@@ -564,6 +564,31 @@ describe('WasmVM RuntimeDriver', () => {
     it('throws ENOENT for unknown commands', () => {
       expect(() => kernel.spawn('nonexistent-cmd', [])).toThrow(/ENOENT/);
     });
+
+    it('spawn with corrupt WASM binary produces clear error', async () => {
+      // Create a temp dir with a file that has valid WASM magic but invalid module content
+      const corruptDir = join(tmpdir(), `wasmvm-corrupt-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      await mkdir(corruptDir, { recursive: true });
+      // Valid magic + version header followed by garbage bytes that break compilation
+      const corruptWasm = new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF]);
+      await writeFile(join(corruptDir, 'badcmd'), corruptWasm);
+
+      const vfs = new SimpleVFS();
+      const k = createKernel({ filesystem: vfs as any });
+      await k.mount(createWasmVmRuntime({ commandDirs: [corruptDir] }));
+
+      const stderrChunks: Uint8Array[] = [];
+      const proc = k.spawn('badcmd', [], { onStderr: (data) => stderrChunks.push(data) });
+      const exitCode = await proc.wait();
+
+      expect(exitCode).toBe(1);
+      const stderr = stderrChunks.map(c => new TextDecoder().decode(c)).join('');
+      expect(stderr).toContain('wasmvm');
+      expect(stderr).toContain('badcmd');
+
+      await k.dispose();
+      await rm(corruptDir, { recursive: true, force: true });
+    });
   });
 
   describe('driver lifecycle', () => {

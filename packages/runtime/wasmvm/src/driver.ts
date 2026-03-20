@@ -327,7 +327,13 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
     };
 
     // Launch worker asynchronously — spawn() returns synchronously per contract
-    this._launchWorker(command, args, ctx, proc, resolveExit, binaryPath);
+    this._launchWorker(command, args, ctx, proc, resolveExit, binaryPath).catch((err) => {
+      const errBytes = new TextEncoder().encode(`${err instanceof Error ? err.message : String(err)}\n`);
+      ctx.onStderr?.(errBytes);
+      proc.onStderr?.(errBytes);
+      resolveExit(1);
+      proc.onExit?.(1);
+    });
 
     return proc;
   }
@@ -451,8 +457,10 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
     let wasmModule: WebAssembly.Module | undefined;
     try {
       wasmModule = await this._moduleCache.resolve(binaryPath);
-    } catch {
-      // Binary not found or invalid — worker will report the error
+    } catch (err) {
+      // Fail fast with a clear error — don't launch a worker with an undefined module
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`wasmvm: failed to compile module for '${command}' at ${binaryPath}: ${msg}`);
     }
 
     // Create shared buffers for RPC
