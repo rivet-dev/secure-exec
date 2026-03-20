@@ -2774,3 +2774,19 @@ PRD: ralph/kernel-hardening (46 stories)
   - Each error test uses its own Client instance to avoid connection state contamination after errors
   - Unique constraint test uses DELETE before INSERT to ensure clean state, and PRIMARY KEY as the constraint
 ---
+
+## 2026-03-19 - US-025
+- Added pg-prepared e2e-docker fixture for named prepared statements
+- Fixture tests named prepared statement reuse (insert reused 3x, select reused 2x), update, and delete operations
+- Exercises Parse/Bind/Execute wire protocol path (vs SimpleQuery used by unnamed parameterized queries)
+- Files changed:
+  - packages/secure-exec/tests/e2e-docker/pg-prepared/fixture.json (new)
+  - packages/secure-exec/tests/e2e-docker/pg-prepared/package.json (new)
+  - packages/secure-exec/tests/e2e-docker/pg-prepared/src/index.js (new)
+  - scripts/ralph/prd.json (updated passes: true)
+- **Learnings for future iterations:**
+  - e2e-docker fixtures are auto-discovered: any directory under tests/e2e-docker/ with fixture.json gets picked up
+  - Named prepared statements in pg use { name, text, values } query config — the name key triggers Parse/Bind/Execute instead of SimpleQuery
+  - Reusing the same name with different values exercises the prepared statement cache (pg only sends Parse once, then reuses)
+  - e2e-docker fixtures are NOT tracked in the docs Tested Packages table (that's for project-matrix fixtures only)
+---
