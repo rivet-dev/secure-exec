@@ -5,6 +5,7 @@ PRD: ralph/kernel-hardening (46 stories)
 ## Codebase Patterns
 - wasmvm workspace uses vendored crates-io (.cargo/config.toml) — git deps with crates-io transitive deps fail resolution. Must vendor missing deps or workaround before adding git deps.
 - Cargo resolves ALL deps (including cfg-gated) at resolution time regardless of target — cfg gates only affect compilation, not resolution
+- WASI stub crates in wasmvm/stubs/ replace crates that can't compile for wasm32-wasip1 — added via [patch.crates-io] in workspace Cargo.toml; match the real crate name+version, provide zero-size/no-op implementations
 - C programs linking libcurl need: CURL_DEFS + CURL_INCLUDES + CURL_SRCS in Makefile rule, -lwasi-emulated-signal, --all-features for wasm-opt, and must be in PATCHED_PROGRAMS list
 - kernel.exec() wraps commands in sh -c; brush-shell currently returns exit code 17 for all spawned child commands (benign "could not retrieve pid" warning) — test stdout content, not exit code
 - SimpleVFS in test files MUST include async chmod() method — kernel vfsWrite calls vfs.chmod() on new files for umask handling
@@ -3913,4 +3914,43 @@ PRD: ralph/kernel-hardening (46 stories)
   - For HTTPS tests with self-signed certs, set `process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'` at the Node.js level (not as WASM option)
   - New commands need both WASMVM_COMMANDS list entry AND DEFAULT_FIRST_PARTY_TIERS entry (with 'full' for network access)
   - Pre-existing failures: git.test.ts (9 tests), shell-terminal.test.ts (5 tests), example-ai-sdk typecheck
+---
+
+## 2026-03-20 - US-103
+- What was implemented: WASI stub crates for codex-network-proxy and codex-otel
+- Created wasmvm/stubs/codex-network-proxy/ — zero-size NetworkProxy with no-op methods:
+  - NetworkProxy struct (zero-size, Clone, Debug, PartialEq)
+  - apply_to_env() is a no-op
+  - NetworkProxyBuilder with builder pattern (all no-ops)
+  - NetworkProxyHandle with async wait/shutdown (immediate returns)
+  - NetworkPolicyDecider trait, BlockedRequestObserver trait
+  - NetworkProxyAuditMetadata, ConfigState, NetworkProxyState
+  - All proxy env helpers (constants + lookup functions returning None/false)
+- Created wasmvm/stubs/codex-otel/ — no-op telemetry/metrics with full module structure:
+  - SessionTelemetry with counter/histogram/record_duration/start_timer (all no-ops)
+  - MetricsClient (no-op), global() always returns None
+  - Timer (no-op drop), RuntimeMetricTotals, RuntimeMetricsSummary
+  - OtelProvider (from() returns None, no initialization)
+  - config module: OtelSettings, OtelExporter, OtelHttpProtocol, OtelTlsConfig
+  - metrics::names — all 30+ metric name constants matching real crate
+  - trace_context — W3cTraceContext, Context, Span stubs; all functions return None
+  - ToolDecisionSource, TelemetryAuthMode, AuthEnvTelemetryMetadata
+- Added stubs to [patch.crates-io] in workspace Cargo.toml
+- Wired cmd-codex to depend on both stubs with --stub-test validation subcommand
+- cargo check --target wasm32-wasip1 passes for full workspace
+- Files changed:
+  - wasmvm/stubs/codex-network-proxy/Cargo.toml, src/lib.rs (new)
+  - wasmvm/stubs/codex-otel/Cargo.toml, src/lib.rs, src/config.rs, src/provider.rs, src/trace_context.rs (new)
+  - wasmvm/stubs/codex-otel/src/metrics/mod.rs, names.rs, timer.rs, runtime_metrics.rs, tags.rs (new)
+  - wasmvm/Cargo.toml (patch.crates-io entries)
+  - wasmvm/Cargo.lock (updated)
+  - wasmvm/crates/commands/codex/Cargo.toml (added stub deps)
+  - wasmvm/crates/commands/codex/src/main.rs (stub imports + --stub-test subcommand)
+- **Learnings for future iterations:**
+  - codex-network-proxy is cfg-gated out of codex-core's Cargo.toml for WASI ([target.'cfg(not(target_os = "wasi"))'.dependencies]) but the `use` statements in exec.rs/spawn.rs are NOT cfg-gated — so a stub crate is needed at resolution time
+  - codex-otel is NOT cfg-gated in codex-core — it's always a dependency. Its massive dep tree (opentelemetry, reqwest, tokio) can't compile for WASI, so a full stub replacement is needed
+  - The real codex-otel API is deeply intertwined with codex-protocol (W3cTraceContext) and opentelemetry (Context, Span) — stubs define local placeholder types since those deps also can't compile for WASI
+  - Stubs use [patch.crates-io] like ctrlc/hostname/uucore. When the codex fork is wired in as a git dep, these may need [patch.'https://github.com/rivet-dev/codex'] instead
+  - The real NetworkProxy uses anyhow::Error — stub uses a local ProxyError type to avoid adding deps
+  - Pre-existing failures: resource-exhaustion.test.ts (1 kernel test), git.test.ts (9 tests), shell-terminal.test.ts (5 tests), example-ai-sdk typecheck
 ---

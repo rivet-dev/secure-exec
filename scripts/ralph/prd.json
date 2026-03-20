@@ -2077,7 +2077,7 @@
         "Tests pass"
       ],
       "priority": 103,
-      "passes": false,
+      "passes": true,
       "notes": "NetworkProxy is used in exec.rs, spawn.rs, and unified_exec. It sets environment variables for proxy configuration. On WASI, the host manages networking so the proxy is unnecessary. codex-otel tries to export metrics/traces over the network \u2014 on WASI this should be a silent no-op. Use cfg(target_os = wasi) to provide stub implementations."
     },
     {
