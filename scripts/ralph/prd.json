@@ -1154,8 +1154,8 @@
         "Tests pass"
       ],
       "priority": 78,
-      "passes": false,
-      "notes": "PR review finding: Bridge code cache ignores timingMitigation changes; contract types are stale."
+      "passes": true,
+      "notes": "Fixed: staticBridgeCodeCache changed from string|null to Map<string,string> keyed on timingMitigation. Added _batchResolveModules to HOST_BRIDGE_GLOBAL_KEYS, NODE_CUSTOM_GLOBAL_INVENTORY, and runtime-globals.d.ts with BatchResolveModulesBridgeRef type. Changed DynamicImportBridgeRef return from Record<string,unknown>|null to string|null."
     },
     {
       "id": "US-079",
