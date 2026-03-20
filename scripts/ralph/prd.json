@@ -880,8 +880,8 @@
         "Typecheck passes"
       ],
       "priority": 52,
-      "passes": false,
-      "notes": "Spec: docs-internal/specs/v8-startup-snapshot.md. ExternalReferences must be 'static (OnceLock). create_blob() consumes the isolate. Use v8::Isolate::snapshot_creator(Some(&EXTERNAL_REFS), None) not SnapshotCreator::new()."
+      "passes": true,
+      "notes": "Spec: docs-internal/specs/v8-startup-snapshot.md. external_refs() uses OnceLock with sync_bridge_callback and async_bridge_callback. create_snapshot() returns Result<StartupData, String> with 50MB limit check. create_isolate_from_snapshot() takes generic blob (impl Deref<Target=[u8]> + Borrow<[u8]> + 'static). 5 consolidated tests: non-empty blob, restored isolate JS exec, heap limit, size under limit, 3 sequential restores."
     },
     {
       "id": "US-053",

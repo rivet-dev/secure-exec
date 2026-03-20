@@ -12,6 +12,9 @@ PRD: ralph/kernel-hardening (46 stories)
 - IPC writes use per-session ChannelFrameSender (crossbeam channel) + one writer thread per connection — never use shared mutex for socket writes; serialize via frame_to_bytes() first
 - V8 code caching: use `v8::script_compiler::compile()` (not `Script::compile()`) with `Source` + `CompileOptions`; generate cache via `UnboundScript::create_code_cache()`; resource name in ScriptOrigin is required
 - SharedArrayBuffer removal must happen AFTER bridge bundle loads (applyTimingMitigationFreeze JS), not in Rust inject_globals
+- V8 snapshot tests must be consolidated into a single #[test] fn (like execution::tests) — parallel V8 isolate teardown causes SIGSEGV
+- v8::CreateParams::snapshot_blob() needs owned data (Deref<Target=[u8]> + Borrow<[u8]> + 'static); use Vec<u8> or StartupData, not &[u8]
+- ExternalReference { function: callback.map_fn_to() } — MapFnTo trait converts Rust fn to extern "C" FunctionCallback
 - ivm-compat shim adds .applySync/.applySyncPromise to Rust-registered functions; .apply() works via Function.prototype.apply (no shim needed)
 - @secure-exec/v8 is ESM — use `fileURLToPath(import.meta.url)` for __dirname, not `require()` or `__dirname` global
 - Claude binary at ~/.claude/local/claude — not on PATH by default; skip helpers must check this fallback location
@@ -2656,4 +2659,18 @@ PRD: ralph/kernel-hardening (46 stories)
   - Docs pages follow Mintlify MDX format with YAML frontmatter (title, description, optional icon)
   - docs.json navigation uses flat page slugs relative to docs/ root (e.g., "process-isolation" not "docs/process-isolation")
   - Existing docs use mermaid diagrams, tables, and code blocks for different explanation styles
+---
+
+## 2026-03-19 - US-052
+- Implemented external_refs() in bridge.rs returning &'static ExternalReferences via OnceLock with sync_bridge_callback and async_bridge_callback
+- Created snapshot.rs with create_snapshot(bridge_code) and create_isolate_from_snapshot(blob, heap_limit_mb)
+- create_snapshot returns Result<StartupData, String>, rejects blobs >50MB
+- create_isolate_from_snapshot uses generic bound (Deref<Target=[u8]> + Borrow<[u8]> + 'static) for blob parameter
+- 5 consolidated tests: non-empty blob, restored isolate JS execution, heap limit respect, size under limit, 3 sequential restores
+- Files changed: crates/v8-runtime/src/bridge.rs, crates/v8-runtime/src/snapshot.rs (new), crates/v8-runtime/src/main.rs
+- **Learnings for future iterations:**
+  - V8 ExternalReference union field `function` expects FunctionCallback type — use `.map_fn_to()` from MapFnTo trait to convert Rust function signatures
+  - v8::CreateParams::snapshot_blob() requires `impl Allocated<[u8]>` which is `Deref<Target=[u8]> + Borrow<[u8]> + 'static` — &[u8] doesn't satisfy this; use owned types (Vec<u8>, StartupData, Box<[u8]>)
+  - Snapshot tests must be consolidated into a single #[test] function (same as execution::tests) to avoid V8 global state SIGSEGV when test runner runs tests in parallel
+  - `Allocated` trait is not re-exported from v8 crate — use equivalent trait bounds directly in function signatures
 ---
