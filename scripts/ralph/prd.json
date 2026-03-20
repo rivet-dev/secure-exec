@@ -1408,7 +1408,7 @@
         "Tests pass"
       ],
       "priority": 71,
-      "passes": false,
+      "passes": true,
       "notes": "Layer TLS on top of existing TCP socket from US-070. The socket table entry tracks whether a socket is plain TCP or TLS. After upgrade, send/recv route through the TLS socket's encrypted stream. Node.js tls.connect() handles the TLS handshake. Use a test HTTPS server (Node https.createServer with self-signed cert) for testing."
     },
     {

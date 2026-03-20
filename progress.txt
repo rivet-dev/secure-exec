@@ -3259,3 +3259,18 @@ PRD: ralph/kernel-hardening (46 stories)
   - netSocket allocates a slot with null initially; actual Node.js Socket is created in netConnect
   - Private _handleSyscall can be tested via bracket notation (driver as any)._handleSyscall()
 ---
+
+## 2026-03-20 - US-071
+- What was implemented: TLS wrapper — net_tls_connect upgrades existing TCP socket to TLS via Node.js tls.connect()
+- Files changed:
+  - wasmvm/crates/wasi-ext/src/lib.rs — added net_tls_connect FFI declaration and tls_connect() safe wrapper
+  - packages/runtime/wasmvm/src/driver.ts — added netTlsConnect RPC handler using tls.connect() with SNI, replaces plain socket in _sockets map
+  - packages/runtime/wasmvm/src/kernel-worker.ts — added net_tls_connect host import with permission check and RPC dispatch
+  - packages/runtime/wasmvm/test/net-socket.test.ts — added 4 TLS tests: echo round-trip, invalid cert, invalid fd, full lifecycle
+- **Learnings for future iterations:**
+  - TLS upgrade replaces the Socket in _sockets map — netSend/netRecv transparently work with TLSSocket since it extends Duplex
+  - tls.connect() 'secureConnect' callback fires even for self-signed certs when NODE_TLS_REJECT_UNAUTHORIZED=0 — authorized flag is false but no error
+  - Do NOT check s.authorized or s.authorizationError in the callback — just resolve; if cert is truly rejected, the 'error' event fires instead
+  - Self-signed cert generation in tests: write key to temp file instead of piping through /dev/stdin (openssl req -key /dev/stdin fails silently)
+  - TLSSocket cast to Socket via `as unknown as Socket` works because TLSSocket has compatible read/write/destroy interface
+---
