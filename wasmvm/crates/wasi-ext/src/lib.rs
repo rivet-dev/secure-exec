@@ -325,6 +325,13 @@ extern "C" {
         ret_addr_len: *mut u32,
     ) -> Errno;
 
+    /// Upgrade a connected TCP socket to TLS.
+    ///
+    /// `hostname_ptr`/`hostname_len` point to the SNI hostname string.
+    /// After success, net_send/net_recv on this fd use the encrypted TLS stream.
+    /// Returns errno.
+    fn net_tls_connect(fd: u32, hostname_ptr: *const u8, hostname_len: u32) -> Errno;
+
     /// Set a socket option.
     ///
     /// `level` is the protocol level (e.g. SOL_SOCKET=1).
@@ -430,6 +437,20 @@ pub fn getaddrinfo(host: &[u8], port: &[u8], buf: &mut [u8]) -> Result<u32, Errn
 /// Returns `Ok(())` on success, `Err(errno)` on failure.
 pub fn setsockopt(fd: u32, level: u32, optname: u32, optval: &[u8]) -> Result<(), Errno> {
     let errno = unsafe { net_setsockopt(fd, level, optname, optval.as_ptr(), optval.len() as u32) };
+    if errno == ERRNO_SUCCESS {
+        Ok(())
+    } else {
+        Err(errno)
+    }
+}
+
+/// Upgrade a connected TCP socket to TLS.
+///
+/// `hostname` is used for SNI (Server Name Indication).
+/// After success, `send`/`recv` on this fd use the encrypted TLS stream.
+/// Returns `Ok(())` on success, `Err(errno)` on failure.
+pub fn tls_connect(fd: u32, hostname: &[u8]) -> Result<(), Errno> {
+    let errno = unsafe { net_tls_connect(fd, hostname.as_ptr(), hostname.len() as u32) };
     if errno == ERRNO_SUCCESS {
         Ok(())
     } else {

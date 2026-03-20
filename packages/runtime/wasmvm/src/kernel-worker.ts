@@ -834,6 +834,19 @@ function createHostNetImports(getMemory: () => WebAssembly.Memory | null) {
       return res.errno;
     },
 
+    /** net_tls_connect(fd, hostname_ptr, hostname_len) -> errno */
+    net_tls_connect(fd: number, hostname_ptr: number, hostname_len: number): number {
+      if (isNetworkBlocked()) return ERRNO_EACCES;
+      const mem = getMemory();
+      if (!mem) return ERRNO_EINVAL;
+
+      const hostnameBytes = new Uint8Array(mem.buffer, hostname_ptr, hostname_len);
+      const hostname = new TextDecoder().decode(hostnameBytes);
+
+      const res = rpcCall('netTlsConnect', { fd, hostname });
+      return res.errno;
+    },
+
     /** net_getaddrinfo(host_ptr, host_len, port_ptr, port_len, ret_addr, ret_addr_len) -> errno */
     net_getaddrinfo(
       _host_ptr: number, _host_len: number,

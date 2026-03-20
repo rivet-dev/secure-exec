@@ -41,6 +41,7 @@ import { readdir, stat } from 'node:fs/promises';
 import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { connect as tcpConnect, type Socket } from 'node:net';
+import { connect as tlsConnect, type TLSSocket } from 'node:tls';
 
 /**
  * All commands available in the WasmVM runtime.
@@ -915,6 +916,32 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
           }
           responseData = recvData;
           intResult = recvData.length;
+          break;
+        }
+        case 'netTlsConnect': {
+          const socketId = msg.args.fd as number;
+          const sock = this._sockets.get(socketId);
+          if (!sock) {
+            errno = ERRNO_MAP.EBADF;
+            break;
+          }
+
+          const hostname = msg.args.hostname as string;
+          try {
+            // Upgrade existing TCP socket to TLS
+            const tlsSock = await new Promise<TLSSocket>((resolve, reject) => {
+              const s = tlsConnect({
+                socket: sock,
+                servername: hostname, // SNI
+                // Uses Node.js default CA store for certificate verification
+              }, () => resolve(s));
+              s.on('error', reject);
+            });
+            // Replace plain socket with TLS socket — send/recv transparently use it
+            this._sockets.set(socketId, tlsSock as unknown as Socket);
+          } catch {
+            errno = ERRNO_MAP.ECONNREFUSED;
+          }
           break;
         }
         case 'netClose': {
