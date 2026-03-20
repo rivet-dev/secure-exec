@@ -3100,3 +3100,21 @@ PRD: ralph/kernel-hardening (46 stories)
   - Server scripts must share the same route handlers when reused with generic lifecycle code — the unresponsive server needs /health returning JSON too, otherwise resp.json() fails
   - "Isolated is disposed" unhandled rejection can occur when child_process bridge's proc.wait() fires after runtime.dispose() — the sandbox code must ensure all child processes exit before exec() returns
 ---
+
+## 2026-03-20 - US-043
+- Rewrote docs-internal/specs/cli-tool-e2e.md to document the full verification matrix
+- Files changed: docs-internal/specs/cli-tool-e2e.md
+- Key changes:
+  1. Documented three verification levels: SDK/in-VM, headless binary, full TTY
+  2. Added verification matrix table: Pi (all 3), Claude Code (all 3 via ProcessTransport), OpenCode (2 — no SDK)
+  3. Documented tool use verification approach (mock LLM with tool_use responses, getReceivedBodies())
+  4. Documented agentic workflow tests: multi-turn loop, npm install, npx, dev server lifecycle
+  5. Removed OpenCode SDK Strategy B (compiled Bun binary, no JS source)
+  6. Converted gap analysis to resolved table — all 12 gaps marked resolved with implementation notes
+  7. Updated test file layout to reflect actual 16 test files across 5 levels
+  8. Updated success criteria to reflect all implemented verification levels
+  9. Changed spec status from Draft to Implemented
+- **Learnings for future iterations:**
+  - The spec is a living document — update it as implementation progresses, not just at planning time
+  - The verification matrix table format is useful for showing coverage at a glance across tools and levels
+---

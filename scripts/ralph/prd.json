@@ -786,8 +786,8 @@
         "Typecheck passes"
       ],
       "priority": 43,
-      "passes": false,
-      "notes": "The spec needs to reflect the full verification matrix and document the agentic workflow test approach."
+      "passes": true,
+      "notes": "Completed. Rewrote cli-tool-e2e spec to document: three verification levels (SDK/in-VM, headless binary, full TTY), verification matrix (Pi: all 3, Claude Code: all 3 via ProcessTransport, OpenCode: 2 — no SDK), tool use verification approach (mock LLM with tool_use responses + getReceivedBodies()), agentic workflow tests (multi-turn, npm install, npx, dev server lifecycle). Removed Strategy B. Updated gap analysis to show all gaps resolved. Updated test file layout to reflect actual 16 test files across 5 levels."
     }
   ]
 }
