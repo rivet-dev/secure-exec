@@ -7,7 +7,7 @@
  */
 
 import type { DriverProcess, ProcessContext, ProcessEntry, ProcessInfo } from "./types.js";
-import { KernelError, SIGCHLD, SIGALRM, WNOHANG } from "./types.js";
+import { KernelError, SIGCHLD, SIGALRM, SIGCONT, SIGSTOP, SIGTSTP, WNOHANG } from "./types.js";
 import { encodeExitStatus, encodeSignalStatus } from "./wstatus.js";
 
 const ZOMBIE_TTL_MS = 60_000;
@@ -192,11 +192,10 @@ export class ProcessTable {
 			const pgid = -pid;
 			let found = false;
 			for (const entry of this.entries.values()) {
-				if (entry.pgid === pgid && entry.status === "running") {
+				if (entry.pgid === pgid && entry.status !== "exited") {
 					found = true;
 					if (signal !== 0) {
-						entry.termSignal = signal;
-						entry.driverProcess.kill(signal);
+						this.deliverSignal(entry, signal);
 					}
 				}
 			}
@@ -208,8 +207,21 @@ export class ProcessTable {
 		if (entry.status === "exited") return;
 		// Signal 0: existence check only — don't deliver
 		if (signal === 0) return;
-		entry.termSignal = signal;
-		entry.driverProcess.kill(signal);
+		this.deliverSignal(entry, signal);
+	}
+
+	/** Apply signal default action: stop/cont signals update status, others forward to driver. */
+	private deliverSignal(entry: ProcessEntry, signal: number): void {
+		if (signal === SIGTSTP || signal === SIGSTOP) {
+			this.stop(entry.pid);
+			entry.driverProcess.kill(signal);
+		} else if (signal === SIGCONT) {
+			this.cont(entry.pid);
+			entry.driverProcess.kill(signal);
+		} else {
+			entry.termSignal = signal;
+			entry.driverProcess.kill(signal);
+		}
 	}
 
 	/**
@@ -246,6 +258,22 @@ export class ProcessTable {
 		this.alarmTimers.set(pid, { timer, scheduledAt, seconds });
 
 		return remaining;
+	}
+
+	/** Suspend a process (SIGTSTP/SIGSTOP). Sets status to 'stopped'. */
+	stop(pid: number): void {
+		const entry = this.entries.get(pid);
+		if (!entry) throw new KernelError("ESRCH", `no such process ${pid}`);
+		if (entry.status !== "running") return;
+		entry.status = "stopped";
+	}
+
+	/** Resume a stopped process (SIGCONT). Sets status back to 'running'. */
+	cont(pid: number): void {
+		const entry = this.entries.get(pid);
+		if (!entry) throw new KernelError("ESRCH", `no such process ${pid}`);
+		if (entry.status !== "stopped") return;
+		entry.status = "running";
 	}
 
 	/** Cancel a pending alarm for a process. */
@@ -332,11 +360,10 @@ export class ProcessTable {
 		}
 		let count = 0;
 		for (const entry of this.entries.values()) {
-			if (entry.pgid === pgid && entry.status === "running") {
+			if (entry.pgid === pgid && entry.status !== "exited") {
 				if (entry.pid === entry.sid) continue; // Skip session leaders
 				if (signal !== 0) {
-					entry.termSignal = signal;
-					entry.driverProcess.kill(signal);
+					this.deliverSignal(entry, signal);
 				}
 				count++;
 			}
@@ -394,7 +421,7 @@ export class ProcessTable {
 		this.alarmTimers.clear();
 
 		const running = [...this.entries.values()].filter(
-			(e) => e.status === "running",
+			(e) => e.status !== "exited",
 		);
 		for (const entry of running) {
 			try {
@@ -414,7 +441,7 @@ export class ProcessTable {
 		);
 
 		// Escalate to SIGKILL for processes that survived SIGTERM
-		const survivors = running.filter((e) => e.status === "running");
+		const survivors = running.filter((e) => e.status !== "exited");
 		for (const entry of survivors) {
 			try {
 				entry.driverProcess.kill(9); // SIGKILL

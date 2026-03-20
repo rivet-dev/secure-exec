@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { ProcessTable } from "../src/process-table.js";
 import { WIFEXITED, WEXITSTATUS, WIFSIGNALED, WTERMSIG } from "../src/wstatus.js";
-import { WNOHANG, SIGCHLD, SIGALRM } from "../src/types.js";
+import { WNOHANG, SIGCHLD, SIGALRM, SIGCONT, SIGSTOP, SIGTSTP } from "../src/types.js";
 import type { DriverProcess, ProcessContext } from "../src/types.js";
 
 function createMockDriverProcess(exitAfterMs?: number): DriverProcess {
@@ -425,5 +425,130 @@ describe("ProcessTable", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	// -----------------------------------------------------------------------
+	// SIGTSTP / SIGCONT / SIGSTOP
+	// -----------------------------------------------------------------------
+
+	it("SIGTSTP sets process status to 'stopped'", () => {
+		const table = new ProcessTable();
+		const killSignals: number[] = [];
+
+		const proc = createMockDriverProcess();
+		const origKill = proc.kill;
+		proc.kill = (signal) => {
+			killSignals.push(signal);
+			// SIGTSTP suspends — don't terminate via origKill
+			if (signal === SIGTSTP) return;
+			origKill.call(proc, signal);
+		};
+
+		const pid = table.allocatePid();
+		table.register(pid, "wasmvm", "vim", ["-"], createCtx(), proc);
+
+		table.kill(pid, SIGTSTP);
+
+		const entry = table.get(pid)!;
+		expect(entry.status).toBe("stopped");
+		expect(killSignals).toContain(SIGTSTP);
+		// termSignal should NOT be set (process is stopped, not terminated)
+		expect(entry.termSignal).toBe(0);
+	});
+
+	it("SIGCONT resumes a stopped process", () => {
+		const table = new ProcessTable();
+		const killSignals: number[] = [];
+
+		const proc = createMockDriverProcess();
+		const origKill = proc.kill;
+		proc.kill = (signal) => {
+			killSignals.push(signal);
+			if (signal === SIGTSTP || signal === SIGCONT) return;
+			origKill.call(proc, signal);
+		};
+
+		const pid = table.allocatePid();
+		table.register(pid, "wasmvm", "vim", ["-"], createCtx(), proc);
+
+		// Stop the process
+		table.kill(pid, SIGTSTP);
+		expect(table.get(pid)!.status).toBe("stopped");
+
+		// Resume it
+		table.kill(pid, SIGCONT);
+		expect(table.get(pid)!.status).toBe("running");
+		expect(killSignals).toContain(SIGCONT);
+	});
+
+	it("SIGSTOP sets process status to 'stopped' (cannot be caught)", () => {
+		const table = new ProcessTable();
+		const killSignals: number[] = [];
+
+		const proc = createMockDriverProcess();
+		const origKill = proc.kill;
+		proc.kill = (signal) => {
+			killSignals.push(signal);
+			if (signal === SIGSTOP) return;
+			origKill.call(proc, signal);
+		};
+
+		const pid = table.allocatePid();
+		table.register(pid, "wasmvm", "cat", [], createCtx(), proc);
+
+		table.kill(pid, SIGSTOP);
+
+		const entry = table.get(pid)!;
+		expect(entry.status).toBe("stopped");
+		expect(killSignals).toContain(SIGSTOP);
+		expect(entry.termSignal).toBe(0);
+	});
+
+	it("SIGCONT on a running process is a no-op for status", () => {
+		const table = new ProcessTable();
+		const proc = createMockDriverProcess();
+		proc.kill = () => {}; // No-op
+
+		const pid = table.allocatePid();
+		table.register(pid, "wasmvm", "sleep", ["10"], createCtx(), proc);
+
+		table.kill(pid, SIGCONT);
+		expect(table.get(pid)!.status).toBe("running");
+	});
+
+	it("stop() and cont() methods work directly", () => {
+		const table = new ProcessTable();
+		const proc = createMockDriverProcess();
+		proc.kill = () => {};
+
+		const pid = table.allocatePid();
+		table.register(pid, "wasmvm", "cat", [], createCtx(), proc);
+
+		table.stop(pid);
+		expect(table.get(pid)!.status).toBe("stopped");
+
+		table.cont(pid);
+		expect(table.get(pid)!.status).toBe("running");
+	});
+
+	it("process group kill with SIGTSTP stops all members", () => {
+		const table = new ProcessTable();
+
+		const proc1 = createMockDriverProcess();
+		proc1.kill = (s) => { if (s === SIGTSTP) return; };
+		const proc2 = createMockDriverProcess();
+		proc2.kill = (s) => { if (s === SIGTSTP) return; };
+
+		const pid1 = table.allocatePid();
+		table.register(pid1, "wasmvm", "cat", [], createCtx(), proc1);
+		const pid2 = table.allocatePid();
+		table.register(pid2, "wasmvm", "grep", [], createCtx({ ppid: pid1 }), proc2);
+
+		// Both in same pgid (inherited from pid1)
+		expect(table.get(pid2)!.pgid).toBe(pid1);
+
+		table.kill(-pid1, SIGTSTP);
+		expect(table.get(pid1)!.status).toBe("stopped");
+		expect(table.get(pid2)!.status).toBe("stopped");
 	});
 });

@@ -350,6 +350,22 @@ describe("shell-terminal", () => {
 		// Screen unchanged — "silent" is not visible because echo is off
 		expect(harness.screenshotTrimmed()).toBe(["$ noecho", "$ "].join("\n"));
 	});
+
+	it("^Z in PTY sends SIGTSTP to foreground group — echoes ^Z", async () => {
+		const driver = new MockShellDriver();
+		const { kernel } = await createTestKernel({ drivers: [driver] });
+		harness = new TerminalHarness(kernel);
+
+		await harness.waitFor("$");
+		await harness.type("hello");
+
+		// ^Z (0x1A) should echo ^Z and send SIGTSTP
+		await harness.type("\x1a");
+
+		// PTY should echo ^Z\r\n
+		const screen = harness.screenshotTrimmed();
+		expect(screen).toContain("^Z");
+	});
 });
 
 // ---------------------------------------------------------------------------

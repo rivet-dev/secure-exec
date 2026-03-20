@@ -453,6 +453,10 @@ export class PtyManager {
 						continue;
 					}
 
+					// Echo ^Z for SIGTSTP
+					if (signal === 20 && termios.echo) {
+						this.echoOutput(state, new Uint8Array([0x5e, 0x5a, 0x0d, 0x0a]));
+					}
 					// Echo ^\ for SIGQUIT
 					if (signal === 3 && termios.echo) {
 						this.echoOutput(state, new Uint8Array([0x5e, 0x5c, 0x0d, 0x0a]));

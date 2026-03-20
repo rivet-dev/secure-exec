@@ -539,6 +539,8 @@ export const SIGPIPE = 13;
 export const SIGALRM = 14;
 export const SIGTERM = 15;
 export const SIGCHLD = 17;
+export const SIGCONT = 18;
+export const SIGSTOP = 19;
 export const SIGTSTP = 20;
 export const SIGWINCH = 28;
 
