@@ -239,7 +239,7 @@
         "Dotfiles and directories are skipped during scan",
         "Non-WASM files are silently skipped",
         "Implement tryResolve(command): sync check of commandDirs for on-demand discovery",
-        "Remove WASMVM_COMMANDS hardcoded array \u2014 commands derived from filesystem scan",
+        "Remove WASMVM_COMMANDS hardcoded array — commands derived from filesystem scan",
         "spawn() resolves binary path from internal _commandPaths map",
         "Support deprecated wasmBinaryPath for backwards compatibility with deprecation warning",
         "Tests for filesystem scan, magic byte validation, PATH precedence, dotfile skipping, tryResolve",
@@ -420,11 +420,11 @@
       "title": "Tier 1 C test fixtures - basic I/O (hello, args, env, exitcode, cat)",
       "description": "As a developer, I need the first batch of pure-WASI C test programs that validate basic I/O through the WASI polyfill.",
       "acceptanceCriteria": [
-        "Create wasmvm/c/programs/hello.c \u2014 prints 'Hello, World!' to stdout",
-        "Create wasmvm/c/programs/args.c \u2014 prints argc and each argv entry",
-        "Create wasmvm/c/programs/env.c \u2014 prints all environment variables",
-        "Create wasmvm/c/programs/exitcode.c \u2014 exits with code from argv[1]",
-        "Create wasmvm/c/programs/cat.c \u2014 reads stdin, writes to stdout",
+        "Create wasmvm/c/programs/hello.c — prints 'Hello, World!' to stdout",
+        "Create wasmvm/c/programs/args.c — prints argc and each argv entry",
+        "Create wasmvm/c/programs/env.c — prints all environment variables",
+        "Create wasmvm/c/programs/exitcode.c — exits with code from argv[1]",
+        "Create wasmvm/c/programs/cat.c — reads stdin, writes to stdout",
         "All 5 programs compile with vanilla wasi-sdk sysroot (no patches needed)",
         "All 5 programs produce correct output when run natively (gcc/clang)",
         "Typecheck passes",
@@ -439,11 +439,11 @@
       "title": "Tier 1 C test fixtures - data processing (wc, fread, fwrite, sort, sha256)",
       "description": "As a developer, I need the second batch of pure-WASI C test programs that validate memory allocation, file I/O, and computation.",
       "acceptanceCriteria": [
-        "Create wasmvm/c/programs/wc.c \u2014 word/line/byte count from stdin",
-        "Create wasmvm/c/programs/fread.c \u2014 read file by path from argv[1], print contents",
-        "Create wasmvm/c/programs/fwrite.c \u2014 write argv[2] content to file at argv[1]",
-        "Create wasmvm/c/programs/sort.c \u2014 sort lines from stdin alphabetically",
-        "Create wasmvm/c/programs/sha256.c \u2014 compute SHA-256 of stdin, print hex digest",
+        "Create wasmvm/c/programs/wc.c — word/line/byte count from stdin",
+        "Create wasmvm/c/programs/fread.c — read file by path from argv[1], print contents",
+        "Create wasmvm/c/programs/fwrite.c — write argv[2] content to file at argv[1]",
+        "Create wasmvm/c/programs/sort.c — sort lines from stdin alphabetically",
+        "Create wasmvm/c/programs/sha256.c — compute SHA-256 of stdin, print hex digest",
         "All 5 programs compile with vanilla wasi-sdk sysroot",
         "All 5 programs produce correct output when run natively",
         "Typecheck passes",
@@ -564,12 +564,12 @@
       "title": "Tier 2 C test fixtures - custom imports (isatty, getpid, userinfo, pipe, dup, sleep)",
       "description": "As a developer, I need C test programs that validate the patched sysroot correctly routes POSIX functions through our custom host_process/host_user imports.",
       "acceptanceCriteria": [
-        "Create wasmvm/c/programs/isatty_test.c \u2014 detect if stdout is a terminal",
-        "Create wasmvm/c/programs/getpid_test.c \u2014 print PID (must NOT be hardcoded 42)",
-        "Create wasmvm/c/programs/userinfo.c \u2014 print uid, gid, euid, egid",
-        "Create wasmvm/c/programs/pipe_test.c \u2014 create pipe, write then read through it",
-        "Create wasmvm/c/programs/dup_test.c \u2014 duplicate stdout FD, write through duplicate",
-        "Create wasmvm/c/programs/sleep_test.c \u2014 sleep N ms using standard sleep()/nanosleep() via WASI poll_oneoff, verify elapsed time",
+        "Create wasmvm/c/programs/isatty_test.c — detect if stdout is a terminal",
+        "Create wasmvm/c/programs/getpid_test.c — print PID (must NOT be hardcoded 42)",
+        "Create wasmvm/c/programs/userinfo.c — print uid, gid, euid, egid",
+        "Create wasmvm/c/programs/pipe_test.c — create pipe, write then read through it",
+        "Create wasmvm/c/programs/dup_test.c — duplicate stdout FD, write through duplicate",
+        "Create wasmvm/c/programs/sleep_test.c — sleep N ms using standard sleep()/nanosleep() via WASI poll_oneoff, verify elapsed time",
         "All compile with patched sysroot (not vanilla)",
         "Add parity tests to test harness for all 6 fixtures",
         "Typecheck passes",
@@ -584,10 +584,10 @@
       "title": "Tier 3 C test fixtures - process management (spawn, pipeline, kill)",
       "description": "As a developer, I need C test programs that validate cross-runtime process spawning from C-compiled WASM binaries.",
       "acceptanceCriteria": [
-        "Create wasmvm/c/programs/spawn_child.c \u2014 posix_spawn 'echo hello', waitpid, print child stdout",
-        "Create wasmvm/c/programs/spawn_exit_code.c \u2014 spawn child that exits non-zero, verify exit code via waitpid",
-        "Create wasmvm/c/programs/pipeline.c \u2014 pipe + spawn: 'echo hello | cat' (fd_pipe + posix_spawn + dup2 + waitpid)",
-        "Create wasmvm/c/programs/kill_child.c \u2014 spawn long-running child, kill it, verify it terminated",
+        "Create wasmvm/c/programs/spawn_child.c — posix_spawn 'echo hello', waitpid, print child stdout",
+        "Create wasmvm/c/programs/spawn_exit_code.c — spawn child that exits non-zero, verify exit code via waitpid",
+        "Create wasmvm/c/programs/pipeline.c — pipe + spawn: 'echo hello | cat' (fd_pipe + posix_spawn + dup2 + waitpid)",
+        "Create wasmvm/c/programs/kill_child.c — spawn long-running child, kill it, verify it terminated",
         "All compile with patched sysroot",
         "Add parity tests to test harness for all 4 fixtures",
         "Typecheck passes",
@@ -602,10 +602,10 @@
       "title": "Tier 4 C test fixtures - filesystem stress (c-ls, c-tree, c-find, c-cp)",
       "description": "As a developer, I need C test programs that exercise deeper VFS/filesystem capabilities through WASI.",
       "acceptanceCriteria": [
-        "Create wasmvm/c/programs/c-ls.c \u2014 list directory contents with file sizes (opendir, readdir, stat)",
-        "Create wasmvm/c/programs/c-tree.c \u2014 recursive directory listing",
-        "Create wasmvm/c/programs/c-find.c \u2014 find files matching a pattern (recursive + string matching)",
-        "Create wasmvm/c/programs/c-cp.c \u2014 copy a file (open + read + write + close)",
+        "Create wasmvm/c/programs/c-ls.c — list directory contents with file sizes (opendir, readdir, stat)",
+        "Create wasmvm/c/programs/c-tree.c — recursive directory listing",
+        "Create wasmvm/c/programs/c-find.c — find files matching a pattern (recursive + string matching)",
+        "Create wasmvm/c/programs/c-cp.c — copy a file (open + read + write + close)",
         "Names prefixed with c- to avoid collision with existing Rust commands",
         "All compile with patched sysroot",
         "Add parity tests to test harness for all 4 fixtures",
@@ -622,7 +622,7 @@
       "description": "As a developer, I need a C test program that compiles the cJSON library to WASM and parses JSON from stdin, validating complex malloc/free patterns.",
       "acceptanceCriteria": [
         "Download cJSON source (cJSON.c + cJSON.h) into wasmvm/c/libs/cjson/",
-        "Create wasmvm/c/programs/json_parse.c \u2014 reads JSON from stdin, parses with cJSON, prints formatted output",
+        "Create wasmvm/c/programs/json_parse.c — reads JSON from stdin, parses with cJSON, prints formatted output",
         "Compiles cJSON + json_parse together with patched sysroot",
         "Update Makefile to handle multi-file compilation for json_parse",
         "Add parity test: native json_parse output === WASM json_parse output for sample JSON",
@@ -639,7 +639,7 @@
       "description": "As a developer, I need a C test program that compiles the SQLite amalgamation to WASM and runs in-memory SQL, validating the full libc surface.",
       "acceptanceCriteria": [
         "Download SQLite amalgamation (sqlite3.c + sqlite3.h) into wasmvm/c/libs/sqlite3/",
-        "Create wasmvm/c/programs/sqlite3_mem.c \u2014 create in-memory DB, create table, insert rows, query, print results",
+        "Create wasmvm/c/programs/sqlite3_mem.c — create in-memory DB, create table, insert rows, query, print results",
         "Compiles SQLite + sqlite3_mem together with patched sysroot and -lwasi-emulated-signal -lwasi-emulated-mman",
         "Update Makefile for SQLite compilation flags (-DSQLITE_OS_OTHER -DSQLITE_OMIT_WAL etc.)",
         "Binary size under 3MB after wasm-opt",
@@ -698,14 +698,14 @@
     {
       "id": "US-036",
       "title": "Fix Ctrl+C at shell prompt not resetting the input line",
-      "description": "As a user, I need Ctrl+C at the shell prompt to discard the current partial input, echo ^C, and show a fresh prompt \u2014 matching POSIX bash behavior.",
+      "description": "As a user, I need Ctrl+C at the shell prompt to discard the current partial input, echo ^C, and show a fresh prompt — matching POSIX bash behavior.",
       "acceptanceCriteria": [
         "Interactive shell: type 'partial command' then Ctrl+C -> '^C' appears, current input discarded, fresh prompt on new line",
         "Interactive shell: empty prompt + Ctrl+C -> '^C' appears, fresh prompt on new line (no error)",
         "Interactive shell: Ctrl+C at prompt does NOT kill the shell process (shell must survive)",
         "Test: TerminalHarness types partial text, sends 0x03, verifies ^C echo and fresh prompt within 1 second",
         "Test: after Ctrl+C at prompt, shell accepts and executes the next command normally",
-        "Fix approach: intercept SIGINT at PTY/kernel level when foreground pgid is the shell's own pgid \u2014 echo ^C\\r\\n and re-trigger prompt instead of calling driver.kill() which terminates the WASM worker",
+        "Fix approach: intercept SIGINT at PTY/kernel level when foreground pgid is the shell's own pgid — echo ^C\\r\\n and re-trigger prompt instead of calling driver.kill() which terminates the WASM worker",
         "Typecheck passes",
         "Tests pass"
       ],
@@ -718,10 +718,10 @@
       "title": "Fix fdPwrite permission bypass and gate proc_kill, fd_pipe, fd_dup by tier",
       "description": "As a developer, I need write/process permission enforcement applied consistently to ALL write and process syscalls so restricted tiers cannot bypass protections.",
       "acceptanceCriteria": [
-        "Add isWriteBlocked() check to fdPwrite in kernel-worker.ts \u2014 mirror the check in fdWrite (allow only fd 1 and 2)",
-        "Gate proc_kill with permission check \u2014 only 'full' tier can send signals (use isSpawnBlocked() or new isKillBlocked())",
-        "Gate fd_pipe with isSpawnBlocked() \u2014 pipes are only useful with proc_spawn, restrict to 'full' tier",
-        "Gate fd_dup with isSpawnBlocked() \u2014 prevent resource exhaustion from restricted tiers",
+        "Add isWriteBlocked() check to fdPwrite in kernel-worker.ts — mirror the check in fdWrite (allow only fd 1 and 2)",
+        "Gate proc_kill with permission check — only 'full' tier can send signals (use isSpawnBlocked() or new isKillBlocked())",
+        "Gate fd_pipe with isSpawnBlocked() — pipes are only useful with proc_spawn, restrict to 'full' tier",
+        "Gate fd_dup with isSpawnBlocked() — prevent resource exhaustion from restricted tiers",
         "Test: read-only command calling fd_pwrite returns EACCES",
         "Test: read-only command calling proc_kill returns EACCES",
         "Test: isolated command calling fd_pipe returns EACCES",
@@ -738,8 +738,8 @@
       "title": "Implement proc_getppid and fd_dup2 host imports in kernel-worker and driver",
       "description": "As a developer, I need the missing host_process.proc_getppid and host_process.fd_dup2 imports implemented so C/Rust binaries calling getppid() or dup2() don't trap.",
       "acceptanceCriteria": [
-        "Add proc_getppid function to createHostProcessImports in kernel-worker.ts \u2014 writes init.ppid to return pointer",
-        "Add fd_dup2 function to createHostProcessImports in kernel-worker.ts \u2014 calls fdTable.dup2(oldFd, newFd) via RPC",
+        "Add proc_getppid function to createHostProcessImports in kernel-worker.ts — writes init.ppid to return pointer",
+        "Add fd_dup2 function to createHostProcessImports in kernel-worker.ts — calls fdTable.dup2(oldFd, newFd) via RPC",
         "Add fdDup2 case to driver.ts _handleSyscall RPC dispatcher",
         "Test: WASM binary calling getppid() returns a valid PID (not trap, not 0)",
         "Test: WASM binary calling dup2(stdout, 10) can write to fd 10",
@@ -756,10 +756,10 @@
       "title": "Gate isolated-tier VFS operations and add integration tests",
       "description": "As a developer, I need the isolated permission tier to properly restrict VFS reads to cwd only, with integration tests proving enforcement.",
       "acceptanceCriteria": [
-        "Add isPathInCwd check to vfs.exists() in kernel-worker.ts VFS proxy \u2014 return false for paths outside cwd when isolated",
-        "Add isPathInCwd check to vfs.readlink() in kernel-worker.ts \u2014 throw VfsError for paths outside cwd when isolated",
-        "Add isPathInCwd check to getIno()/resolveIno() in kernel-worker.ts \u2014 return null for paths outside cwd when isolated",
-        "Add isPathInCwd check to populateDirEntries() in kernel-worker.ts \u2014 skip for paths outside cwd when isolated",
+        "Add isPathInCwd check to vfs.exists() in kernel-worker.ts VFS proxy — return false for paths outside cwd when isolated",
+        "Add isPathInCwd check to vfs.readlink() in kernel-worker.ts — throw VfsError for paths outside cwd when isolated",
+        "Add isPathInCwd check to getIno()/resolveIno() in kernel-worker.ts — return null for paths outside cwd when isolated",
+        "Add isPathInCwd check to populateDirEntries() in kernel-worker.ts — skip for paths outside cwd when isolated",
         "Integration test: isolated command cannot stat /etc/passwd (path outside cwd)",
         "Integration test: isolated command cannot readdir / (root listing blocked)",
         "Integration test: isolated command CAN read files within its cwd",
@@ -770,7 +770,7 @@
       ],
       "priority": 39,
       "passes": true,
-      "notes": "Currently vfs.exists(), readlink(), getIno() and populateDirEntries() in kernel-worker.ts have zero permission checks for isolated tier. An isolated command can probe the entire VFS structure. The driver.test.ts permission tests (lines ~957-1029) only test read-only, read-write, and full \u2014 zero tests for isolated tier."
+      "notes": "Currently vfs.exists(), readlink(), getIno() and populateDirEntries() in kernel-worker.ts have zero permission checks for isolated tier. An isolated command can probe the entire VFS structure. The driver.test.ts permission tests (lines ~957-1029) only test read-only, read-write, and full — zero tests for isolated tier."
     },
     {
       "id": "US-040",
@@ -788,7 +788,7 @@
       ],
       "priority": 40,
       "passes": true,
-      "notes": "kernel-worker.ts line 18 imports FDTable from ../test/helpers/test-fd-table.ts \u2014 production code importing from test path. driver.ts lines ~450-456 has empty catch {} that swallows module compilation errors. Both are reliability/deployment hazards."
+      "notes": "kernel-worker.ts line 18 imports FDTable from ../test/helpers/test-fd-table.ts — production code importing from test path. driver.ts lines ~450-456 has empty catch {} that swallows module compilation errors. Both are reliability/deployment hazards."
     },
     {
       "id": "US-041",
@@ -797,7 +797,7 @@
       "acceptanceCriteria": [
         "Fix isPathInCwd in permission-check.ts to use realpath (resolve symlinks) instead of normalize(resolve())",
         "An isolated command cannot read /cwd/symlink-to-etc/passwd even if the symlink is inside cwd",
-        "Add runtime validation for PermissionTier in kernel-worker.ts \u2014 if tier is not one of 'full'|'read-write'|'read-only'|'isolated', default to 'isolated'",
+        "Add runtime validation for PermissionTier in kernel-worker.ts — if tier is not one of 'full'|'read-write'|'read-only'|'isolated', default to 'isolated'",
         "Test: symlink inside cwd pointing outside cwd is blocked for isolated tier",
         "Test: unknown tier string 'admin' defaults to isolated behavior (blocks writes and spawns)",
         "Typecheck passes",
@@ -805,7 +805,7 @@
       ],
       "priority": 41,
       "passes": true,
-      "notes": "isPathInCwd in permission-check.ts (lines ~22-26) uses normalize(resolve()) which is purely lexical \u2014 no symlink resolution. A symlink inside cwd pointing to /etc would pass the prefix check. Unknown tier strings fall through inconsistently: isWriteBlocked returns false (allows writes!) but isSpawnBlocked returns true."
+      "notes": "isPathInCwd in permission-check.ts (lines ~22-26) uses normalize(resolve()) which is purely lexical — no symlink resolution. A symlink inside cwd pointing to /etc would pass the prefix check. Unknown tier strings fall through inconsistently: isWriteBlocked returns false (allows writes!) but isSpawnBlocked returns true."
     },
     {
       "id": "US-042",
@@ -823,7 +823,7 @@
       ],
       "priority": 42,
       "passes": true,
-      "notes": "driver.ts vfsReadFile (line ~746) calls data.set(content, 0) unconditionally before the overflow guard at line ~774. If content >1MB, data.set() throws RangeError which the catch block converts to EIO \u2014 fragile. Contrast with fdRead/fdPread which correctly check size BEFORE data.set(). kernel-worker.ts lstat (line ~393) just calls this.stat(path) \u2014 symlinks always followed."
+      "notes": "driver.ts vfsReadFile (line ~746) calls data.set(content, 0) unconditionally before the overflow guard at line ~774. If content >1MB, data.set() throws RangeError which the catch block converts to EIO — fragile. Contrast with fdRead/fdPread which correctly check size BEFORE data.set(). kernel-worker.ts lstat (line ~393) just calls this.stat(path) — symlinks always followed."
     },
     {
       "id": "US-043",
@@ -851,7 +851,7 @@
       "description": "As a developer, I need the C parity tests to compare stderr, fix sleep_test classification, and strengthen getpid_test assertions.",
       "acceptanceCriteria": [
         "Add stderr comparison to all Tier 2+ parity tests in c-parity.test.ts (currently only stdout and exit code are compared)",
-        "Move sleep_test out of PATCHED_PROGRAMS list in Makefile \u2014 it uses vanilla nanosleep(), not host_process.sleep_ms",
+        "Move sleep_test out of PATCHED_PROGRAMS list in Makefile — it uses vanilla nanosleep(), not host_process.sleep_ms",
         "Add isatty_test to PATCHED_PROGRAMS list in Makefile (it uses host_user.isatty from patched sysroot)",
         "Strengthen getpid_test parity: verify WASM PID is > 0, != 42, and consistent with kernel-assigned PID (check via a second getpid call returning same value)",
         "Strengthen kill_child parity: add WIFSIGNALED check or verify child exit status indicates signal termination",
@@ -861,7 +861,7 @@
       ],
       "priority": 44,
       "passes": true,
-      "notes": "c-parity.test.ts Tier 2+ tests only compare stdout and exitCode, never stderr. sleep_test uses vanilla nanosleep() not host_process.sleep_ms \u2014 mislabeled as Tier 2. isatty_test IS missing from PATCHED_PROGRAMS in Makefile line 69. getpid_test passes with any positive non-42 value. kill_child never checks WIFSIGNALED. userinfo just checks format regex."
+      "notes": "c-parity.test.ts Tier 2+ tests only compare stdout and exitCode, never stderr. sleep_test uses vanilla nanosleep() not host_process.sleep_ms — mislabeled as Tier 2. isatty_test IS missing from PATCHED_PROGRAMS in Makefile line 69. getpid_test passes with any positive non-42 value. kill_child never checks WIFSIGNALED. userinfo just checks format regex."
     },
     {
       "id": "US-045",
@@ -928,9 +928,9 @@
         "Add 'WasmVM Syscall Coverage' section to CLAUDE.md",
         "Document: every function in host_process and host_user import modules must have at least one C parity test exercising it through libc",
         "Document: when adding a new host import, add a matching test case to syscall_coverage.c and its parity test",
-        "Document: the canonical source of truth for import signatures is wasmvm/crates/wasi-ext/src/lib.rs \u2014 C patches and JS host must match exactly",
-        "Document: C patches in patches/wasi-libc/ must be kept in sync with wasi-ext \u2014 ABI drift between C, Rust, and JS is a P0 bug",
-        "Document: permission tier enforcement must cover ALL write/spawn/kill/pipe operations \u2014 audit kernel-worker.ts when adding new syscalls",
+        "Document: the canonical source of truth for import signatures is wasmvm/crates/wasi-ext/src/lib.rs — C patches and JS host must match exactly",
+        "Document: C patches in patches/wasi-libc/ must be kept in sync with wasi-ext — ABI drift between C, Rust, and JS is a P0 bug",
+        "Document: permission tier enforcement must cover ALL write/spawn/kill/pipe operations — audit kernel-worker.ts when adding new syscalls",
         "Document: PATCHED_PROGRAMS in wasmvm/c/Makefile must include all programs that use host_process or host_user imports",
         "Typecheck passes",
         "Tests pass"
@@ -945,13 +945,13 @@
       "description": "As a developer, I need getpwuid() accessible from C programs via a wasi-libc patch, with a dedicated test and syscall_coverage.c entry.",
       "acceptanceCriteria": [
         "Create wasmvm/patches/wasi-libc/0007-getpwuid.patch exposing __host_getpwuid from host_user.getpwuid",
-        "C wrapper: struct passwd *getpwuid(uid_t uid) \u2014 calls __host_getpwuid, parses returned 'name:x:uid:gid:gecos:home:shell' string into struct passwd",
+        "C wrapper: struct passwd *getpwuid(uid_t uid) — calls __host_getpwuid, parses returned 'name:x:uid:gid:gecos:home:shell' string into struct passwd",
         "Import signature matches wasmvm/crates/wasi-ext/src/lib.rs line 125 exactly (uid, buf_ptr, buf_len, ret_len params)",
-        "Create wasmvm/c/programs/getpwuid_test.c \u2014 calls getpwuid(1000), prints pw_name, pw_uid, pw_gid, pw_dir, pw_shell",
+        "Create wasmvm/c/programs/getpwuid_test.c — calls getpwuid(1000), prints pw_name, pw_uid, pw_gid, pw_dir, pw_shell",
         "getpwuid_test.c validates returned uid matches requested uid",
         "getpwuid_test.c validates pw_name is non-empty and pw_dir is non-empty",
         "Add getpwuid_test to PATCHED_PROGRAMS in wasmvm/c/Makefile",
-        "Add getpwuid test to syscall_coverage.c host_user section \u2014 call getpwuid(1000), validate pw_name non-null and pw_uid == 1000",
+        "Add getpwuid test to syscall_coverage.c host_user section — call getpwuid(1000), validate pw_name non-null and pw_uid == 1000",
         "Add 'getpwuid' to expectedSyscalls list in c-parity.test.ts",
         "Add parity test for getpwuid_test in c-parity.test.ts",
         "Rebuild patched sysroot after adding patch",
@@ -960,7 +960,7 @@
       ],
       "priority": 49,
       "passes": true,
-      "notes": "getpwuid is declared in wasi-ext/src/lib.rs:125, implemented in JS (user.ts:146-175), but has NO C patch \u2014 C programs can't call it. The JS impl returns 'user1000:x:1000:1000::/home/user:/bin/sh' format. Follow 0005-user-identity.patch structure for the patch. The struct passwd definition exists in wasi-libc's pwd.h but getpwuid() is stubbed to return NULL."
+      "notes": "getpwuid is declared in wasi-ext/src/lib.rs:125, implemented in JS (user.ts:146-175), but has NO C patch — C programs can't call it. The JS impl returns 'user1000:x:1000:1000::/home/user:/bin/sh' format. Follow 0005-user-identity.patch structure for the patch. The struct passwd definition exists in wasi-libc's pwd.h but getpwuid() is stubbed to return NULL."
     },
     {
       "id": "US-050",
@@ -972,7 +972,7 @@
         "Replace (void)geteuid(); OK('geteuid') with: uid_t eu = geteuid(); TEST('geteuid', eu == 1000, 'expected 1000')",
         "Replace (void)getegid(); OK('getegid') with: gid_t eg = getegid(); TEST('getegid', eg == 1000, 'expected 1000')",
         "Add isatty validation: TEST('isatty_stdin', isatty(0) == 0, 'stdin should not be tty when piped')",
-        "Native parity: native build also returns uid/gid from the OS \u2014 update parity test to handle differing uid values between native and WASM",
+        "Native parity: native build also returns uid/gid from the OS — update parity test to handle differing uid values between native and WASM",
         "Option A: skip exact stdout match for host_user section and validate WASM assertions independently",
         "Option B: run native as uid 1000 if possible, or normalize uid values in parity comparison",
         "Typecheck passes",
@@ -980,24 +980,24 @@
       ],
       "priority": 50,
       "passes": true,
-      "notes": "syscall_coverage.c lines 321-324 discard return values with (void) cast \u2014 a broken implementation returning garbage would pass. Compare to getpid_test.c which validates pid > 0, pid != 42, and consistency. The challenge is that native getuid() returns the host user's real UID (e.g., 1000 on Linux, 501 on macOS) while WASM always returns 1000. The parity test currently does exact stdout comparison (line 504), so the test approach needs to handle this divergence."
+      "notes": "syscall_coverage.c lines 321-324 discard return values with (void) cast — a broken implementation returning garbage would pass. Compare to getpid_test.c which validates pid > 0, pid != 42, and consistency. The challenge is that native getuid() returns the host user's real UID (e.g., 1000 on Linux, 501 on macOS) while WASM always returns 1000. The parity test currently does exact stdout comparison (line 504), so the test approach needs to handle this divergence."
     },
     {
       "id": "US-051",
       "title": "Add getppid parent-child verification test",
       "description": "As a developer, I need a test proving getppid() returns the actual parent's PID, not just any positive number.",
       "acceptanceCriteria": [
-        "Create wasmvm/c/programs/getppid_verify.c \u2014 parent calls getpid(), spawns child that calls getppid(), child prints both values",
+        "Create wasmvm/c/programs/getppid_verify.c — parent calls getpid(), spawns child that calls getppid(), child prints both values",
         "Child program prints: parent_pid=N and my_ppid=N, plus match=yes/no",
         "Verify child's getppid() equals parent's getpid()",
         "Add getppid_verify to PATCHED_PROGRAMS in wasmvm/c/Makefile",
-        "Add parity test in c-parity.test.ts \u2014 verify match=yes in both native and WASM output",
+        "Add parity test in c-parity.test.ts — verify match=yes in both native and WASM output",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 51,
       "passes": true,
-      "notes": "Current getppid_test.c only checks ppid > 0 \u2014 a hardcoded 'return 1' would pass. This test spawns a child that verifies its ppid matches the parent's pid, proving the kernel correctly tracks parent-child relationships across proc_spawn. The child program can be a simple C program that prints getppid(), or the parent can spawn 'sh -c' with a command that reads getppid."
+      "notes": "Current getppid_test.c only checks ppid > 0 — a hardcoded 'return 1' would pass. This test spawns a child that verifies its ppid matches the parent's pid, proving the kernel correctly tracks parent-child relationships across proc_spawn. The child program can be a simple C program that prints getppid(), or the parent can spawn 'sh -c' with a command that reads getppid."
     },
     {
       "id": "US-052",
@@ -1006,8 +1006,8 @@
       "acceptanceCriteria": [
         "Create wasmvm/c/programs/signal_tests.c with multiple signal test scenarios",
         "Test 1: spawn child, send SIGKILL (9), verify WIFSIGNALED and WTERMSIG==9",
-        "Test 2: spawn child, let it exit normally, then call kill() on the exited PID \u2014 verify kill returns -1 with errno ESRCH (or 0 per POSIX for recently-exited)",
-        "Test 3: call kill() with invalid PID (99999) \u2014 verify returns -1",
+        "Test 2: spawn child, let it exit normally, then call kill() on the exited PID — verify kill returns -1 with errno ESRCH (or 0 per POSIX for recently-exited)",
+        "Test 3: call kill() with invalid PID (99999) — verify returns -1",
         "Each test prints structured output: 'test_name: ok' or 'test_name: FAIL (reason)'",
         "Add signal_tests to PATCHED_PROGRAMS in wasmvm/c/Makefile",
         "Add parity test in c-parity.test.ts",
@@ -1016,7 +1016,7 @@
       ],
       "priority": 52,
       "passes": true,
-      "notes": "kill_child.c only tests SIGTERM (15). SIGKILL (9) is the only other signal with real behavior in our architecture (worker.terminate()). Testing signal to exited process verifies zombie handling. Testing invalid PID verifies error handling in proc_kill. The JS handler (kernel-worker.ts:624-628) only checks isSpawnBlocked, not whether the PID exists \u2014 kernel.kill() handles the ESRCH error."
+      "notes": "kill_child.c only tests SIGTERM (15). SIGKILL (9) is the only other signal with real behavior in our architecture (worker.terminate()). Testing signal to exited process verifies zombie handling. Testing invalid PID verifies error handling in proc_kill. The JS handler (kernel-worker.ts:624-628) only checks isSpawnBlocked, not whether the PID exists — kernel.kill() handles the ESRCH error."
     },
     {
       "id": "US-053",
@@ -1024,9 +1024,9 @@
       "description": "As a developer, I need pipe tests covering buffer limits, write-to-closed-pipe behavior, and proper EOF semantics.",
       "acceptanceCriteria": [
         "Create wasmvm/c/programs/pipe_edge.c with multiple pipe edge case tests",
-        "Test 1: write >64KB to pipe \u2014 verify all data is received (reader must loop until EOF)",
-        "Test 2: close read end, write to write end \u2014 verify write returns -1 with errno EPIPE (or process receives SIGPIPE)",
-        "Test 3: close write end, read from read end \u2014 verify read returns 0 (EOF)",
+        "Test 1: write >64KB to pipe — verify all data is received (reader must loop until EOF)",
+        "Test 2: close read end, write to write end — verify write returns -1 with errno EPIPE (or process receives SIGPIPE)",
+        "Test 3: close write end, read from read end — verify read returns 0 (EOF)",
         "Test 4: create pipe, close both ends, verify no leak (process exits cleanly)",
         "Each test prints structured output with ok/FAIL",
         "Add pipe_edge to PATCHED_PROGRAMS in wasmvm/c/Makefile",
@@ -1036,7 +1036,7 @@
       ],
       "priority": 53,
       "passes": true,
-      "notes": "pipe_test.c writes only 18 bytes. The kernel pipe buffer is 64KB (MAX_PIPE_BUFFER_BYTES). Writing >64KB tests buffer pressure and blocking behavior. Write-to-closed-pipe tests EPIPE/SIGPIPE \u2014 our kernel throws EPIPE but doesn't send SIGPIPE (known gap in posix-compatibility.md). Test 3 verifies EOF semantics. Use a helper child process or fork-like pattern for test 2 (need two processes sharing the pipe)."
+      "notes": "pipe_test.c writes only 18 bytes. The kernel pipe buffer is 64KB (MAX_PIPE_BUFFER_BYTES). Writing >64KB tests buffer pressure and blocking behavior. Write-to-closed-pipe tests EPIPE/SIGPIPE — our kernel throws EPIPE but doesn't send SIGPIPE (known gap in posix-compatibility.md). Test 3 verifies EOF semantics. Use a helper child process or fork-like pattern for test 2 (need two processes sharing the pipe)."
     },
     {
       "id": "US-054",
@@ -1076,7 +1076,7 @@
       ],
       "priority": 55,
       "passes": true,
-      "notes": "kernel.ts line 404: populateBinEntry() is declared async (returns Promise<void>) but called without await in spawnInternal(). The /bin stub may not exist when brush-shell tries PATH lookup on subsequent invocations. This is a race condition \u2014 it works most of the time because the VFS write is fast, but is not guaranteed. Check if spawnInternal is already async (it likely is since it calls spawn which is async). If so, just add await."
+      "notes": "kernel.ts line 404: populateBinEntry() is declared async (returns Promise<void>) but called without await in spawnInternal(). The /bin stub may not exist when brush-shell tries PATH lookup on subsequent invocations. This is a race condition — it works most of the time because the VFS write is fast, but is not guaranteed. Check if spawnInternal is already async (it likely is since it calls spawn which is async). If so, just add await."
     },
     {
       "id": "US-056",
@@ -1084,9 +1084,9 @@
       "description": "As a developer, I need waitpid tests covering multiple concurrent children with ordering, and error cases for invalid PIDs.",
       "acceptanceCriteria": [
         "Create wasmvm/c/programs/waitpid_edge.c with multiple waitpid edge case tests",
-        "Test 1: spawn 3 children with different exit codes, waitpid each by specific PID \u2014 verify correct exit code for each",
-        "Test 2: spawn 2 children, use wait() (waitpid -1) twice \u2014 verify both children reaped (returned PIDs are valid and distinct)",
-        "Test 3: waitpid with PID that was never spawned \u2014 verify returns -1 with errno ECHILD",
+        "Test 1: spawn 3 children with different exit codes, waitpid each by specific PID — verify correct exit code for each",
+        "Test 2: spawn 2 children, use wait() (waitpid -1) twice — verify both children reaped (returned PIDs are valid and distinct)",
+        "Test 3: waitpid with PID that was never spawned — verify returns -1 with errno ECHILD",
         "Each test prints structured output with ok/FAIL",
         "Add waitpid_edge to PATCHED_PROGRAMS in wasmvm/c/Makefile",
         "Add parity test in c-parity.test.ts",
@@ -1095,7 +1095,7 @@
       ],
       "priority": 56,
       "passes": true,
-      "notes": "waitpid_return.c only tests sequential single-child scenarios. Test 1 exercises the kernel's ability to track multiple concurrent children. Test 2 verifies wait() (-1) returns valid PIDs when multiple children have exited. Test 3 verifies ECHILD error for invalid PID. The JS handler (kernel-worker.ts:604-608) tracks children in a Set \u2014 test 2 verifies Set iteration order is safe."
+      "notes": "waitpid_return.c only tests sequential single-child scenarios. Test 1 exercises the kernel's ability to track multiple concurrent children. Test 2 verifies wait() (-1) returns valid PIDs when multiple children have exited. Test 3 verifies ECHILD error for invalid PID. The JS handler (kernel-worker.ts:604-608) tracks children in a Set — test 2 verifies Set iteration order is safe."
     },
     {
       "id": "US-057",
@@ -1107,10 +1107,10 @@
         "Implement chdir in kernel.ts: validate path exists and is a directory via VFS stat, update ProcessEntry.cwd",
         "chdir to nonexistent path throws ENOENT",
         "chdir to file (not directory) throws ENOTDIR",
-        "Guard with ownership check \u2014 only the process's own driver can chdir",
+        "Guard with ownership check — only the process's own driver can chdir",
         "Child process spawned after chdir inherits the updated cwd",
         "Test: chdir then getcwd returns new path",
-        "Test: chdir then spawn child \u2014 child cwd matches",
+        "Test: chdir then spawn child — child cwd matches",
         "Test: chdir to bad path returns ENOENT",
         "Test: chdir to file returns ENOTDIR",
         "Typecheck passes",
@@ -1132,7 +1132,7 @@
         "Child process spawned after setenv inherits the updated env",
         "unsetenv removes the key entirely (not set to empty string)",
         "Test: setenv then getenv reflects change",
-        "Test: setenv then spawn child \u2014 child has new var",
+        "Test: setenv then spawn child — child has new var",
         "Test: unsetenv removes var from getenv",
         "Test: cross-driver setenv blocked with EPERM",
         "Typecheck passes",
@@ -1148,17 +1148,17 @@
       "description": "As a developer, I need writing to a closed pipe to deliver SIGPIPE to the writer before raising EPIPE, so pipelines like 'yes | head -1' terminate correctly.",
       "acceptanceCriteria": [
         "PipeManager.write() calls processTable.kill(pid, SIGPIPE) before throwing EPIPE when read end is closed",
-        "PipeManager needs access to ProcessTable \u2014 inject via constructor or add pid parameter to write()",
+        "PipeManager needs access to ProcessTable — inject via constructor or add pid parameter to write()",
         "Default SIGPIPE action: terminate the process with exit code 128+13=141",
-        "Test: create pipe, close read end, write to write end \u2014 writer receives SIGPIPE and exits 141",
-        "Test: pipeline where reader exits early \u2014 writer terminates via SIGPIPE (not hangs)",
+        "Test: create pipe, close read end, write to write end — writer receives SIGPIPE and exits 141",
+        "Test: pipeline where reader exits early — writer terminates via SIGPIPE (not hangs)",
         "Test: verify EPIPE error is still thrown after SIGPIPE delivery",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 59,
       "passes": true,
-      "notes": "Critical POSIX gap. pipe-manager.ts line 87-88 throws EPIPE but never sends SIGPIPE. Without this, pipelines with early-exit readers (head, grep -m1) don't terminate the writer. PipeManager currently has no reference to ProcessTable \u2014 needs constructor injection or a callback."
+      "notes": "Critical POSIX gap. pipe-manager.ts line 87-88 throws EPIPE but never sends SIGPIPE. Without this, pipelines with early-exit readers (head, grep -m1) don't terminate the writer. PipeManager currently has no reference to ProcessTable — needs constructor injection or a callback."
     },
     {
       "id": "US-060",
@@ -1171,9 +1171,9 @@
         "waitpid returns POSIX wstatus: normal exit = (exitCode << 8), signal death = (signalNumber & 0x7F)",
         "Create packages/kernel/src/wstatus.ts with WIFEXITED, WEXITSTATUS, WIFSIGNALED, WTERMSIG helpers",
         "Export helpers from kernel package",
-        "Test: normal exit(42) \u2014 WIFEXITED=true, WEXITSTATUS=42",
-        "Test: killed by SIGKILL \u2014 WIFSIGNALED=true, WTERMSIG=9",
-        "Test: killed by SIGTERM \u2014 WIFSIGNALED=true, WTERMSIG=15",
+        "Test: normal exit(42) — WIFEXITED=true, WEXITSTATUS=42",
+        "Test: killed by SIGKILL — WIFSIGNALED=true, WTERMSIG=9",
+        "Test: killed by SIGTERM — WIFSIGNALED=true, WTERMSIG=15",
         "Typecheck passes",
         "Tests pass"
       ],
@@ -1207,11 +1207,11 @@
       "acceptanceCriteria": [
         "Add cloexec: boolean flag to FileDescription in fd-table.ts (default false)",
         "Add fdSetCloexec(pid, fd, value) and fdGetCloexec(pid, fd) to KernelInterface",
-        "Support O_CLOEXEC flag in fdOpen() \u2014 sets cloexec=true on the new FD",
+        "Support O_CLOEXEC flag in fdOpen() — sets cloexec=true on the new FD",
         "When creating child FD table via fork(), skip FDs marked cloexec",
-        "Test: open file with O_CLOEXEC, spawn child \u2014 child gets EBADF on that FD",
-        "Test: open file without O_CLOEXEC, spawn child \u2014 child can read the FD",
-        "Test: fdSetCloexec after open, spawn \u2014 FD not inherited",
+        "Test: open file with O_CLOEXEC, spawn child — child gets EBADF on that FD",
+        "Test: open file without O_CLOEXEC, spawn child — child can read the FD",
+        "Test: fdSetCloexec after open, spawn — FD not inherited",
         "Typecheck passes",
         "Tests pass"
       ],
@@ -1230,9 +1230,9 @@
         "F_GETFD: return FD flags (FD_CLOEXEC)",
         "F_SETFD: set FD flags (FD_CLOEXEC)",
         "F_GETFL: return open flags (O_RDONLY, O_WRONLY, O_RDWR, O_APPEND)",
-        "Test: F_DUPFD with minfd=10 \u2014 new FD is 10",
+        "Test: F_DUPFD with minfd=10 — new FD is 10",
         "Test: F_GETFD after F_SETFD reflects change",
-        "Test: F_DUPFD_CLOEXEC \u2014 new FD has cloexec set",
+        "Test: F_DUPFD_CLOEXEC — new FD has cloexec set",
         "Typecheck passes",
         "Tests pass"
       ],
@@ -1271,7 +1271,7 @@
         "Fix fd_pread in wasi-polyfill.ts: use kernel fdPread with offset, don't change FD cursor position",
         "Fix fd_pwrite in wasi-polyfill.ts: use kernel fdPwrite with offset, don't change FD cursor position",
         "Add path_access to wasi-polyfill.ts: check if file is readable/writable/executable via VFS stat + mode bits",
-        "Wire access() in wasi-libc if not already available \u2014 check R_OK, W_OK, X_OK, F_OK",
+        "Wire access() in wasi-libc if not already available — check R_OK, W_OK, X_OK, F_OK",
         "Test: pread at offset 5 reads correct bytes, cursor unchanged",
         "Test: pwrite at offset 10, subsequent read from 0 sees original + written bytes",
         "Test: access(existing_file, F_OK) returns 0",
@@ -1289,12 +1289,12 @@
       "description": "As a developer, I need umask so git and make create files with correct default permissions.",
       "acceptanceCriteria": [
         "Add umask field to ProcessEntry (default 0o022)",
-        "Add umask(pid, newMask?) to KernelInterface \u2014 returns old mask, optionally sets new",
+        "Add umask(pid, newMask?) to KernelInterface — returns old mask, optionally sets new",
         "When creating files/directories via VFS, apply mode & ~umask",
         "Child process inherits parent's umask",
         "Test: default umask is 0o022",
         "Test: mkdir with mode 0o777 and umask 0o022 creates with effective mode 0o755",
-        "Test: umask(pid, 0o077) \u2014 files created with mode 0o700 when requesting 0o777",
+        "Test: umask(pid, 0o077) — files created with mode 0o700 when requesting 0o777",
         "Test: child inherits parent umask",
         "Typecheck passes",
         "Tests pass"
@@ -1308,8 +1308,8 @@
       "title": "Signal expansion - SIGCHLD, SIGALRM, SIGHUP, SIGQUIT",
       "description": "As a developer, I need four additional signals implemented for make (SIGCHLD), curl (SIGALRM), terminal management (SIGHUP), and Ctrl+\\ (SIGQUIT).",
       "acceptanceCriteria": [
-        "SIGCHLD (17): delivered to parent when child exits \u2014 add to ProcessTable.markExited()",
-        "SIGALRM (14): add alarm(pid, seconds) to KernelInterface \u2014 schedules SIGALRM delivery via setTimeout",
+        "SIGCHLD (17): delivered to parent when child exits — add to ProcessTable.markExited()",
+        "SIGALRM (14): add alarm(pid, seconds) to KernelInterface — schedules SIGALRM delivery via setTimeout",
         "alarm(pid, 0) cancels pending alarm, second alarm() replaces first",
         "Default SIGALRM action: terminate process (exit 128+14=142)",
         "SIGHUP (1): when PTY master closes, send SIGHUP to session's foreground process group",
@@ -1338,8 +1338,8 @@
         "SIGCONT: set process status back to 'running'",
         "SIGSTOP (19): same as SIGTSTP but cannot be caught (same behavior in our model)",
         "kill(pid, SIGCONT) resumes a stopped process",
-        "Test: send SIGTSTP \u2014 process status becomes 'stopped'",
-        "Test: send SIGCONT to stopped process \u2014 status becomes 'running'",
+        "Test: send SIGTSTP — process status becomes 'stopped'",
+        "Test: send SIGCONT to stopped process — status becomes 'running'",
         "Test: ^Z in PTY sends SIGTSTP to foreground group",
         "Typecheck passes",
         "Tests pass"
@@ -1361,14 +1361,14 @@
         "net_recv(fd, buf_ptr, buf_len, flags, ret_received_ptr) -> errno",
         "net_close(fd) -> errno",
         "net_getaddrinfo(host_ptr, host_len, port_ptr, port_len, ret_addr_ptr, ret_addr_len_ptr) -> errno",
-        "Add createHostNetImports() skeleton in kernel-worker.ts \u2014 all functions return ERRNO_ENOSYS initially",
+        "Add createHostNetImports() skeleton in kernel-worker.ts — all functions return ERRNO_ENOSYS initially",
         "Wire createHostNetImports() into WASM module instantiation alongside host_process and host_user",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 69,
       "passes": true,
-      "notes": "This is the skeleton \u2014 actual TCP implementation comes in US-070. Follow the same pattern as createHostProcessImports() in kernel-worker.ts. The host_net module is separate from host_process because networking is a distinct security domain. Permission tier: only 'full' tier should be allowed to use net_ functions."
+      "notes": "This is the skeleton — actual TCP implementation comes in US-070. Follow the same pattern as createHostProcessImports() in kernel-worker.ts. The host_net module is separate from host_process because networking is a distinct security domain. Permission tier: only 'full' tier should be allowed to use net_ functions."
     },
     {
       "id": "US-070",
@@ -1378,10 +1378,10 @@
         "Implement net_socket in kernel-worker.ts: allocate a socket ID, store in local socket table",
         "Implement net_connect: serialize host+port, send to main thread via RPC, main thread calls Node.js net.connect()",
         "Implement net_send: serialize data, send to main thread via RPC, main thread writes to socket",
-        "Implement net_recv: blocking read via Atomics.wait \u2014 main thread writes received data to SharedArrayBuffer",
+        "Implement net_recv: blocking read via Atomics.wait — main thread writes received data to SharedArrayBuffer",
         "Implement net_close: send close RPC, clean up socket table entry",
         "Add socket RPC handlers in driver.ts _handleSyscall: 'netConnect', 'netSend', 'netRecv', 'netClose'",
-        "Gate all net_ functions with permission check \u2014 only 'full' tier allowed",
+        "Gate all net_ functions with permission check — only 'full' tier allowed",
         "Test: connect to a local TCP server, send data, receive response, close",
         "Test: permission-restricted command cannot create sockets",
         "Typecheck passes",
@@ -1482,7 +1482,7 @@
         "Create wasmvm/c/programs/http_get.c: connect to HTTP server, send GET request, print response body",
         "Create wasmvm/c/programs/dns_lookup.c: resolve hostname via getaddrinfo, print IP address",
         "Add tcp_echo, http_get, dns_lookup to PATCHED_PROGRAMS in Makefile",
-        "Add parity tests in c-parity.test.ts \u2014 start local test servers for TCP and HTTP",
+        "Add parity tests in c-parity.test.ts — start local test servers for TCP and HTTP",
         "Test TCP echo: native and WASM both receive 'hello' echoed back",
         "Test HTTP GET: native and WASM both receive HTTP response body",
         "Test DNS: both resolve 'localhost' to 127.0.0.1",
@@ -1491,7 +1491,7 @@
       ],
       "priority": 75,
       "passes": true,
-      "notes": "Tests need local test servers. Create a simple TCP echo server and HTTP server in the test setup (Node.js net.createServer and http.createServer). Use localhost connections only \u2014 no external network access in CI. Guard tests with a check for host_net availability."
+      "notes": "Tests need local test servers. Create a simple TCP echo server and HTTP server in the test setup (Node.js net.createServer and http.createServer). Use localhost connections only — no external network access in CI. Guard tests with a check for host_net availability."
     },
     {
       "id": "US-076",
@@ -1500,7 +1500,7 @@
       "acceptanceCriteria": [
         "Download zlib source into wasmvm/c/libs/zlib/",
         "Download minizip source (from zlib contrib/minizip/) into wasmvm/c/libs/minizip/",
-        "Create wasmvm/c/programs/zip.c \u2014 wraps minizip to create ZIP archives from file arguments",
+        "Create wasmvm/c/programs/zip.c — wraps minizip to create ZIP archives from file arguments",
         "Usage: zip archive.zip file1 file2 dir/ (basic zip creation)",
         "Support -r flag for recursive directory compression",
         "Compile zlib + minizip + zip.c together for wasm32-wasip1",
@@ -1520,7 +1520,7 @@
       "title": "unzip command + zip/unzip test suite",
       "description": "As a developer, I need an unzip command and comprehensive tests for both zip and unzip.",
       "acceptanceCriteria": [
-        "Create wasmvm/c/programs/unzip.c \u2014 wraps minizip to extract ZIP archives",
+        "Create wasmvm/c/programs/unzip.c — wraps minizip to extract ZIP archives",
         "Usage: unzip archive.zip (extract all), unzip archive.zip -d outdir/ (extract to directory)",
         "Support -l flag to list archive contents",
         "Compile with same zlib/minizip libraries as zip",
@@ -1543,11 +1543,11 @@
       "title": "envsubst command + test suite",
       "description": "As a developer, I need envsubst for substituting environment variables in template files, commonly used in CI/CD and config management.",
       "acceptanceCriteria": [
-        "Create wasmvm/c/programs/envsubst.c \u2014 reads stdin, replaces $VAR and ${VAR} with environment variable values",
+        "Create wasmvm/c/programs/envsubst.c — reads stdin, replaces $VAR and ${VAR} with environment variable values",
         "Undefined variables replaced with empty string",
         "Supports ${VAR:-default} syntax for default values",
         "Escaped \\$VAR passes through literally",
-        "Compile for wasm32-wasip1 with vanilla sysroot (no patches needed \u2014 uses getenv)",
+        "Compile for wasm32-wasip1 with vanilla sysroot (no patches needed — uses getenv)",
         "Register envsubst command in WasmVM driver commands list",
         "Test: echo 'Hello $USER' | envsubst with USER=world outputs 'Hello world'",
         "Test: ${UNDEFINED:-fallback} outputs 'fallback'",
@@ -1625,12 +1625,12 @@
       "title": "sqlite3 test suite",
       "description": "As a developer, I need comprehensive tests for the sqlite3 CLI covering basic SQL operations, meta-commands, and file persistence.",
       "acceptanceCriteria": [
-        "Test: echo 'SELECT 1+1;' | sqlite3 :memory: \u2014 outputs '2'",
+        "Test: echo 'SELECT 1+1;' | sqlite3 :memory: — outputs '2'",
         "Test: CREATE TABLE, INSERT, SELECT roundtrip via piped SQL",
         "Test: .tables lists created tables",
         "Test: .schema shows CREATE TABLE statements",
         "Test: .dump outputs INSERT statements for data",
-        "Test: file-based DB \u2014 create table, write, close, reopen, verify data persists in VFS",
+        "Test: file-based DB — create table, write, close, reopen, verify data persists in VFS",
         "Test: multi-statement input separated by semicolons",
         "Test: SQL error (syntax error) produces error message on stderr, non-zero exit code",
         "All tests use kernel.exec() with piped SQL input",
@@ -1666,13 +1666,13 @@
       "title": "make basic test suite",
       "description": "As a developer, I need tests proving make can execute basic Makefiles with variables, recipes, and dependencies.",
       "acceptanceCriteria": [
-        "Test: simple Makefile with one target and recipe \u2014 make executes recipe",
-        "Test: variables \u2014 VAR=value, $(VAR) expansion in recipe",
-        "Test: automatic variables \u2014 $@, $<, $^ work correctly",
-        "Test: dependencies \u2014 target depends on prerequisite, prerequisite built first",
-        "Test: phony targets \u2014 .PHONY: clean, make clean runs recipe",
-        "Test: multiple targets \u2014 make all builds both target1 and target2",
-        "Test: recipe failure \u2014 command exits non-zero, make stops and reports error",
+        "Test: simple Makefile with one target and recipe — make executes recipe",
+        "Test: variables — VAR=value, $(VAR) expansion in recipe",
+        "Test: automatic variables — $@, $<, $^ work correctly",
+        "Test: dependencies — target depends on prerequisite, prerequisite built first",
+        "Test: phony targets — .PHONY: clean, make clean runs recipe",
+        "Test: multiple targets — make all builds both target1 and target2",
+        "Test: recipe failure — command exits non-zero, make stops and reports error",
         "Test: make with -f flag to specify Makefile path",
         "All tests write Makefile to VFS, then kernel.exec('make target')",
         "Typecheck passes",
@@ -1687,20 +1687,20 @@
       "title": "make advanced test suite",
       "description": "As a developer, I need tests for make's advanced features: pattern rules, includes, conditionals, and error handling.",
       "acceptanceCriteria": [
-        "Test: pattern rules \u2014 %.o: %.c recipe compiles correctly",
-        "Test: include directive \u2014 include config.mk loads secondary Makefile",
-        "Test: conditional \u2014 ifeq/ifneq/ifdef/ifndef control flow",
-        "Test: shell function \u2014 $(shell echo hello) returns command output",
-        "Test: wildcard \u2014 $(wildcard *.c) expands to matching files",
-        "Test: multi-line recipes \u2014 recipe with multiple shell commands",
-        "Test: recursive make \u2014 make -C subdir invokes make in subdirectory",
-        "Test: silent recipes \u2014 @echo suppresses command echo",
+        "Test: pattern rules — %.o: %.c recipe compiles correctly",
+        "Test: include directive — include config.mk loads secondary Makefile",
+        "Test: conditional — ifeq/ifneq/ifdef/ifndef control flow",
+        "Test: shell function — $(shell echo hello) returns command output",
+        "Test: wildcard — $(wildcard *.c) expands to matching files",
+        "Test: multi-line recipes — recipe with multiple shell commands",
+        "Test: recursive make — make -C subdir invokes make in subdirectory",
+        "Test: silent recipes — @echo suppresses command echo",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 85,
       "passes": true,
-      "notes": "These features exercise more complex make internals. $(shell ...) is critical \u2014 it spawns a shell subprocess via our posix_spawn. Recursive make (make -C) tests chdir. Create appropriate VFS directory structures for each test."
+      "notes": "These features exercise more complex make internals. $(shell ...) is critical — it spawns a shell subprocess via our posix_spawn. Recursive make (make -C) tests chdir. Create appropriate VFS directory structures for each test."
     },
     {
       "id": "US-086",
@@ -1748,7 +1748,7 @@
       "title": "curl HTTPS + advanced test suite",
       "description": "As a developer, I need curl HTTPS support and tests for authentication, uploads, and file downloads.",
       "acceptanceCriteria": [
-        "Enable TLS in libcurl build \u2014 patch to use host_tls (US-071) for SSL connections",
+        "Enable TLS in libcurl build — patch to use host_tls (US-071) for SSL connections",
         "Test: curl https://localhost:PORT/ with self-signed cert and --insecure flag",
         "Test: curl -u user:pass URL sends Basic auth",
         "Test: curl -F file=@upload.txt URL uploads file via multipart form",
@@ -1784,7 +1784,7 @@
       ],
       "priority": 89,
       "passes": true,
-      "notes": "wget is simpler than curl \u2014 mainly HTTP GET with file output. Could implement as a thin C wrapper around libcurl (link same library), or as a standalone program using raw host_net socket calls. The libcurl approach is less code. ~200 lines for the CLI wrapper."
+      "notes": "wget is simpler than curl — mainly HTTP GET with file output. Could implement as a thin C wrapper around libcurl (link same library), or as a standalone program using raw host_net socket calls. The libcurl approach is less code. ~200 lines for the CLI wrapper."
     },
     {
       "id": "US-090",
@@ -1804,7 +1804,7 @@
       ],
       "priority": 90,
       "passes": true,
-      "notes": "Git is ~200 .c files. Start with plumbing commands that have fewer dependencies. Configure with NO_MMAP=1 to use read-based fallback. The biggest challenge is run-command.c which heavily uses fork+exec \u2014 git 2.36+ has posix_spawn support (GIT_SPAWN=posix_spawn). Compile with CFLAGS=-DSHA256_BLK for built-in SHA-256."
+      "notes": "Git is ~200 .c files. Start with plumbing commands that have fewer dependencies. Configure with NO_MMAP=1 to use read-based fallback. The biggest challenge is run-command.c which heavily uses fork+exec — git 2.36+ has posix_spawn support (GIT_SPAWN=posix_spawn). Compile with CFLAGS=-DSHA256_BLK for built-in SHA-256."
     },
     {
       "id": "US-091",
@@ -1835,14 +1835,14 @@
       "acceptanceCriteria": [
         "Test: git init creates .git/ with objects/, refs/, HEAD",
         "Test: git init in existing repo is safe (reinitializes without data loss)",
-        "Test: git add file.txt stages file \u2014 git status shows 'new file: file.txt'",
-        "Test: git commit -m 'msg' creates commit \u2014 git log shows commit with message",
+        "Test: git add file.txt stages file — git status shows 'new file: file.txt'",
+        "Test: git commit -m 'msg' creates commit — git log shows commit with message",
         "Test: git status with no changes shows 'nothing to commit, working tree clean'",
         "Test: git diff shows unstaged changes (modify file, diff shows +/- lines)",
         "Test: git log --oneline shows abbreviated format",
         "Test: git add . stages all files in directory",
         "Test: git commit with no staged changes fails with appropriate error",
-        "Test: multiple commits \u2014 git log shows all commits in reverse chronological order",
+        "Test: multiple commits — git log shows all commits in reverse chronological order",
         "All tests use VFS with pre-populated files, GIT_AUTHOR_NAME/EMAIL set via env",
         "Typecheck passes",
         "Tests pass"
@@ -1860,13 +1860,13 @@
         "git checkout switches branches and restores files",
         "git merge performs fast-forward and three-way merges",
         "git tag creates lightweight and annotated tags",
-        "Test: git branch feature creates branch \u2014 git branch lists it",
-        "Test: git checkout feature switches to branch \u2014 git status shows correct branch",
+        "Test: git branch feature creates branch — git branch lists it",
+        "Test: git checkout feature switches to branch — git status shows correct branch",
         "Test: git checkout -b newbranch creates and switches in one command",
-        "Test: commit on branch, checkout main, merge branch \u2014 fast-forward merge succeeds",
+        "Test: commit on branch, checkout main, merge branch — fast-forward merge succeeds",
         "Test: diverged branches merge with three-way merge (no conflicts)",
         "Test: merge conflict produces correct conflict markers in file",
-        "Test: git tag v1.0 creates tag \u2014 git tag lists it",
+        "Test: git tag v1.0 creates tag — git tag lists it",
         "Test: git log --all --graph shows branch structure",
         "Typecheck passes",
         "Tests pass"
@@ -1895,7 +1895,7 @@
       ],
       "priority": 94,
       "passes": true,
-      "notes": "Depends on US-086-088 (libcurl). Git remote transport uses HTTP smart protocol or dumb protocol. For testing, set up a local bare repo and serve it via Node.js HTTP server. The git-http-backend CGI script is too complex \u2014 use dumb HTTP protocol (static files) or a minimal smart protocol handler."
+      "notes": "Depends on US-086-088 (libcurl). Git remote transport uses HTTP smart protocol or dumb protocol. For testing, set up a local bare repo and serve it via Node.js HTTP server. The git-http-backend CGI script is too complex — use dumb HTTP protocol (static files) or a minimal smart protocol handler."
     },
     {
       "id": "US-095",
@@ -1940,7 +1940,7 @@
       ],
       "priority": 96,
       "passes": true,
-      "notes": "npm/npx are JavaScript programs that run via Node.js. They don't need WASM compilation \u2014 they run through the kernel's mounted Node runtime. The host's npm installation at /usr/lib/node_modules/npm/ is accessed via the Node driver's filesystem overlay. Network-dependent operations (npm install) need the Node bridge's network adapter."
+      "notes": "npm/npx are JavaScript programs that run via Node.js. They don't need WASM compilation — they run through the kernel's mounted Node runtime. The host's npm installation at /usr/lib/node_modules/npm/ is accessed via the Node driver's filesystem overlay. Network-dependent operations (npm install) need the Node bridge's network adapter."
     },
     {
       "id": "US-097",
@@ -1960,7 +1960,7 @@
         "Tests pass"
       ],
       "priority": 97,
-      "passes": false,
+      "passes": true,
       "notes": "Split tests into offline (init, list, run with local scripts) and online (install, npx). Online tests require network bridge in the Node runtime. Guard online tests with a check. For npm run tests, create a package.json with a simple script (echo hello) and verify it executes via the kernel."
     },
     {
@@ -1993,9 +1993,9 @@
         "Add git dependency in wasmvm/Cargo.toml workspace pointing to rivet-dev/codex codex-rs directory",
         "Add cfg(target_os = wasi) feature gates in codex-core Cargo.toml to make landlock, seccompiler, portable-pty, codex-network-proxy, codex-linux-sandbox, codex-windows-sandbox optional",
         "Add cfg(target_os = wasi) gate in codex-utils-pty/Cargo.toml to make portable-pty optional",
-        "get_platform_sandbox() already returns None for non-macOS/Linux/Windows \u2014 verify this compiles for wasi target",
-        "SandboxType::None is selected by default on wasi \u2014 verify no sandbox code is reached",
-        "Gate out tokio features process, signal, rt-multi-thread for wasi target \u2014 use current_thread runtime",
+        "get_platform_sandbox() already returns None for non-macOS/Linux/Windows — verify this compiles for wasi target",
+        "SandboxType::None is selected by default on wasi — verify no sandbox code is reached",
+        "Gate out tokio features process, signal, rt-multi-thread for wasi target — use current_thread runtime",
         "Create wasmvm/crates/commands/codex/ binary crate that depends on codex-exec from the fork",
         "cargo check --target wasm32-wasip1 -p codex succeeds (compilation only, stubs for unimplemented functions)",
         "Typecheck passes",
@@ -2060,7 +2060,7 @@
       ],
       "priority": 102,
       "passes": false,
-      "notes": "reqwest has a wasm32-unknown-unknown target (browser) using web_sys, but no wasip1 target. Options: (1) Use reqwest with rustls + our host_net providing the TCP stream \u2014 this requires implementing std::net::TcpStream equivalent via host_net. (2) Write a minimal HTTP/1.1 client on top of host_net TCP+TLS directly. Option 1 is preferred if feasible. The key files are codex-rs/backend-client/ (OpenAI API calls) and codex-rs/core/src/client.rs (response streaming). This story depends on US-069-075 (host_net subsystem) being complete."
+      "notes": "reqwest has a wasm32-unknown-unknown target (browser) using web_sys, but no wasip1 target. Options: (1) Use reqwest with rustls + our host_net providing the TCP stream — this requires implementing std::net::TcpStream equivalent via host_net. (2) Write a minimal HTTP/1.1 client on top of host_net TCP+TLS directly. Option 1 is preferred if feasible. The key files are codex-rs/backend-client/ (OpenAI API calls) and codex-rs/core/src/client.rs (response streaming). This story depends on US-069-075 (host_net subsystem) being complete."
     },
     {
       "id": "US-103",
@@ -2078,7 +2078,7 @@
       ],
       "priority": 103,
       "passes": false,
-      "notes": "NetworkProxy is used in exec.rs, spawn.rs, and unified_exec. It sets environment variables for proxy configuration. On WASI, the host manages networking so the proxy is unnecessary. codex-otel tries to export metrics/traces over the network \u2014 on WASI this should be a silent no-op. Use cfg(target_os = wasi) to provide stub implementations."
+      "notes": "NetworkProxy is used in exec.rs, spawn.rs, and unified_exec. It sets environment variables for proxy configuration. On WASI, the host manages networking so the proxy is unnecessary. codex-otel tries to export metrics/traces over the network — on WASI this should be a silent no-op. Use cfg(target_os = wasi) to provide stub implementations."
     },
     {
       "id": "US-104",
@@ -2096,7 +2096,7 @@
       ],
       "priority": 104,
       "passes": false,
-      "notes": "This is the first real WASM binary. codex-exec is the headless (non-TUI) entry point \u2014 it takes a prompt on stdin or as CLI arg and runs the agent loop. This depends on US-099 (build skeleton), US-100 (process spawn), US-102 (HTTP client), US-103 (stubs). The binary should be placed in target/wasm32-wasip1/release/commands/ alongside other WasmVM commands. Add to Makefile's WASM_COMMANDS and PATCHED_PROGRAMS lists."
+      "notes": "This is the first real WASM binary. codex-exec is the headless (non-TUI) entry point — it takes a prompt on stdin or as CLI arg and runs the agent loop. This depends on US-099 (build skeleton), US-100 (process spawn), US-102 (HTTP client), US-103 (stubs). The binary should be placed in target/wasm32-wasip1/release/commands/ alongside other WasmVM commands. Add to Makefile's WASM_COMMANDS and PATCHED_PROGRAMS lists."
     },
     {
       "id": "US-105",
@@ -2135,7 +2135,7 @@
       ],
       "priority": 106,
       "passes": false,
-      "notes": "crossterm uses termios/ioctl for terminal setup. On WASI, our PTY provides a terminal fd. crossterm's UnixStream backend reads from stdin and writes to stdout \u2014 this should map to our PTY master. If crossterm's terminal detection fails on WASI, we may need to patch it to force-enable raw mode via our PTY. ratatui just renders to a crossterm backend so it should work if crossterm works. The codex-cli crate is the TUI entry point (as opposed to codex-exec which is headless)."
+      "notes": "crossterm uses termios/ioctl for terminal setup. On WASI, our PTY provides a terminal fd. crossterm's UnixStream backend reads from stdin and writes to stdout — this should map to our PTY master. If crossterm's terminal detection fails on WASI, we may need to patch it to force-enable raw mode via our PTY. ratatui just renders to a crossterm backend so it should work if crossterm works. The codex-cli crate is the TUI entry point (as opposed to codex-exec which is headless)."
     },
     {
       "id": "US-107",

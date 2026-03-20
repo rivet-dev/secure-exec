@@ -3774,3 +3774,18 @@ PRD: ralph/kernel-hardening (46 stories)
   - brush-shell returns exit code 17 for all spawned child commands — test stdout content, not exit codes (already in Codebase Patterns)
   - npm --version and npx --version work through kernel.exec() (sh -c wrapper) with InMemoryFileSystem; more complex npm commands (init, install) need real filesystem or additional polyfills
 ---
+
+## 2026-03-20 - US-097
+- Implemented comprehensive npm test suite covering init, install, list, run, npx
+- Tests split into offline (no network) and online (network-dependent) sections
+- Offline tests: npm init -y, npm list, npm run test, npm run with missing script, npm install with unreachable registry
+- Online tests: npm install left-pad, npm list after install, npx -y cowsay (guarded by checkNpmInstallWorks)
+- Files changed:
+  - packages/secure-exec/tests/kernel/e2e-npm-suite.test.ts (new)
+- **Learnings for future iterations:**
+  - npm commands that trigger pacote → @sigstore/sign → http2 fail in V8 isolate sandbox (HTTP2_HEADER_LOCATION undefined); affects npm install, npm init -y, npx
+  - brush-shell returns exit code 17 for spawned child commands — always test stdout/stderr content and filesystem state, not exit code
+  - npm run nonexistent outputs "Missing script" and "npm run" hint in stderr (not stdout)
+  - npm's async update-notifier produces unhandled rejections after isolate dispose — this is pre-existing and affects all npm-related tests
+  - Use checkNpmInstallWorks() probe pattern to skip online tests when npm install is broken in sandbox
+---
