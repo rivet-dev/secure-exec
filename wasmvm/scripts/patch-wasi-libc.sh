@@ -210,6 +210,11 @@ else
     exit 1
 fi
 
+# Remove wasip2 send.o/recv.o stubs that conflict with host_socket.o
+# (our socket patch provides full send/recv via host_net imports)
+"$WASI_AR" d "$SYSROOT_LIB/libc.a" send.o recv.o 2>/dev/null || true
+echo "Removed conflicting send.o/recv.o from libc.a"
+
 # wasi-libc builds under wasm32-wasi, but clang --target=wasm32-wasip1 expects
 # wasm32-wasip1 subdirectories. Create symlinks so both targets work.
 for subdir in include lib; do
