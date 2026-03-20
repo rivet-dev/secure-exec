@@ -3417,3 +3417,14 @@ PRD: ralph/kernel-hardening (46 stories)
   - COMMAND_NAMES in Makefile uses $(notdir $(wildcard crates/commands/*)) so new command dirs are auto-discovered — no Makefile change needed
   - Pre-existing test failures (49) are in shell-terminal, dynamic-module-integration, and c-parity — all due to missing WASM binaries locally
 ---
+
+## 2026-03-20 - US-080
+- What was implemented: fd-find integration test suite with 8 tests covering regex pattern matching, extension filters (-e), type filters (-t f/-t d), empty directory handling, no-match behavior, hidden file skipping, and -H flag
+- Files changed:
+  - packages/runtime/wasmvm/test/fd-find.test.ts — new test file following envsubst.test.ts pattern
+- **Learnings for future iterations:**
+  - fd returns exit 1 when no matches (unlike find which returns 0), but since kernel.exec() wraps in sh -c, test stdout content not exit code
+  - fd skips hidden files/dirs by default; -H flag includes them — test both behaviors
+  - Test VFS needs a createTestVFS() helper to populate directory structure for file-finding tests
+  - parseLines() helper (split+filter+sort) needed because fd output order depends on filesystem traversal
+---
