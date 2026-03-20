@@ -212,15 +212,13 @@
 
 | Command | just-bash | Status | Implementation | Target |
 |---------|-----------|--------|----------------|--------|
-
-*(No network commands in current scope)*
+| curl | yes | done | `curl_cli.c` (libcurl HTTP-only, C program via `host_net`) | — |
 
 ## Deferred
 
 | Command | just-bash | Reason | Notes |
 |---------|-----------|--------|-------|
-| curl | yes | Needs host network bridge | Requires new `host_net` WASI extension module |
-| html-to-markdown | yes | Depends on curl | `htmd` crate (MIT) for conversion, but network bridge is the blocker |
+| html-to-markdown | yes | Depends on curl | `htmd` crate (MIT) for conversion |
 
 ## Stubbed (WASM-incompatible)
 
@@ -254,8 +252,8 @@
 | Compression | 6 | 0 | 0 | 0 | 0 | 0 | 0 |
 | Shell Builtins | 0 | 0 | 0 | 0 | 0 | 11 | 0 |
 | Data Processing | 3 | 0 | 0 | 1 | 0 | 0 | 2 |
-| Network | 0 | 0 | 0 | 2 | 0 | 0 | 0 |
-| **Total** | **102** | **1** | **1** | **3** | **4** | **13** | **2** |
+| Network | 1 | 0 | 0 | 1 | 0 | 0 | 0 |
+| **Total** | **103** | **1** | **1** | **2** | **4** | **13** | **2** |
 
 ---
 
