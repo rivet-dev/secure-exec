@@ -3570,3 +3570,19 @@ PRD: ralph/kernel-hardening (46 stories)
   - HAVE_FCNTL_O_NONBLOCK needed for libcurl's nonblock.c to use fcntl F_GETFL/F_SETFL
   - Binary verified: 219KB optimized, imports host_net functions (net_socket, net_connect, net_send, net_recv, net_getaddrinfo)
 ---
+
+## 2026-03-20 - US-087
+- Created curl_cli.c — a full curl CLI program using vendored libcurl with support for -o, -X, -d, -H, -I, -L, -s, -v, -w options
+- Added Makefile build rules for curl_cli (WASM and native), added to PATCHED_PROGRAMS and COMMANDS lists, added install mapping curl→curl_cli
+- Registered curl in WASMVM_COMMANDS and DEFAULT_FIRST_PARTY_TIERS (full tier — needs network + file write)
+- Created packages/runtime/wasmvm/test/curl.test.ts with 8 tests:
+  - GET returns body, -o downloads to VFS file, -X POST -d sends data, -d implies POST, -H custom headers, -I HEAD request, -L follows redirects, error for unreachable host
+  - Tests use local HTTP server with multiple routes started in beforeAll
+- Updated docs/wasmvm/supported-commands.md: moved curl from Deferred to Network (done), updated summary counts
+- Files changed: wasmvm/c/programs/curl_cli.c, wasmvm/c/Makefile, packages/runtime/wasmvm/src/driver.ts, packages/runtime/wasmvm/test/curl.test.ts, docs/wasmvm/supported-commands.md
+- **Learnings for future iterations:**
+  - curl_cli.c follows same libcurl compilation pattern as curl_test.c (same CURL_SRCS, CURL_DEFS, CURL_INCLUDES, -lwasi-emulated-signal, wasm-opt --all-features)
+  - Install mapping for C programs with different names: add case to install target AND COMMAND_MAP_<name> variable
+  - curl needs 'full' permission tier (network + file write with -o)
+  - Tests skip cleanly when WASM binaries aren't built — CI builds binaries first
+---
