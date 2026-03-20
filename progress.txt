@@ -2850,3 +2850,17 @@ PRD: ralph/kernel-hardening (46 stories)
   - Pre-existing SIGSEGV on process teardown after running full cargo test suite (V8 global state cleanup) — not a regression
   - SYNC_BRIDGE_FNS (31) + ASYNC_BRIDGE_FNS (7) = 38 total bridge functions
 ---
+
+## 2026-03-19 - US-074
+- Implemented two-phase locking with per-key in-flight tracking for SnapshotCache
+- Replaced single Mutex<Vec<CacheEntry>> with Mutex<CacheInner> containing entries + in_flight HashMap
+- Added InFlightEntry struct with Condvar for callers waiting on same bridge code variant
+- Flow: check cache (short lock) → if miss, check/register in-flight → drop lock → create_snapshot → re-lock → insert + notify
+- Added test Part 20a: concurrent get_or_create with 3 different bridge codes verifies independent progress
+- Files changed:
+  - crates/v8-runtime/src/snapshot.rs — SnapshotCache restructured with CacheInner, InFlightEntry, two-phase get_or_create, Part 20a test
+- **Learnings for future iterations:**
+  - Pre-existing SIGSEGV on cargo test full suite (V8 process teardown) — individual tests pass fine; not a regression
+  - Condvar + Mutex<Option<Result>> is the idiomatic Rust pattern for "first thread creates, others wait and share result"
+  - HashMap<u64, Arc<InFlightEntry>> for per-key coordination avoids global lock during expensive operations
+---

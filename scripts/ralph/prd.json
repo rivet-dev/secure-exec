@@ -1090,8 +1090,8 @@
         "Typecheck passes"
       ],
       "priority": 74,
-      "passes": false,
-      "notes": "PR review finding: Critical DoS vector. Mutex held during V8 isolate creation + compilation + heap serialization blocks all callers."
+      "passes": true,
+      "notes": "Fixed: Two-phase locking with per-key in-flight tracking via HashMap<u64, Arc<InFlightEntry>> with Condvar. Cache mutex held only for lookups and inserts, never during create_snapshot(). Concurrent callers for same key wait on condvar; different keys proceed independently. Test Part 20a verifies concurrent creation with different bridge codes."
     },
     {
       "id": "US-075",
