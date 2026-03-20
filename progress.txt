@@ -3,6 +3,7 @@ Started: 2026-03-17
 PRD: ralph/kernel-hardening (46 stories)
 
 ## Codebase Patterns
+- Vendored C libs (zlib, minizip) that use fopen64/ftello64/fseeko64 need `__wasi__` guard added to fall back to standard functions (WASI has 64-bit off_t natively)
 - wasi-libc source files must use `#include <errno.h>` (not `<__errno.h>`) to get errno constants like EAFNOSUPPORT, EINVAL, ENAMETOOLONG
 - wasi-libc Makefile OMIT_SOURCES already excludes wasip2 socket implementations for wasip1 — no need to guard existing socket.c/send.c/recv.c
 - netdb.h omission for wasip1 is in scripts/install-include-headers.sh (not MUSL_OMIT_HEADERS array) — must patch the conditional block
@@ -3344,4 +3345,24 @@ PRD: ralph/kernel-hardening (46 stories)
   - Network tests gate on both C WASM binary and native binary existence (hasCNetBinaries + hasNativeNetBinaries)
   - close() on sockets in WASM goes through WASI fd_close, not host_net.net_close — the C programs use close() from unistd.h
   - Pre-existing 35 test failures in c-parity (exit code 17 across the board) are a WasmVM runtime issue, not related to these changes
+---
+
+## 2026-03-20 - US-076
+- Implemented zip command: compiled zlib 1.3.1 + minizip (from zlib contrib) to WASM
+- Created wasmvm/c/programs/zip.c wrapping minizip for CLI zip archive creation
+- Supports basic `zip archive.zip file1 file2` and `-r` for recursive directory compression
+- Files changed:
+  - wasmvm/c/libs/zlib/ — vendored zlib 1.3.1 source (21 files, zlib license)
+  - wasmvm/c/libs/minizip/ — vendored minizip from zlib contrib (8 files, zlib license)
+  - wasmvm/c/programs/zip.c — CLI wrapper
+  - wasmvm/c/Makefile — added multi-file compilation rule, COMMANDS list
+  - packages/runtime/wasmvm/src/driver.ts — added 'zip' to WASMVM_COMMANDS
+  - docs/wasmvm/supported-commands.md — added zip entry, updated counts
+- **Learnings for future iterations:**
+  - WASI needs `__wasi__` guard added to minizip's ioapi.h and ioapi.c for 64-bit function fallbacks (fopen64→fopen, ftello64→ftello, fseeko64→fseeko)
+  - zlib's zutil.c includes gzguts.h — must be copied alongside the core .c/.h files
+  - zlib compiles cleanly for wasm32-wasip1 with no patches needed (pure C, no platform deps)
+  - minizip from zlib contrib (zip.h/zip.c/unzip.h/unzip.c/ioapi.h/ioapi.c) provides ZIP format support on top of zlib
+  - WASM binary size for zip is ~77KB (after wasm-opt -O3 --strip-debug)
+  - COMMANDS list in Makefile controls which C programs get installed to the commands dir
 ---
