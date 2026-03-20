@@ -157,6 +157,8 @@ PRD: ralph/kernel-hardening (46 stories)
 - wrapNetworkAdapter creates a new object — any new NetworkAdapter methods MUST be explicitly forwarded through wrapNetworkAdapter or they'll be undefined at bridge-setup
 - UpgradeSocket.emit must use .call(this) — libraries like ws use `this[Symbol(...)]` in event callbacks requiring proper `this` binding
 - Server-side HTTP upgrade relay: driver.ts adds server.on('upgrade') → applySync dispatches to sandbox → sandbox Server._emit('upgrade') → ws handles handshake → UpgradeSocket relays data bidirectionally through bridge
+- SQLite WASM binaries require -Os (not -O2/-O3), no wasm-opt, --initial-memory=16777216, and _Exit() instead of return — optimization corrupts WASM indirect function table
+- C programs with build artifact names different from command names need install mapping in Makefile (e.g., sqlite3_cli → sqlite3)
 
 ---
 
@@ -3427,4 +3429,24 @@ PRD: ralph/kernel-hardening (46 stories)
   - fd skips hidden files/dirs by default; -H flag includes them — test both behaviors
   - Test VFS needs a createTestVFS() helper to populate directory structure for file-finding tests
   - parseLines() helper (split+filter+sort) needed because fd output order depends on filesystem traversal
+---
+
+## 2026-03-20 - US-081
+- What was implemented: sqlite3 CLI binary for WasmVM with full argument parsing, stdin pipe mode, meta-commands (.dump/.schema/.tables/.help/.headers/.mode), and custom WASI VFS for file-based databases
+- Files changed:
+  - wasmvm/c/programs/sqlite3_cli.c — new 541-line C program: WASI VFS implementation, CLI argument parsing, stdin SQL processing, meta-command handler, print_row callback with configurable separator
+  - wasmvm/c/Makefile — added sqlite3 to COMMANDS install list, sqlite3_cli to PATCHED_PROGRAMS, custom build rule with -Os (no wasm-opt) + 16MB initial memory, install mapping sqlite3_cli→sqlite3
+  - packages/runtime/wasmvm/src/driver.ts — added sqlite3 to WASMVM_COMMANDS + DEFAULT_FIRST_PARTY_TIERS (read-write tier)
+  - packages/runtime/wasmvm/test/sqlite3.test.ts — 9 integration tests: stdin pipe, multi-statement SQL, .tables/.schema/.dump, multiple columns, NULL values, error reporting, default :memory:
+  - docs/wasmvm/supported-commands.md — moved sqlite3 from Deferred to Data Processing (done), updated summary counts
+- **Learnings for future iterations:**
+  - SQLite in WASM requires -Os optimization (not -O2/-O3) — higher optimization corrupts WASM indirect function table for SQLite's internal function pointers (collation, page cache, VFS dispatch)
+  - wasm-opt must be skipped for sqlite3 — it also corrupts the indirect call table, causing "null function or function signature mismatch" traps
+  - SQLITE_OS_OTHER requires a registered VFS even for :memory: databases — simple no-op stubs in sqlite3_os_init() cause NULL VFS pointer traps on sqlite3_open()
+  - sqlite3_close() in WASM causes indirect call table traps during cleanup — use _Exit() to skip atexit handlers
+  - Static C string initializers (const char *sep = "|") may not be initialized at runtime in WASM — initialize char buffers in main() instead
+  - Multi-statement SQL via stdin pipe is unreliable in WASM (fgetc buffering issues with WASI polyfill) — SQL-as-argument works reliably for complex operations
+  - --initial-memory=16777216 (16MB) is needed for SQLite's malloc requirements in WASM — default 128KB causes "out of memory" on sqlite3_open()
+  - C programs compiled with patched sysroot get host_user.isatty import — must be listed in PATCHED_PROGRAMS
+  - Install target needs command name→build artifact mapping when they differ (sqlite3→sqlite3_cli)
 ---

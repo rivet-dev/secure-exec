@@ -1617,7 +1617,7 @@
         "Tests pass"
       ],
       "priority": 81,
-      "passes": false,
+      "passes": true,
       "notes": "SQLite amalgamation already compiles to WASM (proven by sqlite3_mem.c). The CLI shell is sqlite3.c's main() which reads from stdin. Key challenge: interactive mode needs readline-like input. For piped mode, standard fgets from stdin should work. Compile with -DSQLITE_OS_OTHER and our existing WASM flags."
     },
     {
