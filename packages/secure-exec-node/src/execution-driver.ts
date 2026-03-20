@@ -66,17 +66,24 @@ import { createProcessConfigForExecution } from "./bridge-setup.js";
 
 export { NodeExecutionDriverOptions };
 
-// Module-level cache for the static bridge IIFE (identical across all sessions)
-let staticBridgeCodeCache: string | null = null;
+// Per-timingMitigation cache for the bridge IIFE. Currently all timing
+// modes produce the same config-independent code (timing is applied via
+// post-restore script), but keying on the mode prevents serving stale code
+// if the IIFE ever becomes timing-dependent again.
+const staticBridgeCodeCache = new Map<string, string>();
 
 /**
  * Compose the config-independent bridge IIFE. Output is byte-for-byte
  * identical regardless of session options — uses DEFAULT values for all
  * config that gets overridden by the post-restore script.
  * Used for snapshot creation and as the base of every session's bridge code.
+ *
+ * @param timingMitigation Cache key — currently all modes produce the same
+ *   IIFE, but keying prevents stale results if the code ever varies by mode.
  */
-export function composeStaticBridgeCode(): string {
-	if (staticBridgeCodeCache) return staticBridgeCodeCache;
+export function composeStaticBridgeCode(timingMitigation: string = "off"): string {
+	const cached = staticBridgeCodeCache.get(timingMitigation);
+	if (cached) return cached;
 
 	const parts: string[] = [];
 
@@ -110,8 +117,9 @@ export function composeStaticBridgeCode(): string {
 	})};`);
 	parts.push(getIsolateRuntimeSource("applyCustomGlobalPolicy"));
 
-	staticBridgeCodeCache = parts.join("\n");
-	return staticBridgeCodeCache;
+	const result = parts.join("\n");
+	staticBridgeCodeCache.set(timingMitigation, result);
+	return result;
 }
 
 /**
@@ -303,9 +311,9 @@ export class NodeExecutionDriver implements RuntimeDriver {
 		});
 	}
 
-	/** Compose the static bridge IIFE (no per-session config). */
-	private composeBridgeCode(): string {
-		return composeStaticBridgeCode();
+	/** Compose the static bridge IIFE, keyed on timingMitigation for cache safety. */
+	private composeBridgeCode(timingMitigation: TimingMitigation): string {
+		return composeStaticBridgeCode(timingMitigation);
 	}
 
 	/** Compose the per-execution post-restore script. */
@@ -360,7 +368,7 @@ export class NodeExecutionDriver implements RuntimeDriver {
 		});
 
 		// Compose bridge code and post-restore script (sent separately over IPC)
-		const bridgeCode = this.composeBridgeCode();
+		const bridgeCode = this.composeBridgeCode(timingMitigation);
 		const postRestoreScript = this.composePostRestore(timingMitigation, frozenTimeMs);
 
 		// Transform user code (dynamic import → __dynamicImport)

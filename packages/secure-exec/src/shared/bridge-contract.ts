@@ -1,5 +1,8 @@
 // Re-exported from @secure-exec/core
 export type {
+	BatchResolveModulesBridgeRef,
+	BatchResolveModulesRequest,
+	BatchResolveModulesResult,
 	BridgeGlobalKey,
 	ChildProcessKillBridgeRef,
 	ChildProcessSpawnStartBridgeRef,

@@ -172,7 +172,7 @@ export function buildBridgeHandlers(options: BuildBridgeHandlersOptions): Bridge
 
 	// Batch module resolution — resolves multiple specifiers in one IPC round-trip.
 	// Each entry is [specifier, referrer]. Returns array of {resolved, source} or null.
-	handlers["_batchResolveModules"] = async (requests: unknown): Promise<unknown> => {
+	handlers[K.batchResolveModules] = async (requests: unknown): Promise<unknown> => {
 		if (!Array.isArray(requests)) return [];
 		const results = await Promise.all(
 			requests.map(async (entry: unknown) => {

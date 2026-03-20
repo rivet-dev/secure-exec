@@ -54,6 +54,7 @@ export const HOST_BRIDGE_GLOBAL_KEYS = {
 	networkHttpRequestRaw: "_networkHttpRequestRaw",
 	networkHttpServerListenRaw: "_networkHttpServerListenRaw",
 	networkHttpServerCloseRaw: "_networkHttpServerCloseRaw",
+	batchResolveModules: "_batchResolveModules",
 	ptySetRawMode: "_ptySetRawMode",
 	processConfig: "_processConfig",
 	osConfig: "_osConfig",
@@ -94,10 +95,13 @@ export const BRIDGE_GLOBAL_KEY_LIST = [
 ] as const;
 
 // Module loading boundary contracts.
-export type DynamicImportBridgeRef = (specifier: string, fromPath: string) => Promise<Record<string, unknown> | null>;
+export type DynamicImportBridgeRef = (specifier: string, fromPath: string) => Promise<string | null>;
 export type LoadPolyfillBridgeRef = (moduleName: string) => string | null;
 export type ResolveModuleBridgeRef = (request: string, fromDir: string) => string | null;
 export type LoadFileBridgeRef = (path: string) => string | null;
+export type BatchResolveModulesRequest = [specifier: string, referrer: string];
+export type BatchResolveModulesResult = { resolved: string; source: string } | null;
+export type BatchResolveModulesBridgeRef = (requests: BatchResolveModulesRequest[]) => Promise<BatchResolveModulesResult[]>;
 export type RequireFromBridgeFn = (request: string, dirname: string) => unknown;
 export type ModuleCacheBridgeRecord = Record<string, unknown>;
 

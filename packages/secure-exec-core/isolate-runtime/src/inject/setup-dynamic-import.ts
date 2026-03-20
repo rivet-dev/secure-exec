@@ -23,10 +23,12 @@ const __dynamicImportHandler = async function (
 	const allowRequireFallback =
 		request.endsWith(".cjs") || request.endsWith(".json");
 
-	const namespace = await globalThis._dynamicImport(request, referrer);
+	// V8 path returns source code (string); old ivm path returned namespace objects.
+	// Cast is safe — this handler is only active in the legacy ivm codepath.
+	const source = await globalThis._dynamicImport(request, referrer);
 
-	if (namespace !== null) {
-		return namespace;
+	if (source !== null) {
+		return source as unknown as Record<string, unknown>;
 	}
 
 	if (!allowRequireFallback) {

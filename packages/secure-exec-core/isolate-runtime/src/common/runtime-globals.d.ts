@@ -1,6 +1,7 @@
 export {};
 
 import type {
+	BatchResolveModulesBridgeRef,
 	CryptoRandomFillBridgeRef,
 	CryptoRandomUuidBridgeRef,
 	DynamicImportBridgeRef,
@@ -93,6 +94,7 @@ declare global {
 	var _childProcessStdinClose: ChildProcessStdinCloseBridgeRef;
 	var _childProcessKill: ChildProcessKillBridgeRef;
 	var _childProcessSpawnSync: ChildProcessSpawnSyncBridgeRef;
+	var _batchResolveModules: BatchResolveModulesBridgeRef;
 	var _log: ProcessLogBridgeRef;
 	var _error: ProcessErrorBridgeRef;
 	var _maxHandles: number | undefined;

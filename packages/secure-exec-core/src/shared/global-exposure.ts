@@ -294,6 +294,11 @@ export const NODE_CUSTOM_GLOBAL_INVENTORY: readonly CustomGlobalInventoryEntry[]
 		rationale: "Host network bridge reference.",
 	},
 	{
+		name: "_batchResolveModules",
+		classification: "hardened",
+		rationale: "Host bridge for batched module resolution to reduce IPC round-trips.",
+	},
+	{
 		name: "_ptySetRawMode",
 		classification: "hardened",
 		rationale: "Host PTY bridge reference for stdin.setRawMode().",
