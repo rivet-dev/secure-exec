@@ -12,7 +12,13 @@ PRD: ralph/cli-tool-sandbox-tests (7 stories)
 - OpenCode npm package ships only a compiled Bun binary (ELF) — no JS source to load in VM
 - Interactive tests should use `kernel.openShell()` with `@xterm/headless`, not host PTY via `script -qefc`
 
-- ModuleAccess overlay with pnpm: `moduleAccess: { cwd }` only exposes direct symlinks in that package's `node_modules`; transitive dependencies in the pnpm virtual store (`.pnpm/`) are NOT accessible unless they are also directly symlinked
+- ModuleAccess overlay with pnpm: use WORKSPACE ROOT as `moduleAccess: { cwd }` to expose transitive deps via `.pnpm/node_modules/` hoisted path
+- pnpm transitive deps are in workspace root `node_modules/.pnpm/node_modules/`, not package-level
+- `wrapFileSystem` in permissions.ts strips custom methods — extract `toHostPath` before wrapping via `sandboxToHostPath` in execution-driver
+- V8 isolated-vm does NOT set import.meta.url — ESM compiler polyfills it with `file://` URL
+- V8 isolated-vm throws on conflicting star exports (Node.js makes them ambiguous) — `deconflictStarExports` in esm-compiler.ts handles this
+- CJS-in-ESM wrapper must use `let exports` (not `const`) — CJS code commonly reassigns exports binding
+- network.ts is the authoritative net module implementation (TLS, _readableState, Buffer proto) — net.ts was removed
 - For module resolution inside the sandbox, set `filePath: '/root/entry.js'` and `cwd: '/root'` in `exec()` options — the overlay mounts at `/root/node_modules`
 - `NodeFileSystem` as base filesystem for `createNodeDriver` provides real host filesystem access for file I/O
 - `createDefaultNetworkAdapter({ initialExemptPorts })` bypasses SSRF checks for specific localhost ports
@@ -76,5 +82,42 @@ PRD: ralph/cli-tool-sandbox-tests (7 stories)
   - `subtle.deriveBits` for PBKDF2 maps directly to Node's `pbkdf2Sync(password, salt, iterations, keylen, digest)` — the algorithm object carries salt/iterations/hash, the key carries the password in `_raw`
   - Guest-side `SandboxSubtle` methods must serialize algorithm-specific fields (salt as base64, hash as normalized name) before crossing the bridge
   - After adding a new subtle operation, the bridge/isolate-runtime must be rebuilt (`pnpm turbo build`) and fixture caches cleared to pick up the regenerated code
+---
+
+## 2026-03-20T01:15 - US-029
+- Major framework fixes to unblock Pi SDK loading inside sandbox VM
+- Fixed: duplicate `_netModule` exposeCustomGlobal (net.ts deleted, network.ts is authoritative)
+- Fixed: dead code in driver.ts (tcpSockets map, onNetSocket* callbacks, setNetSocketCallbacks)
+- Fixed: pnpm transitive dependency resolution — use workspace root as moduleAccess.cwd so `.pnpm/node_modules/` hoisted deps are reachable
+- Fixed: ESM star export conflict for V8 (deconflictStarExports analyzes re-exports and replaces conflicting `export *` with explicit named re-exports)
+- Fixed: import.meta.url polyfill for ESM modules (isolated-vm doesn't set it; now replaced with `file://` URL)
+- Fixed: CJS-in-ESM wrapper `const exports` → `let exports` (some CJS code reassigns exports binding)
+- Added: `stream/promises` and `stream/web` to KNOWN_BUILTIN_MODULES + BUILTIN_NAMED_EXPORTS
+- Added: comprehensive fs BUILTIN_NAMED_EXPORTS (all Node.js fs exports) for ESM static wrapper
+- Added: `stream/web` special handler in CJS require-setup (returns V8 Web Streams globals)
+- Added: `sandboxToHostPath` in execution-driver for sync resolver pnpm symlink translation
+- Added: `toHostPath` public method on ModuleAccessFileSystem
+- Pi test still skips: V8 ESM "Not supported" error from deep in Pi's dependency chain during module evaluation
+- Files changed:
+  - packages/secure-exec-core/src/bridge/net.ts — DELETED (superseded by network.ts)
+  - packages/secure-exec-core/src/bridge/index.ts — removed net.ts import
+  - packages/secure-exec-core/src/module-resolver.ts — expanded KNOWN_BUILTIN_MODULES and BUILTIN_NAMED_EXPORTS
+  - packages/secure-exec-core/src/shared/esm-utils.ts — const→let in CJS wrapper
+  - packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts — added stream/web handler
+  - packages/secure-exec-node/src/esm-compiler.ts — star export deconfliction + import.meta.url polyfill
+  - packages/secure-exec-node/src/bridge-setup.ts — sandboxToHostPath in sync resolver
+  - packages/secure-exec-node/src/driver.ts — removed dead tcpSockets code
+  - packages/secure-exec-node/src/execution-driver.ts — extract sandboxToHostPath before wrapping
+  - packages/secure-exec-node/src/isolate-bootstrap.ts — sandboxToHostPath in DriverDeps
+  - packages/secure-exec-node/src/module-access.ts — public toHostPath method
+  - packages/secure-exec/tests/cli-tools/pi-headless.test.ts — workspace root moduleAccess
+- **Learnings for future iterations:**
+  - net.ts and network.ts both tried to exposeCustomGlobal("_netModule") — network.ts has the complete implementation (TLS, _readableState, Buffer proto patching)
+  - pnpm virtual store: transitive deps are in workspace root `node_modules/.pnpm/node_modules/`, NOT in package-level `.pnpm/node_modules/` — use workspace root as moduleAccess.cwd
+  - V8 isolated-vm throws "conflicting star exports" for name X when two `export * from` sources re-export the same name — Node.js makes it ambiguous instead
+  - isolated-vm does NOT set import.meta.url on compiled modules — must polyfill by replacing references in source
+  - CJS wrapper must use `let exports` (not `const`) because CJS code commonly reassigns `exports = require('...')`
+  - The `wrapFileSystem` permission wrapper strips custom methods — extract them before wrapping (sandboxToHostPath)
+  - The sync module resolver (`_resolveModuleSync`) receives sandbox paths but uses Node's native `createRequire` which needs host paths — `sandboxToHostPath` + `realpathSync` bridges this gap
 ---
 
