@@ -222,14 +222,19 @@ export function decodeFrame(buf: Buffer): BinaryFrame {
 			}
 			let error: ExecutionErrorBin | null = null;
 			if (flags & FLAG_HAS_ERROR) {
-				const errorType = readLenPrefixedU16(buf, pos);
-				pos += 2 + Buffer.byteLength(errorType, "utf8");
-				const message = readLenPrefixedU16(buf, pos);
-				pos += 2 + Buffer.byteLength(message, "utf8");
-				const stack = readLenPrefixedU16(buf, pos);
-				pos += 2 + Buffer.byteLength(stack, "utf8");
-				const code = readLenPrefixedU16(buf, pos);
-				error = { errorType, message, stack, code };
+				const et = readLenPrefixedU16(buf, pos);
+				pos += et.bytesRead;
+				const msg = readLenPrefixedU16(buf, pos);
+				pos += msg.bytesRead;
+				const st = readLenPrefixedU16(buf, pos);
+				pos += st.bytesRead;
+				const cd = readLenPrefixedU16(buf, pos);
+				error = {
+					errorType: et.value,
+					message: msg.value,
+					stack: st.value,
+					code: cd.value,
+				};
 			}
 			return { type: "ExecutionResult", sessionId, exitCode, exports, error };
 		}
@@ -422,6 +427,11 @@ function encodeBody(frame: BinaryFrame): Buffer {
 
 function encodeSessionId(sid: string): Buffer {
 	const bytes = Buffer.from(sid, "utf8");
+	if (bytes.length > 255) {
+		throw new Error(
+			`Session ID byte length ${bytes.length} exceeds maximum 255`,
+		);
+	}
 	const out = Buffer.alloc(1 + bytes.length);
 	out[0] = bytes.length;
 	bytes.copy(out, 1);
@@ -430,15 +440,24 @@ function encodeSessionId(sid: string): Buffer {
 
 function writeLenPrefixedU16(s: string): Buffer {
 	const bytes = Buffer.from(s, "utf8");
+	if (bytes.length > 0xffff) {
+		throw new Error(
+			`String byte length ${bytes.length} exceeds maximum 65535`,
+		);
+	}
 	const out = Buffer.alloc(2 + bytes.length);
 	out.writeUInt16BE(bytes.length, 0);
 	bytes.copy(out, 2);
 	return out;
 }
 
-function readLenPrefixedU16(buf: Buffer, pos: number): string {
+function readLenPrefixedU16(
+	buf: Buffer,
+	pos: number,
+): { value: string; bytesRead: number } {
 	const len = buf.readUInt16BE(pos);
-	return buf.toString("utf8", pos + 2, pos + 2 + len);
+	const value = buf.toString("utf8", pos + 2, pos + 2 + len);
+	return { value, bytesRead: 2 + len };
 }
 
 // Re-export v8 serialize/deserialize for convenience

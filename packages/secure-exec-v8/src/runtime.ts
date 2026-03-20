@@ -499,11 +499,12 @@ function readSocketPath(child: ChildProcess): Promise<string> {
 }
 
 /** FNV-1a hash of a string, returning a 32-bit integer.
- * Matches the hash algorithm used on the Rust side for bridge code comparison. */
-function fnv1aHash(str: string): number {
+ * Hashes over UTF-8 bytes to match the Rust side. */
+export function fnv1aHash(str: string): number {
+	const bytes = Buffer.from(str, "utf8");
 	let hash = 0x811c9dc5;
-	for (let i = 0; i < str.length; i++) {
-		hash ^= str.charCodeAt(i);
+	for (let i = 0; i < bytes.length; i++) {
+		hash ^= bytes[i];
 		hash = Math.imul(hash, 0x01000193);
 	}
 	return hash >>> 0;

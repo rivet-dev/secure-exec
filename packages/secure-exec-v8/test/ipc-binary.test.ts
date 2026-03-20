@@ -16,6 +16,7 @@ import {
 	deserializePayload,
 	type BinaryFrame,
 } from "../src/ipc-binary.js";
+import { fnv1aHash } from "../src/runtime.js";
 
 function roundtrip(frame: BinaryFrame): void {
 	const encoded = encodeFrame(frame);
@@ -749,5 +750,191 @@ describe("V8 serialize/deserialize payload integration", () => {
 				Buffer.from(complex.buffer),
 			);
 		}
+	});
+});
+
+// -- Overflow guards --
+
+describe("overflow guards", () => {
+	it("encodeSessionId throws on >255 byte session ID", () => {
+		// 256 ASCII chars → 256 bytes UTF-8
+		const longSid = "x".repeat(256);
+		expect(() =>
+			encodeFrame({
+				type: "DestroySession",
+				sessionId: longSid,
+			}),
+		).toThrow("Session ID byte length 256 exceeds maximum 255");
+	});
+
+	it("encodeSessionId allows exactly 255 byte session ID", () => {
+		const sid255 = "a".repeat(255);
+		expect(() =>
+			encodeFrame({ type: "DestroySession", sessionId: sid255 }),
+		).not.toThrow();
+	});
+
+	it("encodeSessionId counts UTF-8 bytes not characters", () => {
+		// Each emoji is 4 bytes in UTF-8 — 64 emojis = 256 bytes → should throw
+		const emojiSid = "\u{1F600}".repeat(64);
+		expect(Buffer.byteLength(emojiSid, "utf8")).toBe(256);
+		expect(() =>
+			encodeFrame({ type: "DestroySession", sessionId: emojiSid }),
+		).toThrow("exceeds maximum 255");
+	});
+
+	it("writeLenPrefixedU16 throws on >65535 byte string", () => {
+		const longStr = "x".repeat(65536);
+		expect(() =>
+			encodeFrame({
+				type: "ExecutionResult",
+				sessionId: "s",
+				exitCode: 1,
+				exports: null,
+				error: {
+					errorType: longStr,
+					message: "",
+					stack: "",
+					code: "",
+				},
+			}),
+		).toThrow("String byte length 65536 exceeds maximum 65535");
+	});
+
+	it("writeLenPrefixedU16 allows exactly 65535 byte string", () => {
+		const str65535 = "a".repeat(65535);
+		expect(() =>
+			encodeFrame({
+				type: "ExecutionResult",
+				sessionId: "s",
+				exitCode: 1,
+				exports: null,
+				error: {
+					errorType: str65535,
+					message: "",
+					stack: "",
+					code: "",
+				},
+			}),
+		).not.toThrow();
+	});
+});
+
+// -- readLenPrefixedU16 position advance --
+
+describe("readLenPrefixedU16 position advance", () => {
+	it("round-trips ExecutionResult with multi-byte UTF-8 error strings", () => {
+		// Multi-byte UTF-8: each char is 3 bytes in UTF-8 but 1 char in JS
+		const frame: BinaryFrame = {
+			type: "ExecutionResult",
+			sessionId: "s",
+			exitCode: 1,
+			exports: null,
+			error: {
+				errorType: "TypeError",
+				message: "变量未定义",
+				stack: "在文件第一行",
+				code: "ERR_UNDEFINED",
+			},
+		};
+		roundtrip(frame);
+	});
+
+	it("round-trips ExecutionResult with emoji in error fields", () => {
+		const frame: BinaryFrame = {
+			type: "ExecutionResult",
+			sessionId: "sess-emoji",
+			exitCode: 1,
+			exports: null,
+			error: {
+				errorType: "Error",
+				message: "Failed \u{1F4A5} boom",
+				stack: "at \u{1F4C4} file.js:1",
+				code: "",
+			},
+		};
+		roundtrip(frame);
+	});
+
+	it("round-trips ExecutionResult with all error fields containing multi-byte chars", () => {
+		const frame: BinaryFrame = {
+			type: "ExecutionResult",
+			sessionId: "t",
+			exitCode: 1,
+			exports: Buffer.from([0x01]),
+			error: {
+				errorType: "Ошибка",
+				message: "не найдено: файл.txt",
+				stack: "в строке 日本語テスト",
+				code: "ENOENT_テスト",
+			},
+		};
+		roundtrip(frame);
+	});
+});
+
+// -- fnv1aHash --
+
+describe("fnv1aHash", () => {
+	it("produces consistent hash for ASCII strings", () => {
+		expect(fnv1aHash("hello")).toBe(fnv1aHash("hello"));
+		expect(fnv1aHash("hello")).not.toBe(fnv1aHash("world"));
+	});
+
+	it("produces same hash as Rust FNV-1a over UTF-8 bytes for ASCII", () => {
+		// FNV-1a 32-bit of "hello" over UTF-8 bytes [0x68, 0x65, 0x6c, 0x6c, 0x6f]:
+		// hash = 0x811c9dc5
+		// hash ^= 0x68; hash *= 0x01000193 → ...
+		// Expected: 0x4f9f2cab (computed from reference implementation)
+		const bytes = Buffer.from("hello", "utf8");
+		let expected = 0x811c9dc5;
+		for (let i = 0; i < bytes.length; i++) {
+			expected ^= bytes[i];
+			expected = Math.imul(expected, 0x01000193);
+		}
+		expected = expected >>> 0;
+		expect(fnv1aHash("hello")).toBe(expected);
+	});
+
+	it("hashes over UTF-8 bytes for non-ASCII strings", () => {
+		// "é" is 2 bytes in UTF-8 (0xc3 0xa9) but 1 code unit in UTF-16
+		// If we hashed over UTF-16, we'd get a different result than UTF-8
+		const bytes = Buffer.from("café", "utf8");
+		let expected = 0x811c9dc5;
+		for (let i = 0; i < bytes.length; i++) {
+			expected ^= bytes[i];
+			expected = Math.imul(expected, 0x01000193);
+		}
+		expected = expected >>> 0;
+		expect(fnv1aHash("café")).toBe(expected);
+		// Verify it's 5 bytes, not 4 code units
+		expect(bytes.length).toBe(5);
+	});
+
+	it("produces different hash for non-ASCII vs naive charCodeAt approach", () => {
+		// Verify the fix matters: naive charCodeAt gives different result for non-ASCII
+		const str = "日本語";
+		const bytes = Buffer.from(str, "utf8");
+
+		// UTF-8 bytes hash (correct)
+		let utf8Hash = 0x811c9dc5;
+		for (let i = 0; i < bytes.length; i++) {
+			utf8Hash ^= bytes[i];
+			utf8Hash = Math.imul(utf8Hash, 0x01000193);
+		}
+		utf8Hash = utf8Hash >>> 0;
+
+		// UTF-16 code units hash (old buggy behavior)
+		let utf16Hash = 0x811c9dc5;
+		for (let i = 0; i < str.length; i++) {
+			utf16Hash ^= str.charCodeAt(i);
+			utf16Hash = Math.imul(utf16Hash, 0x01000193);
+		}
+		utf16Hash = utf16Hash >>> 0;
+
+		// They should differ for non-ASCII
+		expect(utf8Hash).not.toBe(utf16Hash);
+		// Our function should match the UTF-8 version
+		expect(fnv1aHash(str)).toBe(utf8Hash);
 	});
 });

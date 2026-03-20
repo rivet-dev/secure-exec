@@ -1,5 +1,5 @@
 // V8 runtime process manager.
-export { createV8Runtime } from "./runtime.js";
+export { createV8Runtime, fnv1aHash } from "./runtime.js";
 export type { V8Runtime, V8RuntimeOptions } from "./runtime.js";
 
 // V8 session types.
