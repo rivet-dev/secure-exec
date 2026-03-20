@@ -1,8 +1,8 @@
 //! Custom WASM import bindings for wasmVM host syscalls.
 //!
-//! Declares extern functions for `host_process` and `host_user` modules
-//! that the JS host runtime provides. These extend standard WASI with
-//! process management and user/group identity capabilities.
+//! Declares extern functions for `host_process`, `host_user`, and `host_net`
+//! modules that the JS host runtime provides. These extend standard WASI with
+//! process management, user/group identity, and TCP socket capabilities.
 //!
 //! Signatures match spec section 4.3.
 
@@ -260,6 +260,176 @@ pub fn dup2(old_fd: u32, new_fd: u32) -> Result<(), Errno> {
 /// Returns `Ok(())` on success, `Err(errno)` on failure.
 pub fn host_sleep_ms(milliseconds: u32) -> Result<(), Errno> {
     let errno = unsafe { sleep_ms(milliseconds) };
+    if errno == ERRNO_SUCCESS {
+        Ok(())
+    } else {
+        Err(errno)
+    }
+}
+
+// ============================================================
+// host_net module — TCP socket operations
+// ============================================================
+
+#[link(wasm_import_module = "host_net")]
+extern "C" {
+    /// Create a socket.
+    ///
+    /// `domain` is the address family (e.g. AF_INET=2).
+    /// `sock_type` is the socket type (e.g. SOCK_STREAM=1).
+    /// `protocol` is the protocol (0 for default).
+    /// On success, the socket FD is written to `ret_fd`.
+    /// Returns errno.
+    fn net_socket(domain: u32, sock_type: u32, protocol: u32, ret_fd: *mut u32) -> Errno;
+
+    /// Connect a socket to a remote address.
+    ///
+    /// `addr_ptr`/`addr_len` point to a serialized address string (host:port).
+    /// Returns errno.
+    fn net_connect(fd: u32, addr_ptr: *const u8, addr_len: u32) -> Errno;
+
+    /// Send data on a connected socket.
+    ///
+    /// `buf_ptr`/`buf_len` point to the data to send.
+    /// `flags` are send flags (0 for default).
+    /// Number of bytes sent is written to `ret_sent`.
+    /// Returns errno.
+    fn net_send(fd: u32, buf_ptr: *const u8, buf_len: u32, flags: u32, ret_sent: *mut u32) -> Errno;
+
+    /// Receive data from a connected socket.
+    ///
+    /// `buf_ptr`/`buf_len` point to the receive buffer.
+    /// `flags` are recv flags (0 for default).
+    /// Number of bytes received is written to `ret_received`.
+    /// Returns errno.
+    fn net_recv(fd: u32, buf_ptr: *mut u8, buf_len: u32, flags: u32, ret_received: *mut u32) -> Errno;
+
+    /// Close a socket.
+    ///
+    /// Returns errno.
+    fn net_close(fd: u32) -> Errno;
+
+    /// Resolve a hostname to an address.
+    ///
+    /// `host_ptr`/`host_len` point to the hostname string.
+    /// `port_ptr`/`port_len` point to the port/service string.
+    /// Resolved address is written to `ret_addr` buffer with max length from `ret_addr_len`.
+    /// Actual length is written back to `ret_addr_len`.
+    /// Returns errno.
+    fn net_getaddrinfo(
+        host_ptr: *const u8,
+        host_len: u32,
+        port_ptr: *const u8,
+        port_len: u32,
+        ret_addr: *mut u8,
+        ret_addr_len: *mut u32,
+    ) -> Errno;
+
+    /// Set a socket option.
+    ///
+    /// `level` is the protocol level (e.g. SOL_SOCKET=1).
+    /// `optname` is the option name.
+    /// `optval_ptr`/`optval_len` point to the option value.
+    /// Returns errno.
+    fn net_setsockopt(fd: u32, level: u32, optname: u32, optval_ptr: *const u8, optval_len: u32) -> Errno;
+}
+
+// ============================================================
+// Safe Rust wrappers — host_net
+// ============================================================
+
+/// Create a socket.
+///
+/// Returns `Ok(fd)` on success, `Err(errno)` on failure.
+pub fn socket(domain: u32, sock_type: u32, protocol: u32) -> Result<u32, Errno> {
+    let mut fd: u32 = 0;
+    let errno = unsafe { net_socket(domain, sock_type, protocol, &mut fd) };
+    if errno == ERRNO_SUCCESS {
+        Ok(fd)
+    } else {
+        Err(errno)
+    }
+}
+
+/// Connect a socket to a remote address.
+///
+/// `addr` is a serialized address string (e.g. "host:port").
+/// Returns `Ok(())` on success, `Err(errno)` on failure.
+pub fn connect(fd: u32, addr: &[u8]) -> Result<(), Errno> {
+    let errno = unsafe { net_connect(fd, addr.as_ptr(), addr.len() as u32) };
+    if errno == ERRNO_SUCCESS {
+        Ok(())
+    } else {
+        Err(errno)
+    }
+}
+
+/// Send data on a connected socket.
+///
+/// Returns `Ok(bytes_sent)` on success, `Err(errno)` on failure.
+pub fn send(fd: u32, buf: &[u8], flags: u32) -> Result<u32, Errno> {
+    let mut sent: u32 = 0;
+    let errno = unsafe { net_send(fd, buf.as_ptr(), buf.len() as u32, flags, &mut sent) };
+    if errno == ERRNO_SUCCESS {
+        Ok(sent)
+    } else {
+        Err(errno)
+    }
+}
+
+/// Receive data from a connected socket.
+///
+/// Returns `Ok(bytes_received)` on success, `Err(errno)` on failure.
+pub fn recv(fd: u32, buf: &mut [u8], flags: u32) -> Result<u32, Errno> {
+    let mut received: u32 = 0;
+    let errno = unsafe { net_recv(fd, buf.as_mut_ptr(), buf.len() as u32, flags, &mut received) };
+    if errno == ERRNO_SUCCESS {
+        Ok(received)
+    } else {
+        Err(errno)
+    }
+}
+
+/// Close a socket.
+///
+/// Returns `Ok(())` on success, `Err(errno)` on failure.
+pub fn net_close_socket(fd: u32) -> Result<(), Errno> {
+    let errno = unsafe { net_close(fd) };
+    if errno == ERRNO_SUCCESS {
+        Ok(())
+    } else {
+        Err(errno)
+    }
+}
+
+/// Resolve a hostname to an address.
+///
+/// Writes the resolved address into `buf` and returns the number of bytes written.
+/// Returns `Ok(len)` on success, `Err(errno)` on failure.
+pub fn getaddrinfo(host: &[u8], port: &[u8], buf: &mut [u8]) -> Result<u32, Errno> {
+    let mut len: u32 = buf.len() as u32;
+    let errno = unsafe {
+        net_getaddrinfo(
+            host.as_ptr(),
+            host.len() as u32,
+            port.as_ptr(),
+            port.len() as u32,
+            buf.as_mut_ptr(),
+            &mut len,
+        )
+    };
+    if errno == ERRNO_SUCCESS {
+        Ok(len)
+    } else {
+        Err(errno)
+    }
+}
+
+/// Set a socket option.
+///
+/// Returns `Ok(())` on success, `Err(errno)` on failure.
+pub fn setsockopt(fd: u32, level: u32, optname: u32, optval: &[u8]) -> Result<(), Errno> {
+    let errno = unsafe { net_setsockopt(fd, level, optname, optval.as_ptr(), optval.len() as u32) };
     if errno == ERRNO_SUCCESS {
         Ok(())
     } else {

@@ -758,6 +758,55 @@ function createHostProcessImports(getMemory: () => WebAssembly.Memory | null) {
 }
 
 // -------------------------------------------------------------------------
+// Host net imports — TCP socket operations (skeleton, returns ENOSYS)
+// -------------------------------------------------------------------------
+
+function createHostNetImports(getMemory: () => WebAssembly.Memory | null) {
+  const ENOSYS = 52; // WASI ENOSYS
+
+  return {
+    /** net_socket(domain, type, protocol, ret_fd) -> errno */
+    net_socket(_domain: number, _type: number, _protocol: number, _ret_fd_ptr: number): number {
+      return ENOSYS;
+    },
+
+    /** net_connect(fd, addr_ptr, addr_len) -> errno */
+    net_connect(_fd: number, _addr_ptr: number, _addr_len: number): number {
+      return ENOSYS;
+    },
+
+    /** net_send(fd, buf_ptr, buf_len, flags, ret_sent) -> errno */
+    net_send(_fd: number, _buf_ptr: number, _buf_len: number, _flags: number, _ret_sent_ptr: number): number {
+      return ENOSYS;
+    },
+
+    /** net_recv(fd, buf_ptr, buf_len, flags, ret_received) -> errno */
+    net_recv(_fd: number, _buf_ptr: number, _buf_len: number, _flags: number, _ret_received_ptr: number): number {
+      return ENOSYS;
+    },
+
+    /** net_close(fd) -> errno */
+    net_close(_fd: number): number {
+      return ENOSYS;
+    },
+
+    /** net_getaddrinfo(host_ptr, host_len, port_ptr, port_len, ret_addr, ret_addr_len) -> errno */
+    net_getaddrinfo(
+      _host_ptr: number, _host_len: number,
+      _port_ptr: number, _port_len: number,
+      _ret_addr_ptr: number, _ret_addr_len_ptr: number,
+    ): number {
+      return ENOSYS;
+    },
+
+    /** net_setsockopt(fd, level, optname, optval_ptr, optval_len) -> errno */
+    net_setsockopt(_fd: number, _level: number, _optname: number, _optval_ptr: number, _optval_len: number): number {
+      return ENOSYS;
+    },
+  };
+}
+
+// -------------------------------------------------------------------------
 // Main execution
 // -------------------------------------------------------------------------
 
@@ -823,6 +872,7 @@ async function main(): Promise<void> {
   });
 
   const hostProcess = createHostProcessImports(getMemory);
+  const hostNet = createHostNetImports(getMemory);
 
   try {
     // Use pre-compiled module from main thread if available, otherwise compile from disk
@@ -833,6 +883,7 @@ async function main(): Promise<void> {
       wasi_snapshot_preview1: polyfill.getImports() as WebAssembly.ModuleImports,
       host_user: userManager.getImports() as unknown as WebAssembly.ModuleImports,
       host_process: hostProcess as unknown as WebAssembly.ModuleImports,
+      host_net: hostNet as unknown as WebAssembly.ModuleImports,
     };
 
     const instance = await WebAssembly.instantiate(wasmModule, imports);
