@@ -668,11 +668,7 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
             spawnCtx as Parameters<typeof kernel.spawn>[2],
           );
           intResult = managed.pid;
-          // Wait for child and write exit code to data buffer
-          managed.wait().then((code) => {
-            const view = new DataView(dataBuf);
-            view.setInt32(0, code, true);
-          });
+          // Exit code is delivered via the waitpid RPC — no async write needed
           break;
         }
         case 'waitpid': {

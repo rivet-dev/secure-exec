@@ -747,6 +747,20 @@ describe('WasmVM RuntimeDriver', () => {
       expect(spy.calls[0].callerPid).toBeGreaterThan(0);
       expect(code).toBe(0);
     });
+
+    it('rapid spawn/wait cycles produce correct exit codes', async () => {
+      const vfs = new SimpleVFS();
+      kernel = createKernel({ filesystem: vfs as any });
+      await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
+
+      // Run 5 sequential spawn/wait cycles rapidly — each with a different
+      // expected exit code. Before the fix, the async managed.wait().then()
+      // could write a stale exit code into dataBuf, corrupting a later RPC.
+      for (let i = 0; i < 5; i++) {
+        const result = await kernel.exec(`sh -c "exit ${i}"`);
+        expect(result.exitCode).toBe(i);
+      }
+    });
   });
 
   describe('SAB overflow protection', () => {
