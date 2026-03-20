@@ -8,6 +8,8 @@
 import type { PermissionTier } from './syscall-rpc.ts';
 import { resolve as resolvePath, normalize } from 'node:path';
 
+const VALID_TIERS: ReadonlySet<string> = new Set(['full', 'read-write', 'read-only', 'isolated']);
+
 /** Check if the tier blocks write operations (file writes, VFS mutations). */
 export function isWriteBlocked(tier: PermissionTier): boolean {
   return tier === 'read-only' || tier === 'isolated';
@@ -18,10 +20,32 @@ export function isSpawnBlocked(tier: PermissionTier): boolean {
   return tier !== 'full';
 }
 
-/** Check if a path is within the cwd subtree (for isolated tier read restriction). */
-export function isPathInCwd(path: string, cwd: string): boolean {
+/**
+ * Validate a permission tier string, defaulting to 'isolated' for unknown values.
+ * Prevents unknown tier strings from falling through inconsistently.
+ */
+export function validatePermissionTier(tier: string): PermissionTier {
+  if (VALID_TIERS.has(tier)) return tier as PermissionTier;
+  return 'isolated';
+}
+
+/**
+ * Check if a path is within the cwd subtree (for isolated tier read restriction).
+ *
+ * When `resolveRealPath` is provided, the resolved path is passed through it
+ * to follow symlinks before checking the prefix — prevents symlink escape
+ * where a link inside cwd points to a target outside cwd.
+ */
+export function isPathInCwd(
+  path: string,
+  cwd: string,
+  resolveRealPath?: (p: string) => string,
+): boolean {
   const normalizedCwd = normalize(cwd).replace(/\/+$/, '');
-  const normalizedPath = normalize(resolvePath(cwd, path)).replace(/\/+$/, '');
+  let normalizedPath = normalize(resolvePath(cwd, path)).replace(/\/+$/, '');
+  if (resolveRealPath) {
+    normalizedPath = normalize(resolveRealPath(normalizedPath)).replace(/\/+$/, '');
+  }
   return normalizedPath === normalizedCwd || normalizedPath.startsWith(normalizedCwd + '/');
 }
 

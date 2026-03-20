@@ -44,13 +44,15 @@ import {
   isWriteBlocked as _isWriteBlocked,
   isSpawnBlocked as _isSpawnBlocked,
   isPathInCwd as _isPathInCwd,
+  validatePermissionTier,
 } from './permission-check.ts';
+import { normalize } from 'node:path';
 
 const port = parentPort!;
 const init = workerData as WorkerInitData;
 
-// Permission tier for this command (default: read-write)
-const permissionTier = init.permissionTier ?? 'read-write';
+// Permission tier — validate to default unknown strings to 'isolated'
+const permissionTier = validatePermissionTier(init.permissionTier ?? 'read-write');
 
 /** Check if the tier blocks write operations. */
 function isWriteBlocked(): boolean {
@@ -62,9 +64,47 @@ function isSpawnBlocked(): boolean {
   return _isSpawnBlocked(permissionTier);
 }
 
+/**
+ * Resolve symlinks in path via VFS readlink RPC.
+ * Walks each path component and follows symlinks to prevent escape attacks.
+ */
+function vfsRealpath(inputPath: string): string {
+  const segments = inputPath.split('/').filter(Boolean);
+  const resolved: string[] = [];
+  let depth = 0;
+  const MAX_SYMLINK_DEPTH = 40; // POSIX SYMLOOP_MAX
+
+  for (let i = 0; i < segments.length; i++) {
+    resolved.push(segments[i]);
+    const currentPath = '/' + resolved.join('/');
+
+    // Try readlink directly via RPC (bypasses permission check)
+    const res = rpcCall('vfsReadlink', { path: currentPath });
+    if (res.errno === 0 && res.data.length > 0) {
+      if (++depth > MAX_SYMLINK_DEPTH) return inputPath; // give up
+      const target = new TextDecoder().decode(res.data);
+      if (target.startsWith('/')) {
+        // Absolute symlink — restart from target
+        resolved.length = 0;
+        resolved.push(...target.split('/').filter(Boolean));
+      } else {
+        // Relative symlink — replace last component with target
+        resolved.pop();
+        resolved.push(...target.split('/').filter(Boolean));
+      }
+      // Normalize away . and .. segments
+      const norm = normalize('/' + resolved.join('/')).split('/').filter(Boolean);
+      resolved.length = 0;
+      resolved.push(...norm);
+    }
+  }
+
+  return '/' + resolved.join('/') || '/';
+}
+
 /** Check if a path is within the cwd subtree (for isolated tier). */
 function isPathInCwd(path: string): boolean {
-  return _isPathInCwd(path, init.cwd);
+  return _isPathInCwd(path, init.cwd, vfsRealpath);
 }
 
 // -------------------------------------------------------------------------

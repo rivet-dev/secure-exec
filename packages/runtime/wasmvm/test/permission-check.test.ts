@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { isWriteBlocked, isSpawnBlocked, isPathInCwd, resolvePermissionTier } from '../src/permission-check.ts';
+import { isWriteBlocked, isSpawnBlocked, isPathInCwd, resolvePermissionTier, validatePermissionTier } from '../src/permission-check.ts';
 
 describe('isWriteBlocked', () => {
   it('full tier allows writes', () => {
@@ -78,6 +78,54 @@ describe('isPathInCwd', () => {
 
   it('blocks prefix collision (projectX vs project)', () => {
     expect(isPathInCwd('/home/user/projectX/file', '/home/user/project')).toBe(false);
+  });
+
+  describe('with resolveRealPath (symlink resolution)', () => {
+    it('blocks symlink inside cwd pointing outside cwd', () => {
+      // /cwd/link-to-etc -> /etc (symlink)
+      const resolver = (p: string) => {
+        if (p === '/home/user/project/link-to-etc') return '/etc';
+        if (p.startsWith('/home/user/project/link-to-etc/')) {
+          return '/etc' + p.slice('/home/user/project/link-to-etc'.length);
+        }
+        return p;
+      };
+      expect(isPathInCwd('/home/user/project/link-to-etc/passwd', '/home/user/project', resolver)).toBe(false);
+    });
+
+    it('blocks symlink chain escaping cwd', () => {
+      const resolver = (p: string) => {
+        if (p === '/home/user/project/a') return '/home/user/project/b';
+        if (p === '/home/user/project/b') return '/tmp/escape';
+        if (p.startsWith('/home/user/project/a/')) return '/tmp/escape' + p.slice('/home/user/project/a'.length);
+        return p;
+      };
+      expect(isPathInCwd('/home/user/project/a/secret', '/home/user/project', resolver)).toBe(false);
+    });
+
+    it('allows symlink inside cwd pointing to another location inside cwd', () => {
+      const resolver = (p: string) => {
+        if (p === '/home/user/project/link') return '/home/user/project/src';
+        if (p.startsWith('/home/user/project/link/')) {
+          return '/home/user/project/src' + p.slice('/home/user/project/link'.length);
+        }
+        return p;
+      };
+      expect(isPathInCwd('/home/user/project/link/file.ts', '/home/user/project', resolver)).toBe(true);
+    });
+
+    it('allows non-symlink path with resolver', () => {
+      const resolver = (p: string) => p; // identity — no symlinks
+      expect(isPathInCwd('/home/user/project/src/file.ts', '/home/user/project', resolver)).toBe(true);
+    });
+
+    it('blocks resolved path outside cwd even with .. traversal', () => {
+      const resolver = (p: string) => {
+        if (p === '/home/user/project/link') return '/home/user/other';
+        return p;
+      };
+      expect(isPathInCwd('/home/user/project/link', '/home/user/project', resolver)).toBe(false);
+    });
   });
 });
 
@@ -199,5 +247,39 @@ describe('resolvePermissionTier', () => {
     const defaults = { 'vendor/trusted': 'full' as const };
     // User glob matches before defaults are consulted
     expect(resolvePermissionTier('vendor/trusted', perms, defaults)).toBe('isolated');
+  });
+});
+
+describe('validatePermissionTier', () => {
+  it('accepts all four valid tiers', () => {
+    expect(validatePermissionTier('full')).toBe('full');
+    expect(validatePermissionTier('read-write')).toBe('read-write');
+    expect(validatePermissionTier('read-only')).toBe('read-only');
+    expect(validatePermissionTier('isolated')).toBe('isolated');
+  });
+
+  it('unknown tier string defaults to isolated', () => {
+    expect(validatePermissionTier('admin')).toBe('isolated');
+  });
+
+  it('empty string defaults to isolated', () => {
+    expect(validatePermissionTier('')).toBe('isolated');
+  });
+
+  it('similar-but-wrong strings default to isolated', () => {
+    expect(validatePermissionTier('Full')).toBe('isolated');
+    expect(validatePermissionTier('readwrite')).toBe('isolated');
+    expect(validatePermissionTier('read_only')).toBe('isolated');
+    expect(validatePermissionTier('ISOLATED')).toBe('isolated');
+  });
+
+  it('unknown tier blocks writes (isolated behavior)', () => {
+    const tier = validatePermissionTier('admin');
+    expect(isWriteBlocked(tier)).toBe(true);
+  });
+
+  it('unknown tier blocks spawns (isolated behavior)', () => {
+    const tier = validatePermissionTier('admin');
+    expect(isSpawnBlocked(tier)).toBe(true);
   });
 });
