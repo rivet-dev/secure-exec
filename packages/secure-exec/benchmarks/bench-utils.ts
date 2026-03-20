@@ -18,9 +18,11 @@ export const MAX_CONCURRENCY = Math.max(1, os.availableParallelism() - 4);
 // Shared V8 process — spawned once via initSharedV8(), reused by all bench runtimes.
 let sharedV8: V8Runtime | null = null;
 
-export async function initSharedV8(): Promise<V8Runtime> {
+export async function initSharedV8(warmPoolSize?: number): Promise<V8Runtime> {
 	if (!sharedV8) {
-		sharedV8 = await createNodeV8Runtime();
+		sharedV8 = await createNodeV8Runtime({
+			...(warmPoolSize != null ? { warmPoolSize } : {}),
+		});
 	}
 	return sharedV8;
 }

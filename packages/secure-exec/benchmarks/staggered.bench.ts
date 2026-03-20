@@ -98,16 +98,18 @@ async function benchStaggered(): Promise<StaggeredResult> {
 }
 
 async function main() {
+	const warmPoolSize = process.env.WARM_POOL_SIZE ? parseInt(process.env.WARM_POOL_SIZE) : undefined;
 	const hardware = getHardware();
 	console.error("=== Staggered TTI Benchmark ===");
 	console.error(`CPU: ${hardware.cpu}`);
 	console.error(`Cores: ${hardware.cores} | Max concurrency: ${MAX_CONCURRENCY}`);
 	console.error(`RAM: ${hardware.ram} | Node: ${hardware.node}`);
 	console.error(`Concurrency: ${CONCURRENCY} | Stagger delay: ${STAGGER_DELAY_MS}ms`);
+	console.error(`Warm pool: ${warmPoolSize ?? "default (3)"}`);
 	console.error(`Iterations: ${ITERATIONS} (+ ${WARMUP_ITERATIONS} warmup)`);
 
 	console.error("\nSpawning shared V8 process...");
-	await initSharedV8();
+	await initSharedV8(warmPoolSize);
 	console.error("V8 process ready.\n");
 
 	const result = await benchStaggered();

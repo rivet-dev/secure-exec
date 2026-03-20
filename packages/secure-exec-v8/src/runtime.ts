@@ -33,7 +33,7 @@ export interface V8RuntimeOptions {
 	maxSessions?: number;
 	/** Bridge code to pre-warm the snapshot cache with (fire-and-forget). Skipped if SECURE_EXEC_NO_SNAPSHOT_WARMUP=1. */
 	warmupBridgeCode?: string;
-	/** Number of pre-warmed sessions to maintain. Default 3, 0 to disable. */
+	/** Number of pre-warmed sessions to maintain. Default 5, 0 to disable. */
 	warmPoolSize?: number;
 	/** Default heap limit (MB) for warm pool sessions. Default 128. */
 	defaultWarmHeapLimitMb?: number;
@@ -199,7 +199,7 @@ export async function createV8Runtime(
 		// pool is disabled since there's no snapshot to pre-create from.
 		const warmPoolSize = process.env.SECURE_EXEC_NO_SNAPSHOT_WARMUP === "1"
 			? 0
-			: (options?.warmPoolSize ?? (options?.warmupBridgeCode ? 3 : 0));
+			: (options?.warmPoolSize ?? (options?.warmupBridgeCode ? 5 : 0));
 		if (warmPoolSize > 0) {
 			const initReady = new Promise<void>((resolve, reject) => {
 				const timeout = setTimeout(() => {
