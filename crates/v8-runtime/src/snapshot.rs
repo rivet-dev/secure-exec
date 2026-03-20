@@ -2,17 +2,22 @@
 
 use std::sync::{Arc, Mutex};
 
-use crate::bridge::external_refs;
+use crate::bridge::{external_refs, register_stub_bridge_fns};
 use crate::isolate::init_v8_platform;
+use crate::session::{SYNC_BRIDGE_FNS, ASYNC_BRIDGE_FNS};
 
 /// Maximum allowed snapshot blob size (50MB).
 /// Prevents resource exhaustion from degenerate bridge code.
 const MAX_SNAPSHOT_BLOB_BYTES: usize = 50 * 1024 * 1024;
 
-/// Create a V8 startup snapshot with the given bridge code pre-compiled.
+/// Create a V8 startup snapshot with a fully-initialized bridge context.
 ///
-/// Consumes a temporary isolate. The returned StartupData contains the
-/// serialized V8 heap with compiled bytecode.
+/// Registers stub bridge functions on the global, injects default config
+/// globals, then compiles and executes the bridge IIFE. The resulting
+/// context — with all bridge infrastructure set up — is snapshotted.
+///
+/// After restore, stub bridge functions are replaced with real session-local
+/// ones, and per-session config is injected via a post-restore script.
 ///
 /// Returns an error if the bridge code fails to compile or the resulting
 /// snapshot exceeds MAX_SNAPSHOT_BLOB_BYTES.
@@ -25,7 +30,13 @@ pub fn create_snapshot(bridge_code: &str) -> Result<v8::StartupData, String> {
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
 
-        // Compile and run bridge code — bytecode is captured in snapshot
+        // Register stub bridge functions so the IIFE can reference them
+        register_stub_bridge_fns(scope, &SYNC_BRIDGE_FNS, &ASYNC_BRIDGE_FNS);
+
+        // Inject default config globals for bridge IIFE setup
+        inject_snapshot_defaults(scope);
+
+        // Compile and run bridge code — context captures fully-initialized state
         let source = v8::String::new(scope, bridge_code)
             .ok_or_else(|| "failed to create V8 string for bridge code".to_string())?;
         let script = v8::Script::compile(scope, source, None)
@@ -48,6 +59,50 @@ pub fn create_snapshot(bridge_code: &str) -> Result<v8::StartupData, String> {
     }
 
     Ok(blob)
+}
+
+/// Inject default config globals needed by the bridge IIFE during snapshot creation.
+///
+/// These are placeholder values so bridge code that reads _processConfig or
+/// _osConfig at setup time doesn't fail. They're overwritten per-session
+/// after snapshot restore via inject_globals_from_payload.
+fn inject_snapshot_defaults(scope: &mut v8::HandleScope) {
+    let context = scope.get_current_context();
+    let global = context.global(scope);
+
+    // _processConfig: default placeholder (overwritten per-session)
+    let pc_code = r#"({
+        cwd: "/",
+        env: {},
+        timing_mitigation: "off",
+        frozen_time_ms: null
+    })"#;
+    let pc_source = v8::String::new(scope, pc_code).unwrap();
+    let pc_script = v8::Script::compile(scope, pc_source, None).unwrap();
+    let pc_val = pc_script.run(scope).unwrap();
+    if let Some(pc_obj) = pc_val.to_object(scope) {
+        pc_obj.set_integrity_level(scope, v8::IntegrityLevel::Frozen);
+    }
+    let pc_key = v8::String::new(scope, "_processConfig").unwrap();
+    let attr = v8::PropertyAttribute::READ_ONLY | v8::PropertyAttribute::DONT_DELETE;
+    global.define_own_property(scope, pc_key.into(), pc_val, attr);
+
+    // _osConfig: default placeholder (overwritten per-session)
+    let oc_code = r#"({
+        homedir: "/root",
+        tmpdir: "/tmp",
+        platform: "linux",
+        arch: "x64"
+    })"#;
+    let oc_source = v8::String::new(scope, oc_code).unwrap();
+    let oc_script = v8::Script::compile(scope, oc_source, None).unwrap();
+    let oc_val = oc_script.run(scope).unwrap();
+    if let Some(oc_obj) = oc_val.to_object(scope) {
+        oc_obj.set_integrity_level(scope, v8::IntegrityLevel::Frozen);
+    }
+    let oc_key = v8::String::new(scope, "_osConfig").unwrap();
+    let attr2 = v8::PropertyAttribute::READ_ONLY | v8::PropertyAttribute::DONT_DELETE;
+    global.define_own_property(scope, oc_key.into(), oc_val, attr2);
 }
 
 /// Create a V8 isolate restored from a snapshot blob.
@@ -519,7 +574,6 @@ mod tests {
         // resulting context can be snapshotted.
         {
             use crate::bridge::register_stub_bridge_fns;
-            use crate::session::{SYNC_BRIDGE_FNS, ASYNC_BRIDGE_FNS};
 
             let mut snapshot_isolate = v8::Isolate::snapshot_creator(Some(external_refs()), None);
             {
@@ -604,6 +658,169 @@ mod tests {
                 "snapshot creation should succeed with stub bridge functions"
             );
             assert!(blob.unwrap().len() > 0, "snapshot blob should be non-empty");
+        }
+
+        // --- Part 15: create_snapshot() auto-registers stubs and injects defaults ---
+        // Verifies that create_snapshot() registers all bridge function stubs
+        // and injects _processConfig/_osConfig defaults before running bridge code.
+        {
+            // Bridge IIFE that verifies stubs and config globals exist
+            let iife_code = r#"
+                (function() {
+                    // Verify all sync bridge functions are registered as stubs
+                    var syncFns = ['_log', '_error', '_resolveModule', '_loadFile',
+                        '_loadPolyfill', '_cryptoRandomFill', '_cryptoRandomUUID',
+                        '_fsReadFile', '_fsWriteFile', '_fsReadFileBinary',
+                        '_fsWriteFileBinary', '_fsReadDir', '_fsMkdir', '_fsRmdir',
+                        '_fsExists', '_fsStat', '_fsUnlink', '_fsRename', '_fsChmod',
+                        '_fsChown', '_fsLink', '_fsSymlink', '_fsReadlink', '_fsLstat',
+                        '_fsTruncate', '_fsUtimes', '_childProcessSpawnStart',
+                        '_childProcessStdinWrite', '_childProcessStdinClose',
+                        '_childProcessKill', '_childProcessSpawnSync'];
+                    for (var i = 0; i < syncFns.length; i++) {
+                        if (typeof globalThis[syncFns[i]] !== 'function') {
+                            throw new Error('Missing sync stub: ' + syncFns[i] +
+                                ' (typeof=' + typeof globalThis[syncFns[i]] + ')');
+                        }
+                    }
+
+                    // Verify all async bridge functions are registered as stubs
+                    var asyncFns = ['_dynamicImport', '_scheduleTimer',
+                        '_networkFetchRaw', '_networkDnsLookupRaw',
+                        '_networkHttpRequestRaw', '_networkHttpServerListenRaw',
+                        '_networkHttpServerCloseRaw'];
+                    for (var i = 0; i < asyncFns.length; i++) {
+                        if (typeof globalThis[asyncFns[i]] !== 'function') {
+                            throw new Error('Missing async stub: ' + asyncFns[i] +
+                                ' (typeof=' + typeof globalThis[asyncFns[i]] + ')');
+                        }
+                    }
+
+                    // Verify _processConfig default was injected
+                    if (typeof _processConfig !== 'object' || _processConfig === null) {
+                        throw new Error('_processConfig not injected: ' + typeof _processConfig);
+                    }
+                    if (_processConfig.cwd !== '/') {
+                        throw new Error('_processConfig.cwd should be "/", got: ' + _processConfig.cwd);
+                    }
+
+                    // Verify _osConfig default was injected
+                    if (typeof _osConfig !== 'object' || _osConfig === null) {
+                        throw new Error('_osConfig not injected: ' + typeof _osConfig);
+                    }
+                    if (_osConfig.platform !== 'linux') {
+                        throw new Error('_osConfig.platform should be "linux", got: ' + _osConfig.platform);
+                    }
+
+                    globalThis.__part15_ok = true;
+                })();
+            "#;
+            let blob = create_snapshot(iife_code).expect(
+                "create_snapshot should succeed with bridge code that checks stubs and defaults"
+            );
+            assert!(blob.len() > 0, "snapshot blob should be non-empty");
+
+            // Verify the snapshot can be restored
+            let mut isolate = create_isolate_from_snapshot(blob, None);
+            assert_eq!(eval(&mut isolate, "1 + 1"), "2");
+        }
+
+        // --- Part 16: create_snapshot() with getter facade and closures ---
+        // Verifies that the full bridge pattern (stubs, closures, getter facade,
+        // config globals) works through create_snapshot() and the context is
+        // correctly snapshotted via set_default_context.
+        {
+            let iife_code = r#"
+                (function() {
+                    // Set up getter-based fs facade referencing bridge stubs
+                    var _fs = {};
+                    Object.defineProperties(_fs, {
+                        readFile:  { get: function() { return globalThis._fsReadFile; },  enumerable: true },
+                        writeFile: { get: function() { return globalThis._fsWriteFile; }, enumerable: true },
+                    });
+                    globalThis._fs = _fs;
+
+                    // Set up closure wrapping a bridge stub
+                    globalThis.myLog = function() {
+                        return globalThis._log.apply(null, arguments);
+                    };
+
+                    // Set up a require-like function (doesn't call _loadPolyfill at setup)
+                    globalThis.require = function(name) {
+                        return globalThis._loadPolyfill(name);
+                    };
+
+                    // Set up a console-like object
+                    globalThis.console = {
+                        log: function() { globalThis._log.apply(null, arguments); },
+                        error: function() { globalThis._error.apply(null, arguments); },
+                    };
+
+                    // Read _processConfig at setup time (like process.cwd initialization)
+                    globalThis.__initialCwd = _processConfig.cwd;
+
+                    globalThis.__part16_setup = true;
+                })();
+            "#;
+            let blob = create_snapshot(iife_code).expect(
+                "create_snapshot should succeed with full bridge IIFE pattern"
+            );
+            assert!(blob.len() > 0);
+
+            // Restore and verify default context has the bridge infrastructure
+            let blob_bytes: Vec<u8> = blob.to_vec();
+            let mut isolate = create_isolate_from_snapshot(blob_bytes, None);
+            let scope = &mut v8::HandleScope::new(&mut isolate);
+            let context = v8::Context::new(scope, Default::default());
+            let scope = &mut v8::ContextScope::new(scope, context);
+
+            // Check that bridge infrastructure from the IIFE is in the default context
+            let check_code = r#"
+                (function() {
+                    var results = [];
+                    results.push('_fs=' + (typeof _fs === 'object'));
+                    results.push('_fs.readFile=' + (typeof _fs.readFile === 'function'));
+                    results.push('myLog=' + (typeof myLog === 'function'));
+                    results.push('require=' + (typeof require === 'function'));
+                    results.push('console.log=' + (typeof console.log === 'function'));
+                    results.push('console.error=' + (typeof console.error === 'function'));
+                    results.push('__initialCwd=' + __initialCwd);
+                    results.push('__part16_setup=' + __part16_setup);
+                    return results.join(';');
+                })()
+            "#;
+            let source = v8::String::new(scope, check_code).unwrap();
+            let script = v8::Script::compile(scope, source, None).unwrap();
+            let result = script.run(scope).unwrap();
+            let result_str = result.to_rust_string_lossy(scope);
+
+            assert_eq!(
+                result_str,
+                "_fs=true;_fs.readFile=true;myLog=true;require=true;console.log=true;console.error=true;__initialCwd=/;__part16_setup=true",
+                "restored context should have all bridge infrastructure from the IIFE"
+            );
+        }
+
+        // --- Part 17: SnapshotCache works with context-snapshot create_snapshot ---
+        // Verifies cache hit/miss still works now that create_snapshot registers stubs.
+        {
+            let cache = SnapshotCache::new(4);
+            let code = r#"
+                (function() {
+                    // Verify stubs are present (create_snapshot registers them)
+                    if (typeof _log !== 'function') throw new Error('no _log stub');
+                    if (typeof _processConfig !== 'object') throw new Error('no _processConfig');
+                    globalThis.__cached_context = true;
+                })();
+            "#;
+
+            let arc1 = cache.get_or_create(code).expect("first get_or_create");
+            let arc2 = cache.get_or_create(code).expect("second get_or_create");
+            assert!(Arc::ptr_eq(&arc1, &arc2), "cache hit should return same Arc");
+
+            // Verify blob is usable
+            let mut isolate = create_isolate_from_snapshot((*arc1).clone(), None);
+            assert_eq!(eval(&mut isolate, "1 + 1"), "2");
         }
     }
 }
