@@ -12,8 +12,8 @@ import {
 	TRIVIAL_CODE,
 	MAX_CONCURRENCY,
 	createBenchRuntime,
-	initSharedV8,
-	shutdownSharedV8,
+	setupBench,
+	teardownBench,
 	getHardware,
 	printTable,
 	round,
@@ -113,7 +113,7 @@ async function main() {
 	console.error(`Iterations: ${ITERATIONS} (+ ${WARMUP_ITERATIONS} warmup)`);
 
 	console.error("\nSpawning shared V8 process...");
-	await initSharedV8(warmPoolSize);
+	await setupBench(warmPoolSize);
 	console.error("V8 process ready.\n");
 
 	const result = await benchStaggered();
@@ -136,7 +136,7 @@ async function main() {
 	);
 
 	console.log(JSON.stringify({ hardware, result }, null, 2));
-	await shutdownSharedV8();
+	await teardownBench();
 }
 
 main().catch((err) => {

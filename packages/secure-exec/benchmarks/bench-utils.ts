@@ -15,44 +15,34 @@ export const TRIVIAL_CODE = `export const x = 1;`;
 // Cap concurrency below available parallelism to leave headroom for the bench harness itself.
 export const MAX_CONCURRENCY = Math.max(1, os.availableParallelism() - 4);
 
-// Shared V8 process — spawned once via initSharedV8(), reused by all bench runtimes.
-let sharedV8: V8Runtime | null = null;
+// Shared bench infrastructure — V8 process, driver, factory created once.
+let bench: {
+	v8: V8Runtime;
+	driver: ReturnType<typeof createNodeDriver>;
+	factory: ReturnType<typeof createNodeRuntimeDriverFactory>;
+} | null = null;
 
-export async function initSharedV8(warmPoolSize?: number): Promise<V8Runtime> {
-	if (!sharedV8) {
-		sharedV8 = await createNodeV8Runtime({
-			...(warmPoolSize != null ? { warmPoolSize } : {}),
-		});
-	}
-	return sharedV8;
+export async function setupBench(warmPoolSize?: number): Promise<void> {
+	if (bench) return;
+	const v8 = await createNodeV8Runtime({
+		...(warmPoolSize != null ? { warmPoolSize } : {}),
+	});
+	const driver = createNodeDriver();
+	const factory = createNodeRuntimeDriverFactory({ v8Runtime: v8 });
+	bench = { v8, driver, factory };
 }
 
-export async function shutdownSharedV8(): Promise<void> {
-	if (sharedV8) {
-		await sharedV8.dispose();
-		sharedV8 = null;
-		sharedDriver = null;
-		sharedFactory = null;
-	}
+export async function teardownBench(): Promise<void> {
+	if (!bench) return;
+	await bench.v8.dispose();
+	bench = null;
 }
-
-// Shared driver and factory — reuse across all bench runtimes.
-// createNodeDriver() scans node_modules for symlinks on every call (~15ms),
-// so creating it once eliminates the main source of cold-start variance.
-let sharedDriver: ReturnType<typeof createNodeDriver> | null = null;
-let sharedFactory: ReturnType<typeof createNodeRuntimeDriverFactory> | null = null;
 
 export function createBenchRuntime(): NodeRuntime {
-	if (!sharedV8) {
-		throw new Error("Call initSharedV8() before createBenchRuntime()");
-	}
-	if (!sharedDriver) {
-		sharedDriver = createNodeDriver();
-		sharedFactory = createNodeRuntimeDriverFactory({ v8Runtime: sharedV8 });
-	}
+	if (!bench) throw new Error("Call setupBench() first");
 	return new NodeRuntime({
-		systemDriver: sharedDriver,
-		runtimeDriverFactory: sharedFactory!,
+		systemDriver: bench.driver,
+		runtimeDriverFactory: bench.factory,
 	});
 }
 

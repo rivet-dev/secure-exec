@@ -13,8 +13,8 @@ import {
 	MEMORY_ITERATIONS,
 	TRIVIAL_CODE,
 	createBenchRuntime,
-	initSharedV8,
-	shutdownSharedV8,
+	setupBench,
+	teardownBench,
 	forceGC,
 	formatBytes,
 	getHardware,
@@ -118,7 +118,7 @@ async function main() {
 
 	// Pre-spawn the shared V8 process so the bench loop only measures isolate overhead
 	console.error(`\nSpawning shared V8 process...`);
-	await initSharedV8();
+	await setupBench();
 	console.error(`V8 process ready.\n`);
 
 	const results: MemoryEntry[] = [];
@@ -162,7 +162,7 @@ async function main() {
 	// JSON to stdout
 	console.log(JSON.stringify({ hardware, results }, null, 2));
 
-	await shutdownSharedV8();
+	await teardownBench();
 }
 
 main().catch((err) => {
