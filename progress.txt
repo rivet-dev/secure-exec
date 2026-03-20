@@ -2734,3 +2734,14 @@ PRD: ralph/kernel-hardening (46 stories)
   - Bridge code composition depends on imports from both @secure-exec/core and @secure-exec/node — can't live in @secure-exec/v8 (wrong dependency direction)
   - warmupBridgeCode is passed as option to createV8Runtime() to avoid circular deps between @secure-exec/v8 and @secure-exec/node
 ---
+
+## 2026-03-19 - US-057
+- Added snapshot security and integration tests proving hardening survives snapshot round-trip
+- Rust (snapshot.rs): 3 new test parts — Part 10: WASM blocked after restore + disable_wasm(), Part 11: session isolation via fresh contexts from same snapshot, Part 12: external references survive restore (FunctionTemplates registered and callable)
+- TypeScript (snapshot-security.test.ts): 7 integration tests — WASM blocked, session state isolation (A does not leak to B), sync bridge dispatch on restored isolate, async bridge dispatch on restored isolate, WarmSnapshot cache hit, SECURE_EXEC_NO_SNAPSHOT_WARMUP=1 lazy fallback, different bridge code variants get separate snapshot entries
+- Files changed: crates/v8-runtime/src/snapshot.rs, packages/secure-exec-v8/test/snapshot-security.test.ts (new)
+- **Learnings for future iterations:**
+  - Rust snapshot tests must stay consolidated in single #[test] fn (Part N pattern) to avoid V8 teardown SIGSEGV
+  - ReaderResponseReceiver::new() takes Box<dyn Read + Send>, not a concrete type — need Box::new() wrapper
+  - SIGSEGV on cargo test exit is pre-existing (V8 global state cleanup across test suites) — all 74 tests pass before SIGSEGV
+---

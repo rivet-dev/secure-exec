@@ -968,8 +968,8 @@
         "Tests pass"
       ],
       "priority": 57,
-      "passes": false,
-      "notes": "Spec: docs-internal/specs/v8-startup-snapshot.md. Security tests verify hardening survives snapshot round-trip."
+      "passes": true,
+      "notes": "Spec: docs-internal/specs/v8-startup-snapshot.md. Rust: 3 new test parts (WASM blocked after restore, session isolation via fresh contexts, external references survive restore with bridge fn registration). TypeScript: 7 integration tests (WASM blocked, session state isolation, sync/async bridge dispatch on restored isolate, WarmSnapshot cache hit, NO_SNAPSHOT_WARMUP=1 lazy fallback, different bridge code variants get separate entries)."
     }
   ]
 }
