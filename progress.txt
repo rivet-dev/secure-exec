@@ -3646,3 +3646,25 @@ PRD: ralph/kernel-hardening (46 stories)
   - git program doesn't need patched sysroot (no host_process/host_user imports) — uses vanilla sysroot
   - Native build links vendored zlib sources directly (no -lz), same as WASM build
 ---
+
+## 2026-03-20 - US-091
+- What was implemented: git porcelain commands (add, commit, status, log, diff) on top of existing plumbing
+- New library: git-index.h/c — binary index format (DIRC v2) read/write with sorted entries
+- Extended git-objects.h/c — tree objects, commit objects, ref resolution, hex conversion
+- git.c expanded from 3 commands (hash-object, cat-file, init) to 8 (+ add, commit, status, log, diff)
+- Files changed:
+  - wasmvm/c/libs/git/git-index.h, git-index.c — new index (staging area) module
+  - wasmvm/c/libs/git/git-objects.h, git-objects.c — tree/commit/ref helpers
+  - wasmvm/c/programs/git.c — all porcelain commands
+  - wasmvm/c/Makefile — added git-index.c to GIT_SRCS
+  - docs/wasmvm/supported-commands.md — added Version Control section with git
+- **Learnings for future iterations:**
+  - Git index format is big-endian with 8-byte aligned entries — use read_be32/write_be32 helpers
+  - Tree objects nest recursively — must build subtrees for subdirectories (flat trees don't match real git)
+  - write_tree_from_index groups index entries by first path component, recursively builds subtrees
+  - git_read_head follows symbolic refs (ref: refs/heads/main) recursively via git_resolve_ref
+  - commit needs time() for author/committer timestamps — works with vanilla WASI (clock_gettime)
+  - diff uses naive line-by-line comparison with lookahead — sufficient for development use
+  - git add . collects files recursively, skipping .git/ — uses collect_files helper with PathList
+  - Native binary is 266KB — will be well under 10MB WASM limit
+---
