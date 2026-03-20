@@ -713,6 +713,8 @@ dependencies = [
 name = "cmd-codex"
 version = "0.1.0"
 dependencies = [
+ "codex-network-proxy",
+ "codex-otel",
  "secureexec-wasi-http",
  "secureexec-wasi-spawn",
 ]
@@ -1367,6 +1369,14 @@ version = "0.1.0"
 dependencies = [
  "secureexec-yq",
 ]
+
+[[package]]
+name = "codex-network-proxy"
+version = "0.0.0"
+
+[[package]]
+name = "codex-otel"
+version = "0.0.0"
 
 [[package]]
 name = "color-print"

@@ -17,7 +17,16 @@
 ///   - wasi_http::HttpClient for API requests (replacing reqwest)
 ///   - wasi_http::SseReader for streaming SSE responses
 ///
+/// WASI stubs for codex-core dependencies:
+///   - codex_network_proxy: zero-size NetworkProxy with no-op apply_to_env
+///   - codex_otel: no-op metrics/tracing (SessionTelemetry, Timer, etc.)
+///
 /// Currently demonstrates spawn + HTTP capability as a validation tool.
+
+// Validate WASI stub crates compile by referencing key types
+use codex_network_proxy::NetworkProxy;
+use codex_otel::SessionTelemetry;
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
@@ -33,6 +42,11 @@ fn main() {
     // Built-in HTTP test subcommand (validates wasi-http integration)
     if args[1] == "--http-test" {
         return http_test(&args[2..]);
+    }
+
+    // Stub validation subcommand (validates WASI stub crates)
+    if args[1] == "--stub-test" {
+        return stub_test();
     }
 
     // Build argv for child: command + args
@@ -58,6 +72,28 @@ fn main() {
             std::process::exit(1);
         }
     }
+}
+
+/// Validates WASI stub crates compile and run correctly.
+fn stub_test() {
+    // codex-network-proxy stub: zero-size NetworkProxy, no-op apply_to_env
+    let proxy = NetworkProxy;
+    let mut env = std::collections::HashMap::new();
+    proxy.apply_to_env(&mut env);
+    println!("network-proxy: NetworkProxy is zero-size, apply_to_env is no-op");
+
+    // codex-otel stub: SessionTelemetry, metrics are no-ops
+    let telemetry = SessionTelemetry::new();
+    telemetry.counter("test.counter", 1, &[]);
+    telemetry.histogram("test.histogram", 42, &[]);
+    println!("otel: SessionTelemetry metrics are no-ops");
+
+    // codex-otel stub: global metrics always returns None
+    let global = codex_otel::metrics::global();
+    assert!(global.is_none(), "global metrics should be None on WASI");
+    println!("otel: global() returns None (no exporter on WASI)");
+
+    println!("stub-test: all stubs validated successfully");
 }
 
 /// Built-in HTTP test: validates wasi-http works through host_net.

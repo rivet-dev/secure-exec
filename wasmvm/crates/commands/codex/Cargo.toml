@@ -22,3 +22,8 @@ path = "src/main.rs"
 [dependencies]
 wasi-spawn = { package = "secureexec-wasi-spawn", path = "../../libs/wasi-spawn" }
 wasi-http = { package = "secureexec-wasi-http", path = "../../libs/wasi-http" }
+
+# WASI stub crates for codex-core dependencies that don't support wasm32-wasip1.
+# These provide zero-size/no-op implementations so codex-core compiles for WASI.
+codex-network-proxy = "0.0.0"
+codex-otel = "0.0.0"
