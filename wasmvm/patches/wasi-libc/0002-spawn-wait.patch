@@ -7,16 +7,17 @@ host_process.proc_spawn and host_process.proc_waitpid WASM imports.
 Also provides posix_spawn_file_actions and posix_spawnattr helpers since
 musl's versions (in process/) are not compiled for WASI.
 
-posix_spawn serializes argv as null-terminated strings in a contiguous
-buffer, matching the wasi-ext proc_spawn ABI. file_actions are mapped
-to stdin_fd/stdout_fd/stderr_fd params. posix_spawnattr is silently
-ignored (no scheduling/signal control in sandbox).
+file_actions are processed in order: dup2 maps stdio FDs, close is no-op
+(child doesn't inherit parent FDs), open maps files to stdio overrides.
+
+waitpid returns the actual waited-for PID from the host via ret_pid,
+fixing waitpid(-1, ...) which previously returned -1 (error convention).
 
 Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
 
---- /dev/null
-+++ b/libc-bottom-half/sources/host_spawn_wait.c
-@@ -0,0 +1,275 @@
+--- /dev/null	2026-03-16 11:59:07.564000026 -0700
++++ libc-bottom-half/sources/host_spawn_wait.c	2026-03-19 20:51:08.698271081 -0700
+@@ -0,0 +1,307 @@
 +// Process spawning and waiting via wasmVM host_process imports.
 +//
 +// Replaces musl's posix_spawn (which uses fork/clone, unavailable in WASI)
@@ -31,11 +32,13 @@ Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
 +
 +#include <__errno.h>
 +#include <__errno_values.h>
++#include <fcntl.h>
 +#include <stdint.h>
 +#include <stdlib.h>
 +#include <string.h>
 +#include <unistd.h>
 +#include <sys/types.h>
++#include <wasi/api.h>
 +
 +// spawn.h and sys/wait.h are not installed in the wasi sysroot.
 +// Define the needed types inline (matching musl's spawn.h layout).
@@ -73,9 +76,10 @@ Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
 +    const uint8_t *cwd_ptr, uint32_t cwd_len,
 +    uint32_t *ret_pid);
 +
-+// host_process.proc_waitpid(pid, options, ret_status) -> errno
++// host_process.proc_waitpid(pid, options, ret_status, ret_pid) -> errno
 +WASM_IMPORT("host_process", "proc_waitpid")
-+uint32_t __host_proc_waitpid(uint32_t pid, uint32_t options, uint32_t *ret_status);
++uint32_t __host_proc_waitpid(uint32_t pid, uint32_t options,
++    uint32_t *ret_status, uint32_t *ret_pid);
 +
 +// Internal file operation descriptor (matches musl's fdop.h layout)
 +#define FDOP_CLOSE 1
@@ -109,11 +113,18 @@ Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
 +    return 0;
 +}
 +
++// Append to file_actions list (preserves POSIX-required execution order)
 +static int __addfdop(posix_spawn_file_actions_t *fa, struct __fdop *op) {
-+    op->next = fa->__actions;
-+    op->prev = 0;
-+    if (op->next) op->next->prev = op;
-+    fa->__actions = op;
++    op->next = 0;
++    if (!fa->__actions) {
++        op->prev = 0;
++        fa->__actions = op;
++    } else {
++        struct __fdop *tail = fa->__actions;
++        while (tail->next) tail = tail->next;
++        tail->next = op;
++        op->prev = tail;
++    }
 +    return 0;
 +}
 +
@@ -240,14 +251,34 @@ Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
 +        }
 +    }
 +
-+    // Extract stdin/stdout/stderr from file_actions (dup2 ops targeting 0/1/2)
++    // Process file_actions in order: extract stdio overrides and handle close/open
 +    uint32_t stdin_fd = 0, stdout_fd = 1, stderr_fd = 2;
 +    if (fa && fa->__actions) {
 +        for (struct __fdop *op = fa->__actions; op; op = op->next) {
-+            if (op->cmd == FDOP_DUP2) {
++            switch (op->cmd) {
++            case FDOP_DUP2:
 +                if (op->fd == 0) stdin_fd = (uint32_t)op->srcfd;
 +                else if (op->fd == 1) stdout_fd = (uint32_t)op->srcfd;
 +                else if (op->fd == 2) stderr_fd = (uint32_t)op->srcfd;
++                break;
++            case FDOP_CLOSE:
++                // No-op: child doesn't inherit parent FDs in our model.
++                // POSIX close-in-child semantics are handled by the host:
++                // proc_spawn closes stdio override FDs after fork.
++                break;
++            case FDOP_OPEN: {
++                int opened = open(op->path, op->oflag, op->mode);
++                if (opened < 0) {
++                    free(argv_buf);
++                    free(envp_buf);
++                    return errno;
++                }
++                if (op->fd == 0) stdin_fd = (uint32_t)opened;
++                else if (op->fd == 1) stdout_fd = (uint32_t)opened;
++                else if (op->fd == 2) stderr_fd = (uint32_t)opened;
++                else close(opened);
++                break;
++            }
 +            }
 +        }
 +    }
@@ -279,14 +310,16 @@ Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
 +
 +pid_t waitpid(pid_t pid, int *status, int options) {
 +    uint32_t raw_status;
-+    uint32_t err = __host_proc_waitpid((uint32_t)pid, (uint32_t)options, &raw_status);
++    uint32_t actual_pid;
++    uint32_t err = __host_proc_waitpid((uint32_t)pid, (uint32_t)options,
++        &raw_status, &actual_pid);
 +    if (err != 0) {
 +        errno = (int)err;
 +        return -1;
 +    }
 +    // Encode in POSIX format: WEXITSTATUS(s) = (s & 0xff00) >> 8
 +    if (status) *status = (int)(raw_status << 8);
-+    return pid;
++    return (pid_t)actual_pid;
 +}
 +
 +pid_t wait(int *status) {

@@ -95,6 +95,7 @@ export const RIGHTS_DIR_ALL: bigint = RIGHT_FD_FDSTAT_SET_FLAGS | RIGHT_FD_SYNC 
 export const ERRNO_SUCCESS = 0;
 export const ERRNO_EACCES = 2;
 export const ERRNO_EBADF = 8;
+export const ERRNO_ECHILD = 10;
 export const ERRNO_EEXIST = 20;
 export const ERRNO_EINVAL = 28;
 export const ERRNO_EIO = 76;
@@ -113,6 +114,7 @@ export const ERRNO_ETIMEDOUT = 73;
 export const ERRNO_MAP: Record<string, number> = {
 	EACCES: ERRNO_EACCES,
 	EBADF: ERRNO_EBADF,
+	ECHILD: ERRNO_ECHILD,
 	EEXIST: ERRNO_EEXIST,
 	EINVAL: ERRNO_EINVAL,
 	EIO: ERRNO_EIO,

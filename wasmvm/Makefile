@@ -107,7 +107,7 @@ wasm: vendor patch-vendor patch-std wasm-opt-check
 		if [ -f "$$wasm" ]; then \
 			TOTAL=$$((TOTAL + 1)); \
 			if [ "$$HAS_OPT" = "1" ]; then \
-				wasm-opt -O3 --strip-debug "$$wasm" -o "$(COMMANDS_DIR)/$$cmd"; \
+				wasm-opt -O3 --strip-debug --all-features "$$wasm" -o "$(COMMANDS_DIR)/$$cmd"; \
 			else \
 				cp "$$wasm" "$(COMMANDS_DIR)/$$cmd"; \
 			fi; \

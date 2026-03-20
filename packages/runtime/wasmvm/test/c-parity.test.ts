@@ -408,6 +408,23 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
     expect(wasm.stdout).toContain('terminated: yes');
   });
 
+  it.skipIf(tier3Skip)('waitpid_return: waitpid returns correct child PID', async () => {
+    const native = await runNative('waitpid_return');
+    const wasm = await kernel.exec('waitpid_return');
+
+    expect(wasm.exitCode).toBe(native.exitCode);
+    expect(wasm.exitCode).toBe(0);
+    // waitpid with specific PID returns that PID
+    expect(wasm.stdout).toContain('test1_match: yes');
+    expect(wasm.stdout).toContain('test1_exit: 0');
+    // wait() (waitpid(-1)) returns actual child PID
+    expect(wasm.stdout).toContain('test2_match: yes');
+    expect(wasm.stdout).toContain('test2_exit: 0');
+    // Return values are positive PIDs
+    expect(wasm.stdout).toContain('test3_ret1_positive: yes');
+    expect(wasm.stdout).toContain('test3_ret2_positive: yes');
+  });
+
   // --- Tier 4: filesystem stress ---
 
   const hasCTier4Binaries = existsSync(join(C_BUILD_DIR, 'c-ls'));

@@ -51,8 +51,9 @@ extern "C" {
     ///
     /// Blocks (via Atomics.wait on the host side) until the child exits.
     /// `options` is reserved (pass 0). Exit status is written to `ret_status`.
+    /// The actual waited-for PID is written to `ret_pid` (important for pid=-1).
     /// Returns errno.
-    fn proc_waitpid(pid: u32, options: u32, ret_status: *mut u32) -> Errno;
+    fn proc_waitpid(pid: u32, options: u32, ret_status: *mut u32, ret_pid: *mut u32) -> Errno;
 
     /// Send a signal to a process.
     ///
@@ -163,12 +164,14 @@ pub fn spawn(
 
 /// Wait for a child process to exit.
 ///
-/// Returns `Ok(exit_status)` on success, `Err(errno)` on failure.
-pub fn waitpid(pid: u32, options: u32) -> Result<u32, Errno> {
+/// Returns `Ok((exit_status, actual_pid))` on success, `Err(errno)` on failure.
+/// The actual_pid is the PID of the child that exited (relevant for pid=0xFFFFFFFF / -1).
+pub fn waitpid(pid: u32, options: u32) -> Result<(u32, u32), Errno> {
     let mut status: u32 = 0;
-    let errno = unsafe { proc_waitpid(pid, options, &mut status) };
+    let mut actual_pid: u32 = 0;
+    let errno = unsafe { proc_waitpid(pid, options, &mut status, &mut actual_pid) };
     if errno == ERRNO_SUCCESS {
-        Ok(status)
+        Ok((status, actual_pid))
     } else {
         Err(errno)
     }

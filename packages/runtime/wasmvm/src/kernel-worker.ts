@@ -22,6 +22,7 @@ import {
   FILETYPE_DIRECTORY,
   ERRNO_SUCCESS,
   ERRNO_EACCES,
+  ERRNO_ECHILD,
   ERRNO_EINVAL,
   ERRNO_EBADF,
 } from './wasi-constants.ts';
@@ -505,6 +506,9 @@ function createKernelVfs(): WasiVFS {
 // -------------------------------------------------------------------------
 
 function createHostProcessImports(getMemory: () => WebAssembly.Memory | null) {
+  // Track child PIDs for waitpid(-1) — "wait for any child"
+  const childPids = new Set<number>();
+
   return {
     /**
      * proc_spawn routes through KernelInterface.spawn() so brush-shell
@@ -568,7 +572,9 @@ function createHostProcessImports(getMemory: () => WebAssembly.Memory | null) {
       });
 
       if (res.errno !== 0) return res.errno;
-      new DataView(mem.buffer).setUint32(ret_pid_ptr, res.intResult, true);
+      const childPid = res.intResult;
+      new DataView(mem.buffer).setUint32(ret_pid_ptr, childPid, true);
+      childPids.add(childPid);
 
       // Close pipe FDs used as stdio overrides in the parent (POSIX close-after-fork)
       // Without this, the parent retains a reference to the pipe ends, preventing EOF.
@@ -585,17 +591,32 @@ function createHostProcessImports(getMemory: () => WebAssembly.Memory | null) {
     },
 
     /**
-     * proc_waitpid(pid, options, ret_status) -> errno
+     * proc_waitpid(pid, options, ret_status, ret_pid) -> errno
      * options: 0 = blocking, 1 = WNOHANG
+     * ret_pid: writes the actual waited-for PID (relevant for pid=-1)
      */
-    proc_waitpid(pid: number, _options: number, ret_status_ptr: number): number {
+    proc_waitpid(pid: number, _options: number, ret_status_ptr: number, ret_pid_ptr: number): number {
       const mem = getMemory();
       if (!mem) return ERRNO_EINVAL;
 
-      const res = rpcCall('waitpid', { pid });
+      // Resolve pid=-1 (wait for any child) to an actual child PID
+      let targetPid = pid;
+      if (pid < 0) {
+        const first = childPids.values().next();
+        if (first.done) return ERRNO_ECHILD;
+        targetPid = first.value;
+      }
+
+      const res = rpcCall('waitpid', { pid: targetPid });
       if (res.errno !== 0) return res.errno;
 
-      new DataView(mem.buffer).setUint32(ret_status_ptr, res.intResult, true);
+      const view = new DataView(mem.buffer);
+      view.setUint32(ret_status_ptr, res.intResult, true);
+      view.setUint32(ret_pid_ptr, targetPid, true);
+
+      // Remove from tracked children after successful wait
+      childPids.delete(targetPid);
+
       return ERRNO_SUCCESS;
     },
 
