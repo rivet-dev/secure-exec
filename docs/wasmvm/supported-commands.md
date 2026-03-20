@@ -1,7 +1,6 @@
-# wasmVM Command Compatibility Matrix
+# WasmVM Supported Commands
 
 > **This is a living document.** Update it whenever a command's status changes.
-> Referenced from `CLAUDE.md`. Spec: `notes/specs/wasmvm-tool-completeness.md`.
 
 ## Status Key
 

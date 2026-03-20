@@ -769,7 +769,7 @@
         "Tests pass"
       ],
       "priority": 39,
-      "passes": false,
+      "passes": true,
       "notes": "Currently vfs.exists(), readlink(), getIno() and populateDirEntries() in kernel-worker.ts have zero permission checks for isolated tier. An isolated command can probe the entire VFS structure. The driver.test.ts permission tests (lines ~957-1029) only test read-only, read-write, and full — zero tests for isolated tier."
     },
     {
@@ -787,7 +787,7 @@
         "Tests pass"
       ],
       "priority": 40,
-      "passes": false,
+      "passes": true,
       "notes": "kernel-worker.ts line 18 imports FDTable from ../test/helpers/test-fd-table.ts — production code importing from test path. driver.ts lines ~450-456 has empty catch {} that swallows module compilation errors. Both are reliability/deployment hazards."
     },
     {
@@ -804,7 +804,7 @@
         "Tests pass"
       ],
       "priority": 41,
-      "passes": false,
+      "passes": true,
       "notes": "isPathInCwd in permission-check.ts (lines ~22-26) uses normalize(resolve()) which is purely lexical — no symlink resolution. A symlink inside cwd pointing to /etc would pass the prefix check. Unknown tier strings fall through inconsistently: isWriteBlocked returns false (allows writes!) but isSpawnBlocked returns true."
     },
     {
@@ -822,7 +822,7 @@
         "Tests pass"
       ],
       "priority": 42,
-      "passes": false,
+      "passes": true,
       "notes": "driver.ts vfsReadFile (line ~746) calls data.set(content, 0) unconditionally before the overflow guard at line ~774. If content >1MB, data.set() throws RangeError which the catch block converts to EIO — fragile. Contrast with fdRead/fdPread which correctly check size BEFORE data.set(). kernel-worker.ts lstat (line ~393) just calls this.stat(path) — symlinks always followed."
     },
     {
@@ -842,7 +842,7 @@
         "Tests pass"
       ],
       "priority": 43,
-      "passes": false,
+      "passes": true,
       "notes": "0002-spawn-wait.patch line ~246: posix_spawn iteration only extracts dup2 ops targeting fds 0/1/2 for stdin_fd/stdout_fd/stderr_fd. addclose and addopen are silently ignored. waitpid (line ~289) always returns the input pid instead of the actual waited-for PID. Also __addfdop uses prepend (not append) so action execution order is reversed."
     },
     {
@@ -860,7 +860,7 @@
         "Tests pass"
       ],
       "priority": 44,
-      "passes": false,
+      "passes": true,
       "notes": "c-parity.test.ts Tier 2+ tests only compare stdout and exitCode, never stderr. sleep_test uses vanilla nanosleep() not host_process.sleep_ms — mislabeled as Tier 2. isatty_test IS missing from PATCHED_PROGRAMS in Makefile line 69. getpid_test passes with any positive non-42 value. kill_child never checks WIFSIGNALED. userinfo just checks format regex."
     },
     {
@@ -882,7 +882,7 @@
         "Tests pass"
       ],
       "priority": 45,
-      "passes": false,
+      "passes": true,
       "notes": "This is the capstone integration test. It exercises the full C -> libc -> WASI/host_import -> JS host -> kernel path for every syscall we provide. The structured output format makes it easy to identify which specific syscall fails. Depends on US-038 (proc_getppid and fd_dup2 must be implemented first). See the canonical import lists: wasi-ext/src/lib.rs for host_process/host_user, wasi-polyfill.ts for wasi_snapshot_preview1."
     },
     {
@@ -899,7 +899,7 @@
         "Tests pass"
       ],
       "priority": 46,
-      "passes": false,
+      "passes": true,
       "notes": "driver.ts lines ~664-667: after kernel.spawn(), managed.wait().then((code) => { view.setInt32(0, code, true); }) writes to the shared data buffer asynchronously. By the time the child exits, the worker may have issued another RPC call using the same dataBuf, causing data corruption. The write has no Atomics.notify() to wake the worker."
     },
     {
@@ -917,7 +917,7 @@
         "Tests pass"
       ],
       "priority": 47,
-      "passes": false,
+      "passes": true,
       "notes": "wasi-polyfill.ts lines ~1303-1306: clock subscriptions are completed immediately without any delay. nanosleep() from C goes through poll_oneoff and returns instantly. The host_process.sleep_ms exists and blocks via Atomics.wait but poll_oneoff doesn't use it. This means any C program using standard sleep/nanosleep/usleep gets zero delay."
     },
     {
@@ -936,8 +936,166 @@
         "Tests pass"
       ],
       "priority": 48,
-      "passes": false,
+      "passes": true,
       "notes": "This codifies the lessons from the adversarial review: missing host imports (proc_getppid, fd_dup2), permission bypass (fdPwrite), and ABI drift between C/Rust/JS are all bugs that happened because there was no policy requiring coverage. File: /home/nathan/secure-exec-1/CLAUDE.md under the existing 'WASM Binary' section."
+    },
+    {
+      "id": "US-049",
+      "title": "Add getpwuid C patch, test program, and syscall_coverage entry",
+      "description": "As a developer, I need getpwuid() accessible from C programs via a wasi-libc patch, with a dedicated test and syscall_coverage.c entry.",
+      "acceptanceCriteria": [
+        "Create wasmvm/patches/wasi-libc/0007-getpwuid.patch exposing __host_getpwuid from host_user.getpwuid",
+        "C wrapper: struct passwd *getpwuid(uid_t uid) — calls __host_getpwuid, parses returned 'name:x:uid:gid:gecos:home:shell' string into struct passwd",
+        "Import signature matches wasmvm/crates/wasi-ext/src/lib.rs line 125 exactly (uid, buf_ptr, buf_len, ret_len params)",
+        "Create wasmvm/c/programs/getpwuid_test.c — calls getpwuid(1000), prints pw_name, pw_uid, pw_gid, pw_dir, pw_shell",
+        "getpwuid_test.c validates returned uid matches requested uid",
+        "getpwuid_test.c validates pw_name is non-empty and pw_dir is non-empty",
+        "Add getpwuid_test to PATCHED_PROGRAMS in wasmvm/c/Makefile",
+        "Add getpwuid test to syscall_coverage.c host_user section — call getpwuid(1000), validate pw_name non-null and pw_uid == 1000",
+        "Add 'getpwuid' to expectedSyscalls list in c-parity.test.ts",
+        "Add parity test for getpwuid_test in c-parity.test.ts",
+        "Rebuild patched sysroot after adding patch",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 49,
+      "passes": false,
+      "notes": "getpwuid is declared in wasi-ext/src/lib.rs:125, implemented in JS (user.ts:146-175), but has NO C patch — C programs can't call it. The JS impl returns 'user1000:x:1000:1000::/home/user:/bin/sh' format. Follow 0005-user-identity.patch structure for the patch. The struct passwd definition exists in wasi-libc's pwd.h but getpwuid() is stubbed to return NULL."
+    },
+    {
+      "id": "US-050",
+      "title": "Fix vacuous host_user assertions in syscall_coverage.c",
+      "description": "As a developer, I need syscall_coverage.c to validate return values from getuid/getgid/geteuid/getegid instead of discarding them with (void).",
+      "acceptanceCriteria": [
+        "Replace (void)getuid(); OK('getuid') with: uid_t u = getuid(); TEST('getuid', u == 1000, 'expected 1000')",
+        "Replace (void)getgid(); OK('getgid') with: gid_t g = getgid(); TEST('getgid', g == 1000, 'expected 1000')",
+        "Replace (void)geteuid(); OK('geteuid') with: uid_t eu = geteuid(); TEST('geteuid', eu == 1000, 'expected 1000')",
+        "Replace (void)getegid(); OK('getegid') with: gid_t eg = getegid(); TEST('getegid', eg == 1000, 'expected 1000')",
+        "Add isatty validation: TEST('isatty_stdin', isatty(0) == 0, 'stdin should not be tty when piped')",
+        "Native parity: native build also returns uid/gid from the OS — update parity test to handle differing uid values between native and WASM",
+        "Option A: skip exact stdout match for host_user section and validate WASM assertions independently",
+        "Option B: run native as uid 1000 if possible, or normalize uid values in parity comparison",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 50,
+      "passes": false,
+      "notes": "syscall_coverage.c lines 321-324 discard return values with (void) cast — a broken implementation returning garbage would pass. Compare to getpid_test.c which validates pid > 0, pid != 42, and consistency. The challenge is that native getuid() returns the host user's real UID (e.g., 1000 on Linux, 501 on macOS) while WASM always returns 1000. The parity test currently does exact stdout comparison (line 504), so the test approach needs to handle this divergence."
+    },
+    {
+      "id": "US-051",
+      "title": "Add getppid parent-child verification test",
+      "description": "As a developer, I need a test proving getppid() returns the actual parent's PID, not just any positive number.",
+      "acceptanceCriteria": [
+        "Create wasmvm/c/programs/getppid_verify.c — parent calls getpid(), spawns child that calls getppid(), child prints both values",
+        "Child program prints: parent_pid=N and my_ppid=N, plus match=yes/no",
+        "Verify child's getppid() equals parent's getpid()",
+        "Add getppid_verify to PATCHED_PROGRAMS in wasmvm/c/Makefile",
+        "Add parity test in c-parity.test.ts — verify match=yes in both native and WASM output",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 51,
+      "passes": false,
+      "notes": "Current getppid_test.c only checks ppid > 0 — a hardcoded 'return 1' would pass. This test spawns a child that verifies its ppid matches the parent's pid, proving the kernel correctly tracks parent-child relationships across proc_spawn. The child program can be a simple C program that prints getppid(), or the parent can spawn 'sh -c' with a command that reads getppid."
+    },
+    {
+      "id": "US-052",
+      "title": "Add SIGKILL signal test and signal edge cases",
+      "description": "As a developer, I need signal delivery tests for SIGKILL (not just SIGTERM) and edge cases like signaling an already-exited process.",
+      "acceptanceCriteria": [
+        "Create wasmvm/c/programs/signal_tests.c with multiple signal test scenarios",
+        "Test 1: spawn child, send SIGKILL (9), verify WIFSIGNALED and WTERMSIG==9",
+        "Test 2: spawn child, let it exit normally, then call kill() on the exited PID — verify kill returns -1 with errno ESRCH (or 0 per POSIX for recently-exited)",
+        "Test 3: call kill() with invalid PID (99999) — verify returns -1",
+        "Each test prints structured output: 'test_name: ok' or 'test_name: FAIL (reason)'",
+        "Add signal_tests to PATCHED_PROGRAMS in wasmvm/c/Makefile",
+        "Add parity test in c-parity.test.ts",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 52,
+      "passes": false,
+      "notes": "kill_child.c only tests SIGTERM (15). SIGKILL (9) is the only other signal with real behavior in our architecture (worker.terminate()). Testing signal to exited process verifies zombie handling. Testing invalid PID verifies error handling in proc_kill. The JS handler (kernel-worker.ts:624-628) only checks isSpawnBlocked, not whether the PID exists — kernel.kill() handles the ESRCH error."
+    },
+    {
+      "id": "US-053",
+      "title": "Add pipe edge case tests - large writes, broken pipe, EOF",
+      "description": "As a developer, I need pipe tests covering buffer limits, write-to-closed-pipe behavior, and proper EOF semantics.",
+      "acceptanceCriteria": [
+        "Create wasmvm/c/programs/pipe_edge.c with multiple pipe edge case tests",
+        "Test 1: write >64KB to pipe — verify all data is received (reader must loop until EOF)",
+        "Test 2: close read end, write to write end — verify write returns -1 with errno EPIPE (or process receives SIGPIPE)",
+        "Test 3: close write end, read from read end — verify read returns 0 (EOF)",
+        "Test 4: create pipe, close both ends, verify no leak (process exits cleanly)",
+        "Each test prints structured output with ok/FAIL",
+        "Add pipe_edge to PATCHED_PROGRAMS in wasmvm/c/Makefile",
+        "Add parity test in c-parity.test.ts",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 53,
+      "passes": false,
+      "notes": "pipe_test.c writes only 18 bytes. The kernel pipe buffer is 64KB (MAX_PIPE_BUFFER_BYTES). Writing >64KB tests buffer pressure and blocking behavior. Write-to-closed-pipe tests EPIPE/SIGPIPE — our kernel throws EPIPE but doesn't send SIGPIPE (known gap in posix-compatibility.md). Test 3 verifies EOF semantics. Use a helper child process or fork-like pattern for test 2 (need two processes sharing the pipe)."
+    },
+    {
+      "id": "US-054",
+      "title": "Extract shared posix_spawn_file_actions_t header",
+      "description": "As a developer, I need the posix_spawn_file_actions_t typedef in a shared header instead of duplicated across 6 C programs.",
+      "acceptanceCriteria": [
+        "Create wasmvm/c/include/posix_spawn_compat.h with the posix_spawn_file_actions_t typedef and related types",
+        "Include posix_spawn_file_actions_adddup2, posix_spawn_file_actions_addclose, posix_spawn_file_actions_init, posix_spawn_file_actions_destroy declarations",
+        "Include posix_spawnattr_t typedef",
+        "Update spawn_child.c to #include \"posix_spawn_compat.h\" and remove inline typedef",
+        "Update kill_child.c to use shared header",
+        "Update waitpid_return.c to use shared header",
+        "Update pipeline.c to use shared header",
+        "Update spawn_exit_code.c to use shared header",
+        "Update syscall_coverage.c to use shared header",
+        "Update wasmvm/c/Makefile to add -I include/ to CFLAGS for all PATCHED_PROGRAMS",
+        "Verify all 6 programs still compile and pass parity tests",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 54,
+      "passes": false,
+      "notes": "The identical typedef struct { int __pad0[2]; void *__actions; int __pad[16]; } posix_spawn_file_actions_t; is copy-pasted in 6 C files. If the patched wasi-libc definition changes, all 6 must be updated manually. A shared header eliminates this risk. The -I include/ flag in CFLAGS makes the header available to all programs."
+    },
+    {
+      "id": "US-055",
+      "title": "Fix populateBinEntry async race in kernel spawnInternal",
+      "description": "As a developer, I need the populateBinEntry() call in kernel.ts spawnInternal to be properly awaited so /bin stubs are created before brush-shell PATH lookup.",
+      "acceptanceCriteria": [
+        "Fix kernel.ts spawnInternal: await the populateBinEntry() call when tryResolve succeeds",
+        "If spawnInternal is not already async, make the tryResolve+register+populate path async",
+        "Alternative: make populateBinEntry synchronous if VFS.writeFile is sync in the SimpleVFS implementation",
+        "Test: on-demand discovery creates /bin stub before subsequent spawn resolves via PATH",
+        "Test: rapid consecutive spawns of a newly-discovered command both succeed (no race)",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 55,
+      "passes": false,
+      "notes": "kernel.ts line 404: populateBinEntry() is declared async (returns Promise<void>) but called without await in spawnInternal(). The /bin stub may not exist when brush-shell tries PATH lookup on subsequent invocations. This is a race condition — it works most of the time because the VFS write is fast, but is not guaranteed. Check if spawnInternal is already async (it likely is since it calls spawn which is async). If so, just add await."
+    },
+    {
+      "id": "US-056",
+      "title": "Add waitpid edge case tests - concurrent children and invalid PID",
+      "description": "As a developer, I need waitpid tests covering multiple concurrent children with ordering, and error cases for invalid PIDs.",
+      "acceptanceCriteria": [
+        "Create wasmvm/c/programs/waitpid_edge.c with multiple waitpid edge case tests",
+        "Test 1: spawn 3 children with different exit codes, waitpid each by specific PID — verify correct exit code for each",
+        "Test 2: spawn 2 children, use wait() (waitpid -1) twice — verify both children reaped (returned PIDs are valid and distinct)",
+        "Test 3: waitpid with PID that was never spawned — verify returns -1 with errno ECHILD",
+        "Each test prints structured output with ok/FAIL",
+        "Add waitpid_edge to PATCHED_PROGRAMS in wasmvm/c/Makefile",
+        "Add parity test in c-parity.test.ts",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 56,
+      "passes": false,
+      "notes": "waitpid_return.c only tests sequential single-child scenarios. Test 1 exercises the kernel's ability to track multiple concurrent children. Test 2 verifies wait() (-1) returns valid PIDs when multiple children have exited. Test 3 verifies ECHILD error for invalid PID. The JS handler (kernel-worker.ts:604-608) tracks children in a Set — test 2 verifies Set iteration order is safe."
     }
   ]
 }

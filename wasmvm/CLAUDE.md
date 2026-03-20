@@ -6,7 +6,8 @@ Standalone WebAssembly binaries providing a comprehensive Unix userland, paired 
 - **Spec (MVP):** `notes/specs/wasmvm-mvp.md`
 - **Spec (dynamic modules):** `notes/specs/wasmvm-dynamic-modules.md`
 - **Spec (tool completeness):** `notes/specs/wasmvm-tool-completeness.md`
-- **Compatibility matrix:** `docs/compatibility-matrix.md` (keep up to date when adding/replacing commands)
+- **Supported commands:** `docs/wasmvm/supported-commands.md` (keep up to date when adding/replacing commands)
+- **POSIX compatibility:** `docs/posix-compatibility.md` (update when WASI, signal, pipe, or process behavior changes)
 - **Deferred TODOs:** `notes/todo.md`
 
 ## Architecture
