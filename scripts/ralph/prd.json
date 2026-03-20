@@ -57,7 +57,7 @@
       ],
       "priority": 3,
       "passes": true,
-      "notes": "Current code: wasmvm/crates/multicall/src/grep.rs has separate grep()/egrep()/fgrep() functions with hardcoded modes. Refactor to a single main(args) that reads argv[0] basename (Path::new(args[0]).file_name()) and matches on it. The rg command can share the libs/grep crate or get its own. See spec Section 5.2 and 5.3. Keep multicall building in parallel during transition."
+      "notes": ""
     },
     {
       "id": "US-004",
@@ -75,7 +75,7 @@
       ],
       "priority": 4,
       "passes": true,
-      "notes": "brush-shell entry point is brush_shell::entry::run(), NOT brush_shell::main() which doesn't exist. The 'bash' alias will be a symlink created in the build system (US-011). brush-shell must be compiled with features = ['minimal'] — no readline/reedline. See spec Section 5.2 example."
+      "notes": ""
     },
     {
       "id": "US-005",
@@ -97,7 +97,7 @@
       ],
       "priority": 5,
       "passes": true,
-      "notes": "Extract implementation code from multicall's corresponding .rs files (sed.rs, awk.rs, jq.rs, yq.rs, rg.rs). Each library crate exposes a main(args) -> i32 function. sed uses the uutils/sed crate directly. rg uses ripgrep internals. See spec Section 5.2 for structure. Keep multicall building in parallel."
+      "notes": ""
     },
     {
       "id": "US-006",
@@ -114,7 +114,7 @@
       ],
       "priority": 6,
       "passes": true,
-      "notes": "Extract from multicall: find.rs, file.rs, tree.rs, du.rs, column.rs, rev.rs, strings.rs, expr.rs, diff.rs. Each gets a libs/ crate and a commands/ crate. These are custom implementations (not uutils). See spec Section 5.2."
+      "notes": ""
     },
     {
       "id": "US-007",
@@ -133,7 +133,7 @@
       ],
       "priority": 7,
       "passes": true,
-      "notes": "Extract from multicall's gzip.rs and tar_cmd.rs. gzip uses flate2, tar uses the tar crate. Symlinks (gunzip->gzip, zcat->gzip) are created in the build system (US-011). The gzip binary must dispatch on argv[0] like grep does. See spec Section 5.3."
+      "notes": ""
     },
     {
       "id": "US-008",
@@ -150,7 +150,7 @@
       ],
       "priority": 8,
       "passes": true,
-      "notes": "These are mechanical: each crate is a Cargo.toml (~10 lines) and main.rs (~4 lines). Pattern: fn main() { let args: Vec<OsString> = std::env::args_os().collect(); std::process::exit(uu_X::uumain(args.into_iter()) as i32); }. See spec Section 5.2 ls example. uutils crates are already workspace dependencies via the multicall. The 'more' command should be a symlink to cat (see US-011), NOT a separate binary."
+      "notes": ""
     },
     {
       "id": "US-009",
@@ -166,7 +166,7 @@
       ],
       "priority": 9,
       "passes": true,
-      "notes": "Same mechanical pattern as US-008. Check dispatch.rs match statement for the full list of uutils commands to ensure nothing is missed. Some commands may not have a corresponding uu_* crate — check before creating. If a command was a custom implementation (not uutils), it belongs in a libs/ crate instead (should already be handled by US-005/006)."
+      "notes": ""
     },
     {
       "id": "US-010",
@@ -186,7 +186,7 @@
       ],
       "priority": 10,
       "passes": true,
-      "notes": "Builtins use wasi-ext for host imports. Shims use wasi-ext proc_spawn. _stubs is the one exception to 'no multicall' — justified because stubs are not real commands, just error messages. Stub commands: hostname, kill, stty, chown, chgrp, df, and others from dispatch.rs. _stubs checks argv[0] basename and prints 'command not supported in sandbox'. See spec Section 5.4."
+      "notes": ""
     },
     {
       "id": "US-011",
@@ -206,7 +206,7 @@
       ],
       "priority": 11,
       "passes": true,
-      "notes": "See spec Section 6.1 and 6.2. The build script must invoke patch-std and patch-vendor (inherited from existing Makefile). On platforms without symlink support (some Windows), copy the binary instead. The old multicall target can be kept temporarily for comparison but the default 'make wasm' should build standalone binaries. COMMANDS_DIR should be configurable."
+      "notes": ""
     },
     {
       "id": "US-012",
@@ -225,7 +225,7 @@
       ],
       "priority": 12,
       "passes": true,
-      "notes": "See spec Section 3.4. The cache stores Map<string, WebAssembly.Module>. Concurrent dedup: store Promise in a 'pending' map, await it if another resolve() is already compiling the same binary. Clean up pending entry in finally block. First spawn ~50-200ms (compile), subsequent ~1-5ms (instantiate from cache)."
+      "notes": ""
     },
     {
       "id": "US-013",
@@ -248,7 +248,7 @@
       ],
       "priority": 13,
       "passes": true,
-      "notes": "File: packages/runtime/wasmvm/src/driver.ts. Current driver has hardcoded WASMVM_COMMANDS array (lines 41-86) and single wasmBinaryPath. Replace with commandDirs + _commandPaths Map<string, string>. isWasmBinary: async version for init scan, sync version (fs.openSync + readSync) for tryResolve. See spec Section 3.2, 3.3, 4.2. The tryResolve method is called by the kernel (US-002)."
+      "notes": ""
     },
     {
       "id": "US-014",
@@ -266,7 +266,7 @@
       ],
       "priority": 14,
       "passes": true,
-      "notes": "Files: packages/runtime/wasmvm/src/syscall-rpc.ts (WorkerInitData), packages/runtime/wasmvm/src/driver.ts (_launchWorker), packages/runtime/wasmvm/src/kernel-worker.ts. WebAssembly.Module is Transferable in Node.js since v16. The worker currently reads the binary independently (kernel-worker.ts lines 632-633). See spec Section 3.4 and 4.4."
+      "notes": ""
     },
     {
       "id": "US-015",
@@ -288,7 +288,7 @@
       ],
       "priority": 15,
       "passes": true,
-      "notes": "These tests exercise the full pipeline: kernel -> CommandRegistry -> WasmVmRuntimeDriver -> ModuleCache -> Worker. Use createIntegrationKernel from test helpers. Tests must be guarded with skipUnlessWasmBuilt() since they require compiled WASM binaries. Symlink test validates that aliases like egrep->grep are followed during directory scan (P2-5). WASMVM_COMMANDS test validates the public export reflects discovered commands (P0-4/P1-9). See spec Section 11 for test examples."
+      "notes": ""
     },
     {
       "id": "US-016",
@@ -307,7 +307,7 @@
       ],
       "priority": 16,
       "passes": true,
-      "notes": "See spec Section 8. This is the browser equivalent of the Node.js filesystem-based driver. The manifest is a static JSON file generated at build time. compileStreaming compiles while downloading for best performance. No tryResolve needed for browser — all commands are known from the manifest at init() time. This is a behavioral difference from the Node.js driver which supports on-demand discovery via tryResolve. Preload functionality is added in US-017, not here."
+      "notes": ""
     },
     {
       "id": "US-017",
@@ -325,7 +325,7 @@
       ],
       "priority": 17,
       "passes": true,
-      "notes": "See spec Section 8.3 and 8.4. Cache API is available in service workers and modern browsers. IndexedDB is the universal fallback. SHA-256 verification ensures cached binaries haven't been tampered with. preload(['sh', 'ls', 'cat', 'grep']) for common workloads. Tests use mocked browser APIs."
+      "notes": ""
     },
     {
       "id": "US-018",
@@ -348,7 +348,7 @@
       ],
       "priority": 18,
       "passes": true,
-      "notes": "See spec Section 9. First half of permission system (split from original monolithic story for sizing). PermissionTier flows: options.permissions[commandName] -> WorkerInitData.permissionTier -> kernel-worker.ts enforcement. The WASM binary cannot bypass enforcement since all I/O goes through kernel RPC. US-019 adds process enforcement and wildcard patterns."
+      "notes": ""
     },
     {
       "id": "US-019",
@@ -369,7 +369,7 @@
       ],
       "priority": 19,
       "passes": true,
-      "notes": "See spec Section 9. Second half of permission system, builds on US-018's PermissionTier infrastructure and WorkerInitData field. Config example: { 'sh': 'full', 'grep': 'read-only', '_untrusted/*': 'isolated', '*': 'read-write' }."
+      "notes": ""
     },
     {
       "id": "US-020",
@@ -392,7 +392,7 @@
       ],
       "priority": 20,
       "passes": true,
-      "notes": "CRITICAL: Do NOT start this story unless US-014 through US-019 all pass. The standalone binary architecture must be fully validated before removing the multicall fallback. Cross-reference dispatch.rs against all standalone crates. Commands to explicitly verify are accounted for: hostid, sync, tty, more (symlink to cat), chcon, runcon, chroot, install, mkfifo, mknod, pinky, who, users, uptime, spawn-test. Each must be in a standalone crate, a _stubs symlink, or explicitly documented as removed."
+      "notes": ""
     },
     {
       "id": "US-021",
@@ -413,7 +413,7 @@
       ],
       "priority": 21,
       "passes": true,
-      "notes": "See spec Section 3. Initially uses vanilla wasi-sdk sysroot (no patches). Patched sysroot comes in US-025-028. Verify wasi-sdk-25 download URL at github.com/WebAssembly/wasi-sdk/releases — include platform suffix (e.g., wasi-sdk-25.0-x86_64-linux.tar.gz). COMMANDS variable lists opt-in real commands (initially empty). The libs/ directory anticipates US-032/033 which compile vendored C libraries (cJSON, SQLite) — the Makefile's per-program override mechanism lets these link extra .c files. wasm-opt is from the binaryen package — fail with a clear error message if not installed."
+      "notes": ""
     },
     {
       "id": "US-022",
@@ -432,7 +432,7 @@
       ],
       "priority": 22,
       "passes": true,
-      "notes": "See spec Section 4.1 Tier 1. These exercise wasi_snapshot_preview1 imports only: fd_write, proc_exit, args_get, environ_get, fd_read. No custom host_process/host_user imports needed. Keep programs minimal — each should be a single .c file under 50 lines. These are test fixtures, NOT installed to commandDirs."
+      "notes": ""
     },
     {
       "id": "US-023",
@@ -451,7 +451,7 @@
       ],
       "priority": 23,
       "passes": true,
-      "notes": "See spec Section 4.1 Tier 1. These exercise: malloc/realloc (wc, sort), path_open/fd_read (fread), path_open/fd_write (fwrite), qsort (sort), CPU-intensive math (sha256). sha256 should be a self-contained implementation (no OpenSSL dependency). These are test fixtures, NOT installed to commandDirs."
+      "notes": ""
     },
     {
       "id": "US-024",
@@ -470,7 +470,7 @@
       ],
       "priority": 24,
       "passes": true,
-      "notes": "See spec Section 4.6. Same parity approach as project-matrix tests in packages/secure-exec/tests/projects/. The harness should handle test setup (creating temp files for fread/fwrite, providing stdin input for cat/wc/sort/sha256). Native binaries are pre-compiled by the C Makefile. Both WASM and native binaries must exist (use skip guards for both). Add a helper like skipUnlessNativeBuilt() for native compiler availability."
+      "notes": ""
     },
     {
       "id": "US-025",
@@ -491,7 +491,7 @@
       ],
       "priority": 25,
       "passes": true,
-      "notes": "See spec Section 3.3. Follow the exact pattern of wasmvm/scripts/patch-std.sh and wasmvm/scripts/patch-vendor.sh. Pin wasi-libc to the commit referenced by wasi-sdk-25's submodule for guaranteed compatibility — check the wasi-sdk repo's git submodule entries for the exact commit hash. Verify the vanilla (unpatched) sysroot builds before adding any patches to establish a known-good baseline. Canonical import source: wasmvm/crates/wasi-ext/src/lib.rs."
+      "notes": ""
     },
     {
       "id": "US-026",
@@ -511,7 +511,7 @@
       ],
       "priority": 26,
       "passes": true,
-      "notes": "See spec Section 2.1 and 2.3 for the exact pattern. Each function: declare WASM import with __attribute__((import_module, import_name)), implement POSIX wrapper that calls import, sets errno on failure, returns -1/0. The canonical import signatures are in wasmvm/crates/wasi-ext/src/lib.rs — C signatures must match the Rust extern FFI exactly. pipe() example is in spec Section 2.3."
+      "notes": ""
     },
     {
       "id": "US-027",
@@ -535,7 +535,7 @@
       ],
       "priority": 27,
       "passes": true,
-      "notes": "See spec Section 2.1. CRITICAL: posix_spawn() is the hardest patch. Read wasmvm/crates/wasi-ext/src/lib.rs proc_spawn wrapper to understand the exact serialization format: argv is serialized as null-terminated strings concatenated back-to-back in a buffer, with total byte length passed as a separate i32 param. The host_process.proc_spawn signature is (cmd_ptr, cmd_len, argv_buf_ptr, argv_buf_len, envp_buf_ptr, envp_buf_len, stdin_fd, stdout_fd, stderr_fd, cwd_ptr, cwd_len, ret_pid_ptr) -> errno. file_actions from posix_spawn are mapped to stdin/stdout/stderr fd params; posix_spawnattr_t (scheduling, signal masks) is not supported and is silently ignored. waitpid returns status via out-pointer. kill takes (pid, signal) -> errno."
+      "notes": ""
     },
     {
       "id": "US-028",
@@ -557,7 +557,7 @@
       ],
       "priority": 28,
       "passes": true,
-      "notes": "See spec Section 2.1. These are the simplest patches — each function is ~5 lines (declare import, call it, return result). isatty replaces wasi-libc's basic filetype check with our host_user.isatty which checks the actual PTY state. After this story, all 6 patches exist and the patched sysroot should build end-to-end. Verify with: make -C wasmvm/c sysroot && ls wasmvm/c/sysroot/lib/wasm32-wasi/libc.a"
+      "notes": ""
     },
     {
       "id": "US-029",
@@ -577,7 +577,7 @@
       ],
       "priority": 29,
       "passes": true,
-      "notes": "See spec Section 4.2 Tier 2. These validate that the patches from US-026-028 actually work. getpid_test is the key validation — vanilla wasi-libc returns 42, patched version returns real PID from host. pipe_test: pipe(fds), write(fds[1], ...), read(fds[0], ...), compare. NOTE: sleep_test uses standard WASI poll_oneoff-based sleep (via wasi-libc's nanosleep/sleep), NOT host_process.sleep_ms. It validates that C's sleep functions work correctly on our WASI runtime. It's grouped with Tier 2 despite being standard WASI because it tests timing behavior alongside the custom import fixtures."
+      "notes": ""
     },
     {
       "id": "US-030",
@@ -595,7 +595,7 @@
       ],
       "priority": 30,
       "passes": true,
-      "notes": "See spec Section 4.3 Tier 3. These are the most complex test fixtures — they exercise proc_spawn + proc_waitpid + proc_kill + fd_pipe + fd_dup2 together. pipeline.c is the key integration test: creates pipe, spawns 'echo hello' with stdout redirected to pipe write end, spawns 'cat' with stdin from pipe read end, waits for both. This validates that C binaries can orchestrate multi-process pipelines just like Rust ones."
+      "notes": ""
     },
     {
       "id": "US-031",
@@ -614,7 +614,7 @@
       ],
       "priority": 31,
       "passes": true,
-      "notes": "See spec Section 4.4 Tier 4. These exercise WASI filesystem APIs: path_open, fd_readdir, fd_filestat_get, path_filestat_get. c-ls should print name + size like 'ls -l' but simpler. c-tree uses recursive opendir/readdir. c-find uses simple glob matching (fnmatch or manual). c-cp opens source for reading, dest for writing, copies in chunks. Test setup must create a temp directory tree."
+      "notes": ""
     },
     {
       "id": "US-032",
@@ -631,7 +631,7 @@
       ],
       "priority": 32,
       "passes": true,
-      "notes": "See spec Section 4.5 Tier 5. cJSON is MIT-licensed, single-file C library. This validates complex malloc/free patterns since cJSON allocates heavily. The test should parse a non-trivial JSON (nested objects, arrays, mixed types) and print a formatted representation. If cJSON fails to compile, it likely means our sysroot is missing something — document the gap."
+      "notes": ""
     },
     {
       "id": "US-033",
@@ -649,7 +649,7 @@
       ],
       "priority": 33,
       "passes": true,
-      "notes": "See spec Section 4.5 Tier 5. SQLite amalgamation is public domain. This is the boss fight — SQLite exercises massive libc surface (malloc, mmap emulation, file I/O, string formatting, math). Compile flags: -DSQLITE_OS_OTHER or -DSQLITE_OS_UNIX, -DSQLITE_OMIT_WAL, -DSQLITE_OMIT_LOAD_EXTENSION, -DSQLITE_THREADSAFE=0. May need -lwasi-emulated-signal and -lwasi-emulated-mman. Expected binary size ~1-2MB native, potentially up to ~3MB as WASM with wasi-libc overhead."
+      "notes": ""
     },
     {
       "id": "US-034",
@@ -667,8 +667,277 @@
         "Tests pass"
       ],
       "priority": 34,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-035",
+      "title": "Comprehensive node binary integration test suite",
+      "description": "As a developer, I need a comprehensive test file covering all node CLI behaviors through the kernel so regressions are caught.",
+      "acceptanceCriteria": [
+        "Create packages/secure-exec/tests/kernel/node-binary-behavior.test.ts",
+        "Test: node -e 'console.log(\"hello\")' -> stdout contains 'hello', exitCode 0",
+        "Test: node -e 'process.exit(42)' -> exitCode 42",
+        "Test: node -e 'console.error(\"err\")' -> stderr contains 'err'",
+        "Test: node -e 'syntax error' -> exitCode non-zero, stderr contains error name",
+        "Test: node -e 'throw new Error(\"boom\")' -> exitCode 1, stderr contains 'boom'",
+        "Test: node -e 'setTimeout(()=>console.log(\"delayed\"),100)' -> stdout contains 'delayed'",
+        "Test: node -e with process.stdin (reads from stdin pipe) -> works when stdin provided",
+        "Test: node -e 'require(\"fs\").readdirSync(\"/\")' -> returns VFS root listing",
+        "Test: node -e 'require(\"child_process\").execSync(\"echo sub\").toString()' -> stdout contains 'sub' (cross-runtime)",
+        "Test: node --version -> stdout matches semver pattern",
+        "Test: node with no args and closed stdin -> exits cleanly (does not hang)",
+        "All tests run through kernel.exec() (non-PTY path) AND at least stdout/error tests also verified through interactive shell (PTY path via TerminalHarness)",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 35,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-036",
+      "title": "Fix Ctrl+C at shell prompt not resetting the input line",
+      "description": "As a user, I need Ctrl+C at the shell prompt to discard the current partial input, echo ^C, and show a fresh prompt — matching POSIX bash behavior.",
+      "acceptanceCriteria": [
+        "Interactive shell: type 'partial command' then Ctrl+C -> '^C' appears, current input discarded, fresh prompt on new line",
+        "Interactive shell: empty prompt + Ctrl+C -> '^C' appears, fresh prompt on new line (no error)",
+        "Interactive shell: Ctrl+C at prompt does NOT kill the shell process (shell must survive)",
+        "Test: TerminalHarness types partial text, sends 0x03, verifies ^C echo and fresh prompt within 1 second",
+        "Test: after Ctrl+C at prompt, shell accepts and executes the next command normally",
+        "Fix approach: intercept SIGINT at PTY/kernel level when foreground pgid is the shell's own pgid — echo ^C\\r\\n and re-trigger prompt instead of calling driver.kill() which terminates the WASM worker",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 36,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-037",
+      "title": "Fix fdPwrite permission bypass and gate proc_kill, fd_pipe, fd_dup by tier",
+      "description": "As a developer, I need write/process permission enforcement applied consistently to ALL write and process syscalls so restricted tiers cannot bypass protections.",
+      "acceptanceCriteria": [
+        "Add isWriteBlocked() check to fdPwrite in kernel-worker.ts — mirror the check in fdWrite (allow only fd 1 and 2)",
+        "Gate proc_kill with permission check — only 'full' tier can send signals (use isSpawnBlocked() or new isKillBlocked())",
+        "Gate fd_pipe with isSpawnBlocked() — pipes are only useful with proc_spawn, restrict to 'full' tier",
+        "Gate fd_dup with isSpawnBlocked() — prevent resource exhaustion from restricted tiers",
+        "Test: read-only command calling fd_pwrite returns EACCES",
+        "Test: read-only command calling proc_kill returns EACCES",
+        "Test: isolated command calling fd_pipe returns EACCES",
+        "Test: full-tier command can still use fdPwrite, proc_kill, fd_pipe, fd_dup normally",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 37,
+      "passes": true,
+      "notes": "SECURITY: fdPwrite bypass is the highest-priority fix. A read-only command can currently write to files via fd_pwrite. File: packages/runtime/wasmvm/src/kernel-worker.ts. fdWrite (line ~163) has the check, fdPwrite (line ~232) does not. proc_kill (line ~540) and fd_pipe/fd_dup (line ~551-601) are also ungated."
+    },
+    {
+      "id": "US-038",
+      "title": "Implement proc_getppid and fd_dup2 host imports in kernel-worker and driver",
+      "description": "As a developer, I need the missing host_process.proc_getppid and host_process.fd_dup2 imports implemented so C/Rust binaries calling getppid() or dup2() don't trap.",
+      "acceptanceCriteria": [
+        "Add proc_getppid function to createHostProcessImports in kernel-worker.ts — writes init.ppid to return pointer",
+        "Add fd_dup2 function to createHostProcessImports in kernel-worker.ts — calls fdTable.dup2(oldFd, newFd) via RPC",
+        "Add fdDup2 case to driver.ts _handleSyscall RPC dispatcher",
+        "Test: WASM binary calling getppid() returns a valid PID (not trap, not 0)",
+        "Test: WASM binary calling dup2(stdout, 10) can write to fd 10",
+        "Test: dup_test.c parity test passes (previously skipped due to missing fd_dup2)",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 38,
       "passes": false,
-      "notes": "See spec Section 6 Phase 4. wasi-sdk download should be cached by CI (e.g., actions/cache keyed on wasi-sdk version). The sysroot build is slow (~2-3 min) so cache it (keyed on wasi-libc commit + patch checksums). C test fixtures are fast to compile (<30s total). Parity tests run as part of the normal test suite. Both native compiler (gcc/clang) and wasi-sdk must be available in CI. Reference: spec Section 7 Success Criteria."
+      "notes": "Both imports are declared in wasmvm/crates/wasi-ext/src/lib.rs and in the C patches (0001-pipe-dup.patch, 0004-getpid.patch) but NOT provided by the JS host. Any WASM binary that links getppid() or dup2() will fail with a WebAssembly.LinkError. WorkerInitData already carries ppid. File: packages/runtime/wasmvm/src/kernel-worker.ts createHostProcessImports()."
+    },
+    {
+      "id": "US-039",
+      "title": "Gate isolated-tier VFS operations and add integration tests",
+      "description": "As a developer, I need the isolated permission tier to properly restrict VFS reads to cwd only, with integration tests proving enforcement.",
+      "acceptanceCriteria": [
+        "Add isPathInCwd check to vfs.exists() in kernel-worker.ts VFS proxy — return false for paths outside cwd when isolated",
+        "Add isPathInCwd check to vfs.readlink() in kernel-worker.ts — throw VfsError for paths outside cwd when isolated",
+        "Add isPathInCwd check to getIno()/resolveIno() in kernel-worker.ts — return null for paths outside cwd when isolated",
+        "Add isPathInCwd check to populateDirEntries() in kernel-worker.ts — skip for paths outside cwd when isolated",
+        "Integration test: isolated command cannot stat /etc/passwd (path outside cwd)",
+        "Integration test: isolated command cannot readdir / (root listing blocked)",
+        "Integration test: isolated command CAN read files within its cwd",
+        "Integration test: isolated command cannot write files anywhere",
+        "Integration test: isolated command cannot spawn subprocesses",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 39,
+      "passes": false,
+      "notes": "Currently vfs.exists(), readlink(), getIno() and populateDirEntries() in kernel-worker.ts have zero permission checks for isolated tier. An isolated command can probe the entire VFS structure. The driver.test.ts permission tests (lines ~957-1029) only test read-only, read-write, and full — zero tests for isolated tier."
+    },
+    {
+      "id": "US-040",
+      "title": "Move FDTable out of test path and fix module compile error handling",
+      "description": "As a developer, I need production code to not import from test directories, and module compilation failures to fail fast instead of silently launching broken workers.",
+      "acceptanceCriteria": [
+        "Move FDTable from packages/runtime/wasmvm/test/helpers/test-fd-table.ts to packages/runtime/wasmvm/src/fd-table.ts",
+        "Update kernel-worker.ts import to use the new src/ path",
+        "Update test imports to use the new src/ path",
+        "Replace empty catch {} in driver.ts _launchWorker ModuleCache.resolve() with proper error propagation",
+        "If module compilation fails, throw immediately with descriptive error instead of launching worker with undefined module",
+        "Test: spawning a command with a corrupt WASM binary produces a clear error (not silent failure)",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 40,
+      "passes": false,
+      "notes": "kernel-worker.ts line 18 imports FDTable from ../test/helpers/test-fd-table.ts — production code importing from test path. driver.ts lines ~450-456 has empty catch {} that swallows module compilation errors. Both are reliability/deployment hazards."
+    },
+    {
+      "id": "US-041",
+      "title": "Fix isPathInCwd symlink escape and validate unknown tier strings",
+      "description": "As a developer, I need isPathInCwd to resolve symlinks before checking the path prefix, and unknown permission tier strings to default to the most restrictive tier.",
+      "acceptanceCriteria": [
+        "Fix isPathInCwd in permission-check.ts to use realpath (resolve symlinks) instead of normalize(resolve())",
+        "An isolated command cannot read /cwd/symlink-to-etc/passwd even if the symlink is inside cwd",
+        "Add runtime validation for PermissionTier in kernel-worker.ts — if tier is not one of 'full'|'read-write'|'read-only'|'isolated', default to 'isolated'",
+        "Test: symlink inside cwd pointing outside cwd is blocked for isolated tier",
+        "Test: unknown tier string 'admin' defaults to isolated behavior (blocks writes and spawns)",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 41,
+      "passes": false,
+      "notes": "isPathInCwd in permission-check.ts (lines ~22-26) uses normalize(resolve()) which is purely lexical — no symlink resolution. A symlink inside cwd pointing to /etc would pass the prefix check. Unknown tier strings fall through inconsistently: isWriteBlocked returns false (allows writes!) but isSpawnBlocked returns true."
+    },
+    {
+      "id": "US-042",
+      "title": "Fix vfsReadFile SAB overflow guard and lstat fallthrough",
+      "description": "As a developer, I need vfsReadFile to check buffer bounds before writing, and lstat to not follow symlinks.",
+      "acceptanceCriteria": [
+        "In driver.ts _handleSyscall vfsReadFile case: check content.length against DATA_BUFFER_BYTES BEFORE calling data.set(content, 0)",
+        "If content exceeds buffer, return EIO immediately (not via catch-block RangeError conversion)",
+        "Apply same pre-check to vfsReaddir and vfsStat cases in _handleSyscall",
+        "Fix lstat() in kernel-worker.ts VFS proxy to not follow symlinks (currently falls through to stat())",
+        "Test: reading a file >1MB from VFS returns EIO cleanly (not RangeError crash)",
+        "Test: lstat on a symlink returns the symlink's metadata, not the target's",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 42,
+      "passes": false,
+      "notes": "driver.ts vfsReadFile (line ~746) calls data.set(content, 0) unconditionally before the overflow guard at line ~774. If content >1MB, data.set() throws RangeError which the catch block converts to EIO — fragile. Contrast with fdRead/fdPread which correctly check size BEFORE data.set(). kernel-worker.ts lstat (line ~393) just calls this.stat(path) — symlinks always followed."
+    },
+    {
+      "id": "US-043",
+      "title": "Fix posix_spawn file_actions and waitpid return value",
+      "description": "As a developer, I need posix_spawn to handle addclose/addopen file_actions and waitpid to return the actual child PID.",
+      "acceptanceCriteria": [
+        "Update 0002-spawn-wait.patch: posix_spawn iteration over file_actions now processes OP_CLOSE and OP_OPEN ops (not just dup2)",
+        "For OP_CLOSE: call __wasi_fd_close() on the specified fd before spawning",
+        "For OP_OPEN: open the file and dup2 it to the target fd before spawning",
+        "Fix waitpid return value: when pid > 0, return the actual waited-for PID from the host (not just echo back the input pid)",
+        "waitpid(-1, ...) returns the PID of any exited child (not -1)",
+        "Test: posix_spawn with addclose correctly closes pipe ends in child",
+        "Test: waitpid returns correct child PID",
+        "Rebuild patched sysroot after patch update",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 43,
+      "passes": false,
+      "notes": "0002-spawn-wait.patch line ~246: posix_spawn iteration only extracts dup2 ops targeting fds 0/1/2 for stdin_fd/stdout_fd/stderr_fd. addclose and addopen are silently ignored. waitpid (line ~289) always returns the input pid instead of the actual waited-for PID. Also __addfdop uses prepend (not append) so action execution order is reversed."
+    },
+    {
+      "id": "US-044",
+      "title": "C parity test improvements - stderr, sleep_test tier, getpid assertions",
+      "description": "As a developer, I need the C parity tests to compare stderr, fix sleep_test classification, and strengthen getpid_test assertions.",
+      "acceptanceCriteria": [
+        "Add stderr comparison to all Tier 2+ parity tests in c-parity.test.ts (currently only stdout and exit code are compared)",
+        "Move sleep_test out of PATCHED_PROGRAMS list in Makefile — it uses vanilla nanosleep(), not host_process.sleep_ms",
+        "Add isatty_test to PATCHED_PROGRAMS list in Makefile (it uses host_user.isatty from patched sysroot)",
+        "Strengthen getpid_test parity: verify WASM PID is > 0, != 42, and consistent with kernel-assigned PID (check via a second getpid call returning same value)",
+        "Strengthen kill_child parity: add WIFSIGNALED check or verify child exit status indicates signal termination",
+        "Strengthen userinfo parity: verify WASM uid/gid values are specific (e.g., 1000) not just format-matching",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 44,
+      "passes": false,
+      "notes": "c-parity.test.ts Tier 2+ tests only compare stdout and exitCode, never stderr. sleep_test uses vanilla nanosleep() not host_process.sleep_ms — mislabeled as Tier 2. isatty_test IS missing from PATCHED_PROGRAMS in Makefile line 69. getpid_test passes with any positive non-42 value. kill_child never checks WIFSIGNALED. userinfo just checks format regex."
+    },
+    {
+      "id": "US-045",
+      "title": "C syscall coverage integration test",
+      "description": "As a developer, I need a single comprehensive C program that exercises every libc-to-WASI and libc-to-host-import syscall path, proving end-to-end coverage.",
+      "acceptanceCriteria": [
+        "Create wasmvm/c/programs/syscall_coverage.c that tests ALL syscall categories in one program",
+        "WASI FD ops: open, read, write, pread, pwrite, seek, close, fstat, ftruncate",
+        "WASI path ops: mkdir, stat, rename, unlink, rmdir, opendir/readdir/closedir, symlink, readlink",
+        "WASI args/env/clock: argc/argv, environ, clock_gettime (CLOCK_REALTIME and CLOCK_MONOTONIC)",
+        "host_process: pipe, dup, dup2, getpid, getppid, posix_spawn+waitpid, kill",
+        "host_user: getuid, getgid, geteuid, getegid, isatty",
+        "Each syscall prints a structured line: 'syscall_name: ok' or 'syscall_name: FAIL (reason)'",
+        "Program exits 0 only if ALL syscalls succeed",
+        "Add parity test in c-parity.test.ts: native output === WASM output",
+        "Add to PATCHED_PROGRAMS in Makefile (requires patched sysroot)",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 45,
+      "passes": false,
+      "notes": "This is the capstone integration test. It exercises the full C -> libc -> WASI/host_import -> JS host -> kernel path for every syscall we provide. The structured output format makes it easy to identify which specific syscall fails. Depends on US-038 (proc_getppid and fd_dup2 must be implemented first). See the canonical import lists: wasi-ext/src/lib.rs for host_process/host_user, wasi-polyfill.ts for wasi_snapshot_preview1."
+    },
+    {
+      "id": "US-046",
+      "title": "Fix spawn RPC data race in driver.ts",
+      "description": "As a developer, I need the spawn RPC response to use proper synchronization so the child exit code doesn't race with subsequent RPC calls.",
+      "acceptanceCriteria": [
+        "Fix managed.wait().then() in driver.ts _handleSyscall spawn case to not write to dataBuf without Atomics notification",
+        "Child exit code must be delivered through a mechanism that doesn't race with the worker's next RPC call",
+        "Option A: use a separate SharedArrayBuffer slot for async spawn results",
+        "Option B: make spawn synchronous by blocking until child exits (simpler but limits parallelism)",
+        "Test: rapid spawn/wait cycles don't produce incorrect exit codes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 46,
+      "passes": false,
+      "notes": "driver.ts lines ~664-667: after kernel.spawn(), managed.wait().then((code) => { view.setInt32(0, code, true); }) writes to the shared data buffer asynchronously. By the time the child exits, the worker may have issued another RPC call using the same dataBuf, causing data corruption. The write has no Atomics.notify() to wake the worker."
+    },
+    {
+      "id": "US-047",
+      "title": "Fix poll_oneoff clock subscription sleep behavior",
+      "description": "As a developer, I need poll_oneoff to actually block for clock subscriptions so nanosleep()/sleep() work correctly from C programs.",
+      "acceptanceCriteria": [
+        "Fix poll_oneoff in wasi-polyfill.ts: clock subscriptions must block for the requested duration (not return immediately)",
+        "Use Atomics.wait() or host_process.sleep_ms for the blocking delay",
+        "Relative clock subscriptions (CLOCK_MONOTONIC) sleep for the specified timeout_ns",
+        "Absolute clock subscriptions (CLOCK_REALTIME) sleep until the specified wallclock time",
+        "Test: C program calling nanosleep(50ms) actually takes >= 40ms (80% of requested time)",
+        "Test: poll_oneoff with zero timeout returns immediately",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 47,
+      "passes": false,
+      "notes": "wasi-polyfill.ts lines ~1303-1306: clock subscriptions are completed immediately without any delay. nanosleep() from C goes through poll_oneoff and returns instantly. The host_process.sleep_ms exists and blocks via Atomics.wait but poll_oneoff doesn't use it. This means any C program using standard sleep/nanosleep/usleep gets zero delay."
+    },
+    {
+      "id": "US-048",
+      "title": "Update CLAUDE.md with WasmVM syscall coverage policy",
+      "description": "As a developer, I need CLAUDE.md updated with policies ensuring every host import has test coverage and new imports cannot be added without tests.",
+      "acceptanceCriteria": [
+        "Add 'WasmVM Syscall Coverage' section to CLAUDE.md",
+        "Document: every function in host_process and host_user import modules must have at least one C parity test exercising it through libc",
+        "Document: when adding a new host import, add a matching test case to syscall_coverage.c and its parity test",
+        "Document: the canonical source of truth for import signatures is wasmvm/crates/wasi-ext/src/lib.rs — C patches and JS host must match exactly",
+        "Document: C patches in patches/wasi-libc/ must be kept in sync with wasi-ext — ABI drift between C, Rust, and JS is a P0 bug",
+        "Document: permission tier enforcement must cover ALL write/spawn/kill/pipe operations — audit kernel-worker.ts when adding new syscalls",
+        "Document: PATCHED_PROGRAMS in wasmvm/c/Makefile must include all programs that use host_process or host_user imports",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 48,
+      "passes": false,
+      "notes": "This codifies the lessons from the adversarial review: missing host imports (proc_getppid, fd_dup2), permission bypass (fdPwrite), and ABI drift between C/Rust/JS are all bugs that happened because there was no policy requiring coverage. File: /home/nathan/secure-exec-1/CLAUDE.md under the existing 'WASM Binary' section."
     }
   ]
 }

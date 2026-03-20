@@ -230,6 +230,10 @@ function createKernelFileIO(): WasiFileIO {
       return { errno: res.errno, data: res.data };
     },
     fdPwrite(fd, data, offset) {
+      // Permission check: read-only/isolated tiers can only write to stdout/stderr
+      if (isWriteBlocked() && fd !== 1 && fd !== 2) {
+        return { errno: ERRNO_EACCES, written: 0 };
+      }
       const res = rpcCall('fdPwrite', { fd: kernelFd(fd), data: Array.from(data), offset: offset.toString() });
       return { errno: res.errno, written: res.intResult };
     },
@@ -537,8 +541,9 @@ function createHostProcessImports(getMemory: () => WebAssembly.Memory | null) {
       return ERRNO_SUCCESS;
     },
 
-    /** proc_kill(pid, signal) -> errno */
+    /** proc_kill(pid, signal) -> errno — only 'full' tier can send signals */
     proc_kill(pid: number, signal: number): number {
+      if (isSpawnBlocked()) return ERRNO_EACCES;
       const res = rpcCall('kill', { pid, signal });
       return res.errno;
     },
@@ -549,6 +554,8 @@ function createHostProcessImports(getMemory: () => WebAssembly.Memory | null) {
      * Registers pipe FDs in the local FDTable so WASI fd_renumber can find them.
      */
     fd_pipe(ret_read_fd_ptr: number, ret_write_fd_ptr: number): number {
+      // Permission check: pipes are only useful with proc_spawn, restrict to 'full' tier
+      if (isSpawnBlocked()) return ERRNO_EACCES;
       const mem = getMemory();
       if (!mem) return ERRNO_EINVAL;
 
@@ -583,6 +590,8 @@ function createHostProcessImports(getMemory: () => WebAssembly.Memory | null) {
      * Converts local FD to kernel FD, dups in kernel, registers new local FD.
      */
     fd_dup(fd: number, ret_new_fd_ptr: number): number {
+      // Permission check: prevent resource exhaustion from restricted tiers
+      if (isSpawnBlocked()) return ERRNO_EACCES;
       const mem = getMemory();
       if (!mem) return ERRNO_EINVAL;
 

@@ -1026,5 +1026,60 @@ describe('WasmVM RuntimeDriver', () => {
       const result = await kernel.exec('sh -c "ls /"');
       expect(result.exitCode).not.toBe(0);
     });
+
+    it('read-only command cannot write via pwrite path', async () => {
+      const vfs = new SimpleVFS();
+      kernel = createKernel({ filesystem: vfs as any });
+      await kernel.mount(createWasmVmRuntime({
+        commandDirs: [COMMANDS_DIR],
+        permissions: { '*': 'read-only' },
+      }));
+
+      // tee with read-only tier cannot write — fdOpen blocks write flags,
+      // fdPwrite provides defense-in-depth with the same isWriteBlocked() check
+      const result = await kernel.exec('tee /tmp/out', { stdin: 'hello' });
+      expect(result.exitCode).not.toBe(0);
+    });
+
+    it('read-only command calling proc_kill is blocked', async () => {
+      const vfs = new SimpleVFS();
+      kernel = createKernel({ filesystem: vfs as any });
+      await kernel.mount(createWasmVmRuntime({
+        commandDirs: [COMMANDS_DIR],
+        permissions: { '*': 'read-only' },
+      }));
+
+      // sh builtin kill or external kill — either path blocked
+      // proc_kill gated by isSpawnBlocked(), proc_spawn also gated
+      const result = await kernel.exec('sh -c "kill -0 1"');
+      expect(result.exitCode).not.toBe(0);
+    });
+
+    it('isolated command cannot create pipes (fd_pipe blocked)', async () => {
+      const vfs = new SimpleVFS();
+      kernel = createKernel({ filesystem: vfs as any });
+      await kernel.mount(createWasmVmRuntime({
+        commandDirs: [COMMANDS_DIR],
+        permissions: { '*': 'isolated' },
+      }));
+
+      // Pipe operator requires fd_pipe — blocked for isolated tier
+      const result = await kernel.exec('sh -c "echo a | cat"');
+      expect(result.exitCode).not.toBe(0);
+    });
+
+    it('full tier command can use pipes and subprocesses normally', async () => {
+      const vfs = new SimpleVFS();
+      kernel = createKernel({ filesystem: vfs as any });
+      await kernel.mount(createWasmVmRuntime({
+        commandDirs: [COMMANDS_DIR],
+        permissions: { '*': 'full' },
+      }));
+
+      // Full tier: fd_pipe, fd_dup, proc_spawn, proc_kill all allowed
+      const result = await kernel.exec('sh -c "echo hello | cat"');
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('hello');
+    });
   });
 });
