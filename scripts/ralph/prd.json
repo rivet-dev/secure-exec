@@ -562,7 +562,7 @@
       ],
       "priority": 34,
       "passes": true,
-      "notes": "Pre-existing test failure (SharedArrayBuffer removal in freeze mode, Part 5) unrelated to this story. All new V8 serialization tests compile and logic verified."
+      "notes": ""
     },
     {
       "id": "US-035",
@@ -581,7 +581,7 @@
       ],
       "priority": 35,
       "passes": true,
-      "notes": "Pre-existing test failure (SharedArrayBuffer removal in freeze mode) unrelated to this story. All 31 ipc_binary tests pass."
+      "notes": ""
     },
     {
       "id": "US-036",
@@ -599,7 +599,7 @@
       ],
       "priority": 36,
       "passes": true,
-      "notes": "Implemented ipc-binary.ts with encodeFrame/decodeFrame for all 12 message types using same wire format as Rust ipc_binary.rs. Uses node:v8 serialize/deserialize for payloads. 40 unit tests covering round-trip, edge cases, wire format interop, and V8 payload integration."
+      "notes": ""
     },
     {
       "id": "US-037",
@@ -618,7 +618,7 @@
       ],
       "priority": 37,
       "passes": true,
-      "notes": "Switched both Rust and JS sides simultaneously to binary header wire format (ipc_binary) and V8 ValueSerializer for payloads. Uint8Array results use status=2 raw binary to avoid V8 typed array format incompatibility across V8 versions (13.0 vs 13.6). Module namespace exports copied to plain object before serialization (V8 exotic object limitation)."
+      "notes": ""
     },
     {
       "id": "US-038",
@@ -635,7 +635,7 @@
       ],
       "priority": 38,
       "passes": true,
-      "notes": "Replaced ChannelMessageReader (which re-serialized BinaryFrame→bytes→BinaryFrame) with ChannelResponseReceiver that passes BinaryFrame directly through the session channel. Added ResponseReceiver trait and ReaderResponseReceiver for test backward compatibility."
+      "notes": ""
     },
     {
       "id": "US-039",
@@ -655,7 +655,7 @@
       ],
       "priority": 39,
       "passes": true,
-      "notes": "Removed rmp-serde, serde_bytes, rmpv, and serde from Cargo.toml. Deleted v8_to_rmpv, rmpv_to_v8, msgpack_to_v8_value, v8_value_to_msgpack from bridge.rs. Deleted write_message/read_message, HostMessage/RustMessage enums, and all MessagePack roundtrip tests from ipc.rs. Replaced @msgpack/msgpack encode/decode with node:v8 serialize/deserialize in bridge-handlers.ts (child process streams, HTTP server events). Removed @msgpack/msgpack from both package.json files."
+      "notes": ""
     },
     {
       "id": "US-040",
@@ -672,7 +672,7 @@
       ],
       "priority": 40,
       "passes": true,
-      "notes": "Fixed pre-existing SharedArrayBuffer removal test in execution.rs (test incorrectly asserted inject_globals removes SAB; actual removal is done by JS bridge code). All Rust tests pass (56/56). All test-suite/node tests pass (6/6). All V8 package tests pass (74/74). WasmVM tests pass (382/382). Project-matrix: 21/25 pass (4 pre-existing failures unchanged from US-033). Runtime-driver/node: 95/116 pass (21 pre-existing failures unchanged from US-033). No new regressions from serialization switch. No MessagePack-specific assertions remain in tests."
+      "notes": ""
     },
     {
       "id": "US-041",
@@ -691,7 +691,7 @@
       ],
       "priority": 41,
       "passes": true,
-      "notes": "Added BridgeCodeCache struct with FNV-1a hash for invalidation. run_bridge_cached() compiles with NoCompileOptions on first run, creates code cache via UnboundScript::create_code_cache(), consumes via ConsumeCodeCache on subsequent runs. Cache stored per-session in session.rs. 5 new tests: cache population, cache reuse, hash invalidation, module mode, empty bridge."
+      "notes": ""
     },
     {
       "id": "US-042",
@@ -709,7 +709,7 @@
       ],
       "priority": 42,
       "passes": true,
-      "notes": "Rust session.rs caches last bridge_code string per session; empty bridge_code in Execute = use cached. JS runtime.ts tracks FNV-1a hash per session, skips sending when unchanged. First execution always sends full bridge code; subsequent executions with same code send 0-length."
+      "notes": ""
     },
     {
       "id": "US-043",
@@ -725,7 +725,7 @@
       ],
       "priority": 43,
       "passes": true,
-      "notes": "Replaced Buffer.concat O(n^2) pattern with pre-allocated buffer (64KB initial, doubles on demand) using read/write cursors. Compacts only when consumed portion exceeds 50% of buffer. Buffer grows to high-water mark and stays there for connection lifetime."
+      "notes": ""
     },
     {
       "id": "US-044",
@@ -741,7 +741,7 @@
       ],
       "priority": 44,
       "passes": true,
-      "notes": "Replaced non-blocking accept + 10ms sleep loop with poll(2) on listener FD + self-pipe. SIGTERM/SIGINT write to self-pipe via signal_hook::low_level::register, waking poll. No busy-wait or sleep remains in accept path."
+      "notes": ""
     },
     {
       "id": "US-045",
@@ -759,7 +759,7 @@
       ],
       "priority": 45,
       "passes": true,
-      "notes": "Replaced JSON.stringify/JSON.parse with direct object passing for _fsStat, _fsLstat, _fsReadDir, _childProcessSpawnSync, _networkFetchRaw, _networkDnsLookupRaw, _networkHttpRequestRaw, _networkHttpServerListenRaw. Updated bridge-contract.ts with typed return types. Added estimateResponseSize for payload limit checks. Also removed JSON serialization from HTTP server dispatch stream events."
+      "notes": ""
     },
     {
       "id": "US-046",
@@ -776,7 +776,7 @@
       ],
       "priority": 46,
       "passes": true,
-      "notes": "Replaced SharedWriter (Arc<Mutex<Box<dyn Write>>>) with per-session ChannelFrameSender + dedicated writer thread per connection. Added FrameSender trait, frame_to_bytes() for lock-free serialization, and ipc_writer_thread. Removed MutexWriter adapter. 7 new tests for channel sender and frame serialization."
+      "notes": ""
     },
     {
       "id": "US-047",
@@ -794,7 +794,7 @@
       ],
       "priority": 47,
       "passes": true,
-      "notes": "Added prefetch_module_imports() BFS in execution.rs: after compiling each module, extracts static imports via get_module_requests(), sends _batchResolveModules BridgeCall with all uncached specifiers, host resolves+loads concurrently via Promise.all, pre-compiles and caches results. Falls back to individual resolution if batch call fails. Added _batchResolveModules handler in bridge-handlers.ts. 4 new Rust tests (multi-import batch, fallback, nested BFS, no-import skip) + 2 integration tests (batch round-trip, fallback)."
+      "notes": ""
     },
     {
       "id": "US-048",
@@ -810,7 +810,7 @@
       ],
       "priority": 48,
       "passes": true,
-      "notes": "Added SessionBuffers with pre-allocated ser_buf (Vec<u8>) per session for V8 ValueSerializer output. serialize_v8_value_into() copies V8 output into reusable buffer that grows to high-water mark. encode_frame_into() writes length-prefixed frames into provided buffer, eliminating intermediate body+result double-allocation in frame_to_bytes. ChannelFrameSender now holds a reusable frame_buf (RefCell<Vec<u8>>) for frame construction. send_message in session.rs uses per-session msg_frame_buf. 5 new tests for buffer reuse, high-water mark, and correctness."
+      "notes": ""
     },
     {
       "id": "US-049",
@@ -826,7 +826,7 @@
       ],
       "priority": 49,
       "passes": true,
-      "notes": "Spec: docs-internal/specs/v8-process-isolation.md"
+      "notes": ""
     },
     {
       "id": "US-050",
@@ -844,7 +844,7 @@
       ],
       "priority": 50,
       "passes": true,
-      "notes": "Spec: docs-internal/specs/v8-process-isolation.md. 6 tests: cross-process crash isolation (OOM in one doesn't affect another), ERR_V8_PROCESS_CRASH verification, post-crash session creation on healthy runtime, shared crash fate (same process), multi-session crash fate, independent session namespaces."
+      "notes": ""
     },
     {
       "id": "US-051",
@@ -864,7 +864,7 @@
       ],
       "priority": 51,
       "passes": true,
-      "notes": "Spec: docs-internal/specs/v8-process-isolation.md. Created docs/process-isolation.mdx with topology options (shared, per-tenant, per-runtime), trade-offs, resource limits, crash behavior, and lifecycle docs. Added to Features section in docs.json. Cross-referenced from docs/runtimes/node.mdx."
+      "notes": ""
     },
     {
       "id": "US-052",
@@ -881,7 +881,7 @@
       ],
       "priority": 52,
       "passes": true,
-      "notes": "Spec: docs-internal/specs/v8-startup-snapshot.md. external_refs() uses OnceLock with sync_bridge_callback and async_bridge_callback. create_snapshot() returns Result<StartupData, String> with 50MB limit check. create_isolate_from_snapshot() takes generic blob (impl Deref<Target=[u8]> + Borrow<[u8]> + 'static). 5 consolidated tests: non-empty blob, restored isolate JS exec, heap limit, size under limit, 3 sequential restores."
+      "notes": ""
     },
     {
       "id": "US-053",
@@ -898,7 +898,7 @@
       ],
       "priority": 53,
       "passes": true,
-      "notes": "Spec: docs-internal/specs/v8-startup-snapshot.md. Blob stored as Arc<Vec<u8>> (not Arc<StartupData>) because v8::StartupData contains raw pointers that are not Send/Sync. LRU moves accessed entries to end on hit. 4 new test parts: cache hit same Arc, cache miss different Arc, LRU eviction, concurrent access."
+      "notes": ""
     },
     {
       "id": "US-054",
@@ -915,7 +915,7 @@
       ],
       "priority": 54,
       "passes": true,
-      "notes": "Spec: docs-internal/specs/v8-startup-snapshot.md. Fire-and-forget message — no response from Rust side. Message type 0x09 with sid_len=0 (like Authenticate). Wire format: [msg_type][sid_len=0][u32 bridge_code_len][bridge_code]. 4 Rust tests + 5 TS tests added."
+      "notes": ""
     },
     {
       "id": "US-055",
@@ -933,7 +933,7 @@
       ],
       "priority": 55,
       "passes": true,
-      "notes": "Spec: docs-internal/specs/v8-startup-snapshot.md. Isolate creation deferred from session startup to first Execute. SessionManager owns Arc<SnapshotCache> shared with connection handler. Session thread uses snapshot_cache.get_or_create(bridge_code) on first Execute, falls back to create_isolate() on failure. disable_wasm() called on every restored isolate. WarmSnapshot handled in connection handler as fire-and-forget. All 87 V8 TS tests pass, all Rust tests pass (SIGSEGV on V8 teardown is pre-existing)."
+      "notes": ""
     },
     {
       "id": "US-056",
@@ -950,7 +950,7 @@
       ],
       "priority": 56,
       "passes": true,
-      "notes": "Spec: docs-internal/specs/v8-startup-snapshot.md. composeBridgeCodeForWarmup uses timingMitigation='none' and default maxTimers/maxHandles/cwd/payloadLimit. Fire-and-forget — host does not wait for response. warmupBridgeCode passed via V8RuntimeOptions; runtime.ts sends WarmSnapshot after authenticate() unless SECURE_EXEC_NO_SNAPSHOT_WARMUP=1."
+      "notes": ""
     },
     {
       "id": "US-057",
@@ -969,7 +969,7 @@
       ],
       "priority": 57,
       "passes": true,
-      "notes": "Spec: docs-internal/specs/v8-startup-snapshot.md. Rust: 3 new test parts (WASM blocked after restore, session isolation via fresh contexts, external references survive restore with bridge fn registration). TypeScript: 7 integration tests (WASM blocked, session state isolation, sync/async bridge dispatch on restored isolate, WarmSnapshot cache hit, NO_SNAPSHOT_WARMUP=1 lazy fallback, different bridge code variants get separate entries)."
+      "notes": ""
     },
     {
       "id": "US-058",
@@ -985,7 +985,269 @@
       ],
       "priority": 58,
       "passes": true,
-      "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 8. Baseline recorded: warm mean=13.75ms, p50=13.7ms; cold steady-state mean=48.23ms. 5 iterations x 5 runs each. Results in packages/secure-exec/benchmarks/results/context_snapshot_before.json."
+      "notes": ""
+    },
+    {
+      "id": "US-069",
+      "title": "Fix IPC binary frame length guards and fnv1aHash (TypeScript)",
+      "description": "As a developer, I need to fix critical correctness bugs in the TypeScript IPC binary codec: readLenPrefixedU16 position advance, session ID overflow guard, u16 overflow guard, and fnv1aHash encoding mismatch.",
+      "acceptanceCriteria": [
+        "readLenPrefixedU16 in ipc-binary.ts advances pos by 2 + wire_length (the u16 value), not by 2 + Buffer.byteLength(decodedString)",
+        "encodeSessionId in ipc-binary.ts throws if session ID byte length exceeds 255",
+        "writeLenPrefixedU16 in ipc-binary.ts throws if string byte length exceeds 0xFFFF",
+        "fnv1aHash in runtime.ts hashes over UTF-8 bytes (Buffer.from(str, 'utf8')) instead of UTF-16 code units (charCodeAt)",
+        "Existing ipc-binary.test.ts tests still pass",
+        "Add test: readLenPrefixedU16 with multi-byte UTF-8 string verifies correct pos advance",
+        "Add test: encodeSessionId throws on >255 byte session ID",
+        "Add test: writeLenPrefixedU16 throws on >65535 byte string",
+        "Add test: fnv1aHash produces same hash for ASCII and non-ASCII strings as Rust FNV-1a over UTF-8 bytes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 59,
+      "passes": false,
+      "notes": "PR review finding: Critical correctness bugs. readLenPrefixedU16 diverges on malformed UTF-8. fnv1aHash mismatch can cause stale bridge code on Rust side."
+    },
+    {
+      "id": "US-070",
+      "title": "Fix IPC binary frame length guards (Rust)",
+      "description": "As a developer, I need to add overflow guards in the Rust IPC binary encoder to prevent silent truncation of session IDs and string fields.",
+      "acceptanceCriteria": [
+        "write_session_id in ipc_binary.rs returns an error (or panics) if session ID byte length exceeds 255 instead of silently truncating with 'as u8'",
+        "write_len_prefixed_u16 in ipc_binary.rs returns an error if string byte length exceeds 65535 instead of silently truncating with 'as u16'",
+        "Execute frame file_path encoding returns an error if byte length exceeds 65535",
+        "Remove dead code: serialize_v8_args function in bridge.rs (unused)",
+        "Add tests: write_session_id rejects >255 byte session ID",
+        "Add tests: write_len_prefixed_u16 rejects >65535 byte string",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 60,
+      "passes": false,
+      "notes": "PR review finding: Silent truncation via 'as u8'/'as u16' casts corrupts frames."
+    },
+    {
+      "id": "US-071",
+      "title": "Add bounded IPC channels with backpressure",
+      "description": "As a developer, I need the IPC writer channel and session command channels to be bounded to prevent unbounded memory growth when consumers are slow.",
+      "acceptanceCriteria": [
+        "IPC writer channel in main.rs uses crossbeam_channel::bounded (e.g. capacity 1024) instead of unbounded",
+        "Session command channel in session.rs uses crossbeam_channel::bounded (e.g. capacity 256) instead of unbounded",
+        "Session threads block naturally when the IPC writer buffer is full (backpressure)",
+        "Connection handler blocks when session command buffer is full",
+        "Existing tests pass without timeout issues (bounds are generous enough for test workloads)",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 61,
+      "passes": false,
+      "notes": "PR review finding: CLAUDE.md explicitly flags unbounded buffering as critical risk."
+    },
+    {
+      "id": "US-072",
+      "title": "Fix auth token comparison and socket directory security",
+      "description": "As a developer, I need constant-time auth token comparison and race-free socket directory creation.",
+      "acceptanceCriteria": [
+        "Auth token comparison in main.rs uses constant-time byte comparison (XOR-accumulate or subtle::ConstantTimeEq) instead of String::eq",
+        "Socket directory creation uses std::os::unix::fs::DirBuilderExt with .mode(0o700) instead of create_dir + set_permissions (eliminates TOCTOU race)",
+        "Add subtle crate to Cargo.toml dependencies (or implement manual constant-time compare)",
+        "Existing auth tests still pass",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 62,
+      "passes": false,
+      "notes": "PR review finding: Timing oracle on auth token; TOCTOU race between create_dir and set_permissions."
+    },
+    {
+      "id": "US-073",
+      "title": "Fix call_id overflow and accept error handling",
+      "description": "As a developer, I need call_id to use AtomicU64 to prevent wrap-around collisions, and transient accept errors to not kill the server.",
+      "acceptanceCriteria": [
+        "next_call_id in host_call.rs uses AtomicU64 instead of AtomicU32 to prevent wrap-around after ~4 billion calls",
+        "call_id field in BridgeCall wire format uses u64 (update ipc_binary.rs encode/decode for BridgeCall and BridgeResponse)",
+        "Accept error in main.rs logs the error and continues the loop for transient errors (EMFILE, ENFILE) instead of breaking",
+        "Fatal accept errors still break the loop",
+        "Update TypeScript ipc-binary.ts to read/write u64 call_id (or verify existing BigInt/number handling)",
+        "cargo test passes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 63,
+      "passes": false,
+      "notes": "PR review finding: call_id wraps at u32::MAX causing cross-session collision; transient accept error kills all sessions."
+    },
+    {
+      "id": "US-074",
+      "title": "Fix snapshot cache mutex contention",
+      "description": "As a developer, I need the snapshot cache to release the mutex before calling create_snapshot, preventing a DoS where one slow snapshot creation blocks all concurrent session starts.",
+      "acceptanceCriteria": [
+        "SnapshotCache::get_or_create uses two-phase locking: check cache under short lock, drop lock before create_snapshot, re-acquire to insert",
+        "Use per-key in-flight tracking (e.g. HashMap<u64, Arc<Mutex<()>>>) so duplicate creators for the same key wait on each other, not the global lock",
+        "Concurrent callers requesting different bridge code variants are not blocked by each other",
+        "Add test: two concurrent get_or_create calls with different bridge codes do not serialize",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 64,
+      "passes": false,
+      "notes": "PR review finding: Critical DoS vector. Mutex held during V8 isolate creation + compilation + heap serialization blocks all callers."
+    },
+    {
+      "id": "US-075",
+      "title": "Fix ChannelResponseReceiver consuming wrong messages",
+      "description": "As a developer, I need sync bridge calls to not consume StreamEvent or TerminateExecution messages from the session channel.",
+      "acceptanceCriteria": [
+        "ChannelResponseReceiver::recv_response in session.rs only returns BridgeResponse frames, not StreamEvent or TerminateExecution",
+        "Non-BridgeResponse messages received during a sync bridge call are queued for later processing by the event loop",
+        "StreamEvent messages are not lost during sync-blocking bridge operations",
+        "Add test: sync bridge call interleaved with StreamEvent does not drop the StreamEvent",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 65,
+      "passes": false,
+      "notes": "PR review finding: sync_call consumes and discards non-BridgeResponse messages from the shared session channel."
+    },
+    {
+      "id": "US-076",
+      "title": "Fix shared V8 runtime lifecycle and retry",
+      "description": "As a developer, I need the shared V8 runtime singleton to have a teardown path and to allow retry on startup failure.",
+      "acceptanceCriteria": [
+        "Export disposeSharedV8Runtime() function from packages/secure-exec-node/src/index.ts",
+        "Register process.on('beforeExit') handler in execution-driver.ts that calls sharedV8Runtime.dispose()",
+        "Add .catch() handler to sharedV8RuntimePromise that resets sharedV8RuntimePromise = null on failure, allowing retry",
+        "Add test: disposeSharedV8Runtime() kills the child process",
+        "Add test: after simulated createV8Runtime failure, next getSharedV8Runtime() retries successfully",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 66,
+      "passes": false,
+      "notes": "PR review finding: Orphan Rust child process on host exit; permanently cached rejection on startup failure."
+    },
+    {
+      "id": "US-077",
+      "title": "Fix pending session rejection on socket close",
+      "description": "As a developer, I need all pending execute() promises to be rejected when the IPC socket closes, not just when the child process exits.",
+      "acceptanceCriteria": [
+        "onClose callback in runtime.ts calls rejectPendingSessions() with an appropriate error (e.g. 'IPC connection closed')",
+        "execute() promise rejects promptly when the Rust process deadlocks without exiting (socket close triggers rejection)",
+        "Wire up _reject in the execute() Promise constructor for error conditions",
+        "Add test: closing the IPC socket while execute() is in-flight rejects the promise",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 67,
+      "passes": false,
+      "notes": "PR review finding: execute() can hang forever if Rust process deadlocks without exiting."
+    },
+    {
+      "id": "US-078",
+      "title": "Fix bridge code cache and contract types",
+      "description": "As a developer, I need the bridge code cache to account for timingMitigation, and bridge contract types to be accurate.",
+      "acceptanceCriteria": [
+        "composeBridgeCode cache in execution-driver.ts is keyed on timingMitigation value (not just a single cached string)",
+        "Add _batchResolveModules to HOST_BRIDGE_GLOBAL_KEYS in bridge-contract.ts with a corresponding type",
+        "Update DynamicImportBridgeRef type in bridge-contract.ts to reflect that the V8 path returns string|null (source code), not Record<string, unknown>|null",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 68,
+      "passes": false,
+      "notes": "PR review finding: Bridge code cache ignores timingMitigation changes; contract types are stale."
+    },
+    {
+      "id": "US-079",
+      "title": "Add missing console method stubs",
+      "description": "As a developer, I need the console shim to include debug, trace, dir, and table methods so sandbox code calling these doesn't throw TypeError.",
+      "acceptanceCriteria": [
+        "getConsoleSetupCode() in console-formatter.ts adds console.debug routing to _log (same as console.log)",
+        "console.trace routes to _error (same as console.warn)",
+        "console.dir routes to _log",
+        "console.table routes to _log with basic formatting",
+        "Add test: console.debug('test') in sandbox produces stdout output",
+        "Add test: console.trace('test') in sandbox produces stderr output",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 69,
+      "passes": false,
+      "notes": "PR review finding: console.debug() throws TypeError in sandbox because it's undefined."
+    },
+    {
+      "id": "US-080",
+      "title": "Fix bridge-hardening test correctness",
+      "description": "As a developer, I need the setInterval minimum delay test to actually verify the behavior it claims to test.",
+      "acceptanceCriteria": [
+        "Fix cpuTimeMs to cpuTimeLimitMs in bridge-hardening.test.ts line ~301 (the recognized option name)",
+        "Replace trivially-true assertion 'result.code === 0 || result.code !== undefined' with meaningful check like 'expect([0, 124]).toContain(result.code)'",
+        "Move counter assertions outside the 'if (stdout)' conditional, or add 'expect(stdout).toBeTruthy()' guard so empty stdout fails the test",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 70,
+      "passes": false,
+      "notes": "PR review finding: Test passes with zero meaningful assertions due to wrong option name + trivially-true assertion + conditional skip."
+    },
+    {
+      "id": "US-081",
+      "title": "Fix hono-fetch-external test",
+      "description": "As a developer, I need the fully-skipped hono-fetch-external test to either be rewritten for the V8 runtime or removed.",
+      "acceptanceCriteria": [
+        "Remove describe.skip wrapper from hono-fetch-external.test.ts",
+        "Rewrite the test to work with the V8 runtime (install fixture deps, run hono fetch, verify response)",
+        "If the test cannot work without external network access, mark it with a clear skip condition (e.g. skipIf(!process.env.CI)) with a comment explaining why",
+        "Remove empty test body — test must have assertions",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 71,
+      "passes": false,
+      "notes": "PR review finding: Entire test file is describe.skip with empty body. US-033 marked complete despite this gap."
+    },
+    {
+      "id": "US-082",
+      "title": "Add memoryLimit recovery test",
+      "description": "As a developer, I need a test proving the runtime is still usable after a session triggers OOM, matching the existing cpuTimeLimitMs recovery tests.",
+      "acceptanceCriteria": [
+        "Add test in resource-limits.test.ts: after OOM execution (memoryLimit: 32, allocate-until-crash), a subsequent exec() on the same runtime succeeds with exit code 0",
+        "This mirrors 'keeps isolate usable after cpuTimeLimitMs timeout' test pattern from index.test.ts",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 72,
+      "passes": false,
+      "notes": "PR review finding: CPU timeout recovery is tested but memory limit recovery is not."
+    },
+    {
+      "id": "US-083",
+      "title": "Add cargo clippy and fmt to Rust CI",
+      "description": "As a developer, I need the Rust CI workflow to run clippy and rustfmt checks to catch lint and formatting regressions.",
+      "acceptanceCriteria": [
+        "Add a 'lint' job to .github/workflows/rust.yml that runs on ubuntu-latest",
+        "Lint job runs 'cargo clippy --all-targets -- -D warnings' on crates/v8-runtime",
+        "Lint job runs 'cargo fmt --all -- --check' on crates/v8-runtime",
+        "Fix any existing clippy warnings so the job passes",
+        "Lint job runs before the build matrix (fail fast on lint errors)",
+        "Typecheck passes"
+      ],
+      "priority": 73,
+      "passes": false,
+      "notes": "PR review finding: No lint or format checks in Rust CI."
+    },
+    {
+      "id": "US-084",
+      "title": "Fix docs: experimental warning and FD limit",
+      "description": "As a developer, I need process-isolation.mdx to have an experimental warning since it depends on @secure-exec/v8@0.1.0, and security-model.mdx to document the FD table limit.",
+      "acceptanceCriteria": [
+        "Add experimental/beta warning callout to docs/process-isolation.mdx noting that the V8 runtime and process isolation API are new",
+        "Add FD table limit (1024 open file descriptors per isolate) to the Resource Limits section of docs/security-model.mdx",
+        "Typecheck passes"
+      ],
+      "priority": 74,
+      "passes": false,
+      "notes": "PR review finding: process-isolation.mdx listed as stable feature but depends on experimental package; FD limit not documented."
     },
     {
       "id": "US-059",
@@ -999,9 +1261,9 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 59,
-      "passes": true,
-      "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 1. Replaced direct property assignment with Object.defineProperties using getters for all 19 fs bridge functions. Each _fs.xxx call now resolves globalThis._fsXxx at call time, enabling snapshot restore to replace bridge globals."
+      "priority": 75,
+      "passes": false,
+      "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 1. Prerequisite for context snapshot."
     },
     {
       "id": "US-060",
@@ -1018,9 +1280,9 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 60,
-      "passes": false,
-      "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 2. Prerequisite for context snapshot."
+      "priority": 76,
+      "passes": true,
+      "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 2. Replaced closure-captured __jsonPayloadLimitBytes and __payloadLimitErrorCode with globalThis reads at call time. Added __runtimeApplyConfig function that applies timing mitigation freeze, payload limits, and deletes itself. composeBridgeCode() now caches the config-independent IIFE and appends per-execution __runtimeApplyConfig() call."
     },
     {
       "id": "US-061",
@@ -1035,7 +1297,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 61,
+      "priority": 77,
       "passes": false,
       "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 3."
     },
@@ -1051,7 +1313,7 @@
         "cargo test passes",
         "Typecheck passes"
       ],
-      "priority": 62,
+      "priority": 78,
       "passes": false,
       "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 4."
     },
@@ -1069,7 +1331,7 @@
         "cargo test passes",
         "Typecheck passes"
       ],
-      "priority": 63,
+      "priority": 79,
       "passes": false,
       "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 5."
     },
@@ -1089,7 +1351,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 64,
+      "priority": 80,
       "passes": false,
       "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 6."
     },
@@ -1106,7 +1368,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 65,
+      "priority": 81,
       "passes": false,
       "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 7."
     },
@@ -1127,7 +1389,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 66,
+      "priority": 82,
       "passes": false,
       "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 9."
     },
@@ -1145,7 +1407,7 @@
         "All existing test suites still pass",
         "Typecheck passes"
       ],
-      "priority": 67,
+      "priority": 83,
       "passes": false,
       "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 10."
     },
@@ -1162,7 +1424,7 @@
         "Update docs-internal/todo.md with any new actionable items discovered",
         "Typecheck passes"
       ],
-      "priority": 68,
+      "priority": 84,
       "passes": false,
       "notes": "Research story — no code changes required beyond documentation and profiling scripts."
     }

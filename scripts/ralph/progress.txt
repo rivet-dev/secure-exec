@@ -397,3 +397,26 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - Run 1 of each iteration is the true process cold-start (~90-126ms); runs 2-5 are steady state (~44-53ms)
   - Warm start baseline is consistent at ~13-14ms — this is the per-session cost dominated by bridge IIFE compilation+execution
 ---
+
+## 2026-03-19 - US-060
+- Deferred config-dependent bridge setup to post-restore init function
+- Replaced closure-captured `__jsonPayloadLimitBytes` and `__payloadLimitErrorCode` with `globalThis.__runtimeJsonPayloadLimitBytes` and `globalThis.__runtimePayloadLimitErrorCode` read at call time in `v8.deserialize()`
+- Added `globalThis.__runtimeApplyConfig(config)` function in `bridge-initial-globals.ts` that applies:
+  - Payload limits (payloadLimitBytes, payloadLimitErrorCode)
+  - Timing mitigation freeze (Date.now, Date constructor, performance.now, SharedArrayBuffer removal)
+  - Deletes itself from globalThis after execution (one-shot)
+- Updated `execution-driver.ts`:
+  - Split `composeBridgeCode()` into `getBridgeIIFE()` (cached, config-independent) and `composeBridgeCode()` (appends per-execution `__runtimeApplyConfig()` call)
+  - Removed conditional inclusion of `applyTimingMitigationFreeze` — timing mitigation now always applied via `__runtimeApplyConfig`
+  - Bridge IIFE is now cacheable regardless of timing mitigation setting
+- Updated `composeBridgeCodeForWarmup()` to call `__runtimeApplyConfig` with default config
+- Updated `runtime-globals.d.ts` with new global types
+- Rebuilt generated `isolate-runtime.ts`
+- Files changed: `packages/secure-exec-core/isolate-runtime/src/inject/bridge-initial-globals.ts`, `packages/secure-exec-core/isolate-runtime/src/common/runtime-globals.d.ts`, `packages/secure-exec-core/src/generated/isolate-runtime.ts`, `packages/secure-exec-node/src/execution-driver.ts`
+- **Learnings for future iterations:**
+  - `bridge-initial-globals.ts` is compiled as a standalone IIFE by `build-isolate-runtime.mjs` — imports are tree-shaken and inlined
+  - The timing mitigation freeze logic from `apply-timing-mitigation-freeze.ts` is duplicated inside `__runtimeApplyConfig` — future context snapshot phases can remove `apply-timing-mitigation-freeze.ts` entirely
+  - `composeBridgeCode()` was previously uncacheable when `timingMitigation === "freeze"` because `frozenTimeMs` was embedded; now the IIFE is always cached, only the `__runtimeApplyConfig()` call varies
+  - Pre-existing test failures: runtime-driver/node tests all fail with "Identifier '__name' has already been declared" (unrelated to this story, pre-existing from console-formatter `__name` shim conflict)
+  - V8 package tests (94/94) are the authoritative test for bridge code changes — they exercise the full IPC pipeline
+---
