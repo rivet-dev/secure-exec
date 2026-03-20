@@ -27,6 +27,7 @@
 
 ## WASM Binary
 
+- the goal for WasmVM is full POSIX compliance 1:1 — every command, syscall, and shell behavior should match a real Linux system exactly
 - WasmVM and Python are experimental surfaces in this repo
 - all docs for WasmVM, Python, or other experimental runtime features must live under the `Experimental` section of the docs navigation, not the main getting-started/reference sections
 - the WasmVM runtime requires standalone WASM binaries in `wasmvm/target/wasm32-wasip1/release/commands/`
@@ -35,6 +36,15 @@
 - CI builds the binaries before tests; a CI-only guard test in `packages/runtime/wasmvm/test/driver.test.ts` fails if they're missing
 - tests gated behind `skipIf(!hasWasmBinaries)` or `skipUnlessWasmBuilt()` will skip locally if binaries aren't built
 - see `wasmvm/CLAUDE.md` for full build details and architecture
+
+## WasmVM Syscall Coverage
+
+- every function in the `host_process` and `host_user` import modules (declared in `wasmvm/crates/wasi-ext/src/lib.rs`) must have at least one C parity test exercising it through libc
+- when adding a new host import, add a matching test case to `wasmvm/c/programs/syscall_coverage.c` and its parity test in `packages/runtime/wasmvm/test/c-parity.test.ts`
+- the canonical source of truth for import signatures is `wasmvm/crates/wasi-ext/src/lib.rs` — C patches and JS host implementations must match exactly
+- C patches in `wasmvm/patches/wasi-libc/` must be kept in sync with wasi-ext — ABI drift between C, Rust, and JS is a P0 bug
+- permission tier enforcement must cover ALL write/spawn/kill/pipe/dup operations — audit `packages/runtime/wasmvm/src/kernel-worker.ts` when adding new syscalls
+- `PATCHED_PROGRAMS` in `wasmvm/c/Makefile` must include all programs that use `host_process` or `host_user` imports (programs linking the patched sysroot)
 
 ## Terminology
 
@@ -116,6 +126,8 @@ Follow the style in `packages/secure-exec/src/index.ts`.
   - `docs/system-drivers/browser.mdx` — update when createBrowserDriver options change
   - `docs/nodejs-compatibility.mdx` — update when bridge, polyfill, or stub implementations change; keep the Tested Packages section current when adding or removing project-matrix fixtures
   - `docs/cloudflare-workers-comparison.mdx` — update when secure-exec capabilities change; bump "Last updated" date
+  - `docs/posix-compatibility.md` — update when kernel, WasmVM, Node bridge, or Python bridge behavior changes for any POSIX-relevant feature (signals, pipes, FDs, process model, TTY, VFS)
+  - `docs/wasmvm/supported-commands.md` — update when adding, removing, or changing status of WasmVM commands; keep summary counts current
 
 ## Backlog Tracking
 
