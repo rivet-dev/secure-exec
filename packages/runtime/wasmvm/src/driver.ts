@@ -69,6 +69,8 @@ export const WASMVM_COMMANDS: readonly string[] = [
   'curl', 'wget',
   // Build tools (C programs)
   'make',
+  // Version control (C programs)
+  'git',
   // Shim commands
   'env', 'envsubst', 'nice', 'nohup', 'stdbuf', 'timeout', 'xargs',
   // uutils: text/encoding
@@ -119,6 +121,8 @@ export const DEFAULT_FIRST_PARTY_TIERS: Readonly<Record<string, PermissionTier>>
   'stdbuf': 'full',
   // Build tools — spawns child processes to run recipes
   'make': 'full',
+  // Version control — reads/writes .git objects
+  'git': 'full',
   // Read-only tools — never need to write files
   'grep': 'read-only',
   'egrep': 'read-only',
