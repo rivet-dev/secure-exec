@@ -20,12 +20,14 @@ import type {
 import {
   NodeExecutionDriver,
   createNodeDriver,
+  createDefaultNetworkAdapter,
 } from '@secure-exec/node';
 import {
   allowAllChildProcess,
 } from '@secure-exec/core';
 import type {
   CommandExecutor,
+  NetworkAdapter,
   Permissions,
   VirtualFileSystem,
 } from '@secure-exec/core';
@@ -44,6 +46,10 @@ export interface NodeRuntimeOptions {
    * (fs/network/env deny-by-default). Use allowAll for full sandbox access.
    */
   permissions?: Partial<Permissions>;
+  /** Enable default network adapter for sandbox fetch/http. */
+  useDefaultNetwork?: boolean;
+  /** Custom network adapter for sandbox fetch/http (overrides useDefaultNetwork). */
+  networkAdapter?: NetworkAdapter;
 }
 
 /**
@@ -318,11 +324,16 @@ class NodeRuntimeDriver implements RuntimeDriver {
   private _kernel: KernelInterface | null = null;
   private _memoryLimit: number;
   private _permissions: Partial<Permissions>;
+  private _moduleAccessPaths?: string[];
+  private _networkAdapter?: NetworkAdapter;
   private _activeDrivers = new Map<number, NodeExecutionDriver>();
 
   constructor(options?: NodeRuntimeOptions) {
     this._memoryLimit = options?.memoryLimit ?? 128;
     this._permissions = options?.permissions ?? { ...allowAllChildProcess };
+    this._moduleAccessPaths = options?.moduleAccessPaths;
+    this._networkAdapter = options?.networkAdapter
+      ?? (options?.useDefaultNetwork ? createDefaultNetworkAdapter() : undefined);
   }
 
   async init(kernel: KernelInterface): Promise<void> {
@@ -435,30 +446,59 @@ class NodeRuntimeDriver implements RuntimeDriver {
         filesystem = createHostFallbackVfs(filesystem);
       }
 
+      // Module access: use explicit paths if provided, otherwise default
+      const moduleAccess = this._moduleAccessPaths?.length
+        ? { cwd: this._moduleAccessPaths[0] }
+        : undefined;
+
       const systemDriver = createNodeDriver({
         filesystem,
         commandExecutor,
+        moduleAccess,
+        networkAdapter: this._networkAdapter,
         permissions: { ...this._permissions },
         processConfig: {
-          cwd: ctx.cwd,
+          // Sandbox CWD defaults to /root — the ModuleAccessFileSystem's synthetic
+          // root where /root/node_modules maps to the host's node_modules.
+          // The host-facing CWD (ctx.cwd) is used for command resolution, not for
+          // in-sandbox module resolution.
           env: ctx.env,
           argv: [process.execPath, filePath ?? command, ...args],
+          stdinIsTTY: ctx.isTTY.stdin,
+          stdoutIsTTY: ctx.isTTY.stdout,
+          stderrIsTTY: ctx.isTTY.stderr,
         },
       });
+
+      // Wire PTY setRawMode callback — when sandbox calls process.stdin.setRawMode(),
+      // translate to kernel PTY discipline change
+      let onPtySetRawMode: ((mode: boolean) => void) | undefined;
+      if (ctx.isTTY.stdin && kernel) {
+        onPtySetRawMode = (mode: boolean) => {
+          try {
+            kernel.ptySetDiscipline(ctx.pid, 0, {
+              canonical: !mode,
+              echo: !mode,
+            });
+          } catch { /* PTY may be gone */ }
+        };
+      }
 
       // Create a per-process isolate
       const executionDriver = new NodeExecutionDriver({
         system: systemDriver,
         runtime: systemDriver.runtime,
         memoryLimit: this._memoryLimit,
+        onPtySetRawMode,
       });
       this._activeDrivers.set(ctx.pid, executionDriver);
 
-      // Execute with stdout/stderr capture and stdin data
+      // Execute with stdout/stderr capture and stdin data.
+      // For inline code (-e), use a synthetic filePath under /root/ so that
+      // __dirname is /root/ and module resolution finds /root/node_modules.
       const result = await executionDriver.exec(code, {
-        filePath,
+        filePath: filePath ?? '/root/entry.js',
         env: ctx.env,
-        cwd: ctx.cwd,
         stdin: stdinData,
         onStdio: (event) => {
           const data = new TextEncoder().encode(event.message + '\n');

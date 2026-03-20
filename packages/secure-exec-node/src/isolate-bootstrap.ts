@@ -18,6 +18,8 @@ import type { ResolutionCache } from "@secure-exec/core";
 
 export interface NodeExecutionDriverOptions extends RuntimeDriverOptions {
 	createIsolate?(memoryLimit: number): unknown;
+	/** Callback for PTY setRawMode — wired by kernel when PTY is attached. */
+	onPtySetRawMode?: (mode: boolean) => void;
 }
 
 export interface BudgetState {

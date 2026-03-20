@@ -2013,6 +2013,18 @@ export const https = createHttpModule("https");
 export const http2 = {
   Http2ServerRequest: class Http2ServerRequest {},
   Http2ServerResponse: class Http2ServerResponse {},
+  constants: {
+    HTTP2_HEADER_AUTHORITY: ":authority",
+    HTTP2_HEADER_METHOD: ":method",
+    HTTP2_HEADER_PATH: ":path",
+    HTTP2_HEADER_SCHEME: ":scheme",
+    HTTP2_HEADER_CONTENT_LENGTH: "content-length",
+    HTTP2_HEADER_EXPECT: "expect",
+    HTTP2_HEADER_STATUS: ":status",
+    HTTP2_HEADER_PROTOCOL: ":protocol",
+    NGHTTP2_REFUSED_STREAM: 7,
+    NGHTTP2_CANCEL: 8,
+  },
   createServer(): never {
     throw new Error("http2.createServer is not supported in sandbox");
   },

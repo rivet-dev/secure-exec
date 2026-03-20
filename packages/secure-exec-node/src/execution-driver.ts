@@ -96,6 +96,7 @@ export class NodeExecutionDriver implements RuntimeDriver {
 			dynamicImportPending: new Map(),
 			resolutionCache: createResolutionCache(),
 			sandboxToHostPath,
+			onPtySetRawMode: options.onPtySetRawMode,
 		};
 	}
 

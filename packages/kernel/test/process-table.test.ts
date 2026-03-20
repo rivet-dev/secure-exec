@@ -35,6 +35,7 @@ function createCtx(overrides?: Partial<ProcessContext>): ProcessContext {
 		env: {},
 		cwd: "/",
 		fds: { stdin: 0, stdout: 1, stderr: 2 },
+		isTTY: { stdin: false, stdout: false, stderr: false },
 		...overrides,
 	};
 }

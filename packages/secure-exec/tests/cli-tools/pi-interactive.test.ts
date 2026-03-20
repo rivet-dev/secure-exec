@@ -26,6 +26,9 @@ import type { Kernel } from '../../../kernel/src/index.ts';
 import type { VirtualFileSystem } from '../../../kernel/src/vfs.ts';
 import { TerminalHarness } from '../../../kernel/test/terminal-harness.ts';
 import { InMemoryFileSystem } from '../../../os/browser/src/index.ts';
+import { allowAll } from '../../../secure-exec-core/src/index.ts';
+import type { NetworkAdapter } from '../../../secure-exec-core/src/index.ts';
+import { createDefaultNetworkAdapter } from '../../../secure-exec-node/src/index.ts';
 import { createNodeRuntime } from '../../../runtime/node/src/index.ts';
 import {
   createMockLlmServer,
@@ -34,6 +37,9 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SECURE_EXEC_ROOT = path.resolve(__dirname, '../..');
+// Use workspace root for moduleAccess so pnpm hoisted transitive deps
+// (e.g. @mariozechner/pi-ai) are reachable via .pnpm/node_modules/
+const WORKSPACE_ROOT = path.resolve(SECURE_EXEC_ROOT, '../..');
 
 // ---------------------------------------------------------------------------
 // Skip helpers
@@ -164,17 +170,38 @@ function createOverlayVfs(): VirtualFileSystem {
 }
 
 // ---------------------------------------------------------------------------
+// Network adapter that redirects Anthropic API calls to mock server
+// ---------------------------------------------------------------------------
+
+function createMockRedirectAdapter(mockPort: number): NetworkAdapter {
+  const mockBaseUrl = `http://127.0.0.1:${mockPort}`;
+  const base = createDefaultNetworkAdapter({
+    initialExemptPorts: new Set([mockPort]),
+  });
+
+  return {
+    ...base,
+    fetch(url, options) {
+      if (url.includes('api.anthropic.com')) {
+        url = url.replace(/https?:\/\/api\.anthropic\.com/, mockBaseUrl);
+      }
+      return base.fetch(url, options);
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Pi sandbox code builder
 // ---------------------------------------------------------------------------
 
 /**
  * Build sandbox code that loads Pi's CLI entry point in interactive mode.
  *
- * Patches fetch to redirect Anthropic API calls to the mock server,
- * sets process.argv for CLI mode, and loads the CLI entry point.
+ * Sets process.argv for CLI mode and loads the CLI entry point.
+ * API redirect is handled at the host network adapter level (sandbox fetch
+ * is non-writable).
  */
 function buildPiInteractiveCode(opts: {
-  mockUrl: string;
   cwd: string;
 }): string {
   const flags = [
@@ -186,22 +213,6 @@ function buildPiInteractiveCode(opts: {
   ];
 
   return `(async () => {
-    // Patch fetch to redirect Anthropic API calls to mock server
-    const origFetch = globalThis.fetch;
-    const mockUrl = ${JSON.stringify(opts.mockUrl)};
-    globalThis.fetch = function(input, init) {
-      let url = typeof input === 'string' ? input
-        : input instanceof URL ? input.href
-        : input.url;
-      if (url && url.includes('api.anthropic.com')) {
-        const newUrl = url.replace(/https?:\\/\\/api\\.anthropic\\.com/, mockUrl);
-        if (typeof input === 'string') input = newUrl;
-        else if (input instanceof URL) input = new URL(newUrl);
-        else input = new Request(newUrl, input);
-      }
-      return origFetch.call(this, input, init);
-    };
-
     // Override process.argv for Pi CLI
     process.argv = ['node', 'pi', ${flags.map((f) => JSON.stringify(f)).join(', ')}];
 
@@ -263,7 +274,14 @@ describe.skipIf(piSkip)('Pi interactive PTY E2E (sandbox)', () => {
 
     // Overlay VFS: writes to memory (populateBin), reads fall back to host
     kernel = createKernel({ filesystem: createOverlayVfs() });
-    await kernel.mount(createNodeRuntime());
+    // Module access: use workspace root so pnpm hoisted transitive deps
+    // (e.g. @mariozechner/pi-ai) are reachable via .pnpm/node_modules/.
+    // Network adapter redirects Anthropic API calls to mock LLM server.
+    await kernel.mount(createNodeRuntime({
+      moduleAccessPaths: [WORKSPACE_ROOT],
+      permissions: allowAll,
+      networkAdapter: createMockRedirectAdapter(mockServer.port),
+    }));
 
     // Probe 1: check if node works through openShell
     try {
@@ -297,21 +315,22 @@ describe.skipIf(piSkip)('Pi interactive PTY E2E (sandbox)', () => {
       }
     }
 
-    // Probe 3: if isTTY passed, check Pi can load
+    // Probe 3: if isTTY passed, check Pi CLI entry point can load
+    // Uses the same CLI import path as the actual tests
     if (!sandboxSkip) {
       try {
         const { output, exitCode } = await probeOpenShell(
           kernel,
-          '(async()=>{try{const pi=await import("@mariozechner/pi-coding-agent");' +
-            'console.log("PI_LOADED:"+typeof pi.createAgentSession)}catch(e){' +
-            'console.log("PI_LOAD_FAILED:"+e.message)}})()',
+          `(async()=>{try{await import(${JSON.stringify(PI_CLI)});` +
+            'console.log("PI_CLI_LOADED")}catch(e){' +
+            'console.log("PI_CLI_LOAD_FAILED:"+e.message)}})()',
           15_000,
         );
-        if (output.includes('PI_LOAD_FAILED:')) {
-          const reason = output.split('PI_LOAD_FAILED:')[1]?.split('\n')[0]?.trim();
-          sandboxSkip = `Pi cannot load in sandbox via openShell: ${reason}`;
-        } else if (exitCode !== 0 || !output.includes('PI_LOADED:function')) {
-          sandboxSkip = `Pi load probe failed: exitCode=${exitCode}, output=${JSON.stringify(output.slice(0, 500))}`;
+        if (output.includes('PI_CLI_LOAD_FAILED:')) {
+          const reason = output.split('PI_CLI_LOAD_FAILED:')[1]?.split('\n')[0]?.trim();
+          sandboxSkip = `Pi CLI cannot load in sandbox: ${reason}`;
+        } else if (exitCode !== 0 && !output.includes('PI_CLI_LOADED')) {
+          sandboxSkip = `Pi CLI load probe failed: exitCode=${exitCode}, output=${JSON.stringify(output.slice(0, 500))}`;
         }
       } catch (e) {
         sandboxSkip = `Pi probe failed: ${(e as Error).message}`;
@@ -339,10 +358,7 @@ describe.skipIf(piSkip)('Pi interactive PTY E2E (sandbox)', () => {
       command: 'node',
       args: [
         '-e',
-        buildPiInteractiveCode({
-          mockUrl: `http://127.0.0.1:${mockServer.port}`,
-          cwd: workDir,
-        }),
+        buildPiInteractiveCode({ cwd: workDir }),
       ],
       cwd: SECURE_EXEC_ROOT,
       env: {

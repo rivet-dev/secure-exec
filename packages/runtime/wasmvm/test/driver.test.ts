@@ -332,6 +332,7 @@ describe('WasmVM RuntimeDriver', () => {
       const ctx: ProcessContext = {
         pid: 1, ppid: 0, env: {}, cwd: '/home/user',
         fds: { stdin: 0, stdout: 1, stderr: 2 },
+        isTTY: { stdin: false, stdout: false, stderr: false },
       };
       expect(() => driver.spawn('echo', ['hello'], ctx)).toThrow(/not initialized/);
     });
