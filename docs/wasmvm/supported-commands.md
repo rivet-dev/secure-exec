@@ -215,6 +215,12 @@
 | curl | yes | done | `curl_cli.c` (libcurl HTTP-only, C program via `host_net`) | — |
 | wget | yes | done | `wget.c` (libcurl-based, C program via `host_net`) | — |
 
+## Version Control
+
+| Command | just-bash | Status | Implementation | Target |
+|---------|-----------|--------|----------------|--------|
+| git | yes | done | C program (clean-room Apache-2.0, SHA-1 + zlib): init, add, commit, status, log, diff, hash-object, cat-file | branching, merge, remote |
+
 ## Deferred
 
 | Command | just-bash | Reason | Notes |
@@ -254,7 +260,8 @@
 | Shell Builtins | 0 | 0 | 0 | 0 | 0 | 11 | 0 |
 | Data Processing | 3 | 0 | 0 | 1 | 0 | 0 | 2 |
 | Network | 2 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | **104** | **1** | **1** | **1** | **4** | **13** | **2** |
+| Version Control | 1 | 0 | 0 | 0 | 0 | 0 | 0 |
+| **Total** | **105** | **1** | **1** | **1** | **4** | **13** | **2** |
 
 ---
 

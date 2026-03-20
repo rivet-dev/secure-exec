@@ -254,8 +254,8 @@ $(NATIVE_DIR)/curl_cli: programs/curl_cli.c
 	@mkdir -p $(NATIVE_DIR)
 	$(NATIVE_CC) $(NATIVE_CFLAGS) -o $@ programs/curl_cli.c -lcurl
 
-# git: clean-room git plumbing (hash-object, cat-file, init) — links SHA-1 + zlib
-GIT_SRCS     := libs/git/sha1.c libs/git/git-objects.c
+# git: clean-room git implementation (init, add, commit, status, log, diff, hash-object, cat-file) — links SHA-1 + zlib
+GIT_SRCS     := libs/git/sha1.c libs/git/git-objects.c libs/git/git-index.c
 GIT_INCLUDES := -Ilibs/git -Ilibs/zlib
 
 $(BUILD_DIR)/git: programs/git.c $(GIT_SRCS) $(ZLIB_SRCS) $(WASI_SDK_DIR)/bin/clang

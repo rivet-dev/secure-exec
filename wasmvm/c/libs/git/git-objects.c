@@ -196,3 +196,306 @@ char *git_find_repo(void) {
 
     return NULL;
 }
+
+/* --- Hex conversion --- */
+
+void git_hex_to_bin(const char *hex, uint8_t *bin) {
+    for (int i = 0; i < 20; i++) {
+        uint8_t hi = (uint8_t)(hex[i * 2] >= 'a' ? hex[i * 2] - 'a' + 10 :
+                                hex[i * 2] >= 'A' ? hex[i * 2] - 'A' + 10 :
+                                hex[i * 2] - '0');
+        uint8_t lo = (uint8_t)(hex[i * 2 + 1] >= 'a' ? hex[i * 2 + 1] - 'a' + 10 :
+                                hex[i * 2 + 1] >= 'A' ? hex[i * 2 + 1] - 'A' + 10 :
+                                hex[i * 2 + 1] - '0');
+        bin[i] = (uint8_t)((hi << 4) | lo);
+    }
+}
+
+void git_bin_to_hex(const uint8_t *bin, char *hex) {
+    to_hex(bin, 20, hex);
+}
+
+/* --- Tree objects --- */
+
+int git_write_tree(const char *git_dir, const GitTreeEntry *entries,
+                   size_t nentries, char hex_out[GIT_SHA1_HEXSZ + 1]) {
+    /* Tree format: repeated "<mode> <name>\0<20-byte-sha1>" */
+    size_t total = 0;
+    for (size_t i = 0; i < nentries; i++) {
+        char mode_str[16];
+        snprintf(mode_str, sizeof(mode_str), "%o", entries[i].mode);
+        total += strlen(mode_str) + 1 + strlen(entries[i].name) + 1 + 20;
+    }
+
+    uint8_t *buf = malloc(total);
+    if (!buf) return -1;
+
+    size_t pos = 0;
+    for (size_t i = 0; i < nentries; i++) {
+        char mode_str[16];
+        snprintf(mode_str, sizeof(mode_str), "%o", entries[i].mode);
+        size_t mlen = strlen(mode_str);
+        size_t nlen = strlen(entries[i].name);
+
+        memcpy(buf + pos, mode_str, mlen);
+        pos += mlen;
+        buf[pos++] = ' ';
+        memcpy(buf + pos, entries[i].name, nlen);
+        pos += nlen;
+        buf[pos++] = '\0';
+        memcpy(buf + pos, entries[i].sha1, 20);
+        pos += 20;
+    }
+
+    int rc = git_write_object(git_dir, "tree", buf, pos, hex_out);
+    free(buf);
+    return rc;
+}
+
+int git_read_tree(const char *git_dir, const char *tree_hex,
+                  GitTreeEntry **entries_out, size_t *nentries_out) {
+    char type[32];
+    uint8_t *data = NULL;
+    size_t len = 0;
+
+    if (git_read_object(git_dir, tree_hex, type, sizeof(type), &data, &len) != 0)
+        return -1;
+
+    if (strcmp(type, "tree") != 0) {
+        free(data);
+        return -1;
+    }
+
+    /* Count entries first */
+    size_t count = 0;
+    size_t pos = 0;
+    while (pos < len) {
+        const char *nul = memchr(data + pos, '\0', len - pos);
+        if (!nul) break;
+        pos = (size_t)(nul - (char *)data) + 1 + 20;
+        count++;
+    }
+
+    GitTreeEntry *entries = malloc(count * sizeof(GitTreeEntry));
+    if (!entries) { free(data); return -1; }
+
+    pos = 0;
+    size_t idx = 0;
+    while (pos < len && idx < count) {
+        /* Parse "<mode> <name>\0<20 bytes sha1>" */
+        const char *space = memchr(data + pos, ' ', len - pos);
+        if (!space) break;
+
+        char mode_str[16];
+        size_t mlen = (size_t)(space - (char *)(data + pos));
+        if (mlen >= sizeof(mode_str)) mlen = sizeof(mode_str) - 1;
+        memcpy(mode_str, data + pos, mlen);
+        mode_str[mlen] = '\0';
+        entries[idx].mode = (uint32_t)strtoul(mode_str, NULL, 8);
+
+        const char *name_start = space + 1;
+        const char *nul = memchr(name_start, '\0', len - (size_t)(name_start - (char *)data));
+        if (!nul) break;
+
+        size_t nlen = (size_t)(nul - name_start);
+        if (nlen >= sizeof(entries[idx].name)) nlen = sizeof(entries[idx].name) - 1;
+        memcpy(entries[idx].name, name_start, nlen);
+        entries[idx].name[nlen] = '\0';
+
+        memcpy(entries[idx].sha1, nul + 1, 20);
+
+        pos = (size_t)(nul - (char *)data) + 1 + 20;
+        idx++;
+    }
+
+    free(data);
+    *entries_out = entries;
+    *nentries_out = idx;
+    return 0;
+}
+
+/* --- Commit objects --- */
+
+int git_write_commit(const char *git_dir, const char *tree_hex,
+                     const char *parent_hex, const char *author,
+                     const char *committer, const char *message,
+                     char hex_out[GIT_SHA1_HEXSZ + 1]) {
+    /* Build commit content */
+    size_t cap = 1024 + strlen(author) + strlen(committer) + strlen(message);
+    char *buf = malloc(cap);
+    if (!buf) return -1;
+
+    int pos = snprintf(buf, cap, "tree %s\n", tree_hex);
+    if (parent_hex && parent_hex[0]) {
+        pos += snprintf(buf + pos, cap - (size_t)pos, "parent %s\n", parent_hex);
+    }
+    pos += snprintf(buf + pos, cap - (size_t)pos, "author %s\n", author);
+    pos += snprintf(buf + pos, cap - (size_t)pos, "committer %s\n", committer);
+    pos += snprintf(buf + pos, cap - (size_t)pos, "\n%s\n", message);
+
+    int rc = git_write_object(git_dir, "commit", (const uint8_t *)buf,
+                              (size_t)pos, hex_out);
+    free(buf);
+    return rc;
+}
+
+int git_read_commit(const char *git_dir, const char *commit_hex,
+                    char tree_hex[GIT_SHA1_HEXSZ + 1],
+                    char parent_hex[GIT_SHA1_HEXSZ + 1],
+                    char **author_out, char **message_out) {
+    char type[32];
+    uint8_t *data = NULL;
+    size_t len = 0;
+
+    tree_hex[0] = '\0';
+    parent_hex[0] = '\0';
+    if (author_out) *author_out = NULL;
+    if (message_out) *message_out = NULL;
+
+    if (git_read_object(git_dir, commit_hex, type, sizeof(type), &data, &len) != 0)
+        return -1;
+
+    if (strcmp(type, "commit") != 0) {
+        free(data);
+        return -1;
+    }
+
+    /* Parse commit headers and body */
+    const char *text = (const char *)data;
+    const char *end = text + len;
+    int in_body = 0;
+
+    while (text < end) {
+        const char *eol = memchr(text, '\n', (size_t)(end - text));
+        if (!eol) eol = end;
+
+        size_t line_len = (size_t)(eol - text);
+
+        if (!in_body) {
+            if (line_len == 0) {
+                in_body = 1;
+                text = eol + 1;
+                /* Rest is the message */
+                size_t msg_len = (size_t)(end - text);
+                /* Trim trailing newline */
+                while (msg_len > 0 && text[msg_len - 1] == '\n') msg_len--;
+                if (message_out) {
+                    *message_out = malloc(msg_len + 1);
+                    memcpy(*message_out, text, msg_len);
+                    (*message_out)[msg_len] = '\0';
+                }
+                break;
+            } else if (strncmp(text, "tree ", 5) == 0 && line_len >= 45) {
+                memcpy(tree_hex, text + 5, 40);
+                tree_hex[40] = '\0';
+            } else if (strncmp(text, "parent ", 7) == 0 && line_len >= 47) {
+                memcpy(parent_hex, text + 7, 40);
+                parent_hex[40] = '\0';
+            } else if (strncmp(text, "author ", 7) == 0 && author_out) {
+                *author_out = malloc(line_len - 6);
+                memcpy(*author_out, text + 7, line_len - 7);
+                (*author_out)[line_len - 7] = '\0';
+            }
+        }
+
+        text = eol + 1;
+    }
+
+    free(data);
+    return 0;
+}
+
+/* --- Ref helpers --- */
+
+static char *read_file_trimmed(const char *path) {
+    FILE *f = fopen(path, "r");
+    if (!f) return NULL;
+    char buf[256];
+    if (!fgets(buf, sizeof(buf), f)) { fclose(f); return NULL; }
+    fclose(f);
+    size_t len = strlen(buf);
+    while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r'))
+        buf[--len] = '\0';
+    return strdup(buf);
+}
+
+int git_resolve_ref(const char *git_dir, const char *ref,
+                    char hex_out[GIT_SHA1_HEXSZ + 1]) {
+    char path[512];
+    snprintf(path, sizeof(path), "%s/%s", git_dir, ref);
+
+    char *content = read_file_trimmed(path);
+    if (!content) return -1;
+
+    /* Follow symbolic refs */
+    if (strncmp(content, "ref: ", 5) == 0) {
+        char *target = content + 5;
+        int rc = git_resolve_ref(git_dir, target, hex_out);
+        free(content);
+        return rc;
+    }
+
+    if (strlen(content) >= 40) {
+        memcpy(hex_out, content, 40);
+        hex_out[40] = '\0';
+        free(content);
+        return 0;
+    }
+
+    free(content);
+    return -1;
+}
+
+int git_update_ref(const char *git_dir, const char *ref, const char *hex) {
+    char path[512];
+    snprintf(path, sizeof(path), "%s/%s", git_dir, ref);
+
+    /* Ensure parent directory exists */
+    char dir[512];
+    snprintf(dir, sizeof(dir), "%s", path);
+    char *slash = strrchr(dir, '/');
+    if (slash) {
+        *slash = '\0';
+        mkdir(dir, 0755);
+    }
+
+    FILE *f = fopen(path, "w");
+    if (!f) return -1;
+    fprintf(f, "%s\n", hex);
+    fclose(f);
+    return 0;
+}
+
+int git_read_head(const char *git_dir, char hex_out[GIT_SHA1_HEXSZ + 1],
+                  char *ref_out, size_t ref_sz) {
+    char head_path[512];
+    snprintf(head_path, sizeof(head_path), "%s/HEAD", git_dir);
+
+    char *content = read_file_trimmed(head_path);
+    if (!content) return -1;
+
+    if (strncmp(content, "ref: ", 5) == 0) {
+        const char *ref = content + 5;
+        if (ref_out) {
+            size_t len = strlen(ref);
+            if (len >= ref_sz) len = ref_sz - 1;
+            memcpy(ref_out, ref, len);
+            ref_out[len] = '\0';
+        }
+        int rc = git_resolve_ref(git_dir, ref, hex_out);
+        free(content);
+        return rc;
+    }
+
+    /* Detached HEAD */
+    if (strlen(content) >= 40) {
+        memcpy(hex_out, content, 40);
+        hex_out[40] = '\0';
+        if (ref_out) ref_out[0] = '\0';
+        free(content);
+        return 0;
+    }
+
+    free(content);
+    return -1;
+}
