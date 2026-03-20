@@ -2785,3 +2785,15 @@ PRD: ralph/kernel-hardening (46 stories)
   - encode_body was infallible (returned nothing) so callers like encode_frame_into had to handle errors only from the size check — now encode_body itself can fail on field overflow
   - All u16/u8 truncation points in encode_body now use the guarded helper functions
 ---
+
+## 2026-03-19 - US-071
+- Replaced unbounded IPC writer channel in main.rs with bounded(1024)
+- Replaced unbounded session command channel in session.rs with bounded(256)
+- Session threads now block naturally when IPC writer buffer is full (backpressure)
+- Connection handler blocks when session command buffer is full
+- All 79 cargo tests pass, all 28 typecheck tasks pass
+- Files changed: crates/v8-runtime/src/main.rs, crates/v8-runtime/src/session.rs
+- **Learnings for future iterations:**
+  - Only main.rs and session.rs have production unbounded channels; execution.rs, host_call.rs, snapshot.rs unbounded channels are all in test code
+  - crossbeam_channel::bounded API is drop-in replacement for unbounded — same Sender/Receiver types
+---
