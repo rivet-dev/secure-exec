@@ -617,3 +617,18 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - `NODE_CUSTOM_GLOBAL_INVENTORY` must include every `HOST_BRIDGE_GLOBAL_KEY_LIST` entry — enforced by bridge-registry-policy.test.ts
   - The `check-types` turbo task runs `build` as a dependency for some packages, which regenerates `isolate-runtime.ts` from source files
 ---
+
+## 2026-03-20 - US-079
+- Added missing console method stubs: `console.debug`, `console.trace`, `console.dir`, `console.table`
+- `console.debug` → `_log` (stdout, same as console.log)
+- `console.trace` → `_error` (stderr, same as console.warn)
+- `console.dir` → `_log` (stdout)
+- `console.table` → `_log` (stdout, basic formatting via existing serialization)
+- Added 4 unit tests in `console-formatter.test.ts` verifying each new method routes to correct bridge function
+- Added 2 integration tests in `context-snapshot-behavior.test.ts` verifying `console.debug` (stdout) and `console.trace` (stderr) through the full V8 runtime
+- Files changed: `packages/secure-exec-core/src/shared/console-formatter.ts`, `packages/secure-exec/tests/console-formatter.test.ts`, `packages/secure-exec/tests/runtime-driver/node/context-snapshot-behavior.test.ts`
+- **Learnings for future iterations:**
+  - Console methods are defined in `getConsoleSetupCode()` which generates JS code injected into the isolate — adding new methods is a 1-line addition per method
+  - The generated `isolate-runtime.ts` is NOT affected by console-formatter changes — `getConsoleSetupCode()` is called at runtime, not at build time
+  - Node.js `console.trace` outputs to stderr (like warn), not stdout — our shim matches this behavior
+---

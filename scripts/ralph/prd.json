@@ -1172,8 +1172,8 @@
         "Tests pass"
       ],
       "priority": 79,
-      "passes": false,
-      "notes": "PR review finding: console.debug() throws TypeError in sandbox because it's undefined."
+      "passes": true,
+      "notes": "Added console.debug (→ _log), console.trace (→ _error), console.dir (→ _log), console.table (→ _log) to getConsoleSetupCode(). Unit + integration tests added."
     },
     {
       "id": "US-080",
