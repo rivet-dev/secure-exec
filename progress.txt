@@ -3977,3 +3977,27 @@ PRD: ralph/kernel-hardening (46 stories)
   - Binary name must match directory name for Makefile's wasm-opt step to find it
   - Pre-existing failures unchanged: resource-exhaustion.test.ts (1), git.test.ts (9), shell-terminal.test.ts (5), example-ai-sdk typecheck
 ---
+
+## 2026-03-20 - US-105
+- What was implemented: Integration tests for codex-exec headless agent WASM binary
+- Created `packages/runtime/wasmvm/test/codex-exec.test.ts` with 10 tests:
+  - `--help` prints usage without errors
+  - `--version` prints version string
+  - `--stub-test` validates WASI stub crates (network-proxy, otel)
+  - Accepts prompt as argument and exits cleanly
+  - Prints error when no prompt provided
+  - Can be spawned from shell via `sh -c` pipeline
+  - Captures stdout correctly through kernel.exec()
+  - Captures stderr correctly through kernel.exec()
+  - Exits cleanly after completing a single prompt
+  - API integration test guarded by OPENAI_API_KEY availability
+- Files changed:
+  - packages/runtime/wasmvm/test/codex-exec.test.ts (new) — 10 integration tests
+  - scripts/ralph/prd.json — marked US-105 as passes: true
+- **Learnings for future iterations:**
+  - codex-exec headless mode is a placeholder — outputs "under development" to stderr and exits 0
+  - Tests follow same pattern as wasi-http.test.ts: SimpleVFS + createKernel + createWasmVmRuntime({ commandDirs })
+  - API-dependent test describe block uses `describe.skipIf(!hasApiKey)` — OPENAI_API_KEY check
+  - All tests gated behind `hasWasmBinaries` which checks COMMANDS_DIR + specific binary existence
+  - Pre-existing failures unchanged: c-parity.test.ts, driver.test.ts, dynamic-module-integration.test.ts (WASM binary dependent), git.test.ts (9 tests), shell-terminal.test.ts (5 tests), example-ai-sdk typecheck
+---
