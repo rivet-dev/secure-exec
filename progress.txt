@@ -2797,3 +2797,16 @@ PRD: ralph/kernel-hardening (46 stories)
   - Only main.rs and session.rs have production unbounded channels; execution.rs, host_call.rs, snapshot.rs unbounded channels are all in test code
   - crossbeam_channel::bounded API is drop-in replacement for unbounded — same Sender/Receiver types
 ---
+
+## 2026-03-19 - US-072
+- What was implemented: Constant-time auth token comparison and race-free socket directory creation
+- Changes:
+  1. Added `constant_time_eq()` function using XOR-accumulate for auth token comparison (prevents timing oracle)
+  2. Replaced `fs::create_dir() + fs::set_permissions()` with `fs::DirBuilder::new().mode(0o700).create()` (eliminates TOCTOU race)
+  3. Added tests: 3 for constant_time_eq (equal, different content, different length) and 1 for socket directory 0700 permissions
+- Files changed: crates/v8-runtime/src/main.rs
+- **Learnings for future iterations:**
+  - `DirBuilderExt::mode()` (from `std::os::unix::fs`) sets permissions atomically via mkdir(2) — always prefer over create_dir + set_permissions
+  - V8 isolate teardown SIGSEGV is pre-existing and test-order-dependent — the process crashes during exit cleanup when both execution and snapshot tests run in the same process, but all test assertions pass before the crash
+  - `PermissionsExt` import moved to test module only since production code no longer needs it
+---

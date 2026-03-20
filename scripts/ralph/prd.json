@@ -1056,8 +1056,8 @@
         "Typecheck passes"
       ],
       "priority": 62,
-      "passes": false,
-      "notes": "PR review finding: Timing oracle on auth token; TOCTOU race between create_dir and set_permissions."
+      "passes": true,
+      "notes": "Fixed: constant_time_eq (XOR-accumulate) replaces String::eq for auth token comparison; DirBuilder::mode(0o700) replaces create_dir+set_permissions for race-free socket directory creation."
     },
     {
       "id": "US-073",
