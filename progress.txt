@@ -3789,3 +3789,26 @@ PRD: ralph/kernel-hardening (46 stories)
   - npm's async update-notifier produces unhandled rejections after isolate dispose — this is pre-existing and affects all npm-related tests
   - Use checkNpmInstallWorks() probe pattern to skip online tests when npm install is broken in sandbox
 ---
+
+## 2026-03-20 - US-098
+- What was implemented: Final documentation sweep — updated docs/wasmvm/supported-commands.md summary counts and docs/posix-compatibility.md to reflect all POSIX features implemented in this phase
+- supported-commands.md: corrected summary counts (109→111 done, 1→3 builtin) to match actual table entries
+- posix-compatibility.md changes:
+  - Signals: marked SIGPIPE, SIGCHLD, SIGALRM, SIGSTOP/SIGCONT, SIGTSTP, SIGQUIT, SIGHUP as Implemented
+  - Process model: marked setenv/unsetenv and chdir as Implemented
+  - File descriptors: marked FD_CLOEXEC, fcntl, O_CLOEXEC, flock as Implemented
+  - Exit codes: marked WNOHANG as Implemented
+  - PTY: marked SIGTSTP on ^Z and SIGHUP on master close as Implemented
+  - Pipes: marked SIGPIPE on broken pipe as Implemented
+  - WasmVM: updated networking from "missing" to "HTTP via host_net"
+  - Node bridge: added npm/npx to child_process description
+  - Updated summary scorecard percentages
+- Files changed:
+  - docs/wasmvm/supported-commands.md
+  - docs/posix-compatibility.md
+- **Learnings for future iterations:**
+  - supported-commands.md summary counts had drifted from actual table entries — always recount from the tables when updating
+  - Many POSIX features were implemented in kernel (SIGCHLD, SIGALRM, fcntl, flock, setenv, chdir, WNOHANG) but docs weren't updated — check kernel source vs docs when doing sweeps
+  - Pre-existing typecheck failures in examples/ai-sdk and examples/code-mode (missing node_modules) — not related to doc changes
+  - Pre-existing flaky test in kernel resource-exhaustion.test.ts (PTY 1MB write stress) — not related to doc changes
+---
