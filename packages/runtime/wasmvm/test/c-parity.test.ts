@@ -361,6 +361,25 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
     expect(wasm.stdout).toContain('egid=1000');
   });
 
+  it.skipIf(tier2Skip)('getpwuid_test: passwd entry fields valid', async () => {
+    const native = await runNative('getpwuid_test');
+    const wasm = await kernel.exec('getpwuid_test');
+
+    expect(wasm.exitCode).toBe(native.exitCode);
+    expect(wasm.exitCode).toBe(0);
+    expect(normalizeStderr(wasm.stderr)).toBe(normalizeStderr(native.stderr));
+    // Both should get valid passwd entries
+    expect(wasm.stdout).toContain('getpwuid: ok');
+    expect(wasm.stdout).toContain('pw_name_nonempty: yes');
+    expect(wasm.stdout).toContain('pw_uid_match: yes');
+    expect(wasm.stdout).toContain('pw_gid_valid: yes');
+    expect(wasm.stdout).toContain('pw_dir_nonempty: yes');
+    expect(wasm.stdout).toContain('pw_shell_nonempty: yes');
+    expect(native.stdout).toContain('getpwuid: ok');
+    expect(native.stdout).toContain('pw_name_nonempty: yes');
+    expect(native.stdout).toContain('pw_uid_match: yes');
+  });
+
   it.skipIf(tier2Skip)('pipe_test: write through pipe and read back matches', async () => {
     const native = await runNative('pipe_test');
     const wasm = await kernel.exec('pipe_test');
@@ -516,7 +535,7 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
       // host_process
       'pipe', 'dup', 'dup2', 'getpid', 'getppid', 'spawn_waitpid', 'kill',
       // host_user
-      'getuid', 'getgid', 'geteuid', 'getegid', 'isatty',
+      'getuid', 'getgid', 'geteuid', 'getegid', 'isatty', 'getpwuid',
     ];
     for (const name of expectedSyscalls) {
       expect(wasm.stdout).toContain(`${name}: ok`);

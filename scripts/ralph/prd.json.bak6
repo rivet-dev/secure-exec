@@ -1,0 +1,641 @@
+{
+  "project": "secure-exec",
+  "branchName": "ralph/wasmvm-dynamic-modules",
+  "description": "WasmVM Dynamic Module Loading - Replace the monolithic multicall WASM binary with individually compiled standalone WASM binaries, loaded dynamically on demand via filesystem-based discovery",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "CommandRegistry path-based resolution and dynamic registration",
+      "description": "As a developer, I need CommandRegistry.resolve() to handle path-based lookups so brush-shell's PATH resolution works when it sends '/bin/ls' instead of 'ls'.",
+      "acceptanceCriteria": [
+        "CommandRegistry.resolve('/bin/ls') returns the driver registered for 'ls'",
+        "CommandRegistry.resolve('/usr/bin/grep') returns the driver registered for 'grep'",
+        "CommandRegistry.resolve('ls') still works (direct name lookup unchanged)",
+        "Add registerCommand(command, driver) method for single-command dynamic registration",
+        "Add populateBinEntry(vfs, command) method to create a single /bin stub file",
+        "Unit tests for path-based resolution with various path prefixes",
+        "Unit tests for registerCommand and populateBinEntry",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "File: packages/kernel/src/command-registry.ts. The resolve() method currently does a simple Map.get(command). Add basename extraction: if direct lookup fails and command contains '/', extract basename via command.split('/').pop() and retry. See spec Section 4.1. This fixes a latent bug where brush-shell sends '/bin/ls' via proc_spawn but the registry only stores 'ls'."
+    },
+    {
+      "id": "US-002",
+      "title": "On-demand command discovery in kernel",
+      "description": "As a developer, I need the kernel to ask drivers to resolve unknown commands before throwing ENOENT, enabling dynamic discovery of commands added after init.",
+      "acceptanceCriteria": [
+        "Add optional tryResolve?(command: string): boolean to RuntimeDriver interface in types.ts",
+        "kernel.spawnInternal() calls driver.tryResolve(command) for each mounted driver when CommandRegistry.resolve() returns null",
+        "If tryResolve returns true, kernel calls commandRegistry.registerCommand() and populateBinEntry() then retries spawn",
+        "Drivers without tryResolve are skipped (method is optional)",
+        "Test: MockRuntimeDriver with tryResolve discovers a command that was not in initial commands list",
+        "Test: tryResolve returning false for all drivers still results in ENOENT",
+        "Test: after tryResolve succeeds, subsequent spawns resolve via registry without calling tryResolve again",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": "Files: packages/kernel/src/types.ts (RuntimeDriver interface), packages/kernel/src/kernel.ts (spawnInternal). The kernel stores mounted drivers in this.drivers array. Loop through them in spawnInternal after registry miss. See spec Section 4.1 and 4.3. Use createTestKernel and MockRuntimeDriver from test helpers."
+    },
+    {
+      "id": "US-003",
+      "title": "Extract grep library with argv[0] dispatch and create binary crates",
+      "description": "As a developer, I need grep refactored into a library crate that dispatches on argv[0] so grep/egrep/fgrep work as symlinked standalone binaries.",
+      "acceptanceCriteria": [
+        "Create wasmvm/crates/libs/grep/ library crate with unified entry point",
+        "grep lib dispatches on argv[0]: 'egrep' -> Extended mode, 'fgrep' -> Fixed mode, default -> Basic mode",
+        "Create wasmvm/crates/commands/grep/ binary crate calling the grep library",
+        "Binary crate has [[bin]] name = 'grep' and minimal fn main()",
+        "Update workspace Cargo.toml to include new crates",
+        "grep binary compiles for wasm32-wasip1 target: cargo build -p cmd-grep --target wasm32-wasip1 -Z build-std=std,panic_abort",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 3,
+      "passes": true,
+      "notes": "Current code: wasmvm/crates/multicall/src/grep.rs has separate grep()/egrep()/fgrep() functions with hardcoded modes. Refactor to a single main(args) that reads argv[0] basename (Path::new(args[0]).file_name()) and matches on it. The rg command can share the libs/grep crate or get its own. See spec Section 5.2 and 5.3. Keep multicall building in parallel during transition."
+    },
+    {
+      "id": "US-004",
+      "title": "Create shell (sh) standalone binary crate",
+      "description": "As a developer, I need brush-shell compiled as a standalone binary so it can be loaded independently of the multicall.",
+      "acceptanceCriteria": [
+        "Create wasmvm/crates/commands/sh/ binary crate",
+        "Binary calls brush_shell::entry::run() (NOT brush_shell::main())",
+        "Cargo.toml depends on brush-shell with features = ['minimal']",
+        "[[bin]] name = 'sh'",
+        "Update workspace Cargo.toml",
+        "sh binary compiles for wasm32-wasip1 target",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 4,
+      "passes": true,
+      "notes": "brush-shell entry point is brush_shell::entry::run(), NOT brush_shell::main() which doesn't exist. The 'bash' alias will be a symlink created in the build system (US-011). brush-shell must be compiled with features = ['minimal'] — no readline/reedline. See spec Section 5.2 example."
+    },
+    {
+      "id": "US-005",
+      "title": "Extract and create text/data processing binary crates",
+      "description": "As a developer, I need sed, awk, jq, yq, and rg as standalone binary crates.",
+      "acceptanceCriteria": [
+        "Create wasmvm/crates/libs/awk/ library crate wrapping awk-rs",
+        "Create wasmvm/crates/libs/jq/ library crate wrapping jaq-core",
+        "Create wasmvm/crates/libs/yq/ library crate wrapping serde_yaml/toml/quick-xml",
+        "Create wasmvm/crates/commands/sed/ binary crate",
+        "Create wasmvm/crates/commands/awk/ binary crate",
+        "Create wasmvm/crates/commands/jq/ binary crate",
+        "Create wasmvm/crates/commands/yq/ binary crate",
+        "Create wasmvm/crates/commands/rg/ binary crate",
+        "All binary crates compile for wasm32-wasip1 target",
+        "Update workspace Cargo.toml",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 5,
+      "passes": true,
+      "notes": "Extract implementation code from multicall's corresponding .rs files (sed.rs, awk.rs, jq.rs, yq.rs, rg.rs). Each library crate exposes a main(args) -> i32 function. sed uses the uutils/sed crate directly. rg uses ripgrep internals. See spec Section 5.2 for structure. Keep multicall building in parallel."
+    },
+    {
+      "id": "US-006",
+      "title": "Extract and create file utility binary crates",
+      "description": "As a developer, I need find, file, tree, du, column, rev, strings, expr, and diff as standalone binary crates.",
+      "acceptanceCriteria": [
+        "Create library crates under wasmvm/crates/libs/ for: find, file-cmd, tree, du, column, rev, strings-cmd, expr, diff",
+        "Create binary crates under wasmvm/crates/commands/ for each command",
+        "Each binary crate has [[bin]] with correct command name",
+        "All binary crates compile for wasm32-wasip1 target",
+        "Update workspace Cargo.toml",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 6,
+      "passes": true,
+      "notes": "Extract from multicall: find.rs, file.rs, tree.rs, du.rs, column.rs, rev.rs, strings.rs, expr.rs, diff.rs. Each gets a libs/ crate and a commands/ crate. These are custom implementations (not uutils). See spec Section 5.2."
+    },
+    {
+      "id": "US-007",
+      "title": "Extract and create compression binary crates with alias symlinks",
+      "description": "As a developer, I need gzip and tar as standalone binaries, with gunzip/zcat as symlink aliases.",
+      "acceptanceCriteria": [
+        "Create wasmvm/crates/libs/gzip/ library crate with argv[0] dispatch for gzip/gunzip/zcat",
+        "Create wasmvm/crates/libs/tar/ library crate",
+        "Create wasmvm/crates/commands/gzip/ binary crate",
+        "Create wasmvm/crates/commands/tar/ binary crate",
+        "gzip lib checks argv[0]: 'gunzip' -> decompress mode, 'zcat' -> decompress+stdout mode",
+        "Both compile for wasm32-wasip1 target",
+        "Update workspace Cargo.toml",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 7,
+      "passes": true,
+      "notes": "Extract from multicall's gzip.rs and tar_cmd.rs. gzip uses flate2, tar uses the tar crate. Symlinks (gunzip->gzip, zcat->gzip) are created in the build system (US-011). The gzip binary must dispatch on argv[0] like grep does. See spec Section 5.3."
+    },
+    {
+      "id": "US-008",
+      "title": "Create uutils coreutils binary crates - batch 1",
+      "description": "As a developer, I need the first batch of uutils coreutils commands as standalone binary crates.",
+      "acceptanceCriteria": [
+        "Create binary crates for: ls, cat, cp, mv, rm, mkdir, chmod, sort, head, tail, wc, cut, tr, echo, printf",
+        "Each binary crate depends on corresponding uu_* crate (version 0.7.0) and uucore",
+        "Each main.rs calls uu_*::uumain(args.into_iter()) as i32",
+        "All 15 binary crates compile for wasm32-wasip1 target",
+        "Update workspace Cargo.toml",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 8,
+      "passes": true,
+      "notes": "These are mechanical: each crate is a Cargo.toml (~10 lines) and main.rs (~4 lines). Pattern: fn main() { let args: Vec<OsString> = std::env::args_os().collect(); std::process::exit(uu_X::uumain(args.into_iter()) as i32); }. See spec Section 5.2 ls example. uutils crates are already workspace dependencies via the multicall. The 'more' command should be a symlink to cat (see US-011), NOT a separate binary."
+    },
+    {
+      "id": "US-009",
+      "title": "Create uutils coreutils binary crates - batch 2",
+      "description": "As a developer, I need the remaining uutils coreutils commands as standalone binary crates.",
+      "acceptanceCriteria": [
+        "Create binary crates for remaining uutils commands: seq, yes, true, false, tee, date, uname, basename, dirname, readlink, realpath, mktemp, touch, ln, uniq, paste, expand, fold, nl, od, comm, join, tsort, factor, nproc, dd, md5sum, sha256sum, base64, id, groups, stat, pwd",
+        "Each follows the same pattern as US-008",
+        "All binary crates compile for wasm32-wasip1 target",
+        "Update workspace Cargo.toml",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 9,
+      "passes": true,
+      "notes": "Same mechanical pattern as US-008. Check dispatch.rs match statement for the full list of uutils commands to ensure nothing is missed. Some commands may not have a corresponding uu_* crate — check before creating. If a command was a custom implementation (not uutils), it belongs in a libs/ crate instead (should already be handled by US-005/006)."
+    },
+    {
+      "id": "US-010",
+      "title": "Create builtins, shims, and _stubs multicall binary crates",
+      "description": "As a developer, I need builtins (sleep, test, whoami), shims (env, timeout, xargs, nice, nohup, stdbuf), and a _stubs mini-multicall as standalone crates.",
+      "acceptanceCriteria": [
+        "Create wasmvm/crates/libs/builtins/ for sleep, test/[, whoami implementations",
+        "Create wasmvm/crates/libs/shims/ for env, timeout, xargs, nice, nohup, stdbuf",
+        "Create wasmvm/crates/libs/stubs/ for stub error messages",
+        "Create binary crates for each builtin and shim command",
+        "Create wasmvm/crates/commands/_stubs/ mini-multicall binary that checks argv[0] for ~15 stub commands",
+        "_stubs binary prints appropriate error message and exits 1 for each stub command",
+        "All compile for wasm32-wasip1 target",
+        "Update workspace Cargo.toml",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 10,
+      "passes": true,
+      "notes": "Builtins use wasi-ext for host imports. Shims use wasi-ext proc_spawn. _stubs is the one exception to 'no multicall' — justified because stubs are not real commands, just error messages. Stub commands: hostname, kill, stty, chown, chgrp, df, and others from dispatch.rs. _stubs checks argv[0] basename and prints 'command not supported in sandbox'. See spec Section 5.4."
+    },
+    {
+      "id": "US-011",
+      "title": "Build system - cargo-secureexec wrapper, Makefile, and symlinks",
+      "description": "As a developer, I need a build system that compiles all standalone binaries, strips .wasm extension, runs wasm-opt, and creates symlinks for aliases.",
+      "acceptanceCriteria": [
+        "Create cargo-secureexec shell script (or update existing Makefile) to build all command crates",
+        "Build uses: cargo build --target wasm32-wasip1 -Z build-std=std,panic_abort --release",
+        "Post-build: wasm-opt -O3 --strip-debug on each binary",
+        "Post-build: strip .wasm extension from output filenames",
+        "Create symlinks: egrep->grep, fgrep->grep, gunzip->gzip, zcat->gzip, bash->sh, dir->ls, vdir->ls, more->cat",
+        "Create symlinks: hostname->_stubs, kill->_stubs, stty->_stubs, and all other stub commands",
+        "make wasm builds all standalone binaries (replaces multicall target)",
+        "Output layout matches spec Section 6.3",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 11,
+      "passes": true,
+      "notes": "See spec Section 6.1 and 6.2. The build script must invoke patch-std and patch-vendor (inherited from existing Makefile). On platforms without symlink support (some Windows), copy the binary instead. The old multicall target can be kept temporarily for comparison but the default 'make wasm' should build standalone binaries. COMMANDS_DIR should be configurable."
+    },
+    {
+      "id": "US-012",
+      "title": "ModuleCache with concurrent-compile deduplication",
+      "description": "As a developer, I need a ModuleCache class that compiles WebAssembly.Module once per binary and deduplicates concurrent compilations.",
+      "acceptanceCriteria": [
+        "Create ModuleCache class in packages/runtime/wasmvm/src/ with resolve(binaryPath), invalidate(binaryPath), clear() methods",
+        "resolve() returns cached WebAssembly.Module if available",
+        "resolve() deduplicates concurrent compilations via pending promise map",
+        "Two concurrent resolve() calls for the same binary only trigger one compile",
+        "invalidate() removes a specific entry from cache",
+        "clear() removes all entries",
+        "Unit tests for cache hit, cache miss, concurrent dedup, invalidate, clear",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": "See spec Section 3.4. The cache stores Map<string, WebAssembly.Module>. Concurrent dedup: store Promise in a 'pending' map, await it if another resolve() is already compiling the same binary. Clean up pending entry in finally block. First spawn ~50-200ms (compile), subsequent ~1-5ms (instantiate from cache)."
+    },
+    {
+      "id": "US-013",
+      "title": "Refactor WasmVmRuntimeDriver for commandDirs and filesystem scan",
+      "description": "As a developer, I need WasmVmRuntimeDriver to discover commands from filesystem directories instead of a hardcoded array, with WASM magic byte validation.",
+      "acceptanceCriteria": [
+        "Add isWasmBinary() utility that checks first 4 bytes for WASM magic (0x00 0x61 0x73 0x6D)",
+        "Replace WasmVmRuntimeOptions.wasmBinaryPath with commandDirs: string[]",
+        "init() scans all commandDirs, validates WASM magic bytes, populates internal command map",
+        "First directory containing a command wins (PATH semantics)",
+        "Dotfiles and directories are skipped during scan",
+        "Non-WASM files are silently skipped",
+        "Implement tryResolve(command): sync check of commandDirs for on-demand discovery",
+        "Remove WASMVM_COMMANDS hardcoded array — commands derived from filesystem scan",
+        "spawn() resolves binary path from internal _commandPaths map",
+        "Support deprecated wasmBinaryPath for backwards compatibility with deprecation warning",
+        "Tests for filesystem scan, magic byte validation, PATH precedence, dotfile skipping, tryResolve",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": "File: packages/runtime/wasmvm/src/driver.ts. Current driver has hardcoded WASMVM_COMMANDS array (lines 41-86) and single wasmBinaryPath. Replace with commandDirs + _commandPaths Map<string, string>. isWasmBinary: async version for init scan, sync version (fs.openSync + readSync) for tryResolve. See spec Section 3.2, 3.3, 4.2. The tryResolve method is called by the kernel (US-002)."
+    },
+    {
+      "id": "US-014",
+      "title": "Worker pre-compiled module transfer via workerData",
+      "description": "As a developer, I need the driver to compile WebAssembly.Module on the main thread and transfer it to workers via structured clone, avoiding per-worker compilation.",
+      "acceptanceCriteria": [
+        "WorkerInitData gains optional wasmModule: WebAssembly.Module field",
+        "Driver._launchWorker() compiles module via ModuleCache then passes it in workerData",
+        "kernel-worker.ts uses init.wasmModule when present, falls back to readFile+compile if absent",
+        "Worker calls WebAssembly.instantiate(wasmModule, imports) directly with pre-compiled module",
+        "First spawn of a command compiles on main thread (~50-200ms), subsequent spawns instantiate from cache (~1-5ms)",
+        "Test: second spawn of same command is significantly faster than first",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": "Files: packages/runtime/wasmvm/src/syscall-rpc.ts (WorkerInitData), packages/runtime/wasmvm/src/driver.ts (_launchWorker), packages/runtime/wasmvm/src/kernel-worker.ts. WebAssembly.Module is Transferable in Node.js since v16. The worker currently reads the binary independently (kernel-worker.ts lines 632-633). See spec Section 3.4 and 4.4."
+    },
+    {
+      "id": "US-015",
+      "title": "JS driver integration tests for dynamic module loading",
+      "description": "As a developer, I need integration tests verifying the full dynamic module loading pipeline works end-to-end.",
+      "acceptanceCriteria": [
+        "Test: driver discovers commands from commandDirs at init",
+        "Test: first dir in commandDirs wins on naming conflict",
+        "Test: on-demand discovery finds binary added after init",
+        "Test: symlink aliases resolve correctly (e.g., egrep -> grep binary)",
+        "Test: module cache returns same WebAssembly.Module for repeated resolves",
+        "Test: path-based resolution through kernel (/bin/ls -> ls)",
+        "Test: non-WASM files in commandDirs are ignored",
+        "Test: backwards-compat wasmBinaryPath mode still works with deprecation warning",
+        "All tests use skipUnlessWasmBuilt() guard",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 15,
+      "passes": false,
+      "notes": "These tests exercise the full pipeline: kernel -> CommandRegistry -> WasmVmRuntimeDriver -> ModuleCache -> Worker. Use createIntegrationKernel from test helpers. Tests must be guarded with skipUnlessWasmBuilt() since they require compiled WASM binaries. See spec Section 11 for test examples."
+    },
+    {
+      "id": "US-016",
+      "title": "BrowserWasmVmRuntimeDriver with command manifest",
+      "description": "As a developer, I need a browser-compatible driver that fetches WASM binaries on demand from a CDN using a JSON manifest.",
+      "acceptanceCriteria": [
+        "Define CommandManifest JSON format: { version, baseUrl, commands: { name: { size, sha256 } } }",
+        "Create BrowserWasmVmRuntimeDriver implementing RuntimeDriver interface",
+        "init() fetches manifest from registryUrl to discover available commands",
+        "spawn() fetches binary from baseUrl + command name on first use",
+        "Use WebAssembly.compileStreaming(fetch(url)) for streaming compilation",
+        "Module cache stores compiled modules for reuse across spawns",
+        "Add preload(commands: string[]) method for prefetching common commands",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 16,
+      "passes": false,
+      "notes": "See spec Section 8. This is the browser equivalent of the Node.js filesystem-based driver. The manifest is a static JSON file generated at build time. compileStreaming compiles while downloading for best performance. No tryResolve needed for browser (all commands are in the manifest)."
+    },
+    {
+      "id": "US-017",
+      "title": "Browser caching - Cache API and preload",
+      "description": "As a developer, I need browser-side caching so WASM modules persist across page loads and common commands can be prefetched.",
+      "acceptanceCriteria": [
+        "Use browser Cache API to store fetched WASM binaries across page loads",
+        "IndexedDB fallback for environments without Cache API",
+        "SHA-256 integrity checking from manifest before instantiation",
+        "preload() fetches and compiles multiple commands concurrently during idle time",
+        "Cached binaries are validated against manifest SHA-256 on each use",
+        "Test: cache hit avoids network fetch on second page load",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 17,
+      "passes": false,
+      "notes": "See spec Section 8.3 and 8.4. Cache API is available in service workers and modern browsers. IndexedDB is the universal fallback. SHA-256 verification ensures cached binaries haven't been tampered with. preload(['sh', 'ls', 'cat', 'grep']) for common workloads."
+    },
+    {
+      "id": "US-018",
+      "title": "Per-command permission tiers",
+      "description": "As a developer, I need per-command permission tiers (full, read-write, read-only, isolated) enforced at the kernel syscall boundary.",
+      "acceptanceCriteria": [
+        "Define permission tiers: full (all access), read-write (no network/subprocess), read-only (read VFS only), isolated (read cwd only)",
+        "WasmVmRuntimeOptions gains permissions: Record<string, PermissionTier> config",
+        "Permissions enforced at kernel WASI syscall boundary (fd_open, fd_write, proc_spawn)",
+        "Wildcard patterns supported ('*' for default, '_untrusted/*' for directory)",
+        "Default first-party commands to appropriate tiers",
+        "Default unknown/third-party commands to 'read-write'",
+        "Test: isolated command cannot write outside cwd",
+        "Test: read-only command cannot write files",
+        "Test: full command can spawn subprocesses",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 18,
+      "passes": false,
+      "notes": "See spec Section 9. Enforcement is at the kernel level — WASI host imports check the calling process's tier. The WASM binary cannot bypass this since all I/O goes through kernel RPC. Permission config example: { 'sh': 'full', 'grep': 'read-only', '*': 'read-write' }."
+    },
+    {
+      "id": "US-019",
+      "title": "Delete multicall crate and final cleanup",
+      "description": "As a developer, I need the old multicall crate removed and all docs/CI updated to reflect the new standalone binary architecture.",
+      "acceptanceCriteria": [
+        "Delete wasmvm/crates/multicall/ directory (dispatch.rs, main.rs, Cargo.toml)",
+        "Remove multicall from workspace Cargo.toml members",
+        "Update CI workflows to build individual binaries instead of multicall",
+        "Update wasmvm/CLAUDE.md to reflect standalone binary architecture",
+        "Update docs/compatibility-matrix.md if it references multicall",
+        "Remove multicall references from specs and docs",
+        "Update wasmvm/notes/specs/ to mark wasmvm-dynamic-modules.md as implemented",
+        "All existing tests pass with standalone binaries",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 19,
+      "passes": false,
+      "notes": "This is the final cleanup step. Only do this after all other stories pass and the standalone binary architecture is fully working. The dispatch() export in main.rs is dead code (never called from JS). The spawn-test internal command should either be preserved as its own binary or removed explicitly. See spec Section 10 Phase 6."
+    },
+    {
+      "id": "US-020",
+      "title": "C build system - wasi-sdk download and Makefile",
+      "description": "As a developer, I need the C build infrastructure: wasi-sdk download/cache, directory structure, and Makefile targets for compiling C programs to WASM.",
+      "acceptanceCriteria": [
+        "Create wasmvm/c/ directory structure: programs/, vendor/ (gitignored), sysroot/ (gitignored)",
+        "Create wasmvm/c/Makefile with targets: wasi-sdk (download+cache), programs (compile all .c files), install (copy opted-in commands to COMMANDS_DIR)",
+        "wasi-sdk target downloads wasi-sdk-25 tarball, caches in c/vendor/wasi-sdk/",
+        "programs target compiles each .c file in programs/ with: clang --target=wasm32-wasip1 --sysroot=$(SYSROOT) -O2 -flto",
+        "Post-compile: wasm-opt -O3 --strip-debug on each binary",
+        "Output binaries have no .wasm extension (identified by magic bytes)",
+        "Add c-wasm target to top-level wasmvm/Makefile",
+        "Add .gitignore entries for c/vendor/, c/sysroot/, and compiled binaries",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 20,
+      "passes": false,
+      "notes": "See spec Section 3. Initially uses vanilla wasi-sdk sysroot (no patches). Patched sysroot comes in US-024-027. wasi-sdk download URL pattern: github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-25/. COMMANDS variable in Makefile lists opt-in real commands (initially empty — all programs are test fixtures). The install target only copies COMMANDS entries to COMMANDS_DIR."
+    },
+    {
+      "id": "US-021",
+      "title": "Tier 1 C test fixtures - basic I/O (hello, args, env, exitcode, cat)",
+      "description": "As a developer, I need the first batch of pure-WASI C test programs that validate basic I/O through the WASI polyfill.",
+      "acceptanceCriteria": [
+        "Create wasmvm/c/programs/hello.c — prints 'Hello, World!' to stdout",
+        "Create wasmvm/c/programs/args.c — prints argc and each argv entry",
+        "Create wasmvm/c/programs/env.c — prints all environment variables",
+        "Create wasmvm/c/programs/exitcode.c — exits with code from argv[1]",
+        "Create wasmvm/c/programs/cat.c — reads stdin, writes to stdout",
+        "All 5 programs compile with vanilla wasi-sdk sysroot (no patches needed)",
+        "All 5 programs produce correct output when run natively (gcc/clang)",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 21,
+      "passes": false,
+      "notes": "See spec Section 4.1 Tier 1. These exercise wasi_snapshot_preview1 imports only: fd_write, proc_exit, args_get, environ_get, fd_read. No custom host_process/host_user imports needed. Keep programs minimal — each should be a single .c file under 50 lines. These are test fixtures, NOT installed to commandDirs."
+    },
+    {
+      "id": "US-022",
+      "title": "Tier 1 C test fixtures - data processing (wc, fread, fwrite, sort, sha256)",
+      "description": "As a developer, I need the second batch of pure-WASI C test programs that validate memory allocation, file I/O, and computation.",
+      "acceptanceCriteria": [
+        "Create wasmvm/c/programs/wc.c — word/line/byte count from stdin",
+        "Create wasmvm/c/programs/fread.c — read file by path from argv[1], print contents",
+        "Create wasmvm/c/programs/fwrite.c — write argv[2] content to file at argv[1]",
+        "Create wasmvm/c/programs/sort.c — sort lines from stdin alphabetically",
+        "Create wasmvm/c/programs/sha256.c — compute SHA-256 of stdin, print hex digest",
+        "All 5 programs compile with vanilla wasi-sdk sysroot",
+        "All 5 programs produce correct output when run natively",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 22,
+      "passes": false,
+      "notes": "See spec Section 4.1 Tier 1. These exercise: malloc/realloc (wc, sort), path_open/fd_read (fread), path_open/fd_write (fwrite), qsort (sort), CPU-intensive math (sha256). sha256 should be a self-contained implementation (no OpenSSL dependency). These are test fixtures, NOT installed to commandDirs."
+    },
+    {
+      "id": "US-023",
+      "title": "C test harness - native vs WASM parity testing",
+      "description": "As a developer, I need a test harness that compiles C programs to both native and WASM, runs both, and compares stdout/stderr/exit code for parity.",
+      "acceptanceCriteria": [
+        "Create test file (e.g. packages/runtime/wasmvm/test/c-parity.test.ts)",
+        "Test harness runs native binary and captures stdout, stderr, exit code",
+        "Test harness runs WASM binary via kernel.exec() and captures stdout, stderr, exit code",
+        "Each Tier 1 fixture has a parity test: native output === WASM output",
+        "Tests guarded with skipUnlessWasmBuilt() or equivalent skip condition",
+        "hello, args, env, exitcode, cat, wc, fread, fwrite, sort, sha256 all pass parity",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 23,
+      "passes": false,
+      "notes": "See spec Section 4.6. Same parity approach as project-matrix tests in packages/secure-exec/tests/projects/. The harness should handle test setup (creating temp files for fread/fwrite, providing stdin input for cat/wc/sort/sha256). Native binaries are pre-compiled by the C Makefile. WASM binaries must already be built (use skip guard)."
+    },
+    {
+      "id": "US-024",
+      "title": "patch-wasi-libc.sh script and wasi-libc vendoring",
+      "description": "As a developer, I need a script that vendors wasi-libc at a pinned commit, applies our patches, and builds the patched sysroot.",
+      "acceptanceCriteria": [
+        "Create wasmvm/scripts/patch-wasi-libc.sh following the pattern of patch-std.sh",
+        "Script clones wasi-libc to c/vendor/wasi-libc at a pinned commit hash",
+        "Script applies patches from patches/wasi-libc/ in sorted order",
+        "Script builds patched sysroot using wasi-sdk's clang, outputs to c/sysroot/",
+        "Support --check flag (dry-run: verify patches apply cleanly without building)",
+        "Support --reverse flag (unapply patches)",
+        "Add sysroot target to wasmvm/c/Makefile that invokes patch-wasi-libc.sh",
+        "Create patches/wasi-libc/ directory (initially empty, patches added in US-025-027)",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 24,
+      "passes": false,
+      "notes": "See spec Section 3.3. Follow the exact pattern of wasmvm/scripts/patch-std.sh (129 lines) and wasmvm/scripts/patch-vendor.sh (169 lines). Pin wasi-libc to a specific commit from the wasi-libc main branch that's compatible with wasi-sdk-25. The sysroot build command is: make -C c/vendor/wasi-libc WASM_CC=$(WASI_SDK)/bin/clang SYSROOT=$(PWD)/c/sysroot. Canonical source: wasmvm/crates/wasi-ext/src/lib.rs for import signatures."
+    },
+    {
+      "id": "US-025",
+      "title": "wasi-libc patches - pipe, dup, dup2",
+      "description": "As a developer, I need a wasi-libc patch that replaces the ENOSYS stubs for pipe(), dup(), and dup2() with calls to our host_process WASM imports.",
+      "acceptanceCriteria": [
+        "Create wasmvm/patches/wasi-libc/0001-pipe-dup.patch",
+        "Patch adds a new .c file to wasi-libc's libc-bottom-half/sources/",
+        "pipe() calls __host_fd_pipe() from host_process.fd_pipe, returns read/write fds",
+        "dup() calls __host_fd_dup() from host_process.fd_dup, returns new fd",
+        "dup2() calls __host_fd_dup2() from host_process.fd_dup2, returns new fd",
+        "Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly (i32 params, errno return)",
+        "Uses WASM_IMPORT macro pattern from spec Section 2.3",
+        "Patch applies cleanly to vendored wasi-libc via patch-wasi-libc.sh --check",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 25,
+      "passes": false,
+      "notes": "See spec Section 2.1 and 2.3 for the exact pattern. Each function: declare WASM import with __attribute__((import_module, import_name)), implement POSIX wrapper that calls import, sets errno on failure, returns -1/0. The canonical import signatures are in wasmvm/crates/wasi-ext/src/lib.rs — C signatures must match the Rust extern FFI exactly. pipe() example is in spec Section 2.3."
+    },
+    {
+      "id": "US-026",
+      "title": "wasi-libc patches - spawn, wait, kill, getpid",
+      "description": "As a developer, I need wasi-libc patches that replace ENOSYS stubs for posix_spawn(), waitpid(), kill(), getpid(), and getppid() with calls to our host_process imports.",
+      "acceptanceCriteria": [
+        "Create wasmvm/patches/wasi-libc/0002-spawn-wait.patch for posix_spawn() and waitpid()",
+        "Create wasmvm/patches/wasi-libc/0003-kill.patch for kill()",
+        "Create wasmvm/patches/wasi-libc/0004-getpid.patch for getpid() and getppid()",
+        "posix_spawn() calls __host_proc_spawn() from host_process.proc_spawn",
+        "waitpid() calls __host_proc_waitpid() from host_process.proc_waitpid",
+        "kill() calls __host_proc_kill() from host_process.proc_kill",
+        "getpid() calls __host_proc_getpid() (replaces hardcoded 42 in vanilla wasi-libc)",
+        "getppid() calls __host_proc_getppid() from host_process.proc_getppid",
+        "All import signatures match wasmvm/crates/wasi-ext/src/lib.rs",
+        "All patches apply cleanly via patch-wasi-libc.sh --check",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 26,
+      "passes": false,
+      "notes": "See spec Section 2.1. posix_spawn signature is complex — it takes file_actions and attrp params. Our host_process.proc_spawn takes (cmd_ptr, cmd_len, argv_buf_ptr, argv_buf_len, ...) per wasi-ext/src/lib.rs. The C wrapper must serialize the command and argv into linear memory buffers matching the Rust ABI. waitpid returns status via out-pointer. kill takes (pid, signal) -> errno."
+    },
+    {
+      "id": "US-027",
+      "title": "wasi-libc patches - user identity and isatty",
+      "description": "As a developer, I need wasi-libc patches for getuid/getgid/geteuid/getegid and isatty that call our host_user imports.",
+      "acceptanceCriteria": [
+        "Create wasmvm/patches/wasi-libc/0005-user-identity.patch for getuid, getgid, geteuid, getegid",
+        "Create wasmvm/patches/wasi-libc/0006-isatty.patch for isatty",
+        "getuid() calls __host_getuid() from host_user.getuid",
+        "getgid() calls __host_getgid() from host_user.getgid",
+        "geteuid() calls __host_geteuid() from host_user.geteuid",
+        "getegid() calls __host_getegid() from host_user.getegid",
+        "isatty() calls __host_isatty() from host_user.isatty (replaces basic filetype check)",
+        "All import signatures match wasmvm/crates/wasi-ext/src/lib.rs",
+        "All patches apply cleanly via patch-wasi-libc.sh --check",
+        "Patched sysroot builds successfully: make -C wasmvm/c sysroot",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 27,
+      "passes": false,
+      "notes": "See spec Section 2.1. These are the simplest patches — each function is ~5 lines (declare import, call it, return result). isatty replaces wasi-libc's basic filetype check with our host_user.isatty which checks the actual PTY state. After this story, all 6 patches exist and the patched sysroot should build end-to-end. Verify with: make -C wasmvm/c sysroot && ls wasmvm/c/sysroot/lib/wasm32-wasi/libc.a"
+    },
+    {
+      "id": "US-028",
+      "title": "Tier 2 C test fixtures - custom imports (isatty, getpid, userinfo, pipe, dup, sleep)",
+      "description": "As a developer, I need C test programs that validate the patched sysroot correctly routes POSIX functions through our custom host_process/host_user imports.",
+      "acceptanceCriteria": [
+        "Create wasmvm/c/programs/isatty_test.c — detect if stdout is a terminal",
+        "Create wasmvm/c/programs/getpid_test.c — print PID (must NOT be hardcoded 42)",
+        "Create wasmvm/c/programs/userinfo.c — print uid, gid, euid, egid",
+        "Create wasmvm/c/programs/pipe_test.c — create pipe, write then read through it",
+        "Create wasmvm/c/programs/dup_test.c — duplicate stdout FD, write through duplicate",
+        "Create wasmvm/c/programs/sleep_test.c — sleep N ms, verify elapsed time",
+        "All compile with patched sysroot (not vanilla)",
+        "Add parity tests to test harness for all 6 fixtures",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 28,
+      "passes": false,
+      "notes": "See spec Section 4.2 Tier 2. These validate that the patches from US-025-027 actually work. getpid_test is the key validation — vanilla wasi-libc returns 42, patched version returns real PID from host. pipe_test: pipe(fds), write(fds[1], ...), read(fds[0], ...), compare. sleep_test: clock_gettime before/after sleep, verify delta. These require the patched sysroot from US-024-027."
+    },
+    {
+      "id": "US-029",
+      "title": "Tier 3 C test fixtures - process management (spawn, pipeline, kill)",
+      "description": "As a developer, I need C test programs that validate cross-runtime process spawning from C-compiled WASM binaries.",
+      "acceptanceCriteria": [
+        "Create wasmvm/c/programs/spawn_child.c — posix_spawn 'echo hello', waitpid, print child stdout",
+        "Create wasmvm/c/programs/spawn_exit_code.c — spawn child that exits non-zero, verify exit code via waitpid",
+        "Create wasmvm/c/programs/pipeline.c — pipe + spawn: 'echo hello | cat' (fd_pipe + posix_spawn + dup2 + waitpid)",
+        "Create wasmvm/c/programs/kill_child.c — spawn long-running child, kill it, verify it terminated",
+        "All compile with patched sysroot",
+        "Add parity tests to test harness for all 4 fixtures",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 29,
+      "passes": false,
+      "notes": "See spec Section 4.3 Tier 3. These are the most complex test fixtures — they exercise proc_spawn + proc_waitpid + proc_kill + fd_pipe + fd_dup2 together. pipeline.c is the key integration test: creates pipe, spawns 'echo hello' with stdout redirected to pipe write end, spawns 'cat' with stdin from pipe read end, waits for both. This validates that C binaries can orchestrate multi-process pipelines just like Rust ones."
+    },
+    {
+      "id": "US-030",
+      "title": "Tier 4 C test fixtures - filesystem stress (c-ls, c-tree, c-find, c-cp)",
+      "description": "As a developer, I need C test programs that exercise deeper VFS/filesystem capabilities through WASI.",
+      "acceptanceCriteria": [
+        "Create wasmvm/c/programs/c-ls.c — list directory contents with file sizes (opendir, readdir, stat)",
+        "Create wasmvm/c/programs/c-tree.c — recursive directory listing",
+        "Create wasmvm/c/programs/c-find.c — find files matching a pattern (recursive + string matching)",
+        "Create wasmvm/c/programs/c-cp.c — copy a file (open + read + write + close)",
+        "Names prefixed with c- to avoid collision with existing Rust commands",
+        "All compile with patched sysroot",
+        "Add parity tests to test harness for all 4 fixtures",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 30,
+      "passes": false,
+      "notes": "See spec Section 4.4 Tier 4. These exercise WASI filesystem APIs: path_open, fd_readdir, fd_filestat_get, path_filestat_get. c-ls should print name + size like 'ls -l' but simpler. c-tree uses recursive opendir/readdir. c-find uses simple glob matching (fnmatch or manual). c-cp opens source for reading, dest for writing, copies in chunks. Test setup must create a temp directory tree."
+    },
+    {
+      "id": "US-031",
+      "title": "Tier 5 C test fixture - cJSON (json_parse)",
+      "description": "As a developer, I need a C test program that compiles the cJSON library to WASM and parses JSON from stdin, validating complex malloc/free patterns.",
+      "acceptanceCriteria": [
+        "Download cJSON source (cJSON.c + cJSON.h) into wasmvm/c/libs/cjson/",
+        "Create wasmvm/c/programs/json_parse.c — reads JSON from stdin, parses with cJSON, prints formatted output",
+        "Compiles cJSON + json_parse together with patched sysroot",
+        "Update Makefile to handle multi-file compilation for json_parse",
+        "Add parity test: native json_parse output === WASM json_parse output for sample JSON",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 31,
+      "passes": false,
+      "notes": "See spec Section 4.5 Tier 5. cJSON is MIT-licensed, single-file C library. This validates complex malloc/free patterns since cJSON allocates heavily. The test should parse a non-trivial JSON (nested objects, arrays, mixed types) and print a formatted representation. If cJSON fails to compile, it likely means our sysroot is missing something — document the gap."
+    },
+    {
+      "id": "US-032",
+      "title": "Tier 5 C test fixture - SQLite (sqlite3_mem)",
+      "description": "As a developer, I need a C test program that compiles the SQLite amalgamation to WASM and runs in-memory SQL, validating the full libc surface.",
+      "acceptanceCriteria": [
+        "Download SQLite amalgamation (sqlite3.c + sqlite3.h) into wasmvm/c/libs/sqlite3/",
+        "Create wasmvm/c/programs/sqlite3_mem.c — create in-memory DB, create table, insert rows, query, print results",
+        "Compiles SQLite + sqlite3_mem together with patched sysroot and -lwasi-emulated-signal -lwasi-emulated-mman",
+        "Update Makefile for SQLite compilation flags (-DSQLITE_OS_OTHER -DSQLITE_OMIT_WAL etc.)",
+        "Binary size under 2MB after wasm-opt",
+        "Add parity test: native output === WASM output",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 32,
+      "passes": false,
+      "notes": "See spec Section 4.5 Tier 5. SQLite amalgamation is public domain. This is the boss fight — SQLite exercises massive libc surface (malloc, mmap emulation, file I/O, string formatting, math). Compile flags: -DSQLITE_OS_OTHER or -DSQLITE_OS_UNIX, -DSQLITE_OMIT_WAL, -DSQLITE_OMIT_LOAD_EXTENSION, -DSQLITE_THREADSAFE=0. May need -lwasi-emulated-signal and -lwasi-emulated-mman. Expected binary size ~1-2MB."
+    },
+    {
+      "id": "US-033",
+      "title": "CI integration for C toolchain",
+      "description": "As a developer, I need CI to download wasi-sdk, build the patched sysroot, compile all C test fixtures, and run parity tests on every commit.",
+      "acceptanceCriteria": [
+        "Add wasi-sdk download step to CI workflow (cached between runs)",
+        "Add patched sysroot build step to CI",
+        "Add C test fixture compilation step",
+        "Add C parity test execution to CI test matrix",
+        "All 26 C test fixtures compile and pass parity in CI",
+        "Update docs/compatibility-matrix.md with any opted-in C commands",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 33,
+      "passes": false,
+      "notes": "See spec Section 6 Phase 4. wasi-sdk download should be cached by CI (e.g., actions/cache keyed on wasi-sdk version). The sysroot build is slow (~2-3 min) so should also be cached (keyed on wasi-libc commit + patch checksums). C test fixtures are fast to compile (<30s total). Parity tests run as part of the normal test suite. Reference: spec Section 7 Success Criteria."
+    }
+  ]
+}

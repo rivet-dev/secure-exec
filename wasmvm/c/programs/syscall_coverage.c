@@ -15,6 +15,7 @@
 #include <dirent.h>
 #include <time.h>
 #include <errno.h>
+#include <pwd.h>
 
 #ifdef __wasi__
 /* spawn.h and sys/wait.h not in wasi sysroot — declare inline */
@@ -325,6 +326,15 @@ static void test_host_user(void) {
 
     /* When piped (not PTY), isatty returns 0 */
     TEST("isatty", isatty(STDIN_FILENO) == 0, "stdin reported as tty when piped");
+
+    /* getpwuid — verify passwd entry for uid 1000 */
+    struct passwd *pw = getpwuid(1000);
+    if (pw != NULL && pw->pw_name != NULL && strlen(pw->pw_name) > 0 &&
+        pw->pw_uid == 1000) {
+        OK("getpwuid");
+    } else {
+        FAIL("getpwuid", pw ? "bad fields" : "returned NULL");
+    }
 }
 
 int main(int argc, char *argv[]) {

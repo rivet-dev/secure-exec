@@ -117,6 +117,10 @@ Priority order is:
   - `mapErrorToErrno()` matches on `error.message` content; should use structured `error.code`.
   - Files: `packages/runtime/wasmvm/src/kernel-worker.ts`
 
+- [ ] Investigate filesystem permission enforcement interaction with host OS.
+  - WasmVM per-command permission tiers (US-018/019) enforce fd_open/fd_write restrictions inside the WASM sandbox, but need to verify how these interact with host filesystem permissions when the driver reads binaries from `commandDirs`. Specifically: can a malicious WASM binary influence the host-side file reads, and does the permission tier correctly propagate through the WorkerInitData → kernel-worker.ts chain under all error paths?
+  - Files: `packages/runtime/wasmvm/src/kernel-worker.ts`, `packages/runtime/wasmvm/src/driver.ts`
+
 ## Priority 3: Examples, Validation Breadth, and Product Direction
 
 - [ ] Investigate: https://x.com/jaywyawhare/status/2033488305191616875
