@@ -73,6 +73,13 @@ export function composeBridgeCodeForWarmup(): string {
 	})};`);
 	parts.push(getIsolateRuntimeSource("applyCustomGlobalPolicy"));
 
+	// Apply default config via __runtimeApplyConfig (no timing freeze for warmup)
+	parts.push(`globalThis.__runtimeApplyConfig(${JSON.stringify({
+		timingMitigation: "none",
+		payloadLimitBytes: DEFAULT_ISOLATE_JSON_PAYLOAD_BYTES,
+		payloadLimitErrorCode: PAYLOAD_LIMIT_ERROR_CODE,
+	})});`);
+
 	return parts.join("\n");
 }
 
@@ -215,11 +222,8 @@ export class NodeExecutionDriver implements RuntimeDriver {
 		});
 	}
 
-	/** Compose the full bridge code string sent to the Rust V8 runtime. */
-	private composeBridgeCode(
-		timingMitigation: TimingMitigation,
-		frozenTimeMs: number,
-	): string {
+	/** Build the config-independent bridge IIFE (cached across executions). */
+	private getBridgeIIFE(): string {
 		if (this.bridgeCodeCache) return this.bridgeCodeCache;
 
 		const parts: string[] = [];
@@ -243,7 +247,7 @@ export class NodeExecutionDriver implements RuntimeDriver {
 		// 3. Global exposure helpers
 		parts.push(getIsolateRuntimeSource("globalExposureHelpers"));
 
-		// 4. Initial bridge globals setup
+		// 4. Initial bridge globals setup (defines __runtimeApplyConfig)
 		parts.push(getInitialBridgeGlobalsSetupCode());
 
 		// 5. Console setup (hooks into _log/_error)
@@ -258,13 +262,8 @@ export class NodeExecutionDriver implements RuntimeDriver {
 		// 7. Bridge attach
 		parts.push(getBridgeAttachCode());
 
-		// 8. Timing mitigation
-		if (timingMitigation === "freeze") {
-			parts.push(`globalThis.__runtimeTimingMitigationConfig = ${JSON.stringify({ frozenTimeMs })};`);
-			parts.push(getIsolateRuntimeSource("applyTimingMitigationFreeze"));
-		} else {
-			parts.push(getIsolateRuntimeSource("applyTimingMitigationOff"));
-		}
+		// 8. Timing mitigation — default performance polyfill (freeze applied via __runtimeApplyConfig)
+		parts.push(getIsolateRuntimeSource("applyTimingMitigationOff"));
 
 		// 9. Require setup
 		parts.push(getRequireSetupCode());
@@ -279,13 +278,25 @@ export class NodeExecutionDriver implements RuntimeDriver {
 		})};`);
 		parts.push(getIsolateRuntimeSource("applyCustomGlobalPolicy"));
 
-		// Note: bridge code depends on timing (frozenTimeMs) so we don't cache
-		// when timing mitigation is 'freeze' since frozenTimeMs changes per execution.
-		const code = parts.join("\n");
-		if (timingMitigation !== "freeze") {
-			this.bridgeCodeCache = code;
-		}
-		return code;
+		this.bridgeCodeCache = parts.join("\n");
+		return this.bridgeCodeCache;
+	}
+
+	/** Compose the full bridge code: cached IIFE + per-execution __runtimeApplyConfig call. */
+	private composeBridgeCode(
+		timingMitigation: TimingMitigation,
+		frozenTimeMs: number,
+	): string {
+		const iife = this.getBridgeIIFE();
+
+		// Append per-execution config application via __runtimeApplyConfig
+		const configCall = `globalThis.__runtimeApplyConfig(${JSON.stringify({
+			timingMitigation,
+			frozenTimeMs: timingMitigation === "freeze" ? frozenTimeMs : undefined,
+			payloadLimitBytes: this.deps.isolateJsonPayloadLimitBytes,
+			payloadLimitErrorCode: PAYLOAD_LIMIT_ERROR_CODE,
+		})});`;
+		return iife + "\n" + configCall;
 	}
 
 	private async executeInternal<T = unknown>(options: {
