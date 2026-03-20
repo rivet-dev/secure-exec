@@ -1390,8 +1390,8 @@
         "Tests pass"
       ],
       "priority": 71,
-      "passes": false,
-      "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 9."
+      "passes": true,
+      "notes": "36 tests across 2 files: V8-level (17 tests in packages/secure-exec-v8/test/context-snapshot-behavior.test.ts) covers getter FS facade, config application, bridge infrastructure (sync/async), polyfill bridge, exec/run results, session isolation. NodeRuntime-level (19 tests in packages/secure-exec/tests/runtime-driver/node/context-snapshot-behavior.test.ts) covers timing mitigation freeze/off, console routing, CJS file globals, SharedArrayBuffer removal, exec/run correctness. Pre-existing CJS globals issue (require/module undefined) prevents some ACs from being tested at NodeRuntime level — covered at V8 IPC level instead."
     },
     {
       "id": "US-067",

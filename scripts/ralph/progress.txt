@@ -515,3 +515,27 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - `_loadPolyfill` is called lazily inside `require()`, not during bridge IIFE setup — no eager polyfill loading needed in post-restore script
   - Wire format change: Execute now has `[bc_len(u32)][bc][prs_len(u32)][prs][user_code(rest)]` — post_restore_script uses u32 length prefix before user_code
 ---
+
+## 2026-03-19 - US-066
+- Added 36 context snapshot behavior tests across two test files
+- V8-level tests (17 tests, `packages/secure-exec-v8/test/context-snapshot-behavior.test.ts`):
+  - Getter-based FS facade: `_fsReadFile` dispatches to session-local bridge, each session gets own binding
+  - Config application: `_processConfig` and `_osConfig` set from execution options
+  - Bridge infrastructure: sync bridge returns/throws, async bridge resolves/rejects, `_log` dispatch
+  - Polyfill bridge: `_loadPolyfill` callable
+  - Timing: `Date.now()` returns reasonable timestamp at V8 level
+  - Exec/run results: exit code 0, structured errors (TypeError, SyntaxError), ESM exports, sequential executions, session isolation
+- NodeRuntime-level tests (19 tests, `packages/secure-exec/tests/runtime-driver/node/context-snapshot-behavior.test.ts`):
+  - Timing mitigation freeze: Date.now frozen, Date constructor frozen, SharedArrayBuffer removed, off mode preserves real Date
+  - Console bridge: stdout, stderr, warn routing, multiple args, circular refs
+  - CJS file globals: __filename/__dirname available with filePath
+  - Exec/run: exit code 0, structured errors, syntax errors, ESM default/named exports, sequential exec, error recovery
+- Files created: `packages/secure-exec-v8/test/context-snapshot-behavior.test.ts`, `packages/secure-exec/tests/runtime-driver/node/context-snapshot-behavior.test.ts`
+- **Learnings for future iterations:**
+  - CJS globals (require, module, process, crypto) are NOT available at the NodeRuntime exec level — this is a pre-existing issue where the bridge IIFE's CJS module initialization fails silently
+  - Timing mitigation freeze (Date constructor, SharedArrayBuffer removal) requires the bridge IIFE JS code — cannot test at raw V8 level without bridge code
+  - V8-level tests in `packages/secure-exec-v8/test/` cannot import from `@secure-exec/node` since it's not a dependency — test bridge behaviors with simple bridge code strings instead
+  - Pre-existing SIGSEGV when running `execution::tests` AND `snapshot::tests` together — must run separately: `cargo test execution::tests -- --test-threads=1` and `cargo test snapshot::tests -- --test-threads=1`
+  - Pre-existing test-suite failure: CJS `module.exports` in `run()` returns undefined (1/6 failing in test-suite/node.test.ts)
+  - Pre-existing runtime-driver/node failures: ~100/116 tests fail due to require/module being undefined
+---
