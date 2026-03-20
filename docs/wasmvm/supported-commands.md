@@ -161,6 +161,7 @@
 | Command | just-bash | Status | Implementation | Target |
 |---------|-----------|--------|----------------|--------|
 | find | yes | custom | `find.rs` (540 lines, ~50%) | enhance custom (add -exec, -mtime, -size) |
+| fd | — | done | `fd.rs` custom (walkdir+regex, fd-find compatible CLI) | — |
 
 ## Formatting & Display
 
@@ -247,13 +248,13 @@
 | Disk & Filesystem | 1 | 0 | 0 | 0 | 1 | 0 | 0 |
 | System & Environment | 10 | 0 | 0 | 0 | 2 | 1 | 0 |
 | Process & Execution | 9 | 2 | 0 | 0 | 0 | 0 | 0 |
-| Search | 0 | 0 | 1 | 0 | 0 | 0 | 0 |
+| Search | 1 | 0 | 1 | 0 | 0 | 0 | 0 |
 | Formatting | 1 | 0 | 0 | 0 | 0 | 0 | 0 |
 | Compression | 6 | 0 | 0 | 0 | 0 | 0 | 0 |
 | Shell Builtins | 0 | 0 | 0 | 0 | 0 | 11 | 0 |
 | Data Processing | 2 | 0 | 0 | 2 | 0 | 0 | 2 |
 | Network | 0 | 0 | 0 | 2 | 0 | 0 | 0 |
-| **Total** | **99** | **1** | **1** | **4** | **4** | **13** | **2** |
+| **Total** | **100** | **1** | **1** | **4** | **4** | **13** | **2** |
 
 ---
 

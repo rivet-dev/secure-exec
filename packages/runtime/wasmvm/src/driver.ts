@@ -55,7 +55,7 @@ export const WASMVM_COMMANDS: readonly string[] = [
   // Text processing
   'grep', 'egrep', 'fgrep', 'rg', 'sed', 'awk', 'jq', 'yq',
   // Find
-  'find',
+  'find', 'fd',
   // Built-in implementations
   'cat', 'chmod', 'column', 'cp', 'dd', 'diff', 'du', 'expr', 'file', 'head',
   'ln', 'logname', 'ls', 'mkdir', 'mktemp', 'mv', 'pathchk', 'rev', 'rm',
@@ -124,6 +124,7 @@ export const DEFAULT_FIRST_PARTY_TIERS: Readonly<Record<string, PermissionTier>>
   'uniq': 'read-only',
   'diff': 'read-only',
   'find': 'read-only',
+  'fd': 'read-only',
   'tree': 'read-only',
   'file': 'read-only',
   'du': 'read-only',
