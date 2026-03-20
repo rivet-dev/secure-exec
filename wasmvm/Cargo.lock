@@ -713,6 +713,7 @@ dependencies = [
 name = "cmd-codex"
 version = "0.1.0"
 dependencies = [
+ "secureexec-wasi-http",
  "secureexec-wasi-spawn",
 ]
 
@@ -882,6 +883,13 @@ name = "cmd-head"
 version = "0.1.0"
 dependencies = [
  "uu_head",
+]
+
+[[package]]
+name = "cmd-http-test"
+version = "0.1.0"
+dependencies = [
+ "secureexec-wasi-http",
 ]
 
 [[package]]
@@ -3721,6 +3729,13 @@ dependencies = [
 [[package]]
 name = "secureexec-tree"
 version = "0.1.0"
+
+[[package]]
+name = "secureexec-wasi-http"
+version = "0.1.0"
+dependencies = [
+ "wasi-ext",
+]
 
 [[package]]
 name = "secureexec-wasi-pty"

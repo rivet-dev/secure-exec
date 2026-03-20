@@ -105,6 +105,8 @@ export const WASMVM_COMMANDS: readonly string[] = [
   'codex',
   // Internal test: WasiChild host_process spawn validation
   'spawn-test-host',
+  // Internal test: wasi-http HTTP client validation via host_net
+  'http-test',
 ] as const;
 Object.freeze(WASMVM_COMMANDS);
 
@@ -129,6 +131,8 @@ export const DEFAULT_FIRST_PARTY_TIERS: Readonly<Record<string, PermissionTier>>
   'codex': 'full',
   // Internal test — exercises WasiChild host_process spawn
   'spawn-test-host': 'full',
+  // Internal test — exercises wasi-http HTTP client via host_net
+  'http-test': 'full',
   // Version control — reads/writes .git objects, remote operations use network
   'git': 'full',
   'git-remote-http': 'full',
