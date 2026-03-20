@@ -3,6 +3,8 @@ Started: 2026-03-17
 PRD: ralph/kernel-hardening (46 stories)
 
 ## Codebase Patterns
+- WASI polyfill fd_tell reads entry.cursor locally; fd_seek/fd_read/fd_write must sync the local cursor after kernel RPC, otherwise fd_tell (used by wasi-libc for lseek(fd,0,SEEK_CUR)) returns stale 0
+- SimpleVFS test helper in c-parity.test.ts must implement all VirtualFileSystem methods including pread — missing methods cause silent fdRead failures
 - WASM errno values differ from POSIX (EPIPE=64 vs 32, EAGAIN=6 vs 11) — parity tests must compare structured "ok"/"FAIL" output, not raw errno values
 - WasmVM driver kill() must call resolveExit() + proc.onExit() — otherwise waitpid hangs forever after kill()
 - driverPids must persist until zombie reap (onProcessReap), not on process exit — removing on exit breaks waitpid for killed processes
@@ -3130,4 +3132,19 @@ PRD: ralph/kernel-hardening (46 stories)
   - EWOULDBLOCK == EAGAIN on Linux — use EAGAIN as the KernelErrorCode
   - cleanupProcessFDs must collect lock-holding descriptions before fdTableManager.remove() since remove() clears all FD entries
   - FileLockManager follows same pattern as PipeManager/PtyManager but is simpler — no async reads, no buffers, just state tracking
+---
+
+## 2026-03-20 - US-065
+- What was implemented: Fixed pread/pwrite cursor preservation and wired access/faccessat through existing wasi-libc path
+- Files changed:
+  - packages/runtime/wasmvm/src/wasi-polyfill.ts — sync local entry.cursor in fd_seek after kernel RPC (fixes fd_tell desync)
+  - packages/runtime/wasmvm/src/kernel-worker.ts — sync local entry.cursor in fdRead/fdWrite after kernel RPC
+  - packages/runtime/wasmvm/test/c-parity.test.ts — added pread to SimpleVFS, added pread_pwrite_access parity test
+  - wasmvm/c/programs/pread_pwrite_access.c — new C parity test for pread/pwrite/access
+- **Learnings for future iterations:**
+  - fd_tell reads entry.cursor from the LOCAL polyfill FD table, but the kernel maintains its own cursor. wasi-libc optimizes lseek(fd,0,SEEK_CUR) to fd_tell, which exposed the desync
+  - Cursor sync must happen in the bridge layer (kernel-worker.ts for fdRead/fdWrite, polyfill for fd_seek) — NOT in the polyfill's fd_read/fd_write, because the standalone test bridge already manages cursors in entry.cursor directly
+  - fd_pread/fd_pwrite were already correctly implemented (kernel doesn't touch cursor, polyfill delegates properly)
+  - access() already works in wasi-libc through faccessat → __wasilibc_access → path_filestat_get WASI call — no new WASI imports needed
+  - SimpleVFS in c-parity.test.ts was missing pread() method, causing silent fdRead failures; fread test was also broken
 ---
