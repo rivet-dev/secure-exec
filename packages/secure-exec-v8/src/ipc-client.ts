@@ -105,6 +105,7 @@ export class IpcClient {
 	/** Close the connection. */
 	close(): void {
 		if (this.socket) {
+			this.socket.removeAllListeners();
 			this.socket.destroy();
 			this.socket = null;
 			this.connected = false;
@@ -117,6 +118,16 @@ export class IpcClient {
 	/** Whether the client is currently connected. */
 	get isConnected(): boolean {
 		return this.connected;
+	}
+
+	/** Mark the socket as ref'd (keeps event loop alive). */
+	ref(): void {
+		this.socket?.ref();
+	}
+
+	/** Mark the socket as unref'd (allows event loop to drain). */
+	unref(): void {
+		this.socket?.unref();
 	}
 
 	/** Ensure the receive buffer has room for `needed` bytes. */

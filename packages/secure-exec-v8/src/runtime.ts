@@ -147,6 +147,15 @@ export async function createV8Runtime(
 	// Read socket path from first line of stdout
 	const socketPath = await readSocketPath(child);
 
+	// Unref child process and its stdio so they don't keep the event loop
+	// alive on their own. The IPC socket (ref-counted by active sessions)
+	// is the sole handle that gates event loop lifetime.
+	child.unref();
+	child.stdout?.destroy(); // Done reading after readline
+	// Unref stderr (still collects errors, but doesn't block exit)
+	const stderrStream = child.stderr as NodeJS.ReadableStream & { unref?: () => void };
+	stderrStream?.unref?.();
+
 	// Connect IPC client
 	let ipcClient: IpcClient | null = null;
 	let disposed = false;
@@ -188,6 +197,9 @@ export async function createV8Runtime(
 				bridgeCode: options.warmupBridgeCode,
 			});
 		}
+
+		// No active sessions yet — unref socket so it doesn't block exit
+		ipcClient.unref();
 	} catch (err) {
 		// Connection failed — kill child and surface error
 		child.kill("SIGTERM");
@@ -196,6 +208,16 @@ export async function createV8Runtime(
 		throw new Error(
 			`Failed to connect to V8 runtime: ${msg}${stderrBuf ? `\nstderr: ${stderrBuf}` : ""}`,
 		);
+	}
+
+	/** Ref/unref the IPC socket based on active session count. */
+	function updateSocketRef(): void {
+		if (!ipcClient || disposed) return;
+		if (sessionHandlers.size > 0) {
+			ipcClient.ref();
+		} else {
+			ipcClient.unref();
+		}
 	}
 
 	/** Resolve all pending executions with a crash/exit error. */
@@ -349,6 +371,7 @@ export async function createV8Runtime(
 								case "ExecutionResult": {
 									// Clean up handler and resolve
 									sessionHandlers.delete(sessionId);
+									updateSocketRef();
 									resolve({
 										code: frame.exitCode,
 										exports: frame.exports,
@@ -394,11 +417,14 @@ export async function createV8Runtime(
 						mode: execOptions.mode === "exec" ? 0 : 1,
 						filePath: execOptions.filePath ?? "",
 					});
+					// Ref the socket while execution is in-flight
+					updateSocketRef();
 					});
 				},
 
 				async destroy(): Promise<void> {
 					sessionHandlers.delete(sessionId);
+					updateSocketRef();
 					if (client.isConnected) {
 						client.send({
 							type: "DestroySession",
@@ -438,6 +464,13 @@ export async function createV8Runtime(
 					});
 				});
 			}
+
+			// Clean up child process handles to fully release the event loop
+			child.stdout?.removeAllListeners();
+			child.stdout?.destroy();
+			child.stderr?.removeAllListeners();
+			child.stderr?.destroy();
+			child.removeAllListeners();
 		},
 	};
 

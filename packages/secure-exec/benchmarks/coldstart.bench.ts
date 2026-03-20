@@ -21,6 +21,7 @@ import {
 	round,
 	stats,
 } from "./bench-utils.js";
+import { disposeSharedV8Runtime } from "../src/index.js";
 import type { NodeRuntime } from "../src/index.js";
 
 interface ColdStartEntry {
@@ -165,7 +166,9 @@ async function main() {
 	console.log(JSON.stringify({ hardware, results }, null, 2));
 }
 
-main().catch((err) => {
-	console.error(err);
-	process.exit(1);
-});
+main()
+	.then(() => disposeSharedV8Runtime())
+	.catch((err) => {
+		console.error(err);
+		process.exit(1);
+	});
