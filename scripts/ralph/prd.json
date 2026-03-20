@@ -970,6 +970,201 @@
       "priority": 57,
       "passes": true,
       "notes": "Spec: docs-internal/specs/v8-startup-snapshot.md. Rust: 3 new test parts (WASM blocked after restore, session isolation via fresh contexts, external references survive restore with bridge fn registration). TypeScript: 7 integration tests (WASM blocked, session state isolation, sync/async bridge dispatch on restored isolate, WarmSnapshot cache hit, NO_SNAPSHOT_WARMUP=1 lazy fallback, different bridge code variants get separate entries)."
+    },
+    {
+      "id": "US-058",
+      "title": "Record context snapshot benchmark baseline (before)",
+      "description": "As a developer, I need to record benchmark baseline numbers before any context snapshot code changes, so we can measure the improvement afterwards.",
+      "acceptanceCriteria": [
+        "Run packages/secure-exec/benchmarks/quick-bench.ts and record cold/warm start times",
+        "Save results to packages/secure-exec/benchmarks/results/context_snapshot_before.json with hardware info and commit hash",
+        "Record at least 5 runs to get stable averages",
+        "Document current warm start baseline (~13ms expected from isolate-only snapshot)",
+        "No code changes to runtime, bridge, or snapshot code in this story",
+        "Typecheck passes"
+      ],
+      "priority": 58,
+      "passes": true,
+      "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 8. Baseline recorded: warm mean=13.75ms, p50=13.7ms; cold steady-state mean=48.23ms. 5 iterations x 5 runs each. Results in packages/secure-exec/benchmarks/results/context_snapshot_before.json."
+    },
+    {
+      "id": "US-059",
+      "title": "Fix setupFsFacade to use getter-based delegation",
+      "description": "As a developer, I need setupFsFacade to use getter-based property delegation instead of capturing bridge function references at setup time, so snapshot-restored contexts pick up replaced globals.",
+      "acceptanceCriteria": [
+        "setup-fs-facade.ts replaces direct property assignment (_fs.readFile = globalThis._fsReadFile) with Object.defineProperties using getters",
+        "Each _fs property getter resolves globalThis._fsXxx at call time, not setup time",
+        "All fs bridge function names are covered (readFile, writeFile, readFileBinary, writeFileBinary, readDir, mkdir, rmdir, exists, stat, unlink, rename, chmod, chown, link, symlink, readlink, lstat, truncate, utimes)",
+        "All existing fs tests pass unchanged — getter delegation is transparent to callers",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 59,
+      "passes": false,
+      "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 1. Prerequisite for context snapshot."
+    },
+    {
+      "id": "US-060",
+      "title": "Defer config-dependent bridge setup to post-restore init",
+      "description": "As a developer, I need config-dependent values (payload limits, timing mitigation) to be read lazily from globals at call time instead of captured at bridge IIFE setup time, enabling context snapshot reuse across sessions with different configs.",
+      "acceptanceCriteria": [
+        "__jsonPayloadLimitBytes reads from globalThis.__runtimeJsonPayloadLimitBytes at call time instead of capturing at setup",
+        "__payloadLimitErrorCode reads from globalThis.__runtimePayloadLimitErrorCode at call time",
+        "Timing mitigation freeze is applied via globalThis.__runtimeApplyConfig(config) called post-restore, not baked into bridge IIFE",
+        "globalThis.__runtimeApplyConfig function exists after bridge IIFE runs, accepts config object with timingMitigation, frozenTimeMs, payloadLimitBytes fields",
+        "__runtimeApplyConfig deletes itself from globalThis after execution",
+        "All existing timing mitigation tests pass",
+        "All existing payload limit tests pass",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 60,
+      "passes": false,
+      "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 2. Prerequisite for context snapshot."
+    },
+    {
+      "id": "US-061",
+      "title": "Split composeBridgeCode into static and post-restore parts",
+      "description": "As a developer, I need composeBridgeCode() split into a static bridge IIFE (identical across all sessions) and a short post-restore config script, so one snapshot serves all session variants.",
+      "acceptanceCriteria": [
+        "New composeStaticBridgeCode() returns the bridge IIFE without any per-session config literals (timingMitigation, frozenTimeMs, maxTimers, maxHandles not embedded)",
+        "New composePostRestoreScript(config) returns a short script that calls __runtimeApplyConfig({...}) and loads polyfills",
+        "composeStaticBridgeCode() output is byte-for-byte identical regardless of session options",
+        "Existing composeBridgeCode() refactored to use the new functions (or replaced entirely)",
+        "Post-restore script handles timing mitigation, payload limits, CJS globals, and polyfill loading",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 61,
+      "passes": false,
+      "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 3."
+    },
+    {
+      "id": "US-062",
+      "title": "Add stub bridge context and registration for snapshot creation",
+      "description": "As a developer, I need BridgeCallContext::stub() and register_stub_bridge_fns() so snapshot creation can register all 38 bridge functions as no-op stubs that exist for the IIFE to reference during setup.",
+      "acceptanceCriteria": [
+        "BridgeCallContext::stub() creates a no-op context that panics if sync_call or async_send is called",
+        "register_stub_bridge_fns(scope, sync_fns, async_fns) registers all bridge functions with stub External data on the global",
+        "Stub functions use the same sync_bridge_callback/async_bridge_callback (required for ExternalReferences in snapshot)",
+        "Bridge IIFE can execute against stub functions without errors (verifies setup-time code doesn't call bridge functions)",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 62,
+      "passes": false,
+      "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 4."
+    },
+    {
+      "id": "US-063",
+      "title": "Implement context snapshot creation with fully-initialized bridge",
+      "description": "As a developer, I need create_snapshot() to register stub bridge functions, inject default config, run the static bridge IIFE, and snapshot the context with all bridge infrastructure set up.",
+      "acceptanceCriteria": [
+        "create_snapshot() registers stub bridge functions on the context global before running bridge IIFE",
+        "Default config globals are injected (initialCwd, processConfig, osConfig, maxTimers, maxHandles, customGlobalPolicy)",
+        "Static bridge IIFE is compiled and executed in the context",
+        "set_default_context(context) is called before create_blob — the context is part of the snapshot",
+        "Restored context has all bridge infrastructure: require(), console, fs facade, module system, custom globals",
+        "Snapshot blob is cached in SnapshotCache keyed by bridge code hash",
+        "cargo test passes",
+        "Typecheck passes"
+      ],
+      "priority": 63,
+      "passes": false,
+      "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 5."
+    },
+    {
+      "id": "US-064",
+      "title": "Implement context restore with bridge function replacement",
+      "description": "As a developer, I need the session thread to restore the snapshot context, replace stub bridge functions with real session-local ones, and run the post-restore config script instead of recompiling the bridge IIFE.",
+      "acceptanceCriteria": [
+        "Session thread gets default context from snapshot via scope.get_current_context() instead of creating fresh context",
+        "replace_bridge_fns(scope, ctx, buffers, sync_fns, async_fns) overwrites all 38 stub globals with real session-local bridge functions",
+        "Per-session config (_processConfig, _osConfig) is injected via inject_globals_from_payload",
+        "Post-restore config script is executed to apply timing mitigation and load polyfills",
+        "No bridge IIFE compilation or execution on restore path",
+        "disable_wasm() is called on restored isolate",
+        "All existing tests pass — behavioral parity with fresh-context path",
+        "cargo test passes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 64,
+      "passes": false,
+      "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 6."
+    },
+    {
+      "id": "US-065",
+      "title": "Wire post-restore init script through IPC",
+      "description": "As a developer, I need the post-restore script sent from the host and executed on the Rust side after context restore, handling config application, polyfill loading, and mutable state reset.",
+      "acceptanceCriteria": [
+        "Execute message includes a post_restore_script field (or it is composed on the Rust side from config)",
+        "Post-restore script calls __runtimeApplyConfig({timingMitigation, frozenTimeMs, payloadLimitBytes})",
+        "Post-restore script loads polyfills via _loadPolyfill() calls",
+        "Post-restore script resets mutable state: require.cache cleared, process.exitCode reset, _processStartTime set to Date.now()",
+        "Post-restore script runs BEFORE user code but AFTER bridge function replacement",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 65,
+      "passes": false,
+      "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 7."
+    },
+    {
+      "id": "US-066",
+      "title": "Add context snapshot tests",
+      "description": "As a developer, I need tests covering all context snapshot behaviors: getter facade, config deferral, bridge replacement, timing mitigation, polyfill loading, and full round-trip.",
+      "acceptanceCriteria": [
+        "Test: _fs.readFile resolves to the current global, not a stale reference from snapshot",
+        "Test: __runtimeApplyConfig correctly applies timing freeze, payload limits",
+        "Test: restored context has working require(), console, fs, module system",
+        "Test: replacing stub bridge functions on restored context correctly dispatches to Rust callbacks (sync and async)",
+        "Test: timing mitigation freeze applied via post-restore script correctly freezes Date.now and removes SharedArrayBuffer",
+        "Test: polyfills loaded via post-restore script work correctly",
+        "Test: exec() and run() produce correct results on snapshot-restored context",
+        "Test: all existing test suites pass with no regressions",
+        "cargo test passes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 66,
+      "passes": false,
+      "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 9."
+    },
+    {
+      "id": "US-067",
+      "title": "Verify context snapshot benchmark improvement (after)",
+      "description": "As a developer, I need to run benchmarks after context snapshot implementation and compare against the baseline to verify the expected performance improvement.",
+      "acceptanceCriteria": [
+        "Run packages/secure-exec/benchmarks/quick-bench.ts and record cold/warm start times",
+        "Save results to packages/secure-exec/benchmarks/results/context_snapshot_after.json",
+        "Warm start (per-session cost) must be < 6ms (down from ~13ms baseline)",
+        "Cold start must not regress (should stay ~47-67ms steady state or improve)",
+        "Create packages/secure-exec/benchmarks/results/context_snapshot_comparison.md with before/after table",
+        "If warm start improvement < 40%, add per-phase timing instrumentation and investigate",
+        "All existing test suites still pass",
+        "Typecheck passes"
+      ],
+      "priority": 67,
+      "passes": false,
+      "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 10."
+    },
+    {
+      "id": "US-068",
+      "title": "Research additional V8 runtime performance optimizations",
+      "description": "As a developer, I need to research and document further optimization opportunities beyond context snapshots, including per-session sockets, mmap/shared-memory IPC, and other latency reduction techniques.",
+      "acceptanceCriteria": [
+        "Profile the warm start path with per-phase timing (context restore, bridge fn replacement, config injection, user code compile+run, IPC round-trips) and document where time is spent",
+        "Evaluate per-session UDS sockets: measure head-of-line blocking impact with large payloads under concurrent sessions, estimate FD cost",
+        "Evaluate mmap/shared-memory ring buffer IPC: estimate latency savings vs implementation complexity, document lock-free sync requirements and crash cleanup concerns",
+        "Evaluate V8 code caching for user code (not just bridge): measure compilation time for typical user scripts, estimate cache hit rate",
+        "Document findings in docs-internal/specs/v8-perf-research.md with recommendation priority (quick wins vs high-effort)",
+        "Update docs-internal/todo.md with any new actionable items discovered",
+        "Typecheck passes"
+      ],
+      "priority": 68,
+      "passes": false,
+      "notes": "Research story — no code changes required beyond documentation and profiling scripts."
     }
   ]
 }

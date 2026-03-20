@@ -381,3 +381,19 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - Use `import("@secure-exec/v8").V8Runtime` inline type import to avoid adding a top-level import dependency in interfaces
   - Pre-existing OOM test timeout in `crash-isolation.test.ts` — unrelated to this story
 ---
+
+## 2026-03-19 - US-058
+- Recorded context snapshot benchmark baseline (before any context snapshot code changes)
+- Ran `packages/secure-exec/benchmarks/quick-bench.ts` 5 iterations (5 runs each = 25 warm samples, 25 cold samples)
+- Saved results to `packages/secure-exec/benchmarks/results/context_snapshot_before.json`
+- Baseline results:
+  - Warm start (per-session cost): mean=13.75ms, p50=13.7ms, min=12.5ms, max=15.6ms
+  - Cold start (process cold): mean=99.88ms (first run of each iteration)
+  - Cold start (steady state): mean=48.23ms, p50=48.2ms
+- Hardware: i7-12700KF, 20 cores, 62GB RAM, Node v24.13.0, Linux x64
+- Files created: `packages/secure-exec/benchmarks/results/context_snapshot_before.json`
+- **Learnings for future iterations:**
+  - `quick-bench.ts` process hangs on cleanup after completing all runs — use `timeout 60` wrapper to avoid blocking
+  - Run 1 of each iteration is the true process cold-start (~90-126ms); runs 2-5 are steady state (~44-53ms)
+  - Warm start baseline is consistent at ~13-14ms — this is the per-session cost dominated by bridge IIFE compilation+execution
+---
