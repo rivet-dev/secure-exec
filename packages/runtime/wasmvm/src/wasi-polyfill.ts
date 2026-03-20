@@ -1301,9 +1301,25 @@ export class WasiPolyfill {
       view.setUint8(evtBase + 10, eventType);           // type
 
       if (eventType === EVENTTYPE_CLOCK) {
-        // Clock subscription -- we can't actually sleep synchronously in JS,
-        // but we report the event as completed immediately.
-        // This is sufficient for WASI sleep() which just needs the event fired.
+        // Block for the requested duration (nanosleep/sleep via poll_oneoff)
+        const timeoutNs = view.getBigUint64(subBase + 24, true);
+        const flags = view.getUint16(subBase + 40, true);
+        const isAbstime = (flags & 1) !== 0;
+
+        let sleepMs: number;
+        if (isAbstime) {
+          // Absolute time: sleep until the specified wallclock time
+          const targetMs = Number(timeoutNs / 1_000_000n);
+          sleepMs = Math.max(0, targetMs - Date.now());
+        } else {
+          // Relative time: sleep for the specified duration
+          sleepMs = Number(timeoutNs / 1_000_000n);
+        }
+
+        if (sleepMs > 0) {
+          const buf = new Int32Array(new SharedArrayBuffer(4));
+          Atomics.wait(buf, 0, 0, sleepMs);
+        }
       } else if (eventType === EVENTTYPE_FD_READ || eventType === EVENTTYPE_FD_WRITE) {
         // FD subscriptions -- report ready immediately
         view.setBigUint64(evtBase + 16, 0n, true);     // nbytes

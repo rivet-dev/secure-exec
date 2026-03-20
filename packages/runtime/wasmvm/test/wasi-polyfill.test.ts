@@ -750,4 +750,146 @@ describe('WasiPolyfill', () => {
       expect(new TextDecoder().decode(pipe.buffer.subarray(0, 7))).toBe('to pipe');
     });
   });
+
+  describe('poll_oneoff', () => {
+    // Constants matching wasi-polyfill.ts internal values
+    const EVENTTYPE_CLOCK = 0;
+    const EVENTTYPE_FD_READ = 1;
+
+    /** Write a clock subscription at ptr (48 bytes). */
+    function writeClockSub(memory: MockMemory, ptr: number, opts: {
+      userdata?: bigint;
+      clockId?: number;
+      timeoutNs?: bigint;
+      flags?: number;
+    }): void {
+      const view = new DataView(memory.buffer);
+      view.setBigUint64(ptr, opts.userdata ?? 0n, true);       // userdata @ 0
+      view.setUint8(ptr + 8, EVENTTYPE_CLOCK);                 // type @ 8
+      view.setUint32(ptr + 16, opts.clockId ?? 1, true);       // clock_id @ 16 (default monotonic)
+      view.setBigUint64(ptr + 24, opts.timeoutNs ?? 0n, true); // timeout @ 24
+      view.setBigUint64(ptr + 32, 0n, true);                   // precision @ 32
+      view.setUint16(ptr + 40, opts.flags ?? 0, true);         // flags @ 40
+    }
+
+    it('zero-timeout clock subscription returns immediately', () => {
+      const { wasi, memory } = createTestSetup();
+      const inPtr = 0;
+      const outPtr = 1024;
+      const neventsPtr = 2048;
+
+      writeClockSub(memory, inPtr, { timeoutNs: 0n });
+
+      const start = performance.now();
+      const errno = wasi.poll_oneoff(inPtr, outPtr, 1, neventsPtr);
+      const elapsed = performance.now() - start;
+
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU32(memory, neventsPtr)).toBe(1);
+      // Zero-timeout should return well under 20ms
+      expect(elapsed).toBeLessThan(20);
+    });
+
+    it('relative clock subscription blocks for requested duration', () => {
+      const { wasi, memory } = createTestSetup();
+      const inPtr = 0;
+      const outPtr = 1024;
+      const neventsPtr = 2048;
+
+      // Request 50ms sleep
+      const sleepMs = 50;
+      const sleepNs = BigInt(sleepMs) * 1_000_000n;
+      writeClockSub(memory, inPtr, { timeoutNs: sleepNs });
+
+      const start = performance.now();
+      const errno = wasi.poll_oneoff(inPtr, outPtr, 1, neventsPtr);
+      const elapsed = performance.now() - start;
+
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU32(memory, neventsPtr)).toBe(1);
+      // Must actually block for at least 80% of requested time
+      expect(elapsed).toBeGreaterThanOrEqual(sleepMs * 0.8);
+    });
+
+    it('absolute clock subscription blocks until specified time', () => {
+      const { wasi, memory } = createTestSetup();
+      const inPtr = 0;
+      const outPtr = 1024;
+      const neventsPtr = 2048;
+
+      // Absolute time: 50ms from now
+      const targetMs = Date.now() + 50;
+      const targetNs = BigInt(targetMs) * 1_000_000n;
+      writeClockSub(memory, inPtr, {
+        clockId: 0, // CLOCKID_REALTIME
+        timeoutNs: targetNs,
+        flags: 1,   // abstime
+      });
+
+      const start = performance.now();
+      const errno = wasi.poll_oneoff(inPtr, outPtr, 1, neventsPtr);
+      const elapsed = performance.now() - start;
+
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU32(memory, neventsPtr)).toBe(1);
+      expect(elapsed).toBeGreaterThanOrEqual(40);
+    });
+
+    it('absolute clock subscription in the past returns immediately', () => {
+      const { wasi, memory } = createTestSetup();
+      const inPtr = 0;
+      const outPtr = 1024;
+      const neventsPtr = 2048;
+
+      // Absolute time in the past
+      const pastNs = BigInt(Date.now() - 1000) * 1_000_000n;
+      writeClockSub(memory, inPtr, {
+        clockId: 0,
+        timeoutNs: pastNs,
+        flags: 1,
+      });
+
+      const start = performance.now();
+      const errno = wasi.poll_oneoff(inPtr, outPtr, 1, neventsPtr);
+      const elapsed = performance.now() - start;
+
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(elapsed).toBeLessThan(20);
+    });
+
+    it('event output contains correct userdata and type', () => {
+      const { wasi, memory } = createTestSetup();
+      const inPtr = 0;
+      const outPtr = 1024;
+      const neventsPtr = 2048;
+
+      writeClockSub(memory, inPtr, { userdata: 42n, timeoutNs: 0n });
+
+      wasi.poll_oneoff(inPtr, outPtr, 1, neventsPtr);
+
+      const view = new DataView(memory.buffer);
+      expect(view.getBigUint64(outPtr, true)).toBe(42n);        // userdata
+      expect(view.getUint16(outPtr + 8, true)).toBe(0);         // error = success
+      expect(view.getUint8(outPtr + 10)).toBe(EVENTTYPE_CLOCK); // type
+    });
+
+    it('handles multiple subscriptions including mixed types', () => {
+      const { wasi, memory } = createTestSetup();
+      const inPtr = 0;
+      const outPtr = 2048;
+      const neventsPtr = 4000;
+
+      // Sub 0: clock with zero timeout
+      writeClockSub(memory, inPtr, { userdata: 1n, timeoutNs: 0n });
+
+      // Sub 1: fd_read subscription (48 bytes later)
+      const view = new DataView(memory.buffer);
+      view.setBigUint64(inPtr + 48, 2n, true);        // userdata
+      view.setUint8(inPtr + 48 + 8, EVENTTYPE_FD_READ); // type
+
+      const errno = wasi.poll_oneoff(inPtr, outPtr, 2, neventsPtr);
+      expect(errno).toBe(ERRNO_SUCCESS);
+      expect(readU32(memory, neventsPtr)).toBe(2);
+    });
+  });
 });
