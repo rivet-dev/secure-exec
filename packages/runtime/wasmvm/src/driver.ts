@@ -42,6 +42,7 @@ import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { connect as tcpConnect, type Socket } from 'node:net';
 import { connect as tlsConnect, type TLSSocket } from 'node:tls';
+import { lookup } from 'node:dns/promises';
 
 /**
  * All commands available in the WasmVM runtime.
@@ -941,6 +942,36 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
             this._sockets.set(socketId, tlsSock as unknown as Socket);
           } catch {
             errno = ERRNO_MAP.ECONNREFUSED;
+          }
+          break;
+        }
+        case 'netGetaddrinfo': {
+          const host = msg.args.host as string;
+          const port = msg.args.port as string;
+          try {
+            // Resolve all addresses (IPv4 + IPv6)
+            const result = await lookup(host, { all: true });
+            const addresses = result.map((r) => ({
+              addr: r.address,
+              family: r.family,
+            }));
+            const json = JSON.stringify(addresses);
+            const bytes = new TextEncoder().encode(json);
+            if (bytes.length > DATA_BUFFER_BYTES) {
+              errno = 76; // EIO — response exceeds SAB capacity
+              break;
+            }
+            data.set(bytes, 0);
+            responseData = bytes;
+            intResult = bytes.length;
+          } catch (err) {
+            // dns.lookup returns ENOTFOUND for unknown hosts
+            const code = (err as { code?: string }).code;
+            if (code === 'ENOTFOUND' || code === 'EAI_NONAME' || code === 'ENODATA') {
+              errno = ERRNO_MAP.ENOENT;
+            } else {
+              errno = ERRNO_MAP.EINVAL;
+            }
           }
           break;
         }

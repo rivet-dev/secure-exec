@@ -464,6 +464,85 @@ describe('TLS socket RPC handlers', () => {
   });
 });
 
+// -------------------------------------------------------------------------
+// DNS resolution tests
+// -------------------------------------------------------------------------
+
+describe('DNS resolution (netGetaddrinfo) RPC handlers', () => {
+  let driver: ReturnType<typeof createWasmVmRuntime>;
+
+  beforeEach(() => {
+    driver = createWasmVmRuntime({ commandDirs: [] });
+  });
+
+  afterEach(async () => {
+    await driver.dispose();
+  });
+
+  it('resolve localhost returns 127.0.0.1', async () => {
+    const res = await callSyscall(driver, 'netGetaddrinfo', {
+      host: 'localhost',
+      port: '80',
+    });
+    expect(res.errno).toBe(0);
+    expect(res.data.length).toBeGreaterThan(0);
+
+    const addresses = JSON.parse(new TextDecoder().decode(res.data));
+    expect(Array.isArray(addresses)).toBe(true);
+    expect(addresses.length).toBeGreaterThan(0);
+
+    // At least one address should be IPv4 127.0.0.1
+    const ipv4 = addresses.find((a: { addr: string; family: number }) => a.family === 4);
+    expect(ipv4).toBeDefined();
+    expect(ipv4.addr).toBe('127.0.0.1');
+  });
+
+  it('resolve invalid hostname returns appropriate error', async () => {
+    const res = await callSyscall(driver, 'netGetaddrinfo', {
+      host: 'this-hostname-does-not-exist-at-all.invalid',
+      port: '80',
+    });
+    // ENOTFOUND maps to ENOENT
+    expect(res.errno).not.toBe(0);
+  });
+
+  it('resolve returns both IPv4 and IPv6 when available', async () => {
+    const res = await callSyscall(driver, 'netGetaddrinfo', {
+      host: 'localhost',
+      port: '0',
+    });
+    expect(res.errno).toBe(0);
+
+    const addresses = JSON.parse(new TextDecoder().decode(res.data));
+    expect(Array.isArray(addresses)).toBe(true);
+    // Each address has addr and family fields
+    for (const entry of addresses) {
+      expect(entry).toHaveProperty('addr');
+      expect(entry).toHaveProperty('family');
+      expect([4, 6]).toContain(entry.family);
+    }
+  });
+
+  it('intResult reflects the byte length of the response', async () => {
+    const res = await callSyscall(driver, 'netGetaddrinfo', {
+      host: 'localhost',
+      port: '80',
+    });
+    expect(res.errno).toBe(0);
+    expect(res.intResult).toBe(res.data.length);
+  });
+
+  it('resolve with empty port string succeeds', async () => {
+    const res = await callSyscall(driver, 'netGetaddrinfo', {
+      host: 'localhost',
+      port: '',
+    });
+    expect(res.errno).toBe(0);
+    const addresses = JSON.parse(new TextDecoder().decode(res.data));
+    expect(addresses.length).toBeGreaterThan(0);
+  });
+});
+
 describe('TCP socket permission enforcement', () => {
   it('permission-restricted command cannot create sockets (kernel-worker level)', async () => {
     // This tests the isNetworkBlocked check in kernel-worker.ts.

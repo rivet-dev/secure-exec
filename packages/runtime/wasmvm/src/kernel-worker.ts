@@ -849,11 +849,31 @@ function createHostNetImports(getMemory: () => WebAssembly.Memory | null) {
 
     /** net_getaddrinfo(host_ptr, host_len, port_ptr, port_len, ret_addr, ret_addr_len) -> errno */
     net_getaddrinfo(
-      _host_ptr: number, _host_len: number,
-      _port_ptr: number, _port_len: number,
-      _ret_addr_ptr: number, _ret_addr_len_ptr: number,
+      host_ptr: number, host_len: number,
+      port_ptr: number, port_len: number,
+      ret_addr_ptr: number, ret_addr_len_ptr: number,
     ): number {
-      return ENOSYS;
+      if (isNetworkBlocked()) return ERRNO_EACCES;
+      const mem = getMemory();
+      if (!mem) return ERRNO_EINVAL;
+
+      const decoder = new TextDecoder();
+      const host = decoder.decode(new Uint8Array(mem.buffer, host_ptr, host_len));
+      const port = decoder.decode(new Uint8Array(mem.buffer, port_ptr, port_len));
+
+      const res = rpcCall('netGetaddrinfo', { host, port });
+      if (res.errno !== 0) return res.errno;
+
+      // Write resolved address data back to WASM memory
+      const maxLen = new DataView(mem.buffer).getUint32(ret_addr_len_ptr, true);
+      const dataLen = res.data.length;
+      if (dataLen > maxLen) return ERRNO_EINVAL;
+
+      const wasmBuf = new Uint8Array(mem.buffer);
+      wasmBuf.set(res.data.subarray(0, dataLen), ret_addr_ptr);
+      new DataView(mem.buffer).setUint32(ret_addr_len_ptr, dataLen, true);
+
+      return 0;
     },
 
     /** net_setsockopt(fd, level, optname, optval_ptr, optval_len) -> errno */

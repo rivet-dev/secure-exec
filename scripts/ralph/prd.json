@@ -1427,7 +1427,7 @@
         "Tests pass"
       ],
       "priority": 72,
-      "passes": false,
+      "passes": true,
       "notes": "getaddrinfo is used by every network tool. The WASM side calls net_getaddrinfo which blocks via Atomics.wait. The main thread performs the actual DNS lookup via Node.js dns module and writes results back. For testing, use localhost resolution which doesn't require real DNS."
     },
     {
