@@ -91,7 +91,6 @@ export class PtyManager {
 			cursor: 0n,
 			flags: O_RDWR,
 			refCount: 0, // openWith() will bump
-			cloexec: false,
 		};
 
 		const slaveDesc: FileDescription = {
@@ -100,7 +99,6 @@ export class PtyManager {
 			cursor: 0n,
 			flags: O_RDWR,
 			refCount: 0, // openWith() will bump
-			cloexec: false,
 		};
 
 		const state: PtyState = {

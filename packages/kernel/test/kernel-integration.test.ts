@@ -4540,4 +4540,140 @@ describe("kernel + MockRuntimeDriver integration", () => {
 			await proc.wait();
 		});
 	});
+
+	// -----------------------------------------------------------------------
+	// fcntl - file descriptor control (US-063)
+	// -----------------------------------------------------------------------
+
+	describe("fcntl", () => {
+		it("F_DUPFD with minfd=10 — new FD is >= 10", async () => {
+			const F_DUPFD = 0;
+			const driver = new MockRuntimeDriver(["test-cmd"], {
+				"test-cmd": { exitCode: 0 },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("test-cmd", []);
+			const ki = driver.kernelInterface!;
+
+			// Open a regular file (FD 3)
+			const fd = ki.fdOpen(proc.pid, "/tmp/test.txt", 0);
+			expect(fd).toBe(3);
+
+			// F_DUPFD with minfd=10
+			const newFd = ki.fcntl(proc.pid, fd, F_DUPFD, 10);
+			expect(newFd).toBe(10);
+
+			// Both point to same file description (shared cursor)
+			const origStat = ki.fdStat(proc.pid, fd);
+			const dupStat = ki.fdStat(proc.pid, newFd);
+			expect(dupStat.flags).toBe(origStat.flags);
+
+			await proc.wait();
+		});
+
+		it("F_GETFD after F_SETFD reflects change", async () => {
+			const F_GETFD = 1;
+			const F_SETFD = 2;
+			const FD_CLOEXEC = 1;
+			const driver = new MockRuntimeDriver(["test-cmd"], {
+				"test-cmd": { exitCode: 0 },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("test-cmd", []);
+			const ki = driver.kernelInterface!;
+
+			const fd = ki.fdOpen(proc.pid, "/tmp/test.txt", 0);
+
+			// Initially no cloexec
+			expect(ki.fcntl(proc.pid, fd, F_GETFD)).toBe(0);
+
+			// Set cloexec
+			ki.fcntl(proc.pid, fd, F_SETFD, FD_CLOEXEC);
+			expect(ki.fcntl(proc.pid, fd, F_GETFD)).toBe(FD_CLOEXEC);
+
+			// Clear cloexec
+			ki.fcntl(proc.pid, fd, F_SETFD, 0);
+			expect(ki.fcntl(proc.pid, fd, F_GETFD)).toBe(0);
+
+			await proc.wait();
+		});
+
+		it("F_DUPFD_CLOEXEC — new FD has cloexec set, original does not", async () => {
+			const F_DUPFD_CLOEXEC = 1030;
+			const F_GETFD = 1;
+			const FD_CLOEXEC = 1;
+			const driver = new MockRuntimeDriver(["test-cmd"], {
+				"test-cmd": { exitCode: 0 },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("test-cmd", []);
+			const ki = driver.kernelInterface!;
+
+			const fd = ki.fdOpen(proc.pid, "/tmp/test.txt", 0);
+
+			// F_DUPFD_CLOEXEC
+			const newFd = ki.fcntl(proc.pid, fd, F_DUPFD_CLOEXEC, 0);
+			expect(newFd).not.toBe(fd);
+
+			// New FD has cloexec
+			expect(ki.fcntl(proc.pid, newFd, F_GETFD)).toBe(FD_CLOEXEC);
+
+			// Original FD does not have cloexec
+			expect(ki.fcntl(proc.pid, fd, F_GETFD)).toBe(0);
+
+			await proc.wait();
+		});
+
+		it("F_GETFL returns open flags", async () => {
+			const F_GETFL = 3;
+			const O_WRONLY = 1;
+			const O_APPEND = 0o2000;
+			const driver = new MockRuntimeDriver(["test-cmd"], {
+				"test-cmd": { exitCode: 0 },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("test-cmd", []);
+			const ki = driver.kernelInterface!;
+
+			const fd = ki.fdOpen(proc.pid, "/tmp/test.txt", O_WRONLY | O_APPEND);
+			const flags = ki.fcntl(proc.pid, fd, F_GETFL);
+			expect(flags & O_WRONLY).toBe(O_WRONLY);
+			expect(flags & O_APPEND).toBe(O_APPEND);
+
+			await proc.wait();
+		});
+
+		it("fcntl throws EBADF for invalid FD", async () => {
+			const F_GETFD = 1;
+			const driver = new MockRuntimeDriver(["test-cmd"], {
+				"test-cmd": { exitCode: 0 },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("test-cmd", []);
+			const ki = driver.kernelInterface!;
+
+			expect(() => ki.fcntl(proc.pid, 999, F_GETFD)).toThrow("EBADF");
+
+			await proc.wait();
+		});
+
+		it("fcntl throws EINVAL for unsupported command", async () => {
+			const driver = new MockRuntimeDriver(["test-cmd"], {
+				"test-cmd": { exitCode: 0 },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("test-cmd", []);
+			const ki = driver.kernelInterface!;
+
+			expect(() => ki.fcntl(proc.pid, 0, 9999)).toThrow("EINVAL");
+
+			await proc.wait();
+		});
+	});
 });

@@ -51,18 +51,21 @@ export class ProcessFDTable {
 			description: stdinDesc,
 			rights: 0n,
 			filetype: FILETYPE_CHARACTER_DEVICE,
+			cloexec: false,
 		});
 		this.entries.set(1, {
 			fd: 1,
 			description: stdoutDesc,
 			rights: 0n,
 			filetype: FILETYPE_CHARACTER_DEVICE,
+			cloexec: false,
 		});
 		this.entries.set(2, {
 			fd: 2,
 			description: stderrDesc,
 			rights: 0n,
 			filetype: FILETYPE_CHARACTER_DEVICE,
+			cloexec: false,
 		});
 	}
 
@@ -79,9 +82,9 @@ export class ProcessFDTable {
 		stdinDesc.refCount++;
 		stdoutDesc.refCount++;
 		stderrDesc.refCount++;
-		this.entries.set(0, { fd: 0, description: stdinDesc, rights: 0n, filetype: stdinType });
-		this.entries.set(1, { fd: 1, description: stdoutDesc, rights: 0n, filetype: stdoutType });
-		this.entries.set(2, { fd: 2, description: stderrDesc, rights: 0n, filetype: stderrType });
+		this.entries.set(0, { fd: 0, description: stdinDesc, rights: 0n, filetype: stdinType, cloexec: false });
+		this.entries.set(1, { fd: 1, description: stdoutDesc, rights: 0n, filetype: stdoutType, cloexec: false });
+		this.entries.set(2, { fd: 2, description: stderrDesc, rights: 0n, filetype: stderrType, cloexec: false });
 	}
 
 	/** Open a new FD for the given path and flags */
@@ -90,12 +93,12 @@ export class ProcessFDTable {
 		const cloexec = (flags & O_CLOEXEC) !== 0;
 		const storedFlags = flags & ~O_CLOEXEC;
 		const description = this.allocDesc(path, storedFlags);
-		if (cloexec) description.cloexec = true;
 		this.entries.set(fd, {
 			fd,
 			description,
 			rights: 0n,
 			filetype: filetype ?? FILETYPE_REGULAR_FILE,
+			cloexec,
 		});
 		return fd;
 	}
@@ -113,6 +116,7 @@ export class ProcessFDTable {
 			description,
 			rights: 0n,
 			filetype,
+			cloexec: false,
 		});
 		return fd;
 	}
@@ -130,7 +134,7 @@ export class ProcessFDTable {
 		return true;
 	}
 
-	/** Duplicate an FD — new FD shares the same FileDescription (cursor). */
+	/** Duplicate an FD — new FD shares the same FileDescription (cursor). cloexec cleared on new FD (POSIX). */
 	dup(fd: number): number {
 		const entry = this.entries.get(fd);
 		if (!entry) throw new KernelError("EBADF", `bad file descriptor ${fd}`);
@@ -141,11 +145,32 @@ export class ProcessFDTable {
 			description: entry.description,
 			rights: entry.rights,
 			filetype: entry.filetype,
+			cloexec: false,
 		});
 		return newFd;
 	}
 
-	/** Duplicate oldFd to newFd. Closes newFd first if open. */
+	/** Duplicate FD to lowest available >= minFd (F_DUPFD). cloexec cleared on new FD. */
+	dupMinFd(fd: number, minFd: number): number {
+		const entry = this.entries.get(fd);
+		if (!entry) throw new KernelError("EBADF", `bad file descriptor ${fd}`);
+		if (this.entries.size >= MAX_FDS_PER_PROCESS) {
+			throw new KernelError("EMFILE", "too many open files");
+		}
+		let newFd = minFd;
+		while (this.entries.has(newFd)) newFd++;
+		entry.description.refCount++;
+		this.entries.set(newFd, {
+			fd: newFd,
+			description: entry.description,
+			rights: entry.rights,
+			filetype: entry.filetype,
+			cloexec: false,
+		});
+		return newFd;
+	}
+
+	/** Duplicate oldFd to newFd. Closes newFd first if open. cloexec cleared on new FD (POSIX). */
 	dup2(oldFd: number, newFd: number): void {
 		const entry = this.entries.get(oldFd);
 		if (!entry) throw new KernelError("EBADF", `bad file descriptor ${oldFd}`);
@@ -162,6 +187,7 @@ export class ProcessFDTable {
 			description: entry.description,
 			rights: entry.rights,
 			filetype: entry.filetype,
+			cloexec: false,
 		});
 	}
 
@@ -180,13 +206,14 @@ export class ProcessFDTable {
 		const child = new ProcessFDTable(this.allocDesc);
 		child.nextFd = this.nextFd;
 		for (const [fd, entry] of this.entries) {
-			if (entry.description.cloexec) continue;
+			if (entry.cloexec) continue;
 			entry.description.refCount++;
 			child.entries.set(fd, {
 				fd,
 				description: entry.description,
 				rights: entry.rights,
 				filetype: entry.filetype,
+				cloexec: false,
 			});
 		}
 		return child;
@@ -232,7 +259,6 @@ export class FDTableManager {
 		cursor: 0n,
 		flags,
 		refCount: 1,
-		cloexec: false,
 	});
 
 	/** Create a new FD table for a process with standard FDs. */

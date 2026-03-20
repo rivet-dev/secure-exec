@@ -44,6 +44,12 @@ import {
 	SIGTERM,
 	SIGPIPE,
 	SIGWINCH,
+	F_DUPFD,
+	F_GETFD,
+	F_SETFD,
+	F_GETFL,
+	F_DUPFD_CLOEXEC,
+	FD_CLOEXEC,
 	KernelError,
 } from "./types.js";
 
@@ -797,14 +803,38 @@ class KernelImpl implements Kernel {
 				const table = this.getTable(pid);
 				const entry = table.get(fd);
 				if (!entry) throw new KernelError("EBADF", `bad file descriptor ${fd}`);
-				entry.description.cloexec = value;
+				entry.cloexec = value;
 			},
 			fdGetCloexec: (pid, fd) => {
 				assertOwns(pid);
 				const table = this.getTable(pid);
 				const entry = table.get(fd);
 				if (!entry) throw new KernelError("EBADF", `bad file descriptor ${fd}`);
-				return entry.description.cloexec;
+				return entry.cloexec;
+			},
+			fcntl: (pid, fd, cmd, arg) => {
+				assertOwns(pid);
+				const table = this.getTable(pid);
+				const entry = table.get(fd);
+				if (!entry) throw new KernelError("EBADF", `bad file descriptor ${fd}`);
+				switch (cmd) {
+					case F_DUPFD:
+						return table.dupMinFd(fd, arg ?? 0);
+					case F_DUPFD_CLOEXEC: {
+						const newFd = table.dupMinFd(fd, arg ?? 0);
+						table.get(newFd)!.cloexec = true;
+						return newFd;
+					}
+					case F_GETFD:
+						return entry.cloexec ? FD_CLOEXEC : 0;
+					case F_SETFD:
+						entry.cloexec = ((arg ?? 0) & FD_CLOEXEC) !== 0;
+						return 0;
+					case F_GETFL:
+						return entry.description.flags;
+					default:
+						throw new KernelError("EINVAL", `unsupported fcntl command ${cmd}`);
+				}
 			},
 
 			// Process operations

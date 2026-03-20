@@ -255,6 +255,7 @@ export interface KernelInterface {
 	fdStat(pid: number, fd: number): FDStat;
 	fdSetCloexec(pid: number, fd: number, value: boolean): void;
 	fdGetCloexec(pid: number, fd: number): boolean;
+	fcntl(pid: number, fd: number, cmd: number, arg?: number): number;
 
 	// Process operations
 	spawn(
@@ -340,8 +341,6 @@ export interface FileDescription {
 	cursor: bigint;
 	flags: number;
 	refCount: number;
-	/** Close-on-exec flag (FD_CLOEXEC). When true, FD is not inherited by child processes. */
-	cloexec: boolean;
 }
 
 export interface FDEntry {
@@ -349,6 +348,8 @@ export interface FDEntry {
 	description: FileDescription;
 	rights: bigint;
 	filetype: number;
+	/** Close-on-exec flag (FD_CLOEXEC). Per-FD, not per-description. */
+	cloexec: boolean;
 }
 
 // FD open flags
@@ -360,6 +361,16 @@ export const O_EXCL = 0o200;
 export const O_TRUNC = 0o1000;
 export const O_APPEND = 0o2000;
 export const O_CLOEXEC = 0o2000000;
+
+// fcntl commands
+export const F_DUPFD = 0;
+export const F_GETFD = 1;
+export const F_SETFD = 2;
+export const F_GETFL = 3;
+export const F_DUPFD_CLOEXEC = 1030;
+
+// FD flags (for F_GETFD / F_SETFD)
+export const FD_CLOEXEC = 1;
 
 // Seek whence
 export const SEEK_SET = 0;
