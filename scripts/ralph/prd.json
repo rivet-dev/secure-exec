@@ -1425,8 +1425,8 @@
         "Typecheck passes"
       ],
       "priority": 73,
-      "passes": false,
-      "notes": "Research story — no code changes required beyond documentation and profiling scripts."
+      "passes": true,
+      "notes": "Profiled warm start path with Rust-side per-phase timing. Context clone is dominant cost (0.5-2.2ms, 50-75%). Evaluated per-session sockets (P3), mmap IPC (rejected), user code caching (<0.2ms saving). Identified P1 quick wins: code-cache post-restore script, merge InjectGlobals into Execute. Documented in docs-internal/specs/v8-perf-research.md."
     },
     {
       "id": "US-085",

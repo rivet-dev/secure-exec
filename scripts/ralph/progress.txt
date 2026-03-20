@@ -555,3 +555,28 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - Cold steady-state improvement (48ms → 22ms) is a bonus — snapshot cache hit on second run avoids snapshot creation
   - `timeout 60` wrapper still needed for quick-bench.ts due to V8 process cleanup hang (see US-085)
 ---
+
+## 2026-03-19 - US-068
+- Profiled warm start path with Rust-side per-phase `std::time::Instant` instrumentation
+- Created `profile-warm-path.ts` (TS-side per-scenario timing) and `profile-rust-phases.ts` (Rust-side per-phase)
+- Key findings:
+  - Context clone from snapshot dominates warm start (0.5–2.2ms, 50–75% of total)
+  - Bimodal behavior: alternating fast (~0.7ms) and slow (~2.9ms) Rust execution, likely V8 GC or TLB
+  - Post-restore script compilation is second largest (0.1–0.4ms)
+  - Bridge fn replacement is efficient (0.03–0.17ms for 38 functions)
+  - User code compilation is negligible (0.02–0.08ms)
+- Evaluated per-session UDS sockets: P3, only relevant for concurrent large-payload workloads
+- Evaluated mmap/shared-memory IPC: rejected (P4), saving ~8μs dwarfed by ~1.5ms context setup
+- Evaluated V8 code caching for user code: P3, <0.2ms saving, only for repeated executions
+- Identified P1 quick wins: code-cache post-restore script (0.1–0.3ms), merge InjectGlobals into Execute (0.1–0.2ms)
+- Identified P2 medium-effort: session pooling (0.5–2.0ms), reduce snapshot blob size (0.1–0.6ms)
+- Documented in `docs-internal/specs/v8-perf-research.md`
+- Updated `docs-internal/todo.md` with prioritized action items, marked completed items
+- Files created: `docs-internal/specs/v8-perf-research.md`, `packages/secure-exec/benchmarks/profile-warm-path.ts`, `packages/secure-exec/benchmarks/profile-rust-phases.ts`
+- Files changed: `docs-internal/todo.md`
+- **Learnings for future iterations:**
+  - Rust child process stderr is collected in `stderrBuf` in runtime.ts but not forwarded — to see Rust eprintln output, add `process.stderr.write(chunk)` temporarily
+  - V8 warm start shows bimodal behavior — some executions are 4x faster than others, likely due to V8 GC or memory allocator behavior
+  - Context cloning is the dominant cost and is a V8 internal operation — cannot be optimized from Rust side; only session pooling can avoid it
+  - Post-restore script compilation is the easiest optimization target — reuse code cache pattern
+---
