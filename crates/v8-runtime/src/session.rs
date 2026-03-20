@@ -38,14 +38,28 @@ struct SessionEntry {
     join_handle: Option<thread::JoinHandle<()>>,
 }
 
+/// A pre-warmed session sitting in the pool, ready to be claimed
+struct WarmSession {
+    tx: Sender<SessionCommand>,
+    join_handle: Option<thread::JoinHandle<()>>,
+    heap_limit_mb: Option<u32>,
+    cpu_time_limit_ms: Option<u32>,
+}
+
 /// Concurrency slot tracker shared across session threads
 type SlotControl = Arc<(Mutex<usize>, Condvar)>;
+
+/// Shared readiness counter for warm pool fill synchronization
+type WarmReadySignal = Arc<(Mutex<usize>, Condvar)>;
 
 /// Manages V8 sessions with concurrency limiting and connection binding.
 ///
 /// Sessions are bound to the connection that created them. Other connections
 /// cannot interact with a session they don't own. Each session runs on a
 /// dedicated OS thread with its own V8 isolate.
+///
+/// Optionally maintains a warm pool of pre-created sessions with isolates
+/// already initialized from the snapshot cache, eliminating cold start overhead.
 pub struct SessionManager {
     sessions: HashMap<String, SessionEntry>,
     max_concurrency: usize,
@@ -57,6 +71,16 @@ pub struct SessionManager {
     call_id_router: CallIdRouter,
     /// Shared snapshot cache for fast isolate creation from pre-compiled bridge code
     snapshot_cache: Arc<SnapshotCache>,
+    /// Pre-warmed sessions ready to be claimed by create_session
+    warm_pool: Vec<WarmSession>,
+    /// Target number of warm sessions to maintain
+    warm_pool_target: usize,
+    /// Bridge code for creating warm sessions (set via set_warm_pool_config)
+    warm_pool_bridge_code: Option<String>,
+    /// Default heap limit for warm sessions
+    default_warm_heap_limit_mb: Option<u32>,
+    /// Default CPU time limit for warm sessions
+    default_warm_cpu_time_limit_ms: Option<u32>,
 }
 
 impl SessionManager {
@@ -68,6 +92,11 @@ impl SessionManager {
             ipc_tx,
             call_id_router,
             snapshot_cache,
+            warm_pool: Vec::new(),
+            warm_pool_target: 0,
+            warm_pool_bridge_code: None,
+            default_warm_heap_limit_mb: None,
+            default_warm_cpu_time_limit_ms: None,
         }
     }
 
@@ -76,9 +105,92 @@ impl SessionManager {
         &self.snapshot_cache
     }
 
+    /// Configure the warm pool and fill it. Returns a WarmReadySignal that
+    /// callers can wait on for all warm sessions to finish isolate creation.
+    pub fn set_warm_pool_config(
+        &mut self,
+        bridge_code: String,
+        pool_size: usize,
+        heap_limit_mb: Option<u32>,
+        cpu_time_limit_ms: Option<u32>,
+    ) -> WarmReadySignal {
+        self.warm_pool_bridge_code = Some(bridge_code);
+        self.warm_pool_target = pool_size;
+        self.default_warm_heap_limit_mb = heap_limit_mb;
+        self.default_warm_cpu_time_limit_ms = cpu_time_limit_ms;
+        self.replenish_warm_pool()
+    }
+
+    /// Spawn background threads to fill the warm pool up to target.
+    /// Returns a WarmReadySignal that fires when all spawned sessions are ready.
+    fn replenish_warm_pool(&mut self) -> WarmReadySignal {
+        let needed = self.warm_pool_target.saturating_sub(self.warm_pool.len());
+        let signal: WarmReadySignal = Arc::new((Mutex::new(0), Condvar::new()));
+
+        if needed == 0 || self.warm_pool_bridge_code.is_none() {
+            // Nothing to spawn — signal immediately
+            let (lock, cvar) = &*signal;
+            *lock.lock().unwrap() = needed; // 0
+            cvar.notify_all();
+            return signal;
+        }
+
+        let bridge_code = self.warm_pool_bridge_code.clone().unwrap();
+        let heap_limit_mb = self.default_warm_heap_limit_mb;
+        let cpu_time_limit_ms = self.default_warm_cpu_time_limit_ms;
+
+        for _ in 0..needed {
+            let (tx, rx) = crossbeam_channel::bounded(256);
+            let slot_control = Arc::clone(&self.slot_control);
+            let max = self.max_concurrency;
+            let ipc_tx = self.ipc_tx.clone();
+            let router = Arc::clone(&self.call_id_router);
+            let snap_cache = Arc::clone(&self.snapshot_cache);
+            let bc = bridge_code.clone();
+            let ready_signal = Arc::clone(&signal);
+            let target = needed;
+
+            let join_handle = thread::Builder::new()
+                .name("warm-pool".into())
+                .spawn(move || {
+                    session_thread(
+                        heap_limit_mb,
+                        cpu_time_limit_ms,
+                        rx,
+                        slot_control,
+                        max,
+                        ipc_tx,
+                        router,
+                        snap_cache,
+                        Some((bc, ready_signal, target)),
+                    );
+                })
+                .expect("failed to spawn warm pool thread");
+
+            self.warm_pool.push(WarmSession {
+                tx,
+                join_handle: Some(join_handle),
+                heap_limit_mb,
+                cpu_time_limit_ms,
+            });
+        }
+
+        signal
+    }
+
+    /// Drain all warm pool sessions, shutting them down and releasing slots.
+    fn drain_warm_pool(&mut self) {
+        for mut warm in self.warm_pool.drain(..) {
+            let _ = warm.tx.send(SessionCommand::Shutdown);
+            if let Some(handle) = warm.join_handle.take() {
+                let _ = handle.join();
+            }
+        }
+    }
+
     /// Create a new session bound to the given connection.
-    /// Spawns a dedicated thread with a V8 isolate. If max concurrency is
-    /// reached, the session thread will block until a slot becomes available.
+    /// If a compatible warm session is available, claims it instead of cold-starting.
+    /// If config doesn't match, drains the pool, updates config, and refills.
     pub fn create_session(
         &mut self,
         session_id: String,
@@ -90,6 +202,33 @@ impl SessionManager {
             return Err(format!("session {} already exists", session_id));
         }
 
+        // Try to claim a warm session with matching config
+        if let Some(pos) = self.warm_pool.iter().position(|w|
+            w.heap_limit_mb == heap_limit_mb && w.cpu_time_limit_ms == cpu_time_limit_ms
+        ) {
+            let warm = self.warm_pool.swap_remove(pos);
+            self.sessions.insert(
+                session_id,
+                SessionEntry {
+                    tx: warm.tx,
+                    connection_id,
+                    join_handle: warm.join_handle,
+                },
+            );
+            // Replenish in background (signal not awaited)
+            let _ = self.replenish_warm_pool();
+            return Ok(());
+        }
+
+        // Config mismatch — drain pool, update config, refill
+        if !self.warm_pool.is_empty() {
+            self.drain_warm_pool();
+            self.default_warm_heap_limit_mb = heap_limit_mb;
+            self.default_warm_cpu_time_limit_ms = cpu_time_limit_ms;
+            let _ = self.replenish_warm_pool();
+        }
+
+        // Cold path — spawn a new session thread
         let (tx, rx) = crossbeam_channel::bounded(256);
         let slot_control = Arc::clone(&self.slot_control);
         let max = self.max_concurrency;
@@ -105,7 +244,7 @@ impl SessionManager {
         let join_handle = thread::Builder::new()
             .name(format!("session-{}", name_prefix))
             .spawn(move || {
-                session_thread(heap_limit_mb, cpu_time_limit_ms, rx, slot_control, max, ipc_tx, router, snap_cache);
+                session_thread(heap_limit_mb, cpu_time_limit_ms, rx, slot_control, max, ipc_tx, router, snap_cache, None);
             })
             .map_err(|e| format!("failed to spawn session thread: {}", e))?;
 
@@ -212,6 +351,18 @@ impl SessionManager {
     pub fn call_id_router(&self) -> &CallIdRouter {
         &self.call_id_router
     }
+
+    /// Number of warm sessions currently in the pool.
+    pub fn warm_pool_count(&self) -> usize {
+        self.warm_pool.len()
+    }
+}
+
+impl Drop for SessionManager {
+    fn drop(&mut self) {
+        // Shut down warm pool sessions on manager drop
+        self.drain_warm_pool();
+    }
 }
 
 /// Serialize and send a BinaryFrame via the per-connection IPC channel.
@@ -231,9 +382,13 @@ fn send_message(ipc_tx: &IpcSender, frame: &BinaryFrame, frame_buf: &mut Vec<u8>
     }
 }
 
-/// Session thread: acquires a concurrency slot, defers V8 isolate creation
-/// to first Execute (when bridge code is known for snapshot lookup), and
-/// processes commands until shutdown.
+/// Session thread: acquires a concurrency slot, optionally pre-creates the
+/// V8 isolate from snapshot (warm pool), and processes commands until shutdown.
+///
+/// `prewarm` — if Some, eagerly creates the isolate from the given bridge code
+/// snapshot after acquiring the concurrency slot. The tuple contains:
+/// (bridge_code, ready_signal, target_count). After isolate creation, the
+/// thread increments the ready counter and notifies the condvar.
 fn session_thread(
     #[cfg_attr(test, allow(unused_variables))] heap_limit_mb: Option<u32>,
     #[cfg_attr(test, allow(unused_variables))] cpu_time_limit_ms: Option<u32>,
@@ -243,6 +398,7 @@ fn session_thread(
     #[cfg_attr(test, allow(unused_variables))] ipc_tx: IpcSender,
     #[cfg_attr(test, allow(unused_variables))] call_id_router: CallIdRouter,
     #[cfg_attr(test, allow(unused_variables))] snapshot_cache: Arc<SnapshotCache>,
+    #[cfg_attr(test, allow(unused_variables))] prewarm: Option<(String, WarmReadySignal, usize)>,
 ) {
     // Acquire concurrency slot (blocks if at capacity)
     {
@@ -254,20 +410,46 @@ fn session_thread(
         *count += 1;
     }
 
-    // Isolate creation is deferred to first Execute (when bridge code is known
-    // for snapshot cache lookup). This avoids creating an isolate that may never
-    // be used and enables snapshot-based fast creation.
+    // Isolate creation: eager if pre-warming, deferred to first Execute otherwise
     #[cfg(not(test))]
     let mut v8_isolate: Option<v8::OwnedIsolate> = None;
     #[cfg(not(test))]
     let mut _v8_context: Option<v8::Global<v8::Context>> = None;
 
-    // Whether the isolate was created from a context snapshot.
-    // When true, Execute uses the snapshot's default context (bridge IIFE
-    // already executed) and skips re-running the bridge code. Bridge function
-    // stubs in the snapshot are replaced with real session-local functions.
     #[cfg(not(test))]
     let mut from_snapshot = false;
+
+    // Eager isolate creation for warm pool sessions
+    #[cfg(not(test))]
+    if let Some((ref bridge_code, ref ready_signal, target)) = prewarm {
+        isolate::init_v8_platform();
+        let mut iso = if !bridge_code.is_empty() {
+            match snapshot_cache.get_or_create(bridge_code) {
+                Ok(blob) => {
+                    from_snapshot = true;
+                    snapshot::create_isolate_from_snapshot((*blob).clone(), heap_limit_mb)
+                }
+                Err(e) => {
+                    eprintln!("warm pool snapshot failed, falling back: {}", e);
+                    isolate::create_isolate(heap_limit_mb)
+                }
+            }
+        } else {
+            isolate::create_isolate(heap_limit_mb)
+        };
+        execution::disable_wasm(&mut iso);
+        let ctx = isolate::create_context(&mut iso);
+        _v8_context = Some(ctx);
+        v8_isolate = Some(iso);
+
+        // Signal readiness
+        let (lock, cvar) = &**ready_signal;
+        let mut count = lock.lock().unwrap();
+        *count += 1;
+        if *count >= target {
+            cvar.notify_all();
+        }
+    }
 
     #[cfg(not(test))]
     let pending = bridge::PendingPromises::new();
@@ -280,9 +462,10 @@ fn session_thread(
     #[cfg(not(test))]
     let mut bridge_cache: Option<execution::BridgeCodeCache> = None;
 
-    // Cached bridge code string to skip resending over IPC
+    // Cached bridge code string to skip resending over IPC.
+    // Pre-populated from prewarm bridge code if warm-pooled.
     #[cfg(not(test))]
-    let mut last_bridge_code: Option<String> = None;
+    let mut last_bridge_code: Option<String> = prewarm.as_ref().map(|(bc, _, _)| bc.clone());
 
     // Pre-allocated serialization buffers for V8 ValueSerializer output
     #[cfg(not(test))]

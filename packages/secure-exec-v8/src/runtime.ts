@@ -33,6 +33,14 @@ export interface V8RuntimeOptions {
 	maxSessions?: number;
 	/** Bridge code to pre-warm the snapshot cache with (fire-and-forget). Skipped if SECURE_EXEC_NO_SNAPSHOT_WARMUP=1. */
 	warmupBridgeCode?: string;
+	/** Number of pre-warmed sessions to maintain. Default 3, 0 to disable. */
+	warmPoolSize?: number;
+	/** Default heap limit (MB) for warm pool sessions. Default 128. */
+	defaultWarmHeapLimitMb?: number;
+	/** Default CPU time limit (ms) for warm pool sessions. Default 0 (no limit). */
+	defaultWarmCpuTimeLimitMs?: number;
+	/** Whether to wait for warm pool to fill before returning. Default true. */
+	waitForWarmPool?: boolean;
 }
 
 /** Manages the Rust V8 child process and session lifecycle. */
@@ -157,9 +165,18 @@ export async function createV8Runtime(
 		(frame: BinaryFrame) => void
 	>();
 
+	// Pending InitReady resolver — set when Init is sent, resolved on InitReady
+	let initReadyResolve: (() => void) | null = null;
+
 	ipcClient = new IpcClient({
 		socketPath,
 		onMessage: (frame) => {
+			// Handle InitReady (no sessionId)
+			if (frame.type === "InitReady") {
+				initReadyResolve?.();
+				initReadyResolve = null;
+				return;
+			}
 			// Route frame to the appropriate session handler by sessionId
 			if ("sessionId" in frame && frame.sessionId) {
 				const handler = sessionHandlers.get(frame.sessionId);
@@ -181,8 +198,36 @@ export async function createV8Runtime(
 		await ipcClient.connect();
 		ipcClient.authenticate(authToken);
 
-		// Send warm-up snapshot request (fire-and-forget)
-		if (options?.warmupBridgeCode && process.env.SECURE_EXEC_NO_SNAPSHOT_WARMUP !== "1") {
+		// Send Init to configure warm pool + snapshot cache.
+		// Warm pool defaults to 3 when bridge code is provided (snapshot-based
+		// warm sessions take ~2ms to claim vs ~6ms cold). Without bridge code,
+		// pool is disabled since there's no snapshot to pre-create from.
+		const warmPoolSize = process.env.SECURE_EXEC_NO_SNAPSHOT_WARMUP === "1"
+			? 0
+			: (options?.warmPoolSize ?? (options?.warmupBridgeCode ? 3 : 0));
+		if (warmPoolSize > 0) {
+			const initReady = new Promise<void>((resolve, reject) => {
+				const timeout = setTimeout(() => {
+					initReadyResolve = null;
+					reject(new Error("Timed out waiting for InitReady"));
+				}, 30_000);
+				initReadyResolve = () => {
+					clearTimeout(timeout);
+					resolve();
+				};
+			});
+			ipcClient.send({
+				type: "Init",
+				bridgeCode: options?.warmupBridgeCode ?? "",
+				warmPoolSize,
+				defaultWarmHeapLimitMb: options?.defaultWarmHeapLimitMb ?? 128,
+				defaultWarmCpuTimeLimitMs: options?.defaultWarmCpuTimeLimitMs ?? 0,
+				waitForWarmPool: options?.waitForWarmPool ?? true,
+			});
+			await initReady;
+			initReadyResolve = null;
+		} else if (options?.warmupBridgeCode) {
+			// Warm pool disabled — just warm the snapshot cache
 			ipcClient.send({
 				type: "WarmSnapshot",
 				bridgeCode: options.warmupBridgeCode,

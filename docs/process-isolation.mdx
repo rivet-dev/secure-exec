@@ -173,6 +173,27 @@ const result = await rt.exec("const a = []; while(true) a.push(new Array(1e6))")
 
 Runtimes using the default shared process share crash fate — if the global process dies, all runtimes are affected. Use explicit `createV8Runtime()` handles to control which runtimes share a crash domain.
 
+## Warm pool
+
+Cold-starting a new session costs ~6ms (thread spawn + isolate creation from snapshot). The warm pool eliminates this by pre-creating sessions with isolates already initialized.
+
+```ts
+const process = await createV8Runtime({
+  warmupBridgeCode: bridgeCode,
+  warmPoolSize: 3,           // default: 3 when bridgeCode provided, 0 otherwise
+  defaultWarmHeapLimitMb: 128,
+  waitForWarmPool: true,     // default: true — block until pool is ready
+});
+```
+
+When `createSession()` is called, the runtime checks for a pre-warmed session with matching config. If found, the session is claimed instantly (no thread spawn or isolate creation). A replacement session is spawned in the background to keep the pool full.
+
+If the session's heap/CPU limits don't match the warm pool's defaults, the pool drains, reconfigures with the new limits, and refills. The current call takes the cold path.
+
+Each warm session occupies a concurrency slot. With `maxSessions: 4` and `warmPoolSize: 2`, only 2 slots remain for active sessions.
+
+Set `warmPoolSize: 0` to disable the pool entirely (falls back to the cold path for every session).
+
 ## Lifecycle
 
 The caller owns the `V8Runtime` handle and is responsible for disposing it when done.

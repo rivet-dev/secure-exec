@@ -25,12 +25,14 @@ const MSG_BRIDGE_RESPONSE: u8 = 0x06;
 const MSG_STREAM_EVENT: u8 = 0x07;
 const MSG_TERMINATE_EXECUTION: u8 = 0x08;
 const MSG_WARM_SNAPSHOT: u8 = 0x09;
+const MSG_INIT: u8 = 0x0B;
 
 // Rust → Host message type codes
 const MSG_BRIDGE_CALL: u8 = 0x81;
 const MSG_EXECUTION_RESULT: u8 = 0x82;
 const MSG_LOG: u8 = 0x83;
 const MSG_STREAM_CALLBACK: u8 = 0x84;
+const MSG_INIT_READY: u8 = 0x8C;
 
 // ExecutionResult flags
 const FLAG_HAS_EXPORTS: u8 = 0x01;
@@ -80,6 +82,13 @@ pub enum BinaryFrame {
     WarmSnapshot {
         bridge_code: String,
     },
+    Init {
+        bridge_code: String,
+        warm_pool_size: u32,
+        default_warm_heap_limit_mb: u32,
+        default_warm_cpu_time_limit_ms: u32,
+        wait_for_warm_pool: bool,
+    },
 
     // Rust → Host
     BridgeCall {
@@ -104,6 +113,7 @@ pub enum BinaryFrame {
         callback_type: String,
         payload: Vec<u8>, // V8-serialized payload
     },
+    InitReady,
 }
 
 /// Structured error in binary format.
@@ -176,7 +186,7 @@ pub fn extract_session_id(raw: &[u8]) -> io::Result<Option<&str>> {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "frame too short"));
     }
     let msg_type = raw[0];
-    if msg_type == MSG_AUTHENTICATE || msg_type == MSG_WARM_SNAPSHOT {
+    if msg_type == MSG_AUTHENTICATE || msg_type == MSG_WARM_SNAPSHOT || msg_type == MSG_INIT {
         return Ok(None);
     }
     let sid_len = raw[1] as usize;
@@ -277,6 +287,23 @@ fn encode_body(buf: &mut Vec<u8>, frame: &BinaryFrame) -> io::Result<()> {
             buf.extend_from_slice(&(bc_bytes.len() as u32).to_be_bytes());
             buf.extend_from_slice(bc_bytes);
         }
+        BinaryFrame::Init {
+            bridge_code,
+            warm_pool_size,
+            default_warm_heap_limit_mb,
+            default_warm_cpu_time_limit_ms,
+            wait_for_warm_pool,
+        } => {
+            buf.push(MSG_INIT);
+            buf.push(0); // no session_id
+            let bc_bytes = bridge_code.as_bytes();
+            buf.extend_from_slice(&(bc_bytes.len() as u32).to_be_bytes());
+            buf.extend_from_slice(bc_bytes);
+            buf.extend_from_slice(&warm_pool_size.to_be_bytes());
+            buf.extend_from_slice(&default_warm_heap_limit_mb.to_be_bytes());
+            buf.extend_from_slice(&default_warm_cpu_time_limit_ms.to_be_bytes());
+            buf.push(if *wait_for_warm_pool { 1 } else { 0 });
+        }
         BinaryFrame::BridgeCall {
             session_id,
             call_id,
@@ -336,6 +363,10 @@ fn encode_body(buf: &mut Vec<u8>, frame: &BinaryFrame) -> io::Result<()> {
             write_session_id(buf, session_id)?;
             write_len_prefixed_u16(buf, callback_type)?;
             buf.extend_from_slice(payload);
+        }
+        BinaryFrame::InitReady => {
+            buf.push(MSG_INIT_READY);
+            buf.push(0); // no session_id
         }
     }
     Ok(())
@@ -423,6 +454,21 @@ fn decode_body(buf: &[u8]) -> io::Result<BinaryFrame> {
             let bridge_code = read_utf8(buf, &mut pos, bc_len)?;
             Ok(BinaryFrame::WarmSnapshot { bridge_code })
         }
+        MSG_INIT => {
+            let bc_len = read_u32(buf, &mut pos)? as usize;
+            let bridge_code = read_utf8(buf, &mut pos, bc_len)?;
+            let warm_pool_size = read_u32(buf, &mut pos)?;
+            let default_warm_heap_limit_mb = read_u32(buf, &mut pos)?;
+            let default_warm_cpu_time_limit_ms = read_u32(buf, &mut pos)?;
+            let wait_flag = read_u8(buf, &mut pos)?;
+            Ok(BinaryFrame::Init {
+                bridge_code,
+                warm_pool_size,
+                default_warm_heap_limit_mb,
+                default_warm_cpu_time_limit_ms,
+                wait_for_warm_pool: wait_flag != 0,
+            })
+        }
         MSG_BRIDGE_CALL => {
             let call_id = read_u64(buf, &mut pos)?;
             let m_len = read_u16(buf, &mut pos)? as usize;
@@ -485,6 +531,9 @@ fn decode_body(buf: &[u8]) -> io::Result<BinaryFrame> {
                 callback_type,
                 payload,
             })
+        }
+        MSG_INIT_READY => {
+            Ok(BinaryFrame::InitReady)
         }
         _ => Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -841,6 +890,51 @@ mod tests {
         assert_eq!(result, None);
     }
 
+    // -- Init / InitReady --
+
+    #[test]
+    fn roundtrip_init() {
+        roundtrip(&BinaryFrame::Init {
+            bridge_code: "(function(){ /* bridge */ })()".into(),
+            warm_pool_size: 2,
+            default_warm_heap_limit_mb: 128,
+            default_warm_cpu_time_limit_ms: 5000,
+            wait_for_warm_pool: true,
+        });
+    }
+
+    #[test]
+    fn roundtrip_init_no_wait() {
+        roundtrip(&BinaryFrame::Init {
+            bridge_code: "bridge()".into(),
+            warm_pool_size: 0,
+            default_warm_heap_limit_mb: 0,
+            default_warm_cpu_time_limit_ms: 0,
+            wait_for_warm_pool: false,
+        });
+    }
+
+    #[test]
+    fn roundtrip_init_ready() {
+        roundtrip(&BinaryFrame::InitReady);
+    }
+
+    #[test]
+    fn extract_session_id_init_returns_none() {
+        let frame = BinaryFrame::Init {
+            bridge_code: "bridge()".into(),
+            warm_pool_size: 2,
+            default_warm_heap_limit_mb: 128,
+            default_warm_cpu_time_limit_ms: 0,
+            wait_for_warm_pool: true,
+        };
+        let mut buf = Vec::new();
+        write_frame(&mut buf, &frame).expect("write");
+        let raw = &buf[4..];
+        let result = extract_session_id(raw).expect("extract");
+        assert_eq!(result, None);
+    }
+
     // -- Edge cases --
 
     #[test]
@@ -1133,6 +1227,16 @@ mod tests {
                 0x09,
             ),
             (
+                BinaryFrame::Init {
+                    bridge_code: "b()".into(),
+                    warm_pool_size: 2,
+                    default_warm_heap_limit_mb: 128,
+                    default_warm_cpu_time_limit_ms: 0,
+                    wait_for_warm_pool: true,
+                },
+                0x0B,
+            ),
+            (
                 BinaryFrame::BridgeCall {
                     session_id: "s".into(),
                     call_id: 0,
@@ -1165,6 +1269,10 @@ mod tests {
                     payload: vec![],
                 },
                 0x84,
+            ),
+            (
+                BinaryFrame::InitReady,
+                0x8C,
             ),
         ];
         for (frame, expected_type) in &cases {

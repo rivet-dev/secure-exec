@@ -166,6 +166,7 @@ fn handle_connection(
     connection_id: u64,
     session_mgr: Arc<Mutex<SessionManager>>,
     snapshot_cache: Arc<SnapshotCache>,
+    ipc_tx: session::IpcSender,
 ) {
     loop {
         // Read next binary frame from connection
@@ -262,6 +263,45 @@ fn handle_connection(
                         "connection {}: WarmSnapshot failed: {}",
                         connection_id, e
                     );
+                }
+            }
+            // Handle Init: warm snapshot cache, configure warm pool, send InitReady
+            BinaryFrame::Init {
+                bridge_code,
+                warm_pool_size,
+                default_warm_heap_limit_mb,
+                default_warm_cpu_time_limit_ms,
+                wait_for_warm_pool,
+            } => {
+                // Warm snapshot cache
+                if !bridge_code.is_empty() {
+                    if let Err(e) = snapshot_cache.get_or_create(&bridge_code) {
+                        eprintln!("connection {}: Init snapshot warmup failed: {}", connection_id, e);
+                    }
+                }
+
+                // Configure warm pool
+                let hlm = if default_warm_heap_limit_mb == 0 { None } else { Some(default_warm_heap_limit_mb) };
+                let ctl = if default_warm_cpu_time_limit_ms == 0 { None } else { Some(default_warm_cpu_time_limit_ms) };
+                let ready_signal = {
+                    let mut mgr = session_mgr.lock().unwrap();
+                    mgr.set_warm_pool_config(bridge_code, warm_pool_size as usize, hlm, ctl)
+                };
+
+                // Wait for warm pool to fill if requested
+                if wait_for_warm_pool && warm_pool_size > 0 {
+                    let (lock, cvar) = &*ready_signal;
+                    let mut count = lock.lock().unwrap();
+                    while *count < warm_pool_size as usize {
+                        count = cvar.wait(count).unwrap();
+                    }
+                }
+
+                // Send InitReady response via the connection's writer thread
+                if let Ok(bytes) = ipc_binary::frame_to_bytes(&BinaryFrame::InitReady) {
+                    if let Err(e) = ipc_tx.send(bytes) {
+                        eprintln!("connection {}: failed to send InitReady: {}", connection_id, e);
+                    }
                 }
             }
             _ => {
@@ -403,6 +443,7 @@ fn main() {
                         .expect("failed to spawn IPC writer thread");
 
                     // Create shared session manager for this connection
+                    let conn_ipc_tx = ipc_tx.clone();
                     let session_mgr = Arc::new(Mutex::new(SessionManager::new(
                         max_concurrency,
                         ipc_tx,
@@ -416,7 +457,7 @@ fn main() {
                     std::thread::Builder::new()
                         .name(format!("conn-{}", conn_id))
                         .spawn(move || {
-                            handle_connection(stream, conn_id, mgr, snap);
+                            handle_connection(stream, conn_id, mgr, snap, conn_ipc_tx);
                         })
                         .expect("failed to spawn connection handler");
                 }

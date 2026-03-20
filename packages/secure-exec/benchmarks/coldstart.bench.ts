@@ -6,6 +6,16 @@
  *   - Warm start: time for a second run() on an already-initialized runtime
  *   - Both sequential and concurrent modes at various batch sizes
  *
+ * NOTE: The shared V8 process is spawned before the benchmark loop
+ * (initSharedV8), so these numbers do NOT include V8 process startup.
+ * They measure only isolate/session creation + execution latency.
+ *
+ * With the warm pool enabled (default), "cold start" actually claims a
+ * pre-warmed session (~2ms) rather than spawning a thread + creating an
+ * isolate from snapshot (~6ms). This is expected — the warm pool is the
+ * production default. To measure true cold-start without the pool, set
+ * SECURE_EXEC_NO_SNAPSHOT_WARMUP=1 or configure warmPoolSize: 0.
+ *
  * Usage: npx tsx benchmarks/coldstart.bench.ts
  */
 
