@@ -29,6 +29,8 @@ const runtime = new NodeRuntime({
   These exports are also available from `"secure-exec"` for backward compatibility.
 </Note>
 
+By default, all runtimes share a single V8 child process. You can pass a dedicated `V8Runtime` handle via `createNodeRuntimeDriverFactory({ v8Runtime })` to control crash blast radius and resource partitioning. See [Process Isolation](/process-isolation) for topology options and trade-offs.
+
 ## exec vs run
 
 Use `exec()` when you care about side effects (logging, file writes) but don't need a return value.
