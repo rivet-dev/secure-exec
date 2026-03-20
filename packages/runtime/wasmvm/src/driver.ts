@@ -699,8 +699,11 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
           kernel.fdDup2(pid, msg.args.oldFd as number, msg.args.newFd as number);
           break;
         }
-        case 'vfsStat': {
-          const stat = await kernel.vfs.stat(msg.args.path as string);
+        case 'vfsStat':
+        case 'vfsLstat': {
+          const stat = msg.call === 'vfsLstat'
+            ? await kernel.vfs.lstat(msg.args.path as string)
+            : await kernel.vfs.stat(msg.args.path as string);
           const enc = new TextEncoder();
           const json = JSON.stringify({
             ino: stat.ino,
@@ -715,6 +718,10 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
             ctime: stat.ctimeMs,
           });
           const bytes = enc.encode(json);
+          if (bytes.length > DATA_BUFFER_BYTES) {
+            errno = 76; // EIO — response exceeds SAB capacity
+            break;
+          }
           data.set(bytes, 0);
           responseData = bytes;
           break;
@@ -722,6 +729,10 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
         case 'vfsReaddir': {
           const entries = await kernel.vfs.readDir(msg.args.path as string);
           const bytes = new TextEncoder().encode(JSON.stringify(entries));
+          if (bytes.length > DATA_BUFFER_BYTES) {
+            errno = 76; // EIO — response exceeds SAB capacity
+            break;
+          }
           data.set(bytes, 0);
           responseData = bytes;
           break;
@@ -749,12 +760,20 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
         case 'vfsReadlink': {
           const target = await kernel.vfs.readlink(msg.args.path as string);
           const bytes = new TextEncoder().encode(target);
+          if (bytes.length > DATA_BUFFER_BYTES) {
+            errno = 76; // EIO — response exceeds SAB capacity
+            break;
+          }
           data.set(bytes, 0);
           responseData = bytes;
           break;
         }
         case 'vfsReadFile': {
           const content = await kernel.vfs.readFile(msg.args.path as string);
+          if (content.length > DATA_BUFFER_BYTES) {
+            errno = 76; // EIO — response exceeds SAB capacity
+            break;
+          }
           data.set(content, 0);
           responseData = content;
           break;
@@ -771,6 +790,10 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
         case 'vfsRealpath': {
           const resolved = await kernel.vfs.realpath(msg.args.path as string);
           const bytes = new TextEncoder().encode(resolved);
+          if (bytes.length > DATA_BUFFER_BYTES) {
+            errno = 76; // EIO — response exceeds SAB capacity
+            break;
+          }
           data.set(bytes, 0);
           responseData = bytes;
           break;

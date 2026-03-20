@@ -325,12 +325,17 @@ function createKernelVfs(): WasiVFS {
   const inoCache = new Map<number, WasiInode>();
   const populatedDirs = new Set<number>();
 
-  function resolveIno(path: string): number | null {
+  function resolveIno(path: string, followSymlinks = true): number | null {
     if (permissionTier === 'isolated' && !isPathInCwd(path)) return null;
-    const cached = pathToIno.get(path);
-    if (cached !== undefined) return cached;
 
-    const res = rpcCall('vfsStat', { path });
+    // When following symlinks, use cached inode if available
+    if (followSymlinks) {
+      const cached = pathToIno.get(path);
+      if (cached !== undefined) return cached;
+    }
+
+    const rpcName = followSymlinks ? 'vfsStat' : 'vfsLstat';
+    const res = rpcCall(rpcName, { path });
     if (res.errno !== 0) return null;
 
     // RPC response fields: { type, mode, uid, gid, nlink, size, atime, mtime, ctime }
@@ -439,7 +444,12 @@ function createKernelVfs(): WasiVFS {
       return JSON.parse(decoder.decode(res.data));
     },
     lstat(path: string): VfsStat {
-      return this.stat(path);
+      if (permissionTier === 'isolated' && !isPathInCwd(path)) {
+        throw new VfsError('EACCES', path);
+      }
+      const res = rpcCall('vfsLstat', { path });
+      if (res.errno !== 0) throw new VfsError('ENOENT', path);
+      return JSON.parse(decoder.decode(res.data));
     },
     unlink(path: string): void {
       if (isWriteBlocked()) throw new VfsError('EACCES', path);
@@ -472,8 +482,8 @@ function createKernelVfs(): WasiVFS {
     chmod(_path: string, _mode: number): void {
       // No-op — permissions handled by kernel
     },
-    getIno(path: string): number | null {
-      return resolveIno(path);
+    getIno(path: string, followSymlinks = true): number | null {
+      return resolveIno(path, followSymlinks);
     },
     getInodeByIno(ino: number): WasiInode | null {
       const node = inoCache.get(ino);
