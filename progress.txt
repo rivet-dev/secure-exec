@@ -3059,3 +3059,15 @@ PRD: ralph/kernel-hardening (46 stories)
   - The mock LLM sequential queue naturally handles multi-turn conversations: each POST advances the index by 1, so N tool-use turns + 1 final text = N+1 responses in the queue
   - Host filesystem state persists across Pi session turns (within same createAgentSession) — no additional wiring needed
 ---
+
+## 2026-03-20 - US-040
+- Implemented npm install E2E test through sandbox child_process bridge
+- Files changed:
+  - packages/secure-exec/tests/cli-tools/npm-install.test.ts (new)
+  - scripts/ralph/prd.json (US-040 passes: true)
+- 5 tests: install+require, exit code 0, stdio through bridge, multiple dependencies, package-lock.json creation
+- **Learnings for future iterations:**
+  - NodeFileSystem({ root }) maps virtual paths to host paths — but child_process bridge forwards cwd as-is to host executor. Use NodeFileSystem() (no root mapping) with actual host path as cwd when spawning host binaries like npm
+  - npm Tracker "idealTree" already exists error occurs when multiple npm instances share the same cache dir — use unique temp dirs per test to avoid collisions
+  - npm install + require round-trip: npm runs on host via child_process bridge, writes node_modules to host filesystem, then a new sandbox exec loads modules via NodeFileSystem reading from same host dir
+---

@@ -731,8 +731,8 @@
         "Tests pass"
       ],
       "priority": 40,
-      "passes": false,
-      "notes": "npm install exercises child_process bridge (spawns npm), network bridge (downloads from registry), and filesystem (writes node_modules). This is one of the most common agent operations and a major integration test."
+      "passes": true,
+      "notes": "Completed. Test file npm-install.test.ts verifies npm install through sandbox child_process bridge: downloads package from real npm registry, creates node_modules on host filesystem, installed package is usable via require() in subsequent sandbox exec. 5 tests pass: install+require, exit code 0, stdio through bridge, multiple dependencies, package-lock.json creation. Uses NodeFileSystem() (no root mapping) with actual host temp dir as cwd so npm spawn gets correct path."
     },
     {
       "id": "US-041",
