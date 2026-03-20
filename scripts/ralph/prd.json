@@ -1352,8 +1352,8 @@
         "Tests pass"
       ],
       "priority": 69,
-      "passes": false,
-      "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 6."
+      "passes": true,
+      "notes": "Context::new on snapshot-restored isolate gives a clone of the default context with bridge IIFE state. replace_bridge_fns() overwrites 38 stub globals with real session-local functions. inject_snapshot_defaults uses READ_ONLY only (no DONT_DELETE) so inject_globals_from_payload can override per-session. Session thread skips bridge_code on snapshot path (from_snapshot flag). Tests: Part 18 (replace + dispatch), Part 19 (_processConfig override), Part 20 (multi-restore isolation)."
     },
     {
       "id": "US-065",

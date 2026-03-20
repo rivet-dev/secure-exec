@@ -55,6 +55,8 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
 - `v8::ValueDeserializer::new(scope, Box::new(delegate), data)` + `read_header(context)` + `read_value(context)` for V8-native deserialization
 - Must `use v8::ValueSerializerHelper` and `use v8::ValueDeserializerHelper` to access methods on the serializer/deserializer structs
 - V8 serialization handles circular references, Date, Map, Set, RegExp natively — Error objects become plain objects (lose constructor name)
+- `Context::new()` on a snapshot-restored isolate clones the snapshot's default context with all state — use this instead of `get_current_context()` for fresh context per execution
+- Snapshot defaults: use `READ_ONLY` only (no `DONT_DELETE`) so `inject_globals_from_payload` can redefine per-session; `DONT_DELETE` makes non-configurable
 ---
 
 ## 2026-03-18 - US-001
@@ -466,4 +468,27 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - `_loadPolyfill` is only called inside `require()` at runtime, not during IIFE setup — stubs don't need to handle it
   - Pre-existing SIGSEGV when running execution::tests AND snapshot::tests in the same process (V8 inter-test state issue) — run them separately: `cargo test execution::tests -- --test-threads=1` and `cargo test snapshot::tests -- --test-threads=1`
   - `inject_snapshot_defaults` uses inline JS evaluation to create config objects (avoids manual V8 object construction)
+---
+
+## 2026-03-19 - US-064
+- Implemented context restore with bridge function replacement for V8 context snapshots
+- Added `replace_bridge_fns()` convenience wrapper in `bridge.rs` — calls `register_sync_bridge_fns` + `register_async_bridge_fns` in one call, returning both stores
+- Fixed `inject_snapshot_defaults()` in `snapshot.rs` — changed `_processConfig` and `_osConfig` from `READ_ONLY | DONT_DELETE` (non-configurable) to `READ_ONLY` only (configurable), so `inject_globals_from_payload` can redefine them per-session after restore
+- Modified session thread in `session.rs`:
+  - Added `from_snapshot` flag tracking whether isolate was created from a snapshot
+  - On snapshot path: `Context::new()` on snapshot-restored isolate gives a clone of the snapshot's default context (bridge IIFE already executed), bridge functions replaced via `replace_bridge_fns()`, globals injected, bridge_code skipped (pass empty string)
+  - On fallback path: fresh context + full bridge code (existing behavior)
+  - Unified bridge function registration: both paths use `replace_bridge_fns()` (works for both initial registration and stub replacement)
+- Added 3 new snapshot test parts:
+  - Part 18: Full restore flow — create snapshot with IIFE, restore, replace bridge functions, verify IIFE state preserved + replaced functions work + getter facade resolves to replaced functions
+  - Part 19: `_processConfig` override — verify configurable property can be overridden via `inject_globals_from_payload` after restore (cwd "/" → "/app", arch "x64" → "arm64")
+  - Part 20: Multi-restore isolation — verify user state from one restore doesn't leak to another
+- Files changed: `crates/v8-runtime/src/bridge.rs`, `crates/v8-runtime/src/session.rs`, `crates/v8-runtime/src/snapshot.rs`
+- **Learnings for future iterations:**
+  - `v8::Context::new(scope, Default::default())` on a snapshot-restored isolate gives a CLONE of the snapshot's default context — each call creates a fresh clone with the bridge IIFE state, no need for `get_current_context()`
+  - `get_current_context()` requires a `ContextScope` (not available on plain `HandleScope<()>`) — use `Context::new()` instead
+  - `define_own_property` with `READ_ONLY | DONT_DELETE` makes a property non-configurable — subsequent `define_own_property` calls fail silently. Use only `READ_ONLY` for snapshot defaults so they can be overridden
+  - `Object.freeze()` on the value object does NOT make the global PROPERTY non-configurable — it only freezes the object's own properties
+  - The `from_snapshot` flag is stable for the session lifetime — once set on isolate creation, all subsequent Executes on the same session use the same path
+  - Pre-existing test failures: `__name` conflict in runtime-driver/node tests, Python tests (PythonRuntime not a constructor), project-matrix tests — all unrelated to this story
 ---
