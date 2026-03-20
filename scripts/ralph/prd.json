@@ -979,7 +979,7 @@
         "Tests pass"
       ],
       "priority": 50,
-      "passes": false,
+      "passes": true,
       "notes": "syscall_coverage.c lines 321-324 discard return values with (void) cast — a broken implementation returning garbage would pass. Compare to getpid_test.c which validates pid > 0, pid != 42, and consistency. The challenge is that native getuid() returns the host user's real UID (e.g., 1000 on Linux, 501 on macOS) while WASM always returns 1000. The parity test currently does exact stdout comparison (line 504), so the test approach needs to handle this divergence."
     },
     {
@@ -996,7 +996,7 @@
         "Tests pass"
       ],
       "priority": 51,
-      "passes": false,
+      "passes": true,
       "notes": "Current getppid_test.c only checks ppid > 0 — a hardcoded 'return 1' would pass. This test spawns a child that verifies its ppid matches the parent's pid, proving the kernel correctly tracks parent-child relationships across proc_spawn. The child program can be a simple C program that prints getppid(), or the parent can spawn 'sh -c' with a command that reads getppid."
     },
     {

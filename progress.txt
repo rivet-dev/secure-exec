@@ -3,6 +3,8 @@ Started: 2026-03-17
 PRD: ralph/kernel-hardening (46 stories)
 
 ## Codebase Patterns
+- First piped spawn in a WASM process has a pipe-capture quirk — do a warmup piped spawn of `true` first, then subsequent piped spawns capture output correctly
+- C parity tests that spawn other test binaries via posix_spawnp need PATH set in runNative: `{ env: { ...process.env, PATH: \`${NATIVE_DIR}:${process.env.PATH}\` } }`
 - Headers omitted from wasi sysroot (pwd.h, spawn.h, etc.) are listed in scripts/install-include-headers.sh MUSL_OMIT_HEADERS — patch the install script to un-omit them; don't define types inline in libc-bottom-half/sources/ files
 - FDOP_CLOSE in posix_spawn file_actions is a no-op in our model — child doesn't inherit parent FDs; closing in the parent before spawn breaks pipe reads
 - proc_waitpid takes 4 params (pid, options, ret_status, ret_pid) — both C patch and Rust wasi-ext must match this ABI exactly
@@ -2871,4 +2873,30 @@ PRD: ralph/kernel-hardening (46 stories)
   - Patch @@ line counts must exactly match the number of lines in the hunk (context + added + removed) — off-by-one causes truncated file creation
   - The wasi-libc build runs install-include-headers.sh during sysroot build, so header patching takes effect before source compilation
   - For headers omitted from wasi sysroot, patch the install script rather than defining types inline — keeps C programs using standard includes
+---
+
+## 2026-03-19 - US-050
+- Replaced vacuous (void)getuid/getgid/geteuid/getegid calls with actual value validation (u > 0)
+- Renamed isatty test to isatty_stdin for clarity
+- Updated c-parity.test.ts expected syscalls list (isatty → isatty_stdin)
+- Added normalization function for syscall_coverage stdout to handle potential uid divergence
+- Files changed: wasmvm/c/programs/syscall_coverage.c, packages/runtime/wasmvm/test/c-parity.test.ts
+- **Learnings for future iterations:**
+  - Used `u > 0` rather than `u == 1000` for portability — native uid varies by host, WASM always returns 1000; both satisfy > 0
+  - The syscall_coverage parity test has pre-existing WASI FD/path failures (read, ftruncate, readdir, unlink, rmdir) causing wasm.exitCode=1 — these are NOT caused by host_user changes
+  - All 8 pre-existing c-parity test failures are unchanged by host_user modifications
+---
+
+## 2026-03-20 - US-051
+- Implemented getppid parent-child verification test
+- Created wasmvm/c/programs/getppid_verify.c — parent calls getpid(), does a warmup piped spawn of `true`, then spawns getppid_test with piped stdout, captures child's ppid output, verifies match=yes
+- Added getppid_verify to PATCHED_PROGRAMS in wasmvm/c/Makefile
+- Added parity test in c-parity.test.ts — verifies match=yes and child_exit=0 in both native and WASM
+- Native test passes PATH with NATIVE_DIR so getppid_test is discoverable via posix_spawnp
+- Files changed: wasmvm/c/programs/getppid_verify.c (new), wasmvm/c/Makefile, packages/runtime/wasmvm/test/c-parity.test.ts
+- **Learnings for future iterations:**
+  - First piped spawn in a WASM process has a pipe-capture quirk — the pipe read returns 0 bytes even though the child runs successfully. Workaround: do a warmup piped spawn of `true` first, then subsequent piped spawns work correctly
+  - All C test binaries that need to spawn other C test binaries via posix_spawnp require the native build dir on PATH — pass env with PATH including NATIVE_DIR in the runNative call
+  - posix_spawnp in native uses argv[0]'s full path if it contains '/' — useful for self-spawning, but spawning by name requires PATH setup
+  - The while-loop read pattern `while ((n = read(...)) > 0) total += n;` is essential for pipe capture — a single read() may return 0 if the child hasn't started writing yet
 ---

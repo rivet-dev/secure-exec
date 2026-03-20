@@ -474,6 +474,22 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
     expect(native.stdout).toContain('termsig=15');
   });
 
+  it.skipIf(tier3Skip)('getppid_verify: child getppid matches parent getpid', async () => {
+    // Native needs getppid_test on PATH for posix_spawnp
+    const native = await runNative('getppid_verify', [], {
+      env: { ...process.env, PATH: `${NATIVE_DIR}:${process.env.PATH}` },
+    });
+    const wasm = await kernel.exec('getppid_verify');
+
+    expect(wasm.exitCode).toBe(native.exitCode);
+    expect(wasm.exitCode).toBe(0);
+    expect(normalizeStderr(wasm.stderr)).toBe(normalizeStderr(native.stderr));
+    expect(wasm.stdout).toContain('match=yes');
+    expect(native.stdout).toContain('match=yes');
+    expect(wasm.stdout).toContain('child_exit=0');
+    expect(native.stdout).toContain('child_exit=0');
+  });
+
   it.skipIf(tier3Skip)('waitpid_return: waitpid returns correct child PID', async () => {
     const native = await runNative('waitpid_return');
     const wasm = await kernel.exec('waitpid_return');
