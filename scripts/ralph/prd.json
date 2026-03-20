@@ -574,8 +574,8 @@
         "Tests pass"
       ],
       "priority": 32,
-      "passes": false,
-      "notes": "Claude Code SDK always spawns cli.js as a subprocess via ProcessTransport. The SDK itself runs as JS in the VM, but the underlying binary is spawned through the child_process bridge. This verifies the full SDK\u2192bridge\u2192binary pipeline."
+      "passes": true,
+      "notes": "Completed. @anthropic-ai/claude-code v2.1.80 is a CLI-only package without a programmatic query() export. Test implements the ProcessTransport pattern manually: sandbox JS spawns claude binary via child_process bridge, collects stdout, parses NDJSON events. 6 tests pass: text response, JSON response, streaming NDJSON, mock LLM interaction, error exit code propagation, clean session lifecycle. When the SDK adds a query() function, the test structure supports upgrading to native SDK usage."
     },
     {
       "id": "US-033",
