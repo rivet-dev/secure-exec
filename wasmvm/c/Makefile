@@ -63,10 +63,10 @@ NATIVE_CFLAGS := -O0 -g -I include/
 COMMANDS_DIR ?= ../target/wasm32-wasip1/release/commands
 
 # Real commands to install (add command names as they are opted in)
-COMMANDS := zip unzip envsubst
+COMMANDS := zip unzip envsubst sqlite3
 
 # Programs requiring patched sysroot (Tier 2+ custom host imports)
-PATCHED_PROGRAMS := isatty_test getpid_test getppid_test getppid_verify userinfo pipe_test dup_test spawn_child spawn_exit_code pipeline kill_child waitpid_return waitpid_edge syscall_coverage getpwuid_test signal_tests pipe_edge tcp_echo http_get dns_lookup
+PATCHED_PROGRAMS := isatty_test getpid_test getppid_test getppid_verify userinfo pipe_test dup_test spawn_child spawn_exit_code pipeline kill_child waitpid_return waitpid_edge syscall_coverage getpwuid_test signal_tests pipe_edge tcp_echo http_get dns_lookup sqlite3_cli
 
 # Discover all .c source files in programs/
 ALL_SOURCES := $(wildcard programs/*.c)
@@ -177,6 +177,21 @@ $(NATIVE_DIR)/sqlite3_mem: programs/sqlite3_mem.c libs/sqlite3/sqlite3.c
 	$(NATIVE_CC) $(NATIVE_CFLAGS) $(SQLITE_NATIVE) -Ilibs/sqlite3 -o $@ \
 	    programs/sqlite3_mem.c libs/sqlite3/sqlite3.c -lm -lpthread
 
+# sqlite3_cli: full CLI, links SQLite amalgamation (installed as sqlite3)
+# Uses -Os (not -O2) + no wasm-opt — higher optimization breaks SQLite's
+# internal function pointer tables in WASM indirect call table.
+# Uses --initial-memory=16777216 (16MB) for SQLite's malloc requirements.
+$(BUILD_DIR)/sqlite3_cli: programs/sqlite3_cli.c libs/sqlite3/sqlite3.c $(WASI_SDK_DIR)/bin/clang
+	@mkdir -p $(BUILD_DIR)
+	$(CC) --target=wasm32-wasip1 --sysroot=$(SYSROOT) -Os -I include/ \
+	    $(SQLITE_WASM) -Ilibs/sqlite3 -Wl,--initial-memory=16777216 \
+	    -o $@ programs/sqlite3_cli.c libs/sqlite3/sqlite3.c
+
+$(NATIVE_DIR)/sqlite3_cli: programs/sqlite3_cli.c libs/sqlite3/sqlite3.c
+	@mkdir -p $(NATIVE_DIR)
+	$(NATIVE_CC) $(NATIVE_CFLAGS) $(SQLITE_NATIVE) -Ilibs/sqlite3 -o $@ \
+	    programs/sqlite3_cli.c libs/sqlite3/sqlite3.c -lm -lpthread
+
 # zip: links zlib + minizip
 ZLIB_SRCS   := libs/zlib/adler32.c libs/zlib/compress.c libs/zlib/crc32.c libs/zlib/deflate.c \
                libs/zlib/infback.c libs/zlib/inffast.c libs/zlib/inflate.c libs/zlib/inftrees.c \
@@ -222,6 +237,10 @@ $(NATIVE_DIR)/%: programs/%.c
 
 # --- Install opted-in commands to COMMANDS_DIR ---
 
+# Command name → build artifact mappings (when they differ)
+# Format: command=build_name (e.g., sqlite3 is built from sqlite3_cli.c)
+COMMAND_MAP_sqlite3 := sqlite3_cli
+
 install:
 	@if [ -z "$(COMMANDS)" ]; then \
 		echo "No C commands opted in for install (COMMANDS is empty)"; \
@@ -234,11 +253,15 @@ install:
 	@mkdir -p $(COMMANDS_DIR)
 	@INSTALLED=0; \
 	for cmd in $(COMMANDS); do \
-		if [ -f "$(BUILD_DIR)/$$cmd" ]; then \
-			cp "$(BUILD_DIR)/$$cmd" "$(COMMANDS_DIR)/$$cmd"; \
+		src="$$cmd"; \
+		case "$$cmd" in \
+			sqlite3) src="sqlite3_cli" ;; \
+		esac; \
+		if [ -f "$(BUILD_DIR)/$$src" ]; then \
+			cp "$(BUILD_DIR)/$$src" "$(COMMANDS_DIR)/$$cmd"; \
 			INSTALLED=$$((INSTALLED + 1)); \
 		else \
-			echo "Warning: $(BUILD_DIR)/$$cmd not found — skipping"; \
+			echo "Warning: $(BUILD_DIR)/$$src not found — skipping"; \
 		fi; \
 	done; \
 	echo "Installed $$INSTALLED C command(s) to $(COMMANDS_DIR)"

@@ -63,6 +63,8 @@ export const WASMVM_COMMANDS: readonly string[] = [
   '[', 'touch', 'tree', 'tsort', 'whoami',
   // Compression & Archiving
   'gzip', 'gunzip', 'zcat', 'tar', 'zip', 'unzip',
+  // Data Processing (C programs)
+  'sqlite3',
   // Shim commands
   'env', 'envsubst', 'nice', 'nohup', 'stdbuf', 'timeout', 'xargs',
   // uutils: text/encoding
@@ -171,6 +173,8 @@ export const DEFAULT_FIRST_PARTY_TIERS: Readonly<Record<string, PermissionTier>>
   'sha256sum': 'read-only',
   'tac': 'read-only',
   'tsort': 'read-only',
+  // Data processing — need write for file-based databases
+  'sqlite3': 'read-write',
 };
 
 export interface WasmVmRuntimeOptions {

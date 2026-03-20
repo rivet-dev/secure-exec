@@ -201,6 +201,7 @@
 | Command | just-bash | Status | Implementation | Target |
 |---------|-----------|--------|----------------|--------|
 | jq | yes | done | `jaq` wrapper | — |
+| sqlite3 | yes | done | C program (SQLite amalgamation, WASI VFS, US-081) | — |
 | yq | yes | done | `yq.rs` custom builtin (`serde_yaml` + `toml` + `quick-xml` + `jaq-core`, US-020) | — |
 | xan | yes | missing | — | `xsv` fork or `csv` crate |
 | python3 | yes | excluded | — | — |
@@ -217,7 +218,6 @@
 
 | Command | just-bash | Reason | Notes |
 |---------|-----------|--------|-------|
-| sqlite3 | yes | C-link complexity | Requires wasi-sdk build pipeline, custom VFS shim |
 | curl | yes | Needs host network bridge | Requires new `host_net` WASI extension module |
 | html-to-markdown | yes | Depends on curl | `htmd` crate (MIT) for conversion, but network bridge is the blocker |
 
@@ -252,9 +252,9 @@
 | Formatting | 1 | 0 | 0 | 0 | 0 | 0 | 0 |
 | Compression | 6 | 0 | 0 | 0 | 0 | 0 | 0 |
 | Shell Builtins | 0 | 0 | 0 | 0 | 0 | 11 | 0 |
-| Data Processing | 2 | 0 | 0 | 2 | 0 | 0 | 2 |
+| Data Processing | 3 | 0 | 0 | 1 | 0 | 0 | 2 |
 | Network | 0 | 0 | 0 | 2 | 0 | 0 | 0 |
-| **Total** | **100** | **1** | **1** | **4** | **4** | **13** | **2** |
+| **Total** | **101** | **1** | **1** | **3** | **4** | **13** | **2** |
 
 ---
 
