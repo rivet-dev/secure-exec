@@ -148,7 +148,7 @@ pub struct AsyncBridgeFnStore {
 /// Stores pending promise resolvers keyed by call_id.
 /// Single-threaded: only accessed from the session thread.
 pub struct PendingPromises {
-    map: RefCell<HashMap<u32, v8::Global<v8::PromiseResolver>>>,
+    map: RefCell<HashMap<u64, v8::Global<v8::PromiseResolver>>>,
 }
 
 impl PendingPromises {
@@ -159,12 +159,12 @@ impl PendingPromises {
     }
 
     /// Store a resolver for a given call_id.
-    pub fn insert(&self, call_id: u32, resolver: v8::Global<v8::PromiseResolver>) {
+    pub fn insert(&self, call_id: u64, resolver: v8::Global<v8::PromiseResolver>) {
         self.map.borrow_mut().insert(call_id, resolver);
     }
 
     /// Remove and return the resolver for a given call_id.
-    pub fn remove(&self, call_id: u32) -> Option<v8::Global<v8::PromiseResolver>> {
+    pub fn remove(&self, call_id: u64) -> Option<v8::Global<v8::PromiseResolver>> {
         self.map.borrow_mut().remove(&call_id)
     }
 
@@ -428,7 +428,7 @@ fn serialize_v8_args_into(scope: &mut v8::HandleScope, args: &v8::FunctionCallba
 pub fn resolve_pending_promise(
     scope: &mut v8::HandleScope,
     pending: &PendingPromises,
-    call_id: u32,
+    call_id: u64,
     result: Option<Vec<u8>>,
     error: Option<String>,
 ) -> Result<(), String> {

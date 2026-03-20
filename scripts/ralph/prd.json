@@ -1074,8 +1074,8 @@
         "Tests pass"
       ],
       "priority": 63,
-      "passes": false,
-      "notes": "PR review finding: call_id wraps at u32::MAX causing cross-session collision; transient accept error kills all sessions."
+      "passes": true,
+      "notes": "Fixed: call_id uses AtomicU64 (was AtomicU32); wire format uses 8-byte BE for BridgeCall/BridgeResponse call_id on both Rust and TS sides; accept loop continues on transient errors (EMFILE, ENFILE, ECONNABORTED, EINTR, EAGAIN) instead of breaking."
     },
     {
       "id": "US-074",
@@ -1089,7 +1089,7 @@
         "cargo test passes",
         "Typecheck passes"
       ],
-      "priority": 64,
+      "priority": 74,
       "passes": false,
       "notes": "PR review finding: Critical DoS vector. Mutex held during V8 isolate creation + compilation + heap serialization blocks all callers."
     },
@@ -1105,7 +1105,7 @@
         "cargo test passes",
         "Typecheck passes"
       ],
-      "priority": 65,
+      "priority": 75,
       "passes": false,
       "notes": "PR review finding: sync_call consumes and discards non-BridgeResponse messages from the shared session channel."
     },
@@ -1122,7 +1122,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 66,
+      "priority": 76,
       "passes": false,
       "notes": "PR review finding: Orphan Rust child process on host exit; permanently cached rejection on startup failure."
     },
@@ -1138,7 +1138,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 67,
+      "priority": 77,
       "passes": false,
       "notes": "PR review finding: execute() can hang forever if Rust process deadlocks without exiting."
     },
@@ -1153,7 +1153,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 68,
+      "priority": 78,
       "passes": false,
       "notes": "PR review finding: Bridge code cache ignores timingMitigation changes; contract types are stale."
     },
@@ -1171,7 +1171,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 69,
+      "priority": 79,
       "passes": false,
       "notes": "PR review finding: console.debug() throws TypeError in sandbox because it's undefined."
     },
@@ -1186,7 +1186,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 70,
+      "priority": 80,
       "passes": false,
       "notes": "PR review finding: Test passes with zero meaningful assertions due to wrong option name + trivially-true assertion + conditional skip."
     },
@@ -1202,7 +1202,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 71,
+      "priority": 81,
       "passes": false,
       "notes": "PR review finding: Entire test file is describe.skip with empty body. US-033 marked complete despite this gap."
     },
@@ -1216,7 +1216,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 72,
+      "priority": 82,
       "passes": false,
       "notes": "PR review finding: CPU timeout recovery is tested but memory limit recovery is not."
     },
@@ -1232,7 +1232,7 @@
         "Lint job runs before the build matrix (fail fast on lint errors)",
         "Typecheck passes"
       ],
-      "priority": 73,
+      "priority": 83,
       "passes": false,
       "notes": "PR review finding: No lint or format checks in Rust CI."
     },
@@ -1245,7 +1245,7 @@
         "Add FD table limit (1024 open file descriptors per isolate) to the Resource Limits section of docs/security-model.mdx",
         "Typecheck passes"
       ],
-      "priority": 74,
+      "priority": 84,
       "passes": false,
       "notes": "PR review finding: process-isolation.mdx listed as stable feature but depends on experimental package; FD limit not documented."
     },
@@ -1261,7 +1261,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 75,
+      "priority": 64,
       "passes": false,
       "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 1. Prerequisite for context snapshot."
     },
@@ -1280,7 +1280,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 76,
+      "priority": 65,
       "passes": true,
       "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 2. Replaced closure-captured __jsonPayloadLimitBytes and __payloadLimitErrorCode with globalThis reads at call time. Added __runtimeApplyConfig function that applies timing mitigation freeze, payload limits, and deletes itself. composeBridgeCode() now caches the config-independent IIFE and appends per-execution __runtimeApplyConfig() call."
     },
@@ -1297,7 +1297,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 77,
+      "priority": 66,
       "passes": false,
       "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 3."
     },
@@ -1313,7 +1313,7 @@
         "cargo test passes",
         "Typecheck passes"
       ],
-      "priority": 78,
+      "priority": 67,
       "passes": false,
       "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 4."
     },
@@ -1331,7 +1331,7 @@
         "cargo test passes",
         "Typecheck passes"
       ],
-      "priority": 79,
+      "priority": 68,
       "passes": false,
       "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 5."
     },
@@ -1351,7 +1351,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 80,
+      "priority": 69,
       "passes": false,
       "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 6."
     },
@@ -1368,7 +1368,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 81,
+      "priority": 70,
       "passes": false,
       "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 7."
     },
@@ -1389,7 +1389,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 82,
+      "priority": 71,
       "passes": false,
       "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 9."
     },
@@ -1407,7 +1407,7 @@
         "All existing test suites still pass",
         "Typecheck passes"
       ],
-      "priority": 83,
+      "priority": 72,
       "passes": false,
       "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 10."
     },
@@ -1424,7 +1424,7 @@
         "Update docs-internal/todo.md with any new actionable items discovered",
         "Typecheck passes"
       ],
-      "priority": 84,
+      "priority": 73,
       "passes": false,
       "notes": "Research story — no code changes required beyond documentation and profiling scripts."
     }

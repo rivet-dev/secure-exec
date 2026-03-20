@@ -3,7 +3,7 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::ipc_binary::{self, BinaryFrame};
@@ -87,7 +87,7 @@ impl ResponseReceiver for ReaderResponseReceiver {
 /// Shared routing table: maps call_id → session_id for BridgeResponse routing.
 /// The connection handler uses this to determine which session a BridgeResponse
 /// belongs to (since BridgeResponse has call_id but no session_id).
-pub type CallIdRouter = Arc<Mutex<HashMap<u32, String>>>;
+pub type CallIdRouter = Arc<Mutex<HashMap<u64, String>>>;
 
 /// Context for sync-blocking bridge calls from a V8 session.
 ///
@@ -102,9 +102,9 @@ pub struct BridgeCallContext {
     /// Session ID included in every BridgeCall
     pub session_id: String,
     /// Monotonically increasing call_id counter
-    next_call_id: AtomicU32,
+    next_call_id: AtomicU64,
     /// Set of in-flight call_ids (for duplicate rejection)
-    pending_calls: Mutex<HashSet<u32>>,
+    pending_calls: Mutex<HashSet<u64>>,
     /// Optional routing table for call_id → session_id mapping.
     /// When set, call_ids are registered here so the connection handler
     /// can route BridgeResponse messages to the correct session.
@@ -125,7 +125,7 @@ impl BridgeCallContext {
             }),
             response_rx: Mutex::new(Box::new(ReaderResponseReceiver::new(reader))),
             session_id,
-            next_call_id: AtomicU32::new(1),
+            next_call_id: AtomicU64::new(1),
             pending_calls: Mutex::new(HashSet::new()),
             call_id_router: None,
         }
@@ -143,7 +143,7 @@ impl BridgeCallContext {
             sender,
             response_rx: Mutex::new(response_rx),
             session_id,
-            next_call_id: AtomicU32::new(1),
+            next_call_id: AtomicU64::new(1),
             pending_calls: Mutex::new(HashSet::new()),
             call_id_router: Some(router),
         }
@@ -232,7 +232,7 @@ impl BridgeCallContext {
     /// Send a BridgeCall without blocking for a response.
     /// Returns the call_id for later matching with BridgeResponse.
     /// Used by async promise-returning bridge functions.
-    pub fn async_send(&self, method: &str, args: Vec<u8>) -> Result<u32, String> {
+    pub fn async_send(&self, method: &str, args: Vec<u8>) -> Result<u64, String> {
         let call_id = self.next_call_id.fetch_add(1, Ordering::Relaxed);
 
         // Register call_id → session_id for BridgeResponse routing
@@ -258,7 +258,7 @@ impl BridgeCallContext {
     }
 
     /// Check if a call_id is currently pending.
-    pub fn is_call_pending(&self, call_id: u32) -> bool {
+    pub fn is_call_pending(&self, call_id: u64) -> bool {
         self.pending_calls.lock().unwrap().contains(&call_id)
     }
 
@@ -288,7 +288,7 @@ mod tests {
 
     /// Serialize a BridgeResponse into length-prefixed binary frame bytes
     fn make_response_bytes(
-        call_id: u32,
+        call_id: u64,
         result: Option<Vec<u8>>,
         error: Option<String>,
     ) -> Vec<u8> {
@@ -543,7 +543,7 @@ mod tests {
                     for j in 0..10 {
                         let frame = BinaryFrame::BridgeCall {
                             session_id: format!("sess-{}", i),
-                            call_id: (i * 100 + j) as u32,
+                            call_id: (i * 100 + j) as u64,
                             method: "_fn".into(),
                             payload: vec![],
                         };
@@ -614,7 +614,7 @@ mod tests {
         }
 
         // Verify all frames arrive and decode correctly
-        for i in 0..5u32 {
+        for i in 0..5u64 {
             let bytes = rx.recv().expect("recv");
             let decoded = ipc_binary::read_frame(&mut Cursor::new(&bytes)).expect("decode");
             match decoded {

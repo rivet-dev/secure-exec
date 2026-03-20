@@ -421,7 +421,20 @@ fn main() {
                         .expect("failed to spawn connection handler");
                 }
                 Err(e) => {
-                    eprintln!("accept error: {}", e);
+                    // Transient errors: log and continue accepting
+                    let is_transient = matches!(
+                        e.raw_os_error(),
+                        Some(libc::EMFILE)
+                            | Some(libc::ENFILE)
+                            | Some(libc::ECONNABORTED)
+                            | Some(libc::EINTR)
+                            | Some(libc::EAGAIN)
+                    );
+                    if is_transient {
+                        eprintln!("transient accept error (continuing): {}", e);
+                        continue;
+                    }
+                    eprintln!("fatal accept error: {}", e);
                     break;
                 }
             }
