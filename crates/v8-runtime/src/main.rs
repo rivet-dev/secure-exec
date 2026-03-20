@@ -24,6 +24,7 @@ use std::sync::{Arc, Mutex};
 use host_call::CallIdRouter;
 use ipc_binary::BinaryFrame;
 use session::SessionManager;
+use snapshot::SnapshotCache;
 
 /// Close all file descriptors > 2 (stdin/stdout/stderr preserved).
 /// Called at process startup to prevent the parent from leaking FDs into the V8 runtime.
@@ -150,6 +151,7 @@ fn handle_connection(
     mut stream: UnixStream,
     connection_id: u64,
     session_mgr: Arc<Mutex<SessionManager>>,
+    snapshot_cache: Arc<SnapshotCache>,
 ) {
     loop {
         // Read next binary frame from connection
@@ -239,6 +241,15 @@ fn handle_connection(
                     );
                 }
             }
+            // Handle WarmSnapshot: pre-warm the snapshot cache (fire-and-forget, no response)
+            BinaryFrame::WarmSnapshot { bridge_code } => {
+                if let Err(e) = snapshot_cache.get_or_create(&bridge_code) {
+                    eprintln!(
+                        "connection {}: WarmSnapshot failed: {}",
+                        connection_id, e
+                    );
+                }
+            }
             _ => {
                 eprintln!("connection {}: unexpected frame type", connection_id);
             }
@@ -256,6 +267,9 @@ fn main() {
 
     // Initialize V8 platform on the main thread before any session threads
     isolate::init_v8_platform();
+
+    // Shared snapshot cache for fast isolate creation across all connections/sessions
+    let snapshot_cache = Arc::new(SnapshotCache::new(4));
 
     // Read auth token from environment
     let auth_token = std::env::var("SECURE_EXEC_V8_TOKEN")
@@ -379,14 +393,16 @@ fn main() {
                         max_concurrency,
                         ipc_tx,
                         call_id_router,
+                        Arc::clone(&snapshot_cache),
                     )));
 
                     // Authenticated — spawn connection handler thread
                     let mgr = Arc::clone(&session_mgr);
+                    let snap = Arc::clone(&snapshot_cache);
                     std::thread::Builder::new()
                         .name(format!("conn-{}", conn_id))
                         .spawn(move || {
-                            handle_connection(stream, conn_id, mgr);
+                            handle_connection(stream, conn_id, mgr, snap);
                         })
                         .expect("failed to spawn connection handler");
                 }

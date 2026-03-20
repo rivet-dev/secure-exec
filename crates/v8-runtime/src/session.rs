@@ -8,12 +8,13 @@ use crossbeam_channel::{Receiver, Sender};
 
 use crate::host_call::CallIdRouter;
 use crate::ipc_binary::BinaryFrame;
+use crate::snapshot::SnapshotCache;
 #[cfg(not(test))]
 use crate::host_call::{BridgeCallContext, ChannelFrameSender};
 #[cfg(not(test))]
 use crate::ipc_binary::{self, ExecutionErrorBin};
 #[cfg(not(test))]
-use crate::{bridge, execution, isolate, stream};
+use crate::{bridge, execution, isolate, snapshot, stream};
 
 /// Commands sent to a session thread
 pub enum SessionCommand {
@@ -54,17 +55,25 @@ pub struct SessionManager {
     ipc_tx: IpcSender,
     /// Call_id → session_id routing table for BridgeResponse dispatch
     call_id_router: CallIdRouter,
+    /// Shared snapshot cache for fast isolate creation from pre-compiled bridge code
+    snapshot_cache: Arc<SnapshotCache>,
 }
 
 impl SessionManager {
-    pub fn new(max_concurrency: usize, ipc_tx: IpcSender, call_id_router: CallIdRouter) -> Self {
+    pub fn new(max_concurrency: usize, ipc_tx: IpcSender, call_id_router: CallIdRouter, snapshot_cache: Arc<SnapshotCache>) -> Self {
         SessionManager {
             sessions: HashMap::new(),
             max_concurrency,
             slot_control: Arc::new((Mutex::new(0), Condvar::new())),
             ipc_tx,
             call_id_router,
+            snapshot_cache,
         }
+    }
+
+    /// Get the snapshot cache for pre-warming from WarmSnapshot messages.
+    pub fn snapshot_cache(&self) -> &Arc<SnapshotCache> {
+        &self.snapshot_cache
     }
 
     /// Create a new session bound to the given connection.
@@ -86,6 +95,7 @@ impl SessionManager {
         let max = self.max_concurrency;
         let ipc_tx = self.ipc_tx.clone();
         let router = Arc::clone(&self.call_id_router);
+        let snap_cache = Arc::clone(&self.snapshot_cache);
 
         let name_prefix = if session_id.len() > 8 {
             &session_id[..8]
@@ -95,7 +105,7 @@ impl SessionManager {
         let join_handle = thread::Builder::new()
             .name(format!("session-{}", name_prefix))
             .spawn(move || {
-                session_thread(heap_limit_mb, cpu_time_limit_ms, rx, slot_control, max, ipc_tx, router);
+                session_thread(heap_limit_mb, cpu_time_limit_ms, rx, slot_control, max, ipc_tx, router, snap_cache);
             })
             .map_err(|e| format!("failed to spawn session thread: {}", e))?;
 
@@ -221,7 +231,8 @@ fn send_message(ipc_tx: &IpcSender, frame: &BinaryFrame, frame_buf: &mut Vec<u8>
     }
 }
 
-/// Session thread: acquires a concurrency slot, creates a V8 isolate, and
+/// Session thread: acquires a concurrency slot, defers V8 isolate creation
+/// to first Execute (when bridge code is known for snapshot lookup), and
 /// processes commands until shutdown.
 fn session_thread(
     #[cfg_attr(test, allow(unused_variables))] heap_limit_mb: Option<u32>,
@@ -231,6 +242,7 @@ fn session_thread(
     max_concurrency: usize,
     #[cfg_attr(test, allow(unused_variables))] ipc_tx: IpcSender,
     #[cfg_attr(test, allow(unused_variables))] call_id_router: CallIdRouter,
+    #[cfg_attr(test, allow(unused_variables))] snapshot_cache: Arc<SnapshotCache>,
 ) {
     // Acquire concurrency slot (blocks if at capacity)
     {
@@ -242,17 +254,13 @@ fn session_thread(
         *count += 1;
     }
 
-    // Create V8 isolate and context
-    // In test mode, skip V8 to avoid inter-test SIGSEGV (V8 lifecycle tested in isolate::tests)
+    // Isolate creation is deferred to first Execute (when bridge code is known
+    // for snapshot cache lookup). This avoids creating an isolate that may never
+    // be used and enables snapshot-based fast creation.
     #[cfg(not(test))]
-    let (mut v8_isolate, _v8_context) = {
-        isolate::init_v8_platform();
-        let mut iso = isolate::create_isolate(heap_limit_mb);
-        // Disable WASM compilation before any code execution
-        execution::disable_wasm(&mut iso);
-        let ctx = isolate::create_context(&mut iso);
-        (iso, ctx)
-    };
+    let mut v8_isolate: Option<v8::OwnedIsolate> = None;
+    #[cfg(not(test))]
+    let mut _v8_context: Option<v8::Global<v8::Context>> = None;
 
     #[cfg(not(test))]
     let pending = bridge::PendingPromises::new();
@@ -306,12 +314,37 @@ fn session_thread(
                             bridge_code
                         };
 
+                        // Deferred isolate creation: create on first Execute using snapshot cache
+                        if v8_isolate.is_none() {
+                            isolate::init_v8_platform();
+                            let mut iso = if !effective_bridge_code.is_empty() {
+                                match snapshot_cache.get_or_create(&effective_bridge_code) {
+                                    Ok(blob) => {
+                                        snapshot::create_isolate_from_snapshot((*blob).clone(), heap_limit_mb)
+                                    }
+                                    Err(e) => {
+                                        eprintln!("snapshot creation failed, falling back to fresh isolate: {}", e);
+                                        isolate::create_isolate(heap_limit_mb)
+                                    }
+                                }
+                            } else {
+                                isolate::create_isolate(heap_limit_mb)
+                            };
+                            // Must re-apply WASM disable after every restore (not captured in snapshot)
+                            execution::disable_wasm(&mut iso);
+                            let ctx = isolate::create_context(&mut iso);
+                            _v8_context = Some(ctx);
+                            v8_isolate = Some(iso);
+                        }
+
+                        let iso = v8_isolate.as_mut().unwrap();
+
                         // Create a fresh V8 context per execution (clean global scope)
-                        let exec_context = isolate::create_context(&mut v8_isolate);
+                        let exec_context = isolate::create_context(iso);
 
                         // Inject globals from last InjectGlobals payload into the fresh context
                         if let Some(ref payload) = last_globals_payload {
-                            let scope = &mut v8::HandleScope::new(&mut v8_isolate);
+                            let scope = &mut v8::HandleScope::new(iso);
                             let ctx = v8::Local::new(scope, &exec_context);
                             let scope = &mut v8::ContextScope::new(scope, ctx);
                             execution::inject_globals_from_payload(scope, payload);
@@ -341,7 +374,7 @@ fn session_thread(
                         let _sync_store;
                         let _async_store;
                         {
-                            let scope = &mut v8::HandleScope::new(&mut v8_isolate);
+                            let scope = &mut v8::HandleScope::new(iso);
                             let ctx = v8::Local::new(scope, &exec_context);
                             let scope = &mut v8::ContextScope::new(scope, ctx);
 
@@ -364,7 +397,7 @@ fn session_thread(
                         // Start timeout guard before execution
                         let mut timeout_guard = match (cpu_time_limit_ms, maybe_abort_tx) {
                             (Some(ms), Some(abort_tx)) => {
-                                let handle = v8_isolate.thread_safe_handle();
+                                let handle = iso.thread_safe_handle();
                                 Some(crate::timeout::TimeoutGuard::new(ms, handle, abort_tx))
                             }
                             _ => None,
@@ -373,14 +406,14 @@ fn session_thread(
                         // Execute code (fresh context per execution)
                         let file_path_opt = if file_path.is_empty() { None } else { Some(file_path.as_str()) };
                         let (code, exports, error) = if mode == 0 {
-                            let scope = &mut v8::HandleScope::new(&mut v8_isolate);
+                            let scope = &mut v8::HandleScope::new(iso);
                             let ctx = v8::Local::new(scope, &exec_context);
                             let scope = &mut v8::ContextScope::new(scope, ctx);
                             let (c, e) =
                                 execution::execute_script(scope, &effective_bridge_code, &user_code, &mut bridge_cache);
                             (c, None, e)
                         } else {
-                            let scope = &mut v8::HandleScope::new(&mut v8_isolate);
+                            let scope = &mut v8::HandleScope::new(iso);
                             let ctx = v8::Local::new(scope, &exec_context);
                             let scope = &mut v8::ContextScope::new(scope, ctx);
                             execution::execute_module(
@@ -395,7 +428,7 @@ fn session_thread(
 
                         // Run event loop if there are pending async promises
                         let terminated = if pending.len() > 0 {
-                            let scope = &mut v8::HandleScope::new(&mut v8_isolate);
+                            let scope = &mut v8::HandleScope::new(iso);
                             let ctx = v8::Local::new(scope, &exec_context);
                             let scope = &mut v8::ContextScope::new(scope, ctx);
                             !run_event_loop(scope, &rx, &pending, maybe_abort_rx.as_ref())
@@ -464,8 +497,8 @@ fn session_thread(
     // Drop V8 resources (only present in non-test mode)
     #[cfg(not(test))]
     {
-        drop(_v8_context);
-        drop(v8_isolate);
+        drop(_v8_context.take());
+        drop(v8_isolate.take());
     }
 
     // Release concurrency slot
@@ -686,7 +719,8 @@ mod tests {
     fn test_manager(max: usize) -> SessionManager {
         let (tx, _rx) = crossbeam_channel::unbounded();
         let router: CallIdRouter = Arc::new(Mutex::new(HashMap::new()));
-        SessionManager::new(max, tx, router)
+        let snap_cache = Arc::new(SnapshotCache::new(4));
+        SessionManager::new(max, tx, router, snap_cache)
     }
 
     #[test]
