@@ -8,6 +8,7 @@ PRD: ralph/kernel-hardening (46 stories)
 - globalThis.fetch/Headers/Request/Response are non-writable in the sandbox (exposeCustomGlobal uses writable:false, configurable:false) — cannot override from sandbox code; use network adapter redirect at host level instead
 - process.stdout.write(data, callback) callback must be called synchronously — Pi's runPrintMode awaits a Promise that resolves in the callback; if callback isn't called, the exec() hangs forever
 - Pi SDK uses Anthropic SDK which hardcodes baseURL from model config — ANTHROPIC_BASE_URL env var is overridden; must redirect via network adapter fetch() wrapper, not env var or fetch patch
+- Pi CLI binary test: use PI_CODING_AGENT_DIR env var + models.json provider override to redirect API calls to mock server (Pi agent dir is at $PI_CODING_AGENT_DIR or ~/.pi/agent/, not ~/.pi/)
 - Docker containers on default bridge can reach each other by internal IP (docker inspect IPAddress), not by 127.0.0.1 host-mapped ports — use getContainerInternalIp() for cross-container tunnel destinations
 - process.exit() inside bridge callbacks (childProcessDispatch, timer refs) causes unhandled ProcessExitError — always await a Promise from the callback, then call process.exit() at the top-level await
 - Bridge process.stdout.write strips trailing newlines — NDJSON capture helpers must join with '\n' to restore event delimiters
@@ -2876,4 +2877,17 @@ PRD: ralph/kernel-hardening (46 stories)
   - Pi's runPrintMode flushes stdout via `process.stdout.write("", callback)` — if callback is never called, exec() hangs forever
   - SDK expects Headers.append() (Web Fetch API standard) and FormData (for multipart upload detection)
   - Network adapter fetch() redirect is the correct interception point — sandbox globals are non-writable by security design
+---
+
+## 2026-03-20 - US-030
+- Implemented Pi headless binary mode sandbox test
+- Spawns Pi CLI (node dist/cli.js -p) via sandbox child_process bridge
+- Mock LLM redirect via PI_CODING_AGENT_DIR env var + models.json provider override
+- 5 tests: boot+exit0, output canary, stdout bridge flow, version exit code, SIGINT
+- Files changed:
+  - packages/secure-exec/tests/cli-tools/pi-headless-binary.test.ts (new)
+- **Learnings for future iterations:**
+  - Pi ignores ANTHROPIC_BASE_URL — it hardcodes baseURL from model config; use PI_CODING_AGENT_DIR + models.json provider override with custom baseUrl to redirect API calls
+  - Pi agent dir resolves via $PI_CODING_AGENT_DIR env var or ~/.pi/agent/ (not ~/.pi/)
+  - Pi CLI flags: -p (print mode), --provider, --model, --no-session, --offline, --no-extensions/skills/prompt-templates/themes for clean test runs
 ---

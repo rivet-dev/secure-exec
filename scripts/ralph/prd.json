@@ -537,8 +537,8 @@
         "Tests pass"
       ],
       "priority": 30,
-      "passes": false,
-      "notes": "This tests the child_process bridge path for Pi's CLI. Different from US-006 which runs Pi's JS directly in the VM. Here we verify the binary execution path works."
+      "passes": true,
+      "notes": "Completed. Pi CLI binary (node dist/cli.js -p) spawned via sandbox child_process bridge. Mock LLM redirect via PI_CODING_AGENT_DIR + models.json provider override (Pi hardcodes baseURL from model config, ignoring ANTHROPIC_BASE_URL). Tests: boot+exit0, output canary, stdout bridge flow, version exit code, SIGINT via bridge kill()."
     },
     {
       "id": "US-031",
