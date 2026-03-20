@@ -1449,7 +1449,7 @@
         "Tests pass"
       ],
       "priority": 73,
-      "passes": false,
+      "passes": true,
       "notes": "Follow the same pattern as 0001-pipe-dup.patch. The WASM_IMPORT macro declares the host_net imports. C wrappers translate POSIX socket API to host_net calls. The struct sockaddr serialization must match what net_connect expects (host string + port number, not raw sockaddr binary)."
     },
     {

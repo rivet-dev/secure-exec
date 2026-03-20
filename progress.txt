@@ -3,6 +3,9 @@ Started: 2026-03-17
 PRD: ralph/kernel-hardening (46 stories)
 
 ## Codebase Patterns
+- wasi-libc source files must use `#include <errno.h>` (not `<__errno.h>`) to get errno constants like EAFNOSUPPORT, EINVAL, ENAMETOOLONG
+- wasi-libc Makefile OMIT_SOURCES already excludes wasip2 socket implementations for wasip1 — no need to guard existing socket.c/send.c/recv.c
+- netdb.h omission for wasip1 is in scripts/install-include-headers.sh (not MUSL_OMIT_HEADERS array) — must patch the conditional block
 - WASI polyfill fd_tell reads entry.cursor locally; fd_seek/fd_read/fd_write must sync the local cursor after kernel RPC, otherwise fd_tell (used by wasi-libc for lseek(fd,0,SEEK_CUR)) returns stale 0
 - SimpleVFS test helper in c-parity.test.ts must implement all VirtualFileSystem methods including pread — missing methods cause silent fdRead failures
 - WASM errno values differ from POSIX (EPIPE=64 vs 32, EAGAIN=6 vs 11) — parity tests must compare structured "ok"/"FAIL" output, not raw errno values
@@ -3287,4 +3290,21 @@ PRD: ralph/kernel-hardening (46 stories)
   - kernel-worker net_getaddrinfo reads ret_addr_len as u32 from WASM memory (DataView.getUint32 little-endian) and writes actual length back
   - Response format is JSON-encoded UTF-8 bytes — Rust/C side parses JSON to extract addresses
   - rpcCall returns { errno, intResult, data: Uint8Array } — use data.length for byte count, not intResult (intResult is set by driver)
+---
+
+## 2026-03-20 - US-073
+- What was implemented: wasi-libc patch (0008-sockets.patch) that replaces ENOSYS stubs with host_net WASM import calls for socket(), connect(), send(), recv(), getaddrinfo(), freeaddrinfo(), gai_strerror(), gethostname(), and setsockopt()
+- Files changed:
+  - wasmvm/patches/wasi-libc/0008-sockets.patch — new patch file containing:
+    - scripts/install-include-headers.sh: un-omit netdb.h for wasip1 targets
+    - libc-top-half/musl/include/sys/socket.h: un-guard socket(), connect(), setsockopt() declarations
+    - libc-bottom-half/sources/host_socket.c: new C source implementing all socket functions via host_net imports
+- **Learnings for future iterations:**
+  - Use `#include <errno.h>` (not `<__errno.h>`) in wasi-libc source files — `<__errno.h>` only defines the errno macro, not EAFNOSUPPORT/EINVAL/etc constants
+  - wasi-libc's Makefile OMIT_SOURCES already excludes wasip2 socket implementations (socket.c, connect.c, send.c, recv.c, etc.) for wasip1 — no need to guard them in the patch
+  - LTO strips unused host_net imports from C programs that don't use sockets, so adding socket functions to the sysroot doesn't affect non-socket programs
+  - patch-wasi-libc.sh --check may hang on certain already-applied patches (pre-existing issue) — use direct `patch --dry-run -R -p1` for verification
+  - netdb.h is omitted for wasip1 targets in scripts/install-include-headers.sh, not MUSL_OMIT_HEADERS — comment out the conditional block
+  - connect() must serialize sockaddr_in/sockaddr_in6 to "host:port" string format (what net_connect expects) using inet_ntop + ntohs
+  - getaddrinfo() parses JSON response from host ([{"addr":"...","family":N},...]) and builds linked list of struct addrinfo
 ---
