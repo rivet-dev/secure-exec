@@ -2021,7 +2021,7 @@
         "Tests pass"
       ],
       "priority": 100,
-      "passes": false,
+      "passes": true,
       "notes": "The key file is codex-rs/core/src/spawn.rs. On WASI, replace Command::new with host_process_spawn from wasmvm/crates/wasi-ext. The WasiChild wrapper needs to provide: child.stdout (readable pipe), child.stderr (readable pipe), child.wait() (calls waitpid), child.kill() (calls host_process_kill). Since WASI is single-threaded, the consume_output loop needs to poll stdout/stderr sequentially rather than spawning tokio tasks. Use select/poll if available, or alternate reads."
     },
     {

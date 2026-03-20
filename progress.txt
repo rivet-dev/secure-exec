@@ -3833,3 +3833,32 @@ PRD: ralph/kernel-hardening (46 stories)
   - codex-rs has 70+ workspace members and massive transitive deps (tokio, reqwest, image, etc.) — getting the full dep tree to compile for WASI will require extensive work across many crates.
   - The include!() macro is the cleanest way to gate out an entire file's content without restructuring the module tree — it inlines content so mod declarations resolve correctly.
 ---
+
+## 2026-03-20 - US-100
+- What was implemented: WASI process spawning via host_process FFI with pipe-based stdout/stderr capture
+- Created wasi-spawn library crate (wasmvm/crates/libs/wasi-spawn/) providing WasiChild abstraction:
+  - spawn_child() creates pipes, spawns via wasi-ext FFI, returns WasiChild handle
+  - WasiChild.read_stdout/read_stderr: pipe-based I/O via WASI fd_read
+  - WasiChild.wait: blocking waitpid via host_process FFI
+  - WasiChild.kill/terminate: signal delivery via host_process FFI
+  - WasiChild.consume_output: read all stdout+stderr then wait (sequential, single-threaded safe)
+  - spawn_child_inherit: spawn without pipe capture (for interactive commands)
+- Created spawn-test-host binary (wasmvm/crates/commands/spawn-test-host/) with 4 subcommands testing echo, fail, kill, and env
+- Updated cmd-codex to depend on wasi-spawn and demonstrate spawn capability
+- Added codex and spawn-test-host to WASMVM_COMMANDS and DEFAULT_FIRST_PARTY_TIERS in driver.ts
+- TypeScript tests in wasi-spawn.test.ts (5 tests, skip when WASM binaries not built)
+- Files changed:
+  - wasmvm/crates/libs/wasi-spawn/Cargo.toml, src/lib.rs (new)
+  - wasmvm/crates/commands/spawn-test-host/Cargo.toml, src/main.rs (new)
+  - wasmvm/crates/commands/codex/Cargo.toml, src/main.rs (updated)
+  - wasmvm/Cargo.toml, wasmvm/Cargo.lock (workspace members)
+  - packages/runtime/wasmvm/src/driver.ts (WASMVM_COMMANDS, DEFAULT_FIRST_PARTY_TIERS)
+  - packages/runtime/wasmvm/test/wasi-spawn.test.ts (new)
+- **Learnings for future iterations:**
+  - On wasm32-wasip1, std::fs::File::from_raw_fd() works with pipe FDs from wasi-ext::pipe() — WASI fd_read dispatches through the kernel for both VFS files and pipes
+  - Use std::mem::forget(file) after reading to avoid closing the FD (WasiChild manages FD lifecycle via Drop)
+  - wasi-ext::spawn() takes local FDs for stdin/stdout/stderr — the kernel-worker.ts converts local→kernel FDs automatically via localToKernelFd map
+  - argv/envp serialization for proc_spawn is null-separated bytes — matches the kernel-worker.ts parsing in proc_spawn handler
+  - Pipe close-after-fork: must close write ends in parent immediately after spawn, otherwise child pipe reads never get EOF
+  - When no permissions config is set, _resolvePermissionTier defaults to 'full' — test setups without explicit permissions get unrestricted access
+---
