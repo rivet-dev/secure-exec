@@ -432,3 +432,19 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - Check if prerequisite stories were already completed as part of dependent stories before implementing
   - The generated `isolate-runtime.ts` is rebuilt by `build-isolate-runtime.mjs` and must match source
 ---
+
+## 2026-03-19 - US-061
+- Split `composeBridgeCode()` into static and post-restore parts for context snapshot support
+- Created `composeStaticBridgeCode()`: module-level exported function, cached, uses DEFAULT values for all config (maxTimers, maxHandles, initialCwd, payloadLimits). Output is byte-for-byte identical regardless of session options.
+- Created `composePostRestoreScript(config)`: module-level exported function that generates per-session config overrides (maxTimers, maxHandles, initialCwd, timingMitigation, payloadLimits) via `__runtimeApplyConfig()`
+- Refactored `composeBridgeCodeForWarmup()` to use `composeStaticBridgeCode() + composePostRestoreScript(defaultConfig)`
+- Refactored instance `composeBridgeCode()` to use `composeStaticBridgeCode() + composePostRestoreScript(sessionConfig)`
+- Removed instance `getBridgeIIFE()` method and `bridgeCodeCache` field (replaced by module-level `staticBridgeCodeCache`)
+- Exported `composeStaticBridgeCode` and `composePostRestoreScript` from `@secure-exec/node` package
+- Files changed: `packages/secure-exec-node/src/execution-driver.ts`, `packages/secure-exec-node/src/index.ts`
+- **Learnings for future iterations:**
+  - `TimingMitigation` type is `"off" | "freeze"` — the old warmup used `"none"` as a raw string but the typed version requires `"off"`
+  - `__runtimeApplyConfig` only checks for `"freeze"` — any other value is a no-op for timing, so `"off"` works the same as `"none"`
+  - Static bridge code can be cached at module level since it's identical across all driver instances and sessions
+  - Pre-existing test failures: test-suite/node (4 fails from `__name` conflict), runtime-driver/node (228 fails from `__name` conflict), V8 crash/process isolation (3 OOM timeouts)
+---

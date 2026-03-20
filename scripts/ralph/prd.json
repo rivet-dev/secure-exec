@@ -1298,8 +1298,8 @@
         "Tests pass"
       ],
       "priority": 66,
-      "passes": false,
-      "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 3."
+      "passes": true,
+      "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 3. composeStaticBridgeCode() uses DEFAULT values for all config (module-level cached). composePostRestoreScript() overrides per-session maxTimers, maxHandles, initialCwd, and calls __runtimeApplyConfig. composeBridgeCodeForWarmup() refactored to use both. Instance composeBridgeCode() refactored to use both. Exported from @secure-exec/node."
     },
     {
       "id": "US-062",
