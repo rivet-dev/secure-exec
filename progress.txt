@@ -4024,3 +4024,21 @@ PRD: ralph/kernel-hardening (46 stories)
   - WASI terminal size reads COLUMNS/LINES env vars, defaults to 80x24
   - WASI event source reads raw bytes from stdin and uses crossterm's parse_event for ANSI parsing
 ---
+
+## 2026-03-20 - US-107
+- Implemented TUI codex integration tests in `packages/runtime/wasmvm/test/codex-tui.test.ts`
+- Files changed:
+  - `packages/runtime/wasmvm/test/codex-tui.test.ts` (new - 291 lines)
+- Tests cover all acceptance criteria:
+  - Non-interactive: --help prints usage without TUI, --model flag documented
+  - Interactive via TerminalHarness + PTY: TUI produces output, welcome text, keystroke input, q-to-quit, Ctrl+C-to-quit, --model flag in TUI header
+  - API integration: OPENAI_API_KEY-gated test for prompt submission
+- All tests gated behind `hasWasmBinaries` (codex binary must be built)
+- API tests additionally gated behind `hasApiKey` (OPENAI_API_KEY env var)
+- **Learnings for future iterations:**
+  - TUI tests use TerminalHarness to spawn codex via shell prompt, then interact with ratatui alternate screen
+  - xterm headless correctly handles alternate screen buffer — screenshotTrimmed() reads from active buffer
+  - For TUI binaries, use longer waitFor timeouts (10s) since shell boot + TUI init takes time
+  - TUI welcome text "Welcome to Codex on WasmVM!" is a reliable anchor for waitFor assertions
+  - 'q' on empty input and Ctrl+C (\x03) both exit the TUI cleanly per handle_key_event in codex main.rs
+---
