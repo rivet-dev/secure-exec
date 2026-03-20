@@ -3517,3 +3517,28 @@ PRD: ralph/kernel-hardening (46 stories)
   - For dependency ordering tests, check relative positions in stdout rather than exact output matching
   - Recipe failure tests: use `false` command (available in WasmVM) to produce non-zero exit
 ---
+
+## 2026-03-20 - US-085
+- What was implemented: Advanced make test suite with 10 tests covering pattern rules, includes, conditionals, shell/wildcard functions, multi-line recipes, recursive make, and silent recipes
+- Tests added to packages/runtime/wasmvm/test/make.test.ts (new describe block "make advanced features"):
+  - Pattern rules: %.o: %.c compiles with correct $< and $@ expansion
+  - Include directive: include config.mk loads variable from secondary Makefile
+  - ifeq conditional: selects debug branch when MODE=debug
+  - ifneq conditional: selects non-debug branch when MODE!=debug
+  - ifdef/ifndef: tests both defined and undefined variable paths
+  - $(shell echo hello-from-shell): spawns subprocess and captures output
+  - $(wildcard *.c): expands to matching .c files in working directory
+  - Multi-line recipes: three sequential echo commands all execute
+  - Recursive make: $(MAKE) -C subdir invokes make in subdirectory
+  - Silent recipes: @echo suppresses command echo (only output line appears)
+- Files changed:
+  - packages/runtime/wasmvm/test/make.test.ts (10 new tests in "make advanced features" describe block)
+  - scripts/ralph/prd.json (US-085 passes: true)
+- **Learnings for future iterations:**
+  - $(shell ...) is a critical test — it exercises posix_spawn from within the make WASM binary (make spawning sh to run the shell command)
+  - Recursive make uses $(MAKE) variable to invoke itself in subdir — tests chdir + re-exec
+  - Silent @ prefix test: count occurrences of the output string to verify make doesn't echo the command line
+  - ifeq/ifneq/ifdef/ifndef conditionals are NOT indented (they're directives, not recipe lines) — only the recipe lines under them get tab indentation
+  - Wildcard test creates actual .c files in VFS so $(wildcard *.c) has something to match
+  - Pre-existing typecheck failure in examples/ai-sdk (missing node_modules) — not related to wasmvm changes
+---
