@@ -474,6 +474,28 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
     expect(native.stdout).toContain('termsig=15');
   });
 
+  it.skipIf(tier3Skip)('signal_tests: SIGKILL, kill exited PID, kill invalid PID', async () => {
+    const native = await runNative('signal_tests');
+    const wasm = await kernel.exec('signal_tests');
+
+    expect(wasm.exitCode).toBe(native.exitCode);
+    expect(wasm.exitCode).toBe(0);
+
+    // Test 1: SIGKILL — child killed by signal 9
+    expect(wasm.stdout).toContain('test_sigkill: ok');
+    expect(native.stdout).toContain('test_sigkill: ok');
+    expect(wasm.stdout).toContain('sigkill_signaled=yes');
+    expect(wasm.stdout).toContain('sigkill_termsig=9');
+
+    // Test 2: kill exited process — ok with either 0 or -1/ESRCH
+    expect(wasm.stdout).toContain('test_kill_exited: ok');
+    expect(native.stdout).toContain('test_kill_exited: ok');
+
+    // Test 3: kill invalid PID — returns -1
+    expect(wasm.stdout).toContain('test_kill_invalid: ok');
+    expect(native.stdout).toContain('test_kill_invalid: ok');
+  });
+
   it.skipIf(tier3Skip)('getppid_verify: child getppid matches parent getpid', async () => {
     // Native needs getppid_test on PATH for posix_spawnp
     const native = await runNative('getppid_verify', [], {

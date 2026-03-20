@@ -261,7 +261,7 @@ export interface KernelInterface {
 	waitpid(
 		pid: number,
 		options?: number,
-	): Promise<{ pid: number; status: number }>;
+	): Promise<{ pid: number; status: number; termSignal: number }>;
 	kill(pid: number, signal: number): void;
 	getpid(pid: number): number;
 	getppid(pid: number): number;
@@ -374,6 +374,8 @@ export interface ProcessEntry {
 	args: string[];
 	status: "running" | "stopped" | "exited";
 	exitCode: number | null;
+	/** Signal that killed the process (0 = normal exit). */
+	termSignal: number;
 	exitTime: number | null;
 	env: Record<string, string>;
 	cwd: string;

@@ -14,11 +14,14 @@ const ZOMBIE_TTL_MS = 60_000;
 export class ProcessTable {
 	private entries: Map<number, ProcessEntry> = new Map();
 	private nextPid = 1;
-	private waiters: Map<number, Array<(info: { pid: number; status: number }) => void>> = new Map();
+	private waiters: Map<number, Array<(info: { pid: number; status: number; termSignal: number }) => void>> = new Map();
 	private zombieTimers: Map<number, ReturnType<typeof setTimeout>> = new Map();
 
 	/** Called when a process exits, before waiters are notified. */
 	onProcessExit: ((pid: number) => void) | null = null;
+
+	/** Called when a zombie process is reaped (removed from the table). */
+	onProcessReap: ((pid: number) => void) | null = null;
 
 	/** Atomically allocate the next PID. */
 	allocatePid(): number {
@@ -49,6 +52,7 @@ export class ProcessTable {
 			args,
 			status: "running",
 			exitCode: null,
+			termSignal: 0,
 			exitTime: null,
 			env: { ...ctx.env },
 			cwd: ctx.cwd,
@@ -99,7 +103,7 @@ export class ProcessTable {
 		const waiters = this.waiters.get(pid);
 		if (waiters) {
 			for (const resolve of waiters) {
-				resolve({ pid, status: exitCode });
+				resolve({ pid, status: exitCode, termSignal: entry.termSignal });
 			}
 			this.waiters.delete(pid);
 		}
@@ -116,14 +120,14 @@ export class ProcessTable {
 	 * Wait for a process to exit.
 	 * If already exited, resolves immediately. Otherwise blocks until exit.
 	 */
-	waitpid(pid: number): Promise<{ pid: number; status: number }> {
+	waitpid(pid: number): Promise<{ pid: number; status: number; termSignal: number }> {
 		const entry = this.entries.get(pid);
 		if (!entry) {
 			return Promise.reject(new Error(`ESRCH: no such process ${pid}`));
 		}
 
 		if (entry.status === "exited") {
-			return Promise.resolve({ pid, status: entry.exitCode! });
+			return Promise.resolve({ pid, status: entry.exitCode!, termSignal: entry.termSignal });
 		}
 
 		return new Promise((resolve) => {
@@ -154,7 +158,10 @@ export class ProcessTable {
 			for (const entry of this.entries.values()) {
 				if (entry.pgid === pgid && entry.status === "running") {
 					found = true;
-					if (signal !== 0) entry.driverProcess.kill(signal);
+					if (signal !== 0) {
+						entry.termSignal = signal;
+						entry.driverProcess.kill(signal);
+					}
 				}
 			}
 			if (!found) throw new KernelError("ESRCH", `no such process group ${pgid}`);
@@ -165,6 +172,7 @@ export class ProcessTable {
 		if (entry.status === "exited") return;
 		// Signal 0: existence check only — don't deliver
 		if (signal === 0) return;
+		entry.termSignal = signal;
 		entry.driverProcess.kill(signal);
 	}
 
@@ -245,7 +253,10 @@ export class ProcessTable {
 		for (const entry of this.entries.values()) {
 			if (entry.pgid === pgid && entry.status === "running") {
 				if (entry.pid === entry.sid) continue; // Skip session leaders
-				if (signal !== 0) entry.driverProcess.kill(signal);
+				if (signal !== 0) {
+					entry.termSignal = signal;
+					entry.driverProcess.kill(signal);
+				}
 				count++;
 			}
 		}
@@ -282,6 +293,7 @@ export class ProcessTable {
 	private reap(pid: number): void {
 		const entry = this.entries.get(pid);
 		if (entry?.status === "exited") {
+			this.onProcessReap?.(pid);
 			this.entries.delete(pid);
 		}
 	}

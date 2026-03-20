@@ -317,8 +317,17 @@ Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
 +        errno = (int)err;
 +        return -1;
 +    }
-+    // Encode in POSIX format: WEXITSTATUS(s) = (s & 0xff00) >> 8
-+    if (status) *status = (int)(raw_status << 8);
++    // Encode POSIX wait status: signal kills come as 128+signal (bash
++    // convention), normal exits as raw exit code
++    if (status) {
++        if (raw_status > 128 && raw_status < 256) {
++            // Signal kill: POSIX encoding = signal in low 7 bits
++            *status = (int)(raw_status - 128);
++        } else {
++            // Normal exit: POSIX encoding = exit code in bits 15..8
++            *status = (int)(raw_status << 8);
++        }
++    }
 +    return (pid_t)actual_pid;
 +}
 +

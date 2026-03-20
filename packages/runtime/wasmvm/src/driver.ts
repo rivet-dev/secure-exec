@@ -316,12 +316,16 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
           try { kernel.fdClose(ctx.pid, stdinWriteFd); } catch { /* already closed */ }
         }
       },
-      kill: (_signal: number) => {
+      kill: (signal: number) => {
         const worker = this._activeWorkers.get(ctx.pid);
         if (worker) {
           worker.terminate();
           this._activeWorkers.delete(ctx.pid);
         }
+        // Encode signal-killed exit status (POSIX: low 7 bits = signal number)
+        const signalStatus = signal & 0x7f;
+        resolveExit(signalStatus);
+        proc.onExit?.(signalStatus);
       },
       wait: () => exitPromise,
     };
@@ -673,7 +677,11 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
         }
         case 'waitpid': {
           const result = await kernel.waitpid(msg.args.pid as number);
-          intResult = result.status;
+          // Signal kills: 128 + signal (bash convention)
+          // Normal exits: raw exit code
+          intResult = result.termSignal > 0
+            ? (128 + result.termSignal)
+            : result.status;
           break;
         }
         case 'kill': {

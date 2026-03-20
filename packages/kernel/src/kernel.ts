@@ -90,11 +90,14 @@ class KernelImpl implements Kernel {
 		this.cwd = options.cwd ?? "/home/user";
 		this.userManager = new UserManager();
 
-		// Clean up FD table and driver PID ownership when a process exits
+		// Clean up FD table when a process exits (driverPids preserved for waitpid)
 		this.processTable.onProcessExit = (pid) => {
+			this.cleanupProcessFDs(pid);
+		};
+		// Clean up driver PID ownership when zombie is reaped
+		this.processTable.onProcessReap = (pid) => {
 			const entry = this.processTable.get(pid);
 			if (entry) this.driverPids.get(entry.driver)?.delete(pid);
-			this.cleanupProcessFDs(pid);
 		};
 	}
 
