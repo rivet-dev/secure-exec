@@ -14,10 +14,40 @@ async function getSharedV8Runtime(): Promise<V8Runtime> {
 		}).then((r) => {
 			sharedV8Runtime = r;
 			return r;
+		}).catch((err) => {
+			// Reset on failure so next call retries instead of returning cached rejection
+			sharedV8RuntimePromise = null;
+			sharedV8Runtime = null;
+			throw err;
 		});
 	}
 	return sharedV8RuntimePromise;
 }
+
+/** Dispose the shared V8 runtime singleton, killing the Rust child process.
+ *  Next call to getSharedV8Runtime() will spawn a fresh process. */
+export async function disposeSharedV8Runtime(): Promise<void> {
+	const runtime = sharedV8Runtime;
+	const promise = sharedV8RuntimePromise;
+	sharedV8Runtime = null;
+	sharedV8RuntimePromise = null;
+	if (runtime) {
+		await runtime.dispose();
+	} else if (promise) {
+		// Runtime creation in progress — wait for it then dispose
+		try {
+			const rt = await promise;
+			await rt.dispose();
+		} catch {
+			// Creation already failed — nothing to dispose
+		}
+	}
+}
+
+// Clean up shared V8 runtime on process exit to prevent orphan Rust child
+process.on("beforeExit", () => {
+	void disposeSharedV8Runtime();
+});
 import { createResolutionCache, getIsolateRuntimeSource, TIMEOUT_ERROR_MESSAGE, TIMEOUT_EXIT_CODE } from "@secure-exec/core";
 import { getInitialBridgeGlobalsSetupCode } from "@secure-exec/core";
 import { getConsoleSetupCode } from "@secure-exec/core/internal/shared/console-formatter";
