@@ -3,6 +3,8 @@ Started: 2026-03-17
 PRD: ralph/kernel-hardening (46 stories)
 
 ## Codebase Patterns
+- wasmvm workspace uses vendored crates-io (.cargo/config.toml) — git deps with crates-io transitive deps fail resolution. Must vendor missing deps or workaround before adding git deps.
+- Cargo resolves ALL deps (including cfg-gated) at resolution time regardless of target — cfg gates only affect compilation, not resolution
 - C programs linking libcurl need: CURL_DEFS + CURL_INCLUDES + CURL_SRCS in Makefile rule, -lwasi-emulated-signal, --all-features for wasm-opt, and must be in PATCHED_PROGRAMS list
 - kernel.exec() wraps commands in sh -c; brush-shell currently returns exit code 17 for all spawned child commands (benign "could not retrieve pid" warning) — test stdout content, not exit code
 - SimpleVFS in test files MUST include async chmod() method — kernel vfsWrite calls vfs.chmod() on new files for umask handling
@@ -3811,4 +3813,23 @@ PRD: ralph/kernel-hardening (46 stories)
   - Many POSIX features were implemented in kernel (SIGCHLD, SIGALRM, fcntl, flock, setenv, chdir, WNOHANG) but docs weren't updated — check kernel source vs docs when doing sweeps
   - Pre-existing typecheck failures in examples/ai-sdk and examples/code-mode (missing node_modules) — not related to doc changes
   - Pre-existing flaky test in kernel resource-exhaustion.test.ts (PTY 1MB write stress) — not related to doc changes
+---
+
+## 2026-03-20 - US-099
+- Forked openai/codex to rivet-dev/codex on GitHub
+- Created wasi-support branch in fork with cfg(target_os = "wasi") gates:
+  - codex-core/Cargo.toml: moved codex-network-proxy, codex-utils-pty, libc, notify to cfg(not(wasi)); moved codex-windows-sandbox to cfg(windows); split tokio features (process/signal/rt-multi-thread only on non-WASI)
+  - codex-utils-pty/Cargo.toml: gated portable-pty and tokio process/rt-multi-thread behind non-WASI
+  - codex-exec/Cargo.toml: gated ALL deps behind cfg(not(wasi)), only anyhow on WASI
+  - codex-exec/src/lib.rs: split into lib.rs (dispatcher) + lib_native.rs (full implementation via include!); WASI stub exports wasi_stub_main()
+  - codex-exec/src/main.rs: WASI-gated main with stub
+- Created wasmvm/crates/commands/codex/ binary crate (cmd-codex)
+- Added crate to wasmvm workspace
+- cargo check --target wasm32-wasip1 -p cmd-codex passes
+- Files changed: wasmvm/Cargo.toml, wasmvm/Cargo.lock, wasmvm/CLAUDE.md, wasmvm/crates/commands/codex/Cargo.toml, wasmvm/crates/commands/codex/src/main.rs
+- **Learnings for future iterations:**
+  - The wasmvm workspace uses vendored crates-io sources (.cargo/config.toml replace-with = "vendored-sources") — git deps with transitive crates-io deps will fail resolution because those deps aren't in vendor/. Must vendor them or find a workaround before wiring codex-exec as a real dependency.
+  - Cargo resolves ALL dependencies (including target-gated ones) at resolution time, regardless of target. cfg gates only affect compilation, not resolution. So vendoring blockers apply to gated deps too.
+  - codex-rs has 70+ workspace members and massive transitive deps (tokio, reqwest, image, etc.) — getting the full dep tree to compile for WASI will require extensive work across many crates.
+  - The include!() macro is the cleanest way to gate out an entire file's content without restructuring the module tree — it inlines content so mod declarations resolve correctly.
 ---

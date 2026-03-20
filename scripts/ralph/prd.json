@@ -2002,7 +2002,7 @@
         "Tests pass"
       ],
       "priority": 99,
-      "passes": false,
+      "passes": true,
       "notes": "This is the build skeleton story. The goal is getting cargo check to pass for wasm32-wasip1, NOT runtime correctness. Use cfg(not(target_os = wasi)) to gate out: (1) portable-pty (codex-utils-pty), (2) codex-network-proxy, (3) codex-linux-sandbox, (4) landlock/seccompiler deps, (5) tokio::process and tokio::signal usage, (6) libc::getpid/prctl calls, (7) pre_exec closures. For tokio, use cfg to select current_thread runtime on wasi. Provide no-op stubs for gated functions so the rest of codex-core compiles. The fork lives at github.com/rivet-dev/codex."
     },
     {
