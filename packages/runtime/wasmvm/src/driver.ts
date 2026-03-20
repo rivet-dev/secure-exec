@@ -975,6 +975,113 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
           }
           break;
         }
+        case 'netPoll': {
+          const fds = msg.args.fds as Array<{ fd: number; events: number }>;
+          const timeout = msg.args.timeout as number;
+
+          const revents: number[] = [];
+          let ready = 0;
+
+          // WASI poll constants
+          const POLLIN = 0x1;
+          const POLLOUT = 0x2;
+          const POLLERR = 0x1000;
+          const POLLHUP = 0x2000;
+          const POLLNVAL = 0x4000;
+
+          // Check each FD for readiness
+          for (const entry of fds) {
+            const sock = this._sockets.get(entry.fd);
+            if (!sock) {
+              revents.push(POLLNVAL);
+              ready++;
+              continue;
+            }
+
+            let rev = 0;
+            if ((entry.events & POLLIN) && sock.readableLength > 0) {
+              rev |= POLLIN;
+            }
+            if ((entry.events & POLLOUT) && sock.writable) {
+              rev |= POLLOUT;
+            }
+            if (sock.destroyed) {
+              rev |= POLLHUP;
+            }
+            if (rev !== 0) ready++;
+            revents.push(rev);
+          }
+
+          // If no FDs ready and timeout != 0, wait for data on any socket
+          if (ready === 0 && timeout !== 0) {
+            const waitMs = timeout < 0 ? 30000 : timeout; // Cap indefinite waits
+            const waitResult = await new Promise<{ index: number; event: string }>((resolve) => {
+              const timer = setTimeout(() => {
+                cleanup();
+                resolve({ index: -1, event: 'timeout' });
+              }, waitMs);
+              const cleanups: (() => void)[] = [];
+
+              const cleanup = () => {
+                clearTimeout(timer);
+                for (const fn of cleanups) fn();
+              };
+
+              for (let i = 0; i < fds.length; i++) {
+                const sock = this._sockets.get(fds[i].fd);
+                if (!sock) continue;
+
+                if (fds[i].events & POLLIN) {
+                  const onData = () => { cleanup(); resolve({ index: i, event: 'data' }); };
+                  const onEnd = () => { cleanup(); resolve({ index: i, event: 'end' }); };
+                  sock.once('readable', onData);
+                  sock.once('end', onEnd);
+                  cleanups.push(() => {
+                    sock.removeListener('readable', onData);
+                    sock.removeListener('end', onEnd);
+                  });
+                }
+              }
+            });
+
+            // Re-check all FDs after wait
+            if (waitResult.event !== 'timeout') {
+              ready = 0;
+              for (let i = 0; i < fds.length; i++) {
+                const sock = this._sockets.get(fds[i].fd);
+                if (!sock) {
+                  revents[i] = POLLNVAL;
+                  ready++;
+                  continue;
+                }
+                let rev = 0;
+                if ((fds[i].events & POLLIN) && sock.readableLength > 0) {
+                  rev |= POLLIN;
+                }
+                if ((fds[i].events & POLLOUT) && sock.writable) {
+                  rev |= POLLOUT;
+                }
+                if (sock.destroyed) {
+                  rev |= POLLHUP;
+                }
+                revents[i] = rev;
+                if (rev !== 0) ready++;
+              }
+            }
+          }
+
+          // Encode revents as JSON
+          const pollJson = JSON.stringify(revents);
+          const pollBytes = new TextEncoder().encode(pollJson);
+          if (pollBytes.length > DATA_BUFFER_BYTES) {
+            errno = ERRNO_EIO;
+            break;
+          }
+          data.set(pollBytes, 0);
+          responseData = pollBytes;
+          intResult = ready;
+          break;
+        }
         case 'netClose': {
           const socketId = msg.args.fd as number;
           const sock = this._sockets.get(socketId);

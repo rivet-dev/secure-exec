@@ -339,6 +339,17 @@ extern "C" {
     /// `optval_ptr`/`optval_len` point to the option value.
     /// Returns errno.
     fn net_setsockopt(fd: u32, level: u32, optname: u32, optval_ptr: *const u8, optval_len: u32) -> Errno;
+
+    /// Poll socket FDs for readiness.
+    ///
+    /// `fds_ptr` points to a packed array of poll entries (8 bytes each):
+    ///   [fd: i32, events: i16, revents: i16] per entry.
+    /// `nfds` is the number of entries.
+    /// `timeout_ms` is the timeout: 0=non-blocking, -1=block forever, >0=milliseconds.
+    /// On return, revents fields are updated in-place and `ret_ready` receives
+    /// the number of FDs with non-zero revents.
+    /// Returns errno.
+    fn net_poll(fds_ptr: *mut u8, nfds: u32, timeout_ms: i32, ret_ready: *mut u32) -> Errno;
 }
 
 // ============================================================
@@ -453,6 +464,21 @@ pub fn tls_connect(fd: u32, hostname: &[u8]) -> Result<(), Errno> {
     let errno = unsafe { net_tls_connect(fd, hostname.as_ptr(), hostname.len() as u32) };
     if errno == ERRNO_SUCCESS {
         Ok(())
+    } else {
+        Err(errno)
+    }
+}
+
+/// Poll socket FDs for readiness.
+///
+/// `fds` is a mutable slice of pollfd-like entries (8 bytes each: fd i32, events i16, revents i16).
+/// `timeout_ms` is the timeout: 0=non-blocking, -1=block forever, >0=milliseconds.
+/// Returns `Ok(ready_count)` on success, `Err(errno)` on failure.
+pub fn poll(fds: &mut [u8], nfds: u32, timeout_ms: i32) -> Result<u32, Errno> {
+    let mut ready: u32 = 0;
+    let errno = unsafe { net_poll(fds.as_mut_ptr(), nfds, timeout_ms, &mut ready) };
+    if errno == ERRNO_SUCCESS {
+        Ok(ready)
     } else {
         Err(errno)
     }

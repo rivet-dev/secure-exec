@@ -880,6 +880,39 @@ function createHostNetImports(getMemory: () => WebAssembly.Memory | null) {
     net_setsockopt(_fd: number, _level: number, _optname: number, _optval_ptr: number, _optval_len: number): number {
       return ENOSYS;
     },
+
+    /** net_poll(fds_ptr, nfds, timeout_ms, ret_ready) -> errno */
+    net_poll(fds_ptr: number, nfds: number, timeout_ms: number, ret_ready_ptr: number): number {
+      if (isNetworkBlocked()) return ERRNO_EACCES;
+      const mem = getMemory();
+      if (!mem) return ERRNO_EINVAL;
+
+      // Read pollfd entries from WASM memory: each is 8 bytes (fd:i32, events:i16, revents:i16)
+      const view = new DataView(mem.buffer);
+      const fds: Array<{ fd: number; events: number }> = [];
+      for (let i = 0; i < nfds; i++) {
+        const base = fds_ptr + i * 8;
+        const fd = view.getInt32(base, true);
+        const events = view.getInt16(base + 4, true);
+        fds.push({ fd, events });
+      }
+
+      const res = rpcCall('netPoll', { fds, timeout: timeout_ms });
+      if (res.errno !== 0) return res.errno;
+
+      // Parse revents from response data (JSON array)
+      const reventsJson = new TextDecoder().decode(res.data.subarray(0, res.data.length));
+      const revents: number[] = JSON.parse(reventsJson);
+
+      // Write revents back into WASM memory pollfd structs
+      for (let i = 0; i < nfds && i < revents.length; i++) {
+        const base = fds_ptr + i * 8;
+        view.setInt16(base + 6, revents[i], true); // revents field offset = 6
+      }
+
+      view.setUint32(ret_ready_ptr, res.intResult, true);
+      return ERRNO_SUCCESS;
+    },
   };
 }
 

@@ -543,6 +543,175 @@ describe('DNS resolution (netGetaddrinfo) RPC handlers', () => {
   });
 });
 
+// -------------------------------------------------------------------------
+// Socket poll (netPoll) tests
+// -------------------------------------------------------------------------
+
+describe('Socket poll (netPoll) RPC handlers', () => {
+  let echoServer: Server;
+  let echoPort: number;
+  let driver: ReturnType<typeof createWasmVmRuntime>;
+
+  beforeEach(async () => {
+    const echo = await createEchoServer();
+    echoServer = echo.server;
+    echoPort = echo.port;
+
+    driver = createWasmVmRuntime({ commandDirs: [] });
+  });
+
+  afterEach(async () => {
+    await driver.dispose();
+    await new Promise<void>((resolve) => echoServer.close(() => resolve()));
+  });
+
+  it('poll on socket with data ready returns POLLIN', async () => {
+    // Socket + connect + send data so echo server replies
+    const socketRes = await callSyscall(driver, 'netSocket', { domain: 2, type: 1, protocol: 0 });
+    const fd = socketRes.intResult;
+    await callSyscall(driver, 'netConnect', { fd, addr: `127.0.0.1:${echoPort}` });
+
+    // Send data so echo server replies
+    const message = 'poll-test';
+    await callSyscall(driver, 'netSend', {
+      fd,
+      data: Array.from(new TextEncoder().encode(message)),
+      flags: 0,
+    });
+
+    // Wait briefly for echo to arrive
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Poll for POLLIN (0x1)
+    const pollRes = await callSyscall(driver, 'netPoll', {
+      fds: [{ fd, events: 0x1 }],
+      timeout: 1000,
+    });
+    expect(pollRes.errno).toBe(0);
+    expect(pollRes.intResult).toBe(1); // 1 FD ready
+
+    // Parse revents from response
+    const revents = JSON.parse(new TextDecoder().decode(pollRes.data));
+    expect(revents[0] & 0x1).toBe(0x1); // POLLIN set
+
+    // Clean up — consume the echoed data
+    await callSyscall(driver, 'netRecv', { fd, length: 1024, flags: 0 });
+    await callSyscall(driver, 'netClose', { fd });
+  });
+
+  it('poll with timeout on idle socket times out correctly', async () => {
+    // Socket + connect, but don't send data — no echo to receive
+    const socketRes = await callSyscall(driver, 'netSocket', { domain: 2, type: 1, protocol: 0 });
+    const fd = socketRes.intResult;
+    await callSyscall(driver, 'netConnect', { fd, addr: `127.0.0.1:${echoPort}` });
+
+    // Poll for POLLIN with short timeout (50ms)
+    const start = Date.now();
+    const pollRes = await callSyscall(driver, 'netPoll', {
+      fds: [{ fd, events: 0x1 }],
+      timeout: 50,
+    });
+    const elapsed = Date.now() - start;
+
+    expect(pollRes.errno).toBe(0);
+    expect(pollRes.intResult).toBe(0); // No FDs ready (timeout)
+
+    // Verify it actually waited (at least ~40ms for timing jitter)
+    expect(elapsed).toBeGreaterThanOrEqual(30);
+
+    await callSyscall(driver, 'netClose', { fd });
+  });
+
+  it('poll with timeout=0 returns immediately (non-blocking)', async () => {
+    const socketRes = await callSyscall(driver, 'netSocket', { domain: 2, type: 1, protocol: 0 });
+    const fd = socketRes.intResult;
+    await callSyscall(driver, 'netConnect', { fd, addr: `127.0.0.1:${echoPort}` });
+
+    // Non-blocking poll
+    const start = Date.now();
+    const pollRes = await callSyscall(driver, 'netPoll', {
+      fds: [{ fd, events: 0x1 }],
+      timeout: 0,
+    });
+    const elapsed = Date.now() - start;
+
+    expect(pollRes.errno).toBe(0);
+    expect(elapsed).toBeLessThan(50); // Should return nearly immediately
+
+    await callSyscall(driver, 'netClose', { fd });
+  });
+
+  it('poll on invalid fd returns POLLNVAL', async () => {
+    const pollRes = await callSyscall(driver, 'netPoll', {
+      fds: [{ fd: 9999, events: 0x1 }],
+      timeout: 0,
+    });
+    expect(pollRes.errno).toBe(0);
+    expect(pollRes.intResult).toBe(1); // 1 FD with event (POLLNVAL)
+
+    const revents = JSON.parse(new TextDecoder().decode(pollRes.data));
+    expect(revents[0] & 0x4000).toBe(0x4000); // POLLNVAL
+  });
+
+  it('poll POLLOUT on connected writable socket', async () => {
+    const socketRes = await callSyscall(driver, 'netSocket', { domain: 2, type: 1, protocol: 0 });
+    const fd = socketRes.intResult;
+    await callSyscall(driver, 'netConnect', { fd, addr: `127.0.0.1:${echoPort}` });
+
+    // Poll for POLLOUT (0x2)
+    const pollRes = await callSyscall(driver, 'netPoll', {
+      fds: [{ fd, events: 0x2 }],
+      timeout: 0,
+    });
+    expect(pollRes.errno).toBe(0);
+    expect(pollRes.intResult).toBe(1);
+
+    const revents = JSON.parse(new TextDecoder().decode(pollRes.data));
+    expect(revents[0] & 0x2).toBe(0x2); // POLLOUT set
+
+    await callSyscall(driver, 'netClose', { fd });
+  });
+
+  it('poll with multiple FDs returns correct per-FD revents', async () => {
+    // Create two sockets, send data on one
+    const s1 = await callSyscall(driver, 'netSocket', { domain: 2, type: 1, protocol: 0 });
+    const s2 = await callSyscall(driver, 'netSocket', { domain: 2, type: 1, protocol: 0 });
+    const fd1 = s1.intResult;
+    const fd2 = s2.intResult;
+
+    await callSyscall(driver, 'netConnect', { fd: fd1, addr: `127.0.0.1:${echoPort}` });
+    await callSyscall(driver, 'netConnect', { fd: fd2, addr: `127.0.0.1:${echoPort}` });
+
+    // Send data on fd1 only, so echo returns data to fd1
+    await callSyscall(driver, 'netSend', {
+      fd: fd1,
+      data: Array.from(new TextEncoder().encode('data-for-fd1')),
+      flags: 0,
+    });
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Poll both for POLLIN
+    const pollRes = await callSyscall(driver, 'netPoll', {
+      fds: [
+        { fd: fd1, events: 0x1 },
+        { fd: fd2, events: 0x1 },
+      ],
+      timeout: 0,
+    });
+    expect(pollRes.errno).toBe(0);
+
+    const revents = JSON.parse(new TextDecoder().decode(pollRes.data));
+    // fd1 should have POLLIN, fd2 should not
+    expect(revents[0] & 0x1).toBe(0x1);
+    expect(revents[1] & 0x1).toBe(0x0);
+
+    // Clean up
+    await callSyscall(driver, 'netRecv', { fd: fd1, length: 1024, flags: 0 });
+    await callSyscall(driver, 'netClose', { fd: fd1 });
+    await callSyscall(driver, 'netClose', { fd: fd2 });
+  });
+});
+
 describe('TCP socket permission enforcement', () => {
   it('permission-restricted command cannot create sockets (kernel-worker level)', async () => {
     // This tests the isNetworkBlocked check in kernel-worker.ts.

@@ -1,10 +1,10 @@
 Implement socket(), connect(), send(), recv(), getaddrinfo(),
-freeaddrinfo(), gai_strerror(), gethostname(), and setsockopt()
-via host_net WASM imports.
+freeaddrinfo(), gai_strerror(), gethostname(), setsockopt(),
+poll(), and select() via host_net WASM imports.
 
 Replaces the wasi-libc stubs (which return -ENOSYS or are #ifdef'd out)
 with implementations that call our host_net.net_socket, net_connect,
-net_send, net_recv, net_getaddrinfo, and net_close WASM imports.
+net_send, net_recv, net_getaddrinfo, net_close, and net_poll WASM imports.
 
 Un-omits netdb.h from the sysroot headers so C programs can use
 getaddrinfo/freeaddrinfo/gai_strerror.
@@ -80,8 +80,10 @@ Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
 +// Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
 +
 +#include <sys/socket.h>
++#include <sys/select.h>
 +#include <netinet/in.h>
 +#include <netdb.h>
++#include <poll.h>
 +#include <errno.h>
 +#include <stdint.h>
 +#include <string.h>
@@ -124,6 +126,11 @@ Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
 +WASM_IMPORT("host_net", "net_setsockopt")
 +uint32_t __host_net_setsockopt(uint32_t fd, uint32_t level, uint32_t optname,
 +    const uint8_t *optval_ptr, uint32_t optval_len);
++
++// host_net.net_poll(fds_ptr, nfds, timeout_ms, ret_ready) -> errno
++WASM_IMPORT("host_net", "net_poll")
++uint32_t __host_net_poll(uint8_t *fds_ptr, uint32_t nfds, int32_t timeout_ms,
++    uint32_t *ret_ready);
 +
 +int socket(int domain, int type, int protocol) {
 +    uint32_t fd;
@@ -401,4 +408,68 @@ Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
 +        case EAI_OVERFLOW: return "Argument buffer overflow";
 +        default:           return "Unknown error";
 +    }
++}
++
++int poll(struct pollfd fds[], nfds_t nfds, int timeout) {
++    // Pass pollfd array directly to host — layout matches (fd:i32, events:i16, revents:i16)
++    uint32_t ready = 0;
++    uint32_t err = __host_net_poll((uint8_t *)fds, (uint32_t)nfds, (int32_t)timeout, &ready);
++    if (err != 0) {
++        errno = (int)err;
++        return -1;
++    }
++    return (int)ready;
++}
++
++int select(int nfds, fd_set *restrict readfds, fd_set *restrict writefds,
++           fd_set *restrict exceptfds, struct timeval *restrict timeout) {
++    // Convert fd_sets to pollfd array, call poll(), then scatter results back
++    struct pollfd pfds[FD_SETSIZE];
++    int count = 0;
++    int fd_map[FD_SETSIZE]; // maps pfds index -> original fd
++
++    for (int fd = 0; fd < nfds && count < FD_SETSIZE; fd++) {
++        short events = 0;
++        if (readfds && FD_ISSET(fd, readfds)) events |= POLLIN;
++        if (writefds && FD_ISSET(fd, writefds)) events |= POLLOUT;
++        if (events == 0 && !(exceptfds && FD_ISSET(fd, exceptfds))) continue;
++        pfds[count].fd = fd;
++        pfds[count].events = events;
++        pfds[count].revents = 0;
++        fd_map[count] = fd;
++        count++;
++    }
++
++    int timeout_ms = -1;
++    if (timeout) {
++        timeout_ms = (int)(timeout->tv_sec * 1000 + timeout->tv_usec / 1000);
++    }
++
++    int ret = poll(pfds, (nfds_t)count, timeout_ms);
++    if (ret < 0) return -1;
++
++    // Clear fd_sets and scatter results
++    if (readfds) FD_ZERO(readfds);
++    if (writefds) FD_ZERO(writefds);
++    if (exceptfds) FD_ZERO(exceptfds);
++
++    int ready = 0;
++    for (int i = 0; i < count; i++) {
++        int fd = fd_map[i];
++        int any = 0;
++        if (readfds && (pfds[i].revents & (POLLIN | POLLHUP | POLLERR))) {
++            FD_SET(fd, readfds);
++            any = 1;
++        }
++        if (writefds && (pfds[i].revents & POLLOUT)) {
++            FD_SET(fd, writefds);
++            any = 1;
++        }
++        if (exceptfds && (pfds[i].revents & (POLLERR | POLLNVAL))) {
++            FD_SET(fd, exceptfds);
++            any = 1;
++        }
++        if (any) ready++;
++    }
++    return ready;
 +}
