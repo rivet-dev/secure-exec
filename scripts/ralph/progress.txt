@@ -492,3 +492,26 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - The `from_snapshot` flag is stable for the session lifetime — once set on isolate creation, all subsequent Executes on the same session use the same path
   - Pre-existing test failures: `__name` conflict in runtime-driver/node tests, Python tests (PythonRuntime not a constructor), project-matrix tests — all unrelated to this story
 ---
+
+## 2026-03-19 - US-065
+- Wired post-restore init script through IPC for context snapshot support
+- Added `post_restore_script` field to Execute IPC message wire format (Rust `ipc_binary.rs` + TS `ipc-binary.ts`)
+- Added `run_init_script()` in `execution.rs` — compiles and runs a short script without code caching
+- Updated `session.rs` to run post-restore script after bridge fn replacement, before user code (returns error on failure)
+- Updated `V8ExecutionOptions` in `session.ts` with optional `postRestoreScript` field
+- Updated `runtime.ts` to send `postRestoreScript` in Execute frame
+- Split `composeBridgeCode()` into static IIFE only; post-restore script sent separately via `composePostRestore()`
+- `composeBridgeCodeForWarmup()` now returns only the static IIFE (snapshot is config-independent)
+- Added `__runtimeResetProcessState()` to bridge `process.ts` — resets `_processStartTime`, `_exitCode`, `_exited` closure variables for snapshot restore
+- Added `__runtimeResetProcessState` type to `runtime-globals.d.ts`
+- `composePostRestoreScript()` now calls `__runtimeResetProcessState()` after `__runtimeApplyConfig()`
+- Polyfills load lazily via `require()` — `_loadPolyfill` is a free variable resolved at call time, works after bridge fn replacement
+- Files changed: `crates/v8-runtime/src/{execution,ipc_binary,session}.rs`, `packages/secure-exec-core/{src/bridge/process.ts,isolate-runtime/src/common/runtime-globals.d.ts}`, `packages/secure-exec-node/src/execution-driver.ts`, `packages/secure-exec-v8/src/{ipc-binary,runtime,session}.ts`, `packages/secure-exec-v8/test/{ipc-binary,ipc-security}.test.ts`
+- **Learnings for future iterations:**
+  - Bridge `process.ts` uses `(globalThis as Record<string, unknown>)` cast for dynamic global properties — the bridge tsconfig doesn't include `runtime-globals.d.ts`
+  - The release binary (`target/release/secure-exec-v8`) is used by tests if it exists — must rebuild release after wire format changes
+  - `_processStartTime` was `const` — changed to `let` to support reset; `_exitCode` and `_exited` already `let`
+  - Mutable state resets are a no-op on fresh context (per-Execute `Context::new()` clones snapshot) — only matter for snapshot-restored contexts
+  - `_loadPolyfill` is called lazily inside `require()`, not during bridge IIFE setup — no eager polyfill loading needed in post-restore script
+  - Wire format change: Execute now has `[bc_len(u32)][bc][prs_len(u32)][prs][user_code(rest)]` — post_restore_script uses u32 length prefix before user_code
+---

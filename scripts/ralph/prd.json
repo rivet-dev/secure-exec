@@ -1369,8 +1369,8 @@
         "Tests pass"
       ],
       "priority": 70,
-      "passes": false,
-      "notes": "Spec: docs-internal/specs/v8-context-snapshot.md Phase 7."
+      "passes": true,
+      "notes": "Added post_restore_script field to Execute IPC message (Rust + TS). Rust session runs it via run_init_script() after bridge fn replacement, before user code. execution-driver.ts sends static IIFE as bridgeCode and composePostRestoreScript() as separate postRestoreScript. Bridge process.ts exposes __runtimeResetProcessState() for mutable state reset (processStartTime, exitCode, exited). Polyfills load lazily via require() — no eager _loadPolyfill calls needed."
     },
     {
       "id": "US-066",
