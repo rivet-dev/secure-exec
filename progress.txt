@@ -3885,3 +3885,32 @@ PRD: ralph/kernel-hardening (46 stories)
   - isatty returns true for slave FDs — child processes see their stdio as terminals
   - Pre-existing failures: resource-exhaustion.test.ts (1 test), example-ai-sdk typecheck (missing node_modules)
 ---
+
+## 2026-03-20 - US-102
+- Implemented minimal HTTP/1.1 client library (wasi-http) using host_net TCP/TLS imports
+- Created `wasmvm/crates/libs/wasi-http/` — Rust library with HttpClient, Request builder, Response parser, SseReader for streaming SSE
+- Created `wasmvm/crates/commands/http-test/` — test binary exercising GET, POST, custom headers, SSE
+- Wired wasi-http into codex crate as dependency for future API bridge
+- Updated codex main.rs with --http-test subcommand and HTTP bridge documentation
+- Added http-test to WASMVM_COMMANDS and DEFAULT_FIRST_PARTY_TIERS (full permission for networking)
+- Added TypeScript integration tests (wasi-http.test.ts) — 7 tests covering GET, POST JSON, custom headers, SSE, 404, HTTPS
+- Files changed:
+  - wasmvm/crates/libs/wasi-http/Cargo.toml (new)
+  - wasmvm/crates/libs/wasi-http/src/lib.rs (new) — HttpClient, Request, Response, SseReader, URL parser, chunked encoding
+  - wasmvm/crates/commands/http-test/Cargo.toml (new)
+  - wasmvm/crates/commands/http-test/src/main.rs (new) — CLI: get/post/headers/sse subcommands
+  - wasmvm/Cargo.toml — added wasi-http and http-test to workspace members
+  - wasmvm/crates/commands/codex/Cargo.toml — added wasi-http dependency
+  - wasmvm/crates/commands/codex/src/main.rs — HTTP bridge docs, --http-test subcommand
+  - packages/runtime/wasmvm/src/driver.ts — added http-test to WASMVM_COMMANDS and DEFAULT_FIRST_PARTY_TIERS
+  - packages/runtime/wasmvm/test/wasi-http.test.ts (new) — 7 integration tests
+- **Learnings for future iterations:**
+  - reqwest has no wasm32-wasip1 target — it only targets wasm32-unknown-unknown (browser via web_sys)
+  - host_net provides raw TCP/TLS via net_socket/net_connect/net_send/net_recv/net_tls_connect — sufficient for HTTP/1.1 client
+  - TLS certificate verification is delegated to the host runtime (Node.js tls.connect with system CA certs)
+  - host_net connect() accepts "host:port" format strings — DNS resolution is handled on the host side
+  - WASM tests skip when binaries aren't built — use `skipIf(!hasWasmBinaries)` pattern
+  - For HTTPS tests with self-signed certs, set `process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'` at the Node.js level (not as WASM option)
+  - New commands need both WASMVM_COMMANDS list entry AND DEFAULT_FIRST_PARTY_TIERS entry (with 'full' for network access)
+  - Pre-existing failures: git.test.ts (9 tests), shell-terminal.test.ts (5 tests), example-ai-sdk typecheck
+---
