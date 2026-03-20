@@ -580,3 +580,18 @@ Started: Wed Mar 18 06:52:02 PM PDT 2026
   - Context cloning is the dominant cost and is a V8 internal operation — cannot be optimized from Rust side; only session pooling can avoid it
   - Post-restore script compilation is the easiest optimization target — reuse code cache pattern
 ---
+
+## 2026-03-20 - US-077
+- Fixed pending session rejection on IPC socket close
+- Added `rejectPendingSessions()` call in `onClose` callback so execute() promises resolve with error result when the Rust process deadlocks without exiting
+- Wired up `reject` in execute() Promise constructor (was unused `_reject`), stored in `sessionRejects` Map per session
+- `rejectPendingSessions` first dispatches synthetic ExecutionResult frames (backward compatible — resolves with error code), then falls back to reject for any sessions not covered by handlers
+- Cleanup: `sessionRejects` entries removed in ExecutionResult handler, destroy(), and rejectPendingSessions
+- Added test: "closing IPC socket while execute() is in-flight rejects the promise" — blocks on bridge call, disposes runtime, verifies promise resolves with error
+- Files changed: `packages/secure-exec-v8/src/runtime.ts`, `packages/secure-exec-v8/test/ipc-security.test.ts`
+- **Learnings for future iterations:**
+  - `ipcClient.close()` calls `removeAllListeners()` before `destroy()` — so `onClose` callback does NOT fire via the `dispose()` path; only fires on natural socket close (Rust process crash/deadlock)
+  - Crash/process-isolation tests expect `execute()` to RESOLVE with `{ code: 1, error: { code: "ERR_V8_PROCESS_CRASH" } }` — do NOT change to reject, it would break existing consumers
+  - Pre-existing OOM timeout tests (3 tests) fail independently — not caused by this story
+  - `rejectPendingSessions` can be called multiple times safely (from both `onClose` and `child.on('exit')`) — the ExecutionResult handler deletes from sessionHandlers/sessionRejects on resolution
+---

@@ -1139,8 +1139,8 @@
         "Tests pass"
       ],
       "priority": 77,
-      "passes": false,
-      "notes": "PR review finding: execute() can hang forever if Rust process deadlocks without exiting."
+      "passes": true,
+      "notes": "Fixed: onClose callback calls rejectPendingSessions() so pending execute() promises resolve with error result when IPC socket closes. _reject wired up in Promise constructor as fallback. Test verifies socket close during in-flight execution."
     },
     {
       "id": "US-078",
