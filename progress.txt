@@ -2640,3 +2640,20 @@ PRD: ralph/kernel-hardening (46 stories)
   - To test shared crash fate reliably, non-OOM sessions must block on a bridge call (Promise that never resolves) — otherwise fast-completing sessions may return code 0 before the OOM crash
   - afterEach cleanup uses Promise.allSettled on runtimes array to handle dispose on already-crashed runtimes gracefully
 ---
+
+## 2026-03-19 - US-051
+- Added process isolation documentation page at docs/process-isolation.mdx
+- Documents all three topology options: shared (default), per-tenant, per-runtime with code examples
+- Covers trade-offs (memory cost vs crash blast radius), resource limits (maxSessions per-process), crash behavior (ERR_V8_PROCESS_CRASH), and lifecycle management
+- Added page to docs/docs.json navigation under Features section
+- Updated docs/runtimes/node.mdx with cross-reference to process isolation page
+- Files changed:
+  - docs/process-isolation.mdx (new) — full documentation page
+  - docs/docs.json — added process-isolation to Features nav group
+  - docs/runtimes/node.mdx — added cross-reference paragraph
+  - scripts/ralph/prd.json — marked US-051 passes: true
+- **Learnings for future iterations:**
+  - Docs pages follow Mintlify MDX format with YAML frontmatter (title, description, optional icon)
+  - docs.json navigation uses flat page slugs relative to docs/ root (e.g., "process-isolation" not "docs/process-isolation")
+  - Existing docs use mermaid diagrams, tables, and code blocks for different explanation styles
+---
