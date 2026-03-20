@@ -25,6 +25,13 @@
 - check GitHub Actions test/typecheck status per commit to identify when a failure first appeared
 - do not use `contract` in test filenames; use names like `suite`, `behavior`, `parity`, `integration`, or `policy` instead
 
+## Tool Integration Policy
+
+- NEVER implement a from-scratch reimplementation of a tool when the PRD specifies using an existing upstream project (e.g., codex, curl, git, make)
+- always fork, vendor, or depend on the real upstream source — do not build a "stub" or "demo" binary that fakes the tool's behavior
+- if the upstream cannot compile or link for the target, document the specific blockers and leave the story as failing — do not mark it passing with a placeholder
+- the PRD and story notes define which upstream project to use; follow them exactly unless explicitly told otherwise
+
 ## WASM Binary
 
 - the goal for WasmVM is full POSIX compliance 1:1 — every command, syscall, and shell behavior should match a real Linux system exactly

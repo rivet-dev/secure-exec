@@ -121,6 +121,16 @@ Priority order is:
   - WasmVM per-command permission tiers (US-018/019) enforce fd_open/fd_write restrictions inside the WASM sandbox, but need to verify how these interact with host filesystem permissions when the driver reads binaries from `commandDirs`. Specifically: can a malicious WASM binary influence the host-side file reads, and does the permission tier correctly propagate through the WorkerInitData → kernel-worker.ts chain under all error paths?
   - Files: `packages/runtime/wasmvm/src/kernel-worker.ts`, `packages/runtime/wasmvm/src/driver.ts`
 
+## Priority 2.5: POSIX Compliance Testing
+
+- [ ] Find and integrate a comprehensive POSIX compliance test suite.
+  - Evaluate existing suites: Open POSIX Test Suite (posixtestsuite), Linux Test Project (LTP), toybox test suite, busybox test suite, or POSIX-compliant shell test suites (e.g., modernish, oil/osh test suite).
+  - The suite should cover: signals, process management, file I/O, pipes, FDs, environment, exit codes, shell builtins, and core utilities.
+  - Adapt the chosen suite to run inside WasmVM (may need to compile test harness to WASM or run as shell scripts through brush-shell).
+  - Integrate as a CI-runnable test target that produces a compliance scorecard (pass/fail/skip counts per POSIX category).
+  - Track results in `docs/posix-compatibility.md` and use regressions as P0 bugs.
+  - Files: `packages/runtime/wasmvm/test/`, `wasmvm/c/programs/`, `docs/posix-compatibility.md`
+
 ## Priority 3: Examples, Validation Breadth, and Product Direction
 
 - [ ] Investigate: https://x.com/jaywyawhare/status/2033488305191616875
