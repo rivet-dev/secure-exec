@@ -3,6 +3,8 @@ import {
 	createNodeDriver,
 	createNodeRuntimeDriverFactory,
 } from "../src/index.js";
+import { createV8Runtime } from "@secure-exec/v8";
+import type { V8Runtime } from "@secure-exec/v8";
 import os from "node:os";
 
 export const BATCH_SIZES = [1, 10, 50, 100, 200];
@@ -13,10 +15,30 @@ export const TRIVIAL_CODE = `export const x = 1;`;
 // Cap concurrency below available parallelism to leave headroom for the bench harness itself.
 export const MAX_CONCURRENCY = Math.max(1, os.availableParallelism() - 4);
 
+// Shared V8 process — spawned once via initSharedV8(), reused by all bench runtimes.
+let sharedV8: V8Runtime | null = null;
+
+export async function initSharedV8(): Promise<V8Runtime> {
+	if (!sharedV8) {
+		sharedV8 = await createV8Runtime();
+	}
+	return sharedV8;
+}
+
+export async function shutdownSharedV8(): Promise<void> {
+	if (sharedV8) {
+		await sharedV8.dispose();
+		sharedV8 = null;
+	}
+}
+
 export function createBenchRuntime(): NodeRuntime {
+	if (!sharedV8) {
+		throw new Error("Call initSharedV8() before createBenchRuntime()");
+	}
 	return new NodeRuntime({
 		systemDriver: createNodeDriver(),
-		runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+		runtimeDriverFactory: createNodeRuntimeDriverFactory({ v8Runtime: sharedV8 }),
 	});
 }
 
