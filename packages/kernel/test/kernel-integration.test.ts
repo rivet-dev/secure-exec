@@ -5,7 +5,7 @@ import {
 	createTestKernel,
 	type MockCommandConfig,
 } from "./helpers.js";
-import type { Kernel, Permissions } from "../src/types.js";
+import type { Kernel, Permissions, ProcessContext } from "../src/types.js";
 import { FILETYPE_PIPE, FILETYPE_CHARACTER_DEVICE } from "../src/types.js";
 import { filterEnv, wrapFileSystem } from "../src/permissions.js";
 import { MAX_CANON, MAX_PTY_BUFFER_BYTES } from "../src/pty.js";
@@ -3951,6 +3951,104 @@ describe("kernel + MockRuntimeDriver integration", () => {
 			const [code1, code2] = await Promise.all([proc1.wait(), proc2.wait()]);
 			expect(code1).toBe(7);
 			expect(code2).toBe(7);
+		});
+	});
+
+	// -----------------------------------------------------------------------
+	// chdir — mutable working directory
+	// -----------------------------------------------------------------------
+
+	describe("chdir", () => {
+		it("chdir then getcwd returns new path", async () => {
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { exitCode: 0, neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("sh", []);
+			const ki = driver.kernelInterface!;
+
+			// Create a directory to chdir into
+			await ki.vfs.mkdir("/tmp/newdir");
+
+			await ki.chdir(proc.pid, "/tmp/newdir");
+			expect(ki.getcwd(proc.pid)).toBe("/tmp/newdir");
+
+			proc.kill();
+			await proc.wait();
+		});
+
+		it("chdir then spawn child — child cwd matches", async () => {
+			let childCwd: string | undefined;
+			const driver = new MockRuntimeDriver(["sh", "child-cmd"], {
+				sh: { exitCode: 0, neverExit: true },
+				"child-cmd": { exitCode: 0 },
+			});
+
+			// Wrap spawn to capture child ctx.cwd
+			const origSpawn = driver.spawn.bind(driver);
+			driver.spawn = (command: string, args: string[], ctx: ProcessContext) => {
+				if (command === "child-cmd") {
+					childCwd = ctx.cwd;
+				}
+				return origSpawn(command, args, ctx);
+			};
+
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("sh", []);
+			const ki = driver.kernelInterface!;
+
+			await ki.vfs.mkdir("/tmp/workdir");
+			await ki.chdir(proc.pid, "/tmp/workdir");
+
+			// Spawn child with parent's cwd
+			const child = ki.spawn("child-cmd", [], {
+				ppid: proc.pid,
+				cwd: ki.getcwd(proc.pid),
+			});
+			await child.wait();
+
+			expect(childCwd).toBe("/tmp/workdir");
+
+			proc.kill();
+			await proc.wait();
+		});
+
+		it("chdir to bad path returns ENOENT", async () => {
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { exitCode: 0, neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("sh", []);
+			const ki = driver.kernelInterface!;
+
+			await expect(
+				ki.chdir(proc.pid, "/nonexistent/path"),
+			).rejects.toThrow(/ENOENT/);
+
+			proc.kill();
+			await proc.wait();
+		});
+
+		it("chdir to file returns ENOTDIR", async () => {
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { exitCode: 0, neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("sh", []);
+			const ki = driver.kernelInterface!;
+
+			await ki.vfs.writeFile("/tmp/afile", "content");
+
+			await expect(
+				ki.chdir(proc.pid, "/tmp/afile"),
+			).rejects.toThrow(/ENOTDIR/);
+
+			proc.kill();
+			await proc.wait();
 		});
 	});
 });

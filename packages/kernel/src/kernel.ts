@@ -946,6 +946,26 @@ class KernelImpl implements Kernel {
 				const entry = this.processTable.get(pid);
 				return entry?.cwd ?? this.cwd;
 			},
+
+			// Working directory
+			chdir: async (pid, path) => {
+				assertOwns(pid);
+				const entry = this.processTable.get(pid);
+				if (!entry) throw new KernelError("ESRCH", `no such process ${pid}`);
+
+				// Validate path exists and is a directory
+				let st: VirtualStat;
+				try {
+					st = await this.vfs.stat(path);
+				} catch {
+					throw new KernelError("ENOENT", `no such file or directory: ${path}`);
+				}
+				if (!st.isDirectory) {
+					throw new KernelError("ENOTDIR", `not a directory: ${path}`);
+				}
+
+				entry.cwd = path;
+			},
 		};
 	}
 

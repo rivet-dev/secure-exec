@@ -315,6 +315,9 @@ export interface KernelInterface {
 	// Environment
 	getenv(pid: number): Record<string, string>;
 	getcwd(pid: number): string;
+
+	// Working directory
+	chdir(pid: number, path: string): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
