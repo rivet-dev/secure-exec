@@ -31,6 +31,8 @@ export interface V8RuntimeOptions {
 	binaryPath?: string;
 	/** Maximum concurrent sessions. Passed via SECURE_EXEC_V8_MAX_SESSIONS. */
 	maxSessions?: number;
+	/** Bridge code to pre-warm the snapshot cache with (fire-and-forget). Skipped if SECURE_EXEC_NO_SNAPSHOT_WARMUP=1. */
+	warmupBridgeCode?: string;
 }
 
 /** Manages the Rust V8 child process and session lifecycle. */
@@ -178,6 +180,14 @@ export async function createV8Runtime(
 	try {
 		await ipcClient.connect();
 		ipcClient.authenticate(authToken);
+
+		// Send warm-up snapshot request (fire-and-forget)
+		if (options?.warmupBridgeCode && process.env.SECURE_EXEC_NO_SNAPSHOT_WARMUP !== "1") {
+			ipcClient.send({
+				type: "WarmSnapshot",
+				bridgeCode: options.warmupBridgeCode,
+			});
+		}
 	} catch (err) {
 		// Connection failed — kill child and surface error
 		child.kill("SIGTERM");

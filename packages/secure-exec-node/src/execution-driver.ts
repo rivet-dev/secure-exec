@@ -9,7 +9,9 @@ let sharedV8RuntimePromise: Promise<V8Runtime> | null = null;
 async function getSharedV8Runtime(): Promise<V8Runtime> {
 	if (sharedV8Runtime) return sharedV8Runtime;
 	if (!sharedV8RuntimePromise) {
-		sharedV8RuntimePromise = createV8Runtime().then((r) => {
+		sharedV8RuntimePromise = createV8Runtime({
+			warmupBridgeCode: composeBridgeCodeForWarmup(),
+		}).then((r) => {
 			sharedV8Runtime = r;
 			return r;
 		});
@@ -33,6 +35,46 @@ import { getRawBridgeCode, getBridgeAttachCode } from "./bridge-loader.js";
 import { createProcessConfigForExecution } from "./bridge-setup.js";
 
 export { NodeExecutionDriverOptions };
+
+/**
+ * Compose the default bridge code for snapshot warm-up.
+ * Uses timingMitigation='none' and default budget values so the snapshot
+ * is ready for the most common session configuration.
+ */
+export function composeBridgeCodeForWarmup(): string {
+	const parts: string[] = [];
+
+	parts.push(getIvmCompatShimSource());
+
+	parts.push(`globalThis._maxTimers = ${DEFAULT_MAX_TIMERS};`);
+	parts.push(`globalThis._maxHandles = ${DEFAULT_MAX_HANDLES};`);
+	parts.push(`globalThis.__runtimeBridgeSetupConfig = ${JSON.stringify({
+		initialCwd: DEFAULT_SANDBOX_CWD,
+		jsonPayloadLimitBytes: DEFAULT_ISOLATE_JSON_PAYLOAD_BYTES,
+		payloadLimitErrorCode: PAYLOAD_LIMIT_ERROR_CODE,
+	})};`);
+
+	parts.push(getIsolateRuntimeSource("globalExposureHelpers"));
+	parts.push(getInitialBridgeGlobalsSetupCode());
+	parts.push(getConsoleSetupCode());
+	parts.push(getIsolateRuntimeSource("setupFsFacade"));
+	parts.push(getRawBridgeCode());
+	parts.push(getBridgeAttachCode());
+
+	// Default: no timing mitigation
+	parts.push(getIsolateRuntimeSource("applyTimingMitigationOff"));
+
+	parts.push(getRequireSetupCode());
+	parts.push(getIsolateRuntimeSource("initCommonjsModuleGlobals"));
+
+	parts.push(`globalThis.__runtimeCustomGlobalPolicy = ${JSON.stringify({
+		hardenedGlobals: HARDENED_NODE_CUSTOM_GLOBALS,
+		mutableGlobals: MUTABLE_NODE_CUSTOM_GLOBALS,
+	})};`);
+	parts.push(getIsolateRuntimeSource("applyCustomGlobalPolicy"));
+
+	return parts.join("\n");
+}
 
 const MAX_ERROR_MESSAGE_CHARS = 8192;
 
