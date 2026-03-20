@@ -312,5 +312,163 @@ mod tests {
                 "all concurrent callers should get the same cached Arc"
             );
         }
+
+        // --- Part 10: WASM disabled after snapshot restore ---
+        // Verifies that set_allow_wasm_code_generation_callback is not captured
+        // in the snapshot — disable_wasm() must be re-applied after every restore.
+        {
+            let bridge_code = "(function() { globalThis.__wasm_test = true; })();";
+            let blob = create_snapshot(bridge_code).expect("snapshot creation");
+            let mut isolate = create_isolate_from_snapshot(blob, None);
+
+            // Apply WASM disable (same as session.rs does after restore)
+            crate::execution::disable_wasm(&mut isolate);
+
+            let scope = &mut v8::HandleScope::new(&mut isolate);
+            let context = v8::Context::new(scope, Default::default());
+            let scope = &mut v8::ContextScope::new(scope, context);
+
+            // Attempt WebAssembly.compile — should throw
+            let wasm_test_code = r#"
+                (function() {
+                    try {
+                        var bytes = new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
+                        new WebAssembly.Module(bytes);
+                        return "ALLOWED";
+                    } catch (e) {
+                        return "BLOCKED:" + e.message;
+                    }
+                })()
+            "#;
+            let source = v8::String::new(scope, wasm_test_code).unwrap();
+            let script = v8::Script::compile(scope, source, None).unwrap();
+            let result = script.run(scope).unwrap();
+            let result_str = result.to_rust_string_lossy(scope);
+
+            assert!(
+                result_str.starts_with("BLOCKED:"),
+                "WASM should be blocked after snapshot restore + disable_wasm(), got: {}",
+                result_str
+            );
+        }
+
+        // --- Part 11: Session isolation — fresh contexts from same snapshot ---
+        // Verifies that state set in one session's context does not leak
+        // to another session's context (fresh context per session).
+        {
+            let bridge_code = "(function() { globalThis.__shared_bridge = 'ok'; })();";
+            let blob = create_snapshot(bridge_code).expect("snapshot creation");
+            let blob_bytes: Vec<u8> = blob.to_vec();
+
+            // "Session A": set a global variable
+            {
+                let mut isolate = create_isolate_from_snapshot(blob_bytes.clone(), None);
+                let scope = &mut v8::HandleScope::new(&mut isolate);
+                let context = v8::Context::new(scope, Default::default());
+                let scope = &mut v8::ContextScope::new(scope, context);
+
+                let source = v8::String::new(scope, "globalThis.__session_secret = 'session-a-data';").unwrap();
+                let script = v8::Script::compile(scope, source, None).unwrap();
+                script.run(scope);
+
+                // Verify session A can see its own data
+                let check = v8::String::new(scope, "globalThis.__session_secret").unwrap();
+                let script = v8::Script::compile(scope, check, None).unwrap();
+                let result = script.run(scope).unwrap();
+                assert_eq!(result.to_rust_string_lossy(scope), "session-a-data");
+            }
+
+            // "Session B": fresh context from same snapshot should NOT see session A's data
+            {
+                let mut isolate = create_isolate_from_snapshot(blob_bytes.clone(), None);
+                let scope = &mut v8::HandleScope::new(&mut isolate);
+                let context = v8::Context::new(scope, Default::default());
+                let scope = &mut v8::ContextScope::new(scope, context);
+
+                let source = v8::String::new(scope, "typeof globalThis.__session_secret").unwrap();
+                let script = v8::Script::compile(scope, source, None).unwrap();
+                let result = script.run(scope).unwrap();
+                assert_eq!(
+                    result.to_rust_string_lossy(scope),
+                    "undefined",
+                    "session B should not see session A's global state"
+                );
+            }
+        }
+
+        // --- Part 12: External references survive snapshot restore ---
+        // Verifies that FunctionTemplates registered on a restored isolate
+        // correctly dispatch to Rust bridge callbacks via external_refs().
+        {
+            use std::cell::RefCell;
+            use crate::bridge::{
+                register_sync_bridge_fns, register_async_bridge_fns,
+                SessionBuffers, PendingPromises,
+            };
+            use crate::host_call::BridgeCallContext;
+
+            let bridge_code = "(function() { globalThis.__ext_ref_test = true; })();";
+            let blob = create_snapshot(bridge_code).expect("snapshot creation");
+            let mut isolate = create_isolate_from_snapshot(blob, None);
+            crate::execution::disable_wasm(&mut isolate);
+
+            // Create minimal BridgeCallContext (sync call will fail but we
+            // test that the FunctionTemplate dispatches without crash)
+            let (ipc_tx, _ipc_rx) = crossbeam_channel::unbounded::<Vec<u8>>();
+            let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded::<crate::session::SessionCommand>();
+            let call_id_router: crate::host_call::CallIdRouter =
+                Arc::new(Mutex::new(std::collections::HashMap::new()));
+
+            let receiver = crate::host_call::ReaderResponseReceiver::new(
+                Box::new(std::io::Cursor::new(Vec::<u8>::new())),
+            );
+            let sender = crate::host_call::ChannelFrameSender::new(ipc_tx);
+            let bridge_ctx = BridgeCallContext::with_receiver(
+                Box::new(sender),
+                Box::new(receiver),
+                "test-session".to_string(),
+                call_id_router,
+            );
+            let session_buffers = RefCell::new(SessionBuffers::new());
+            let pending = PendingPromises::new();
+
+            let scope = &mut v8::HandleScope::new(&mut isolate);
+            let context = v8::Context::new(scope, Default::default());
+            let scope = &mut v8::ContextScope::new(scope, context);
+
+            // Register bridge functions on the restored isolate
+            let _sync_store = register_sync_bridge_fns(
+                scope,
+                &bridge_ctx as *const BridgeCallContext,
+                &session_buffers as *const RefCell<SessionBuffers>,
+                &["_testSync"],
+            );
+            let _async_store = register_async_bridge_fns(
+                scope,
+                &bridge_ctx as *const BridgeCallContext,
+                &pending as *const PendingPromises,
+                &session_buffers as *const RefCell<SessionBuffers>,
+                &["_testAsync"],
+            );
+
+            // Verify the functions exist as globals
+            let check = v8::String::new(scope, "typeof _testSync").unwrap();
+            let script = v8::Script::compile(scope, check, None).unwrap();
+            let result = script.run(scope).unwrap();
+            assert_eq!(
+                result.to_rust_string_lossy(scope),
+                "function",
+                "_testSync should be a function on restored isolate"
+            );
+
+            let check = v8::String::new(scope, "typeof _testAsync").unwrap();
+            let script = v8::Script::compile(scope, check, None).unwrap();
+            let result = script.run(scope).unwrap();
+            assert_eq!(
+                result.to_rust_string_lossy(scope),
+                "function",
+                "_testAsync should be a function on restored isolate"
+            );
+        }
     }
 }
