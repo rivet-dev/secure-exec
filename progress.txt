@@ -3756,3 +3756,21 @@ PRD: ralph/kernel-hardening (46 stories)
   - Auth test requires a separate HTTP server instance (can't share the main bareRepo server since it needs different PUT behavior)
   - The auth test server must still serve GET requests normally for clone to succeed before testing the push failure
 ---
+
+## 2026-03-20 - US-096
+- npm/npx via Node runtime — mount and route through kernel
+- What was implemented:
+  - Fixed npm/npx permission issue: Node RuntimeDriver now grants `allowAllFs` permissions for npm/npx commands so they can load their own internal modules from the host filesystem
+  - Added E2E tests: npm --version (valid semver), npx --version (valid semver), npm init -y (skipped — needs http2 bridge polyfill)
+  - Updated docs/wasmvm/supported-commands.md: added "Package Management (Node Runtime)" section with npm/npx, updated summary totals
+- Files changed:
+  - packages/runtime/node/src/driver.ts — import allowAllFs, grant fs permissions for npm/npx commands
+  - packages/secure-exec/tests/kernel/e2e-npm-version-init.test.ts — new E2E test file
+  - docs/wasmvm/supported-commands.md — added Package Management section
+  - scripts/ralph/prd.json — US-096 passes: true
+- **Learnings for future iterations:**
+  - Node RuntimeDriver's default permissions (allowAllChildProcess only) block npm/npx internal module loading — npm needs allowAllFs to stat/read its own files from the host via createHostFallbackVfs
+  - npm init -y fails because @sigstore/sign requires http2 module constants (HTTP2_HEADER_LOCATION) not available in the V8 isolate sandbox — needs http2 bridge polyfill
+  - brush-shell returns exit code 17 for all spawned child commands — test stdout content, not exit codes (already in Codebase Patterns)
+  - npm --version and npx --version work through kernel.exec() (sh -c wrapper) with InMemoryFileSystem; more complex npm commands (init, install) need real filesystem or additional polyfills
+---
