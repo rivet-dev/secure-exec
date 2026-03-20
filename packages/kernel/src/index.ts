@@ -83,3 +83,9 @@ export {
 	FILETYPE_REGULAR_FILE, FILETYPE_SYMBOLIC_LINK, FILETYPE_PIPE,
 	SIGTERM, SIGKILL, SIGINT, SIGQUIT, SIGPIPE, SIGTSTP, SIGWINCH,
 } from "./types.js";
+
+// POSIX wstatus encoding/decoding
+export {
+	encodeExitStatus, encodeSignalStatus,
+	WIFEXITED, WEXITSTATUS, WIFSIGNALED, WTERMSIG,
+} from "./wstatus.js";

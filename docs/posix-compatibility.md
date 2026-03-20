@@ -123,7 +123,7 @@ The kernel (`packages/kernel/`) is the foundational POSIX layer. All runtimes mo
 | ESRCH for unknown PID | Implemented | Throws error |
 | Zombie state | Implemented | Process stays in table for 60s after exit |
 | Zombie cleanup | Implemented | Automatic reap after `ZOMBIE_TTL_MS` |
-| POSIX wstatus encoding | **Missing** | Returns raw exit code, not WIFEXITED/WIFSIGNALED encoded status |
+| POSIX wstatus encoding | Implemented | `waitpid` returns POSIX-encoded wstatus; `WIFEXITED`/`WEXITSTATUS`/`WIFSIGNALED`/`WTERMSIG` helpers in `@secure-exec/kernel` |
 | WNOHANG flag | **Missing** | No non-blocking waitpid variant |
 | WUNTRACED / WCONTINUED | **Missing** | No stopped/continued process tracking |
 

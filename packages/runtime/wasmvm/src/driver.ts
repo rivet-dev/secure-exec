@@ -677,11 +677,8 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
         }
         case 'waitpid': {
           const result = await kernel.waitpid(msg.args.pid as number);
-          // Signal kills: 128 + signal (bash convention)
-          // Normal exits: raw exit code
-          intResult = result.termSignal > 0
-            ? (128 + result.termSignal)
-            : result.status;
+          // waitpid returns POSIX-encoded wstatus — pass through directly
+          intResult = result.status;
           break;
         }
         case 'kill': {

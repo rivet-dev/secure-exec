@@ -8,6 +8,7 @@
 
 import type { DriverProcess, ProcessContext, ProcessEntry, ProcessInfo } from "./types.js";
 import { KernelError } from "./types.js";
+import { encodeExitStatus, encodeSignalStatus } from "./wstatus.js";
 
 const ZOMBIE_TTL_MS = 60_000;
 
@@ -52,6 +53,7 @@ export class ProcessTable {
 			args,
 			status: "running",
 			exitCode: null,
+			exitReason: null,
 			termSignal: 0,
 			exitTime: null,
 			env: { ...ctx.env },
@@ -94,7 +96,13 @@ export class ProcessTable {
 
 		entry.status = "exited";
 		entry.exitCode = exitCode;
+		entry.exitReason = entry.termSignal > 0 ? "signal" : "normal";
 		entry.exitTime = Date.now();
+
+		// Encode POSIX wstatus
+		const wstatus = entry.termSignal > 0
+			? encodeSignalStatus(entry.termSignal)
+			: encodeExitStatus(exitCode);
 
 		// Clean up process resources (FD table, pipe ends)
 		this.onProcessExit?.(pid);
@@ -103,7 +111,7 @@ export class ProcessTable {
 		const waiters = this.waiters.get(pid);
 		if (waiters) {
 			for (const resolve of waiters) {
-				resolve({ pid, status: exitCode, termSignal: entry.termSignal });
+				resolve({ pid, status: wstatus, termSignal: entry.termSignal });
 			}
 			this.waiters.delete(pid);
 		}
@@ -127,7 +135,10 @@ export class ProcessTable {
 		}
 
 		if (entry.status === "exited") {
-			return Promise.resolve({ pid, status: entry.exitCode!, termSignal: entry.termSignal });
+			const wstatus = entry.termSignal > 0
+				? encodeSignalStatus(entry.termSignal)
+				: encodeExitStatus(entry.exitCode!);
+			return Promise.resolve({ pid, status: wstatus, termSignal: entry.termSignal });
 		}
 
 		return new Promise((resolve) => {

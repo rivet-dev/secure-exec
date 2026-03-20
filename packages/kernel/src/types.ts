@@ -385,6 +385,8 @@ export interface ProcessEntry {
 	args: string[];
 	status: "running" | "stopped" | "exited";
 	exitCode: number | null;
+	/** How the process terminated: 'normal' for exit(), 'signal' for kill(). */
+	exitReason: "normal" | "signal" | null;
 	/** Signal that killed the process (0 = normal exit). */
 	termSignal: number;
 	exitTime: number | null;

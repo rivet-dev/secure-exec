@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { ProcessTable } from "../src/process-table.js";
+import { WIFEXITED, WEXITSTATUS, WIFSIGNALED, WTERMSIG } from "../src/wstatus.js";
 import type { DriverProcess, ProcessContext } from "../src/types.js";
 
 function createMockDriverProcess(exitAfterMs?: number): DriverProcess {
@@ -75,7 +76,9 @@ describe("ProcessTable", () => {
 		table.markExited(1, 42);
 
 		const result = await table.waitpid(1);
-		expect(result.status).toBe(42);
+		// POSIX wstatus: normal exit = (exitCode << 8)
+		expect(WIFEXITED(result.status)).toBe(true);
+		expect(WEXITSTATUS(result.status)).toBe(42);
 	});
 
 	it("kill routes to driver process", () => {
@@ -131,6 +134,82 @@ describe("ProcessTable", () => {
 	it("waitpid rejects with ESRCH for non-existent PID", async () => {
 		const table = new ProcessTable();
 		await expect(table.waitpid(9999)).rejects.toThrow(/ESRCH/);
+	});
+
+	// POSIX wstatus encoding tests
+	it("normal exit(42) — WIFEXITED=true, WEXITSTATUS=42", async () => {
+		const table = new ProcessTable();
+		const proc = createMockDriverProcess();
+		table.register(table.allocatePid(), "wasmvm", "test", [], createCtx(), proc);
+		table.markExited(1, 42);
+
+		const result = await table.waitpid(1);
+		expect(WIFEXITED(result.status)).toBe(true);
+		expect(WEXITSTATUS(result.status)).toBe(42);
+		expect(WIFSIGNALED(result.status)).toBe(false);
+
+		// Verify exitReason on entry
+		const entry = table.get(1)!;
+		expect(entry.exitReason).toBe("normal");
+	});
+
+	it("killed by SIGKILL — WIFSIGNALED=true, WTERMSIG=9", async () => {
+		const table = new ProcessTable();
+		const proc = createMockDriverProcess();
+
+		table.register(table.allocatePid(), "wasmvm", "sleep", ["100"], createCtx(), proc);
+
+		// Set up waiter before kill
+		const waitPromise = table.waitpid(1);
+
+		// Kill sets termSignal, then driver triggers onExit
+		table.kill(1, 9);
+		proc.onExit!(128 + 9);
+
+		const result = await waitPromise;
+		expect(WIFSIGNALED(result.status)).toBe(true);
+		expect(WTERMSIG(result.status)).toBe(9);
+		expect(WIFEXITED(result.status)).toBe(false);
+
+		const entry = table.get(1)!;
+		expect(entry.exitReason).toBe("signal");
+		expect(entry.termSignal).toBe(9);
+	});
+
+	it("killed by SIGTERM — WIFSIGNALED=true, WTERMSIG=15", async () => {
+		const table = new ProcessTable();
+		const proc = createMockDriverProcess();
+
+		table.register(table.allocatePid(), "wasmvm", "sleep", ["100"], createCtx(), proc);
+
+		// Set up waiter before kill
+		const waitPromise = table.waitpid(1);
+
+		// Kill sets termSignal, then driver triggers onExit
+		table.kill(1, 15);
+		proc.onExit!(128 + 15);
+
+		const result = await waitPromise;
+		expect(WIFSIGNALED(result.status)).toBe(true);
+		expect(WTERMSIG(result.status)).toBe(15);
+		expect(WIFEXITED(result.status)).toBe(false);
+
+		const entry = table.get(1)!;
+		expect(entry.exitReason).toBe("signal");
+		expect(entry.termSignal).toBe(15);
+	});
+
+	it("normal exit(0) — WIFEXITED=true, WEXITSTATUS=0", async () => {
+		const table = new ProcessTable();
+		const proc = createMockDriverProcess();
+		table.register(table.allocatePid(), "wasmvm", "true", [], createCtx(), proc);
+		table.markExited(1, 0);
+
+		const result = await table.waitpid(1);
+		expect(WIFEXITED(result.status)).toBe(true);
+		expect(WEXITSTATUS(result.status)).toBe(0);
+		expect(WIFSIGNALED(result.status)).toBe(false);
+		expect(result.status).toBe(0); // (0 << 8) == 0
 	});
 
 	it("listProcesses returns read-only view", () => {
