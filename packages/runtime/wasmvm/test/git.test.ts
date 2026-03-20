@@ -345,4 +345,179 @@ describe.skipIf(skipReason())('git local operations', { timeout: 60_000 }, () =>
     expect(threeIdx).toBeLessThan(twoIdx);
     expect(twoIdx).toBeLessThan(oneIdx);
   });
+
+  // --- git branch ---
+
+  it('git branch creates branch - git branch lists it', async () => {
+    await setup();
+    await git('init');
+    await vfs.writeFile('/work/file.txt', 'hello\n');
+    await git('add .');
+    await git('commit -m "initial"');
+
+    await git('branch feature');
+
+    const branches = await git('branch');
+    expect(branches.stdout).toContain('feature');
+    expect(branches.stdout).toContain('main');
+    expect(branches.stdout).toMatch(/\* main/);
+  });
+
+  // --- git checkout ---
+
+  it('git checkout switches branch - git status shows correct branch', async () => {
+    await setup();
+    await git('init');
+    await vfs.writeFile('/work/file.txt', 'hello\n');
+    await git('add .');
+    await git('commit -m "initial"');
+
+    await git('branch feature');
+    await git('checkout feature');
+
+    const status = await git('status');
+    expect(status.stdout).toContain('On branch feature');
+  });
+
+  it('git checkout -b creates and switches in one command', async () => {
+    await setup();
+    await git('init');
+    await vfs.writeFile('/work/file.txt', 'hello\n');
+    await git('add .');
+    await git('commit -m "initial"');
+
+    const result = await git('checkout -b newbranch');
+    expect(result.stdout).toContain("Switched to a new branch 'newbranch'");
+
+    const status = await git('status');
+    expect(status.stdout).toContain('On branch newbranch');
+  });
+
+  // --- git merge (fast-forward) ---
+
+  it('fast-forward merge succeeds', async () => {
+    await setup();
+    await git('init');
+    await vfs.writeFile('/work/file.txt', 'hello\n');
+    await git('add .');
+    await git('commit -m "initial"');
+
+    await git('checkout -b feature');
+    await vfs.writeFile('/work/feature.txt', 'feature work\n');
+    await git('add .');
+    await git('commit -m "feature commit"');
+
+    await git('checkout main');
+    const merge = await git('merge feature');
+    expect(merge.stdout).toContain('Fast-forward');
+
+    const content = await vfs.readTextFile('/work/feature.txt');
+    expect(content).toBe('feature work\n');
+
+    const log = await git('log --oneline');
+    expect(log.stdout).toContain('feature commit');
+  });
+
+  // --- git merge (three-way, no conflict) ---
+
+  it('three-way merge with no conflicts', async () => {
+    await setup();
+    await git('init');
+    await vfs.writeFile('/work/base.txt', 'base content\n');
+    await git('add .');
+    await git('commit -m "initial"');
+
+    await git('checkout -b feature');
+    await vfs.writeFile('/work/feature.txt', 'feature work\n');
+    await git('add .');
+    await git('commit -m "feature commit"');
+
+    await git('checkout main');
+    await vfs.writeFile('/work/main.txt', 'main work\n');
+    await git('add .');
+    await git('commit -m "main commit"');
+
+    const merge = await git('merge feature');
+    expect(merge.stdout).toContain('Merge made by');
+
+    const featureContent = await vfs.readTextFile('/work/feature.txt');
+    expect(featureContent).toBe('feature work\n');
+    const mainContent = await vfs.readTextFile('/work/main.txt');
+    expect(mainContent).toBe('main work\n');
+    const baseContent = await vfs.readTextFile('/work/base.txt');
+    expect(baseContent).toBe('base content\n');
+  });
+
+  // --- git merge (conflict) ---
+
+  it('merge conflict produces correct conflict markers', async () => {
+    await setup();
+    await git('init');
+    await vfs.writeFile('/work/file.txt', 'base content\n');
+    await git('add .');
+    await git('commit -m "initial"');
+
+    await git('checkout -b feature');
+    await vfs.writeFile('/work/file.txt', 'feature version\n');
+    await git('add .');
+    await git('commit -m "feature change"');
+
+    await git('checkout main');
+    await vfs.writeFile('/work/file.txt', 'main version\n');
+    await git('add .');
+    await git('commit -m "main change"');
+
+    const merge = await git('merge feature');
+    expect(merge.stderr).toContain('CONFLICT');
+
+    const content = await vfs.readTextFile('/work/file.txt');
+    expect(content).toContain('<<<<<<< HEAD');
+    expect(content).toContain('=======');
+    expect(content).toContain('>>>>>>> feature');
+    expect(content).toContain('main version');
+    expect(content).toContain('feature version');
+  });
+
+  // --- git tag ---
+
+  it('git tag creates tag - git tag lists it', async () => {
+    await setup();
+    await git('init');
+    await vfs.writeFile('/work/file.txt', 'hello\n');
+    await git('add .');
+    await git('commit -m "v1 release"');
+
+    await git('tag v1.0');
+
+    const tags = await git('tag');
+    expect(tags.stdout).toContain('v1.0');
+  });
+
+  // --- git log --all --graph ---
+
+  it('git log --all --graph shows branch structure', async () => {
+    await setup();
+    await git('init');
+    await vfs.writeFile('/work/file.txt', 'initial\n');
+    await git('add .');
+    await git('commit -m "initial"');
+
+    await git('branch feature');
+    await git('checkout feature');
+    await vfs.writeFile('/work/feature.txt', 'feature\n');
+    await git('add .');
+    await git('commit -m "feature work"');
+
+    await git('checkout main');
+    await vfs.writeFile('/work/main.txt', 'main\n');
+    await git('add .');
+    await git('commit -m "main work"');
+
+    const log = await git('log --all --graph --oneline');
+
+    expect(log.stdout).toContain('initial');
+    expect(log.stdout).toContain('feature work');
+    expect(log.stdout).toContain('main work');
+    expect(log.stdout).toContain('*');
+  });
 });

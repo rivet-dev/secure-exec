@@ -389,8 +389,10 @@ int git_read_commit(const char *git_dir, const char *commit_hex,
                 memcpy(tree_hex, text + 5, 40);
                 tree_hex[40] = '\0';
             } else if (strncmp(text, "parent ", 7) == 0 && line_len >= 47) {
-                memcpy(parent_hex, text + 7, 40);
-                parent_hex[40] = '\0';
+                if (parent_hex[0] == '\0') {
+                    memcpy(parent_hex, text + 7, 40);
+                    parent_hex[40] = '\0';
+                }
             } else if (strncmp(text, "author ", 7) == 0 && author_out) {
                 *author_out = malloc(line_len - 6);
                 memcpy(*author_out, text + 7, line_len - 7);
@@ -498,4 +500,36 @@ int git_read_head(const char *git_dir, char hex_out[GIT_SHA1_HEXSZ + 1],
 
     free(content);
     return -1;
+}
+
+int git_read_commit_parents(const char *git_dir, const char *commit_hex,
+                            char (*parents)[GIT_SHA1_HEXSZ + 1], int max_parents) {
+    char type[32];
+    uint8_t *data = NULL;
+    size_t len = 0;
+
+    if (git_read_object(git_dir, commit_hex, type, sizeof(type), &data, &len) != 0)
+        return 0;
+    if (strcmp(type, "commit") != 0) { free(data); return 0; }
+
+    int nparents = 0;
+    const char *text = (const char *)data;
+    const char *end = text + len;
+
+    while (text < end) {
+        const char *eol = memchr(text, '\n', (size_t)(end - text));
+        if (!eol) break;
+        size_t line_len = (size_t)(eol - text);
+        if (line_len == 0) break;
+
+        if (strncmp(text, "parent ", 7) == 0 && line_len >= 47 && nparents < max_parents) {
+            memcpy(parents[nparents], text + 7, 40);
+            parents[nparents][40] = '\0';
+            nparents++;
+        }
+        text = eol + 1;
+    }
+
+    free(data);
+    return nparents;
 }

@@ -93,4 +93,9 @@ int git_read_head(const char *git_dir, char hex_out[GIT_SHA1_HEXSZ + 1],
 void git_hex_to_bin(const char *hex, uint8_t *bin);
 void git_bin_to_hex(const uint8_t *bin, char *hex);
 
+/* Read all parent commit hashes from a commit object.
+ * Returns number of parents found (up to max_parents). */
+int git_read_commit_parents(const char *git_dir, const char *commit_hex,
+                            char (*parents)[GIT_SHA1_HEXSZ + 1], int max_parents);
+
 #endif
