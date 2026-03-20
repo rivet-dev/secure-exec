@@ -389,6 +389,36 @@ export const NODE_CUSTOM_GLOBAL_INVENTORY: readonly CustomGlobalInventoryEntry[]
 		rationale: "Host upgrade socket destroy bridge reference.",
 	},
 	{
+		name: "_netSocketConnectRaw",
+		classification: "hardened",
+		rationale: "Host TCP socket connect bridge reference.",
+	},
+	{
+		name: "_netSocketWriteRaw",
+		classification: "hardened",
+		rationale: "Host TCP socket write bridge reference.",
+	},
+	{
+		name: "_netSocketEndRaw",
+		classification: "hardened",
+		rationale: "Host TCP socket end bridge reference.",
+	},
+	{
+		name: "_netSocketDestroyRaw",
+		classification: "hardened",
+		rationale: "Host TCP socket destroy bridge reference.",
+	},
+	{
+		name: "_netModule",
+		classification: "hardened",
+		rationale: "Bridge-owned net module handle for require resolution.",
+	},
+	{
+		name: "_netSocketDispatch",
+		classification: "hardened",
+		rationale: "Host-to-sandbox TCP socket event dispatch entrypoint.",
+	},
+	{
 		name: "_ptySetRawMode",
 		classification: "hardened",
 		rationale: "Host PTY bridge reference for stdin.setRawMode().",

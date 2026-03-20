@@ -889,27 +889,6 @@ export async function setupRequire(
 				}
 				throw new Error(`Unsupported decrypt algorithm: ${algoName}`);
 			}
-			case "deriveBits": {
-				const { algorithm, key, length } = req;
-				const algoName = algorithm.name;
-				if (algoName === "PBKDF2") {
-					const password = Buffer.from(key._raw, "base64");
-					const salt = Buffer.from(algorithm.salt, "base64");
-					const iterations = algorithm.iterations;
-					const hashAlgo = normalizeHash(algorithm.hash);
-					const keylen = length / 8;
-					return JSON.stringify({
-						data: pbkdf2Sync(
-							password,
-							salt,
-							iterations,
-							keylen,
-							hashAlgo,
-						).toString("base64"),
-					});
-				}
-				throw new Error(`Unsupported deriveBits algorithm: ${algoName}`);
-			}
 			case "sign": {
 				const { key, data } = req;
 				const dataBytes = Buffer.from(data, "base64");
@@ -957,6 +936,61 @@ export async function setupRequire(
 					});
 				}
 				throw new Error(`Unsupported verify algorithm: ${algoName}`);
+			}
+			case "deriveBits": {
+				const algoName = req.algorithm.name;
+				if (algoName === "PBKDF2") {
+					const salt = Buffer.from(req.algorithm.salt, "base64");
+					const hashName = normalizeHash(req.algorithm.hash);
+					const keyBytes = Buffer.from(req.baseKey._raw, "base64");
+					const derived = pbkdf2Sync(keyBytes, salt, req.algorithm.iterations, req.length / 8, hashName);
+					return JSON.stringify({ data: derived.toString("base64") });
+				}
+				if (algoName === "HKDF") {
+					const hashName = normalizeHash(req.algorithm.hash);
+					const salt = req.algorithm.salt ? Buffer.from(req.algorithm.salt, "base64") : Buffer.alloc(0);
+					const info = req.algorithm.info ? Buffer.from(req.algorithm.info, "base64") : Buffer.alloc(0);
+					const ikm = Buffer.from(req.baseKey._raw, "base64");
+					// HKDF-Extract
+					const prk = createHmac(hashName, salt.length > 0 ? salt : Buffer.alloc(32)).update(ikm).digest();
+					// HKDF-Expand
+					const hashLen = prk.length;
+					const numBlocks = Math.ceil((req.length / 8) / hashLen);
+					const okm: Buffer[] = [];
+					let prev = Buffer.alloc(0);
+					for (let i = 1; i <= numBlocks; i++) {
+						prev = createHmac(hashName, prk).update(prev).update(info).update(Buffer.from([i])).digest();
+						okm.push(prev);
+					}
+					const derived = Buffer.concat(okm).subarray(0, req.length / 8);
+					return JSON.stringify({ data: derived.toString("base64") });
+				}
+				throw new Error(`Unsupported deriveBits algorithm: ${algoName}`);
+			}
+			case "deriveKey": {
+				const dkAlgoName = req.algorithm.name;
+				let derivedLength = req.derivedKeyType.length;
+				if (!derivedLength && req.derivedKeyType.name === "HMAC") {
+					const hashLens: Record<string, number> = { "SHA-1": 160, "SHA-256": 256, "SHA-384": 384, "SHA-512": 512 };
+					const hname = typeof req.derivedKeyType.hash === "string" ? req.derivedKeyType.hash : req.derivedKeyType.hash?.name;
+					derivedLength = hashLens[hname] || 256;
+				}
+				if (dkAlgoName === "PBKDF2") {
+					const salt = Buffer.from(req.algorithm.salt, "base64");
+					const hashName = normalizeHash(req.algorithm.hash);
+					const keyBytes = Buffer.from(req.baseKey._raw, "base64");
+					const derived = pbkdf2Sync(keyBytes, salt, req.algorithm.iterations, derivedLength / 8, hashName);
+					return JSON.stringify({
+						key: {
+							type: "secret",
+							algorithm: req.derivedKeyType,
+							extractable: req.extractable,
+							usages: req.usages,
+							_raw: derived.toString("base64"),
+						},
+					});
+				}
+				throw new Error(`Unsupported deriveKey algorithm: ${dkAlgoName}`);
 			}
 			default:
 				throw new Error(`Unsupported subtle operation: ${req.op}`);

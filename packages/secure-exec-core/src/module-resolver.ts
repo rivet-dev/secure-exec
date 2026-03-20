@@ -75,6 +75,7 @@ const BRIDGE_MODULES = [
 	"https",
 	"http2",
 	"dns",
+	"net",
 	"child_process",
 	"process",
 	"v8",
@@ -85,7 +86,6 @@ const BRIDGE_MODULES = [
  * Runtime handling differs by path (require stubs vs ESM/polyfill handling).
  */
 const DEFERRED_CORE_MODULES = [
-	"net",
 	"tls",
 	"readline",
 	"perf_hooks",
@@ -202,6 +202,16 @@ export const BUILTIN_NAMED_EXPORTS: Record<string, string[]> = {
 		"STATUS_CODES",
 	],
 	https: ["request", "get", "createServer", "Agent", "globalAgent"],
+	net: [
+		"Socket",
+		"connect",
+		"createConnection",
+		"createServer",
+		"isIP",
+		"isIPv4",
+		"isIPv6",
+		"Stream",
+	],
 	dns: ["lookup", "resolve", "resolve4", "resolve6", "promises"],
 	child_process: [
 		"spawn",

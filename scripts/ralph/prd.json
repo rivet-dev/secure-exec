@@ -20,7 +20,7 @@
       ],
       "priority": 1,
       "passes": true,
-      "notes": "Currently expects failure with 'net.Socket is not supported in sandbox'. The net bridge is deferred (Tier 4). This story requires implementing enough of the net bridge for TCP connections to work through the sandbox. pg uses new net.Socket() internally."
+      "notes": "Implemented net bridge with TCP socket support and crypto.subtle.deriveBits for SCRAM-SHA-256 auth. pg connects through the sandbox's net bridge to a real Postgres container."
     },
     {
       "id": "US-002",
