@@ -3217,3 +3217,19 @@ PRD: ralph/kernel-hardening (46 stories)
   - ProcessEntry.status already had "stopped" in the type union — was pre-declared but not implemented until now
   - PTY signalForByte already mapped vsusp (0x1A) to SIGTSTP=20, but no echo was produced for ^Z
 ---
+
+## 2026-03-20 - US-069
+- Implemented host_net WASI import module with Rust FFI declarations and JS RPC skeleton
+- Added extern declarations for net_socket, net_connect, net_send, net_recv, net_close, net_getaddrinfo, net_setsockopt to wasi-ext/src/lib.rs
+- Added safe Rust wrappers for all host_net functions
+- Created createHostNetImports() skeleton in kernel-worker.ts — all functions return ENOSYS
+- Wired host_net into WASM module instantiation alongside host_process and host_user
+- Files changed:
+  - wasmvm/crates/wasi-ext/src/lib.rs
+  - packages/runtime/wasmvm/src/kernel-worker.ts
+- **Learnings for future iterations:**
+  - host_net is a separate import module from host_process — networking is a distinct security domain
+  - All net_ functions return ENOSYS initially; actual TCP implementation comes in US-070
+  - The WASM instantiation imports object in kernel-worker.ts main() accepts additional import modules — just add a new key
+  - Pre-existing test failures in shell-terminal.test.ts, dynamic-module-integration.test.ts, c-parity.test.ts, and driver.test.ts (49 tests, all pre-existing)
+---
