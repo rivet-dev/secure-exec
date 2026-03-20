@@ -23,6 +23,7 @@ import {
 } from '@secure-exec/node';
 import {
   allowAllChildProcess,
+  allowAllFs,
 } from '@secure-exec/core';
 import type {
   CommandExecutor,
@@ -430,15 +431,17 @@ class NodeRuntimeDriver implements RuntimeDriver {
       const commandExecutor = createKernelCommandExecutor(kernel, ctx.pid);
       let filesystem: VirtualFileSystem = createKernelVfsAdapter(kernel.vfs);
 
-      // npm/npx need host filesystem fallback for internal module resolution
+      // npm/npx need host filesystem fallback and fs permissions for module resolution
+      let permissions: Partial<Permissions> = { ...this._permissions };
       if (command === 'npm' || command === 'npx') {
         filesystem = createHostFallbackVfs(filesystem);
+        permissions = { ...permissions, ...allowAllFs };
       }
 
       const systemDriver = createNodeDriver({
         filesystem,
         commandExecutor,
-        permissions: { ...this._permissions },
+        permissions,
         processConfig: {
           cwd: ctx.cwd,
           env: ctx.env,

@@ -223,6 +223,13 @@
 | git-remote-http | — | done | Symlink → git (HTTP transport for clone/fetch/push) | — |
 | git-remote-https | — | done | Symlink → git (HTTPS transport for clone/fetch/push) | — |
 
+## Package Management (Node Runtime)
+
+| Command | just-bash | Status | Implementation | Target |
+|---------|-----------|--------|----------------|--------|
+| npm | yes | done | Routed through Node RuntimeDriver (host npm-cli.js in V8 isolate) | — |
+| npx | yes | done | Routed through Node RuntimeDriver (host npx-cli.js in V8 isolate) | — |
+
 ## Deferred
 
 | Command | just-bash | Reason | Notes |
@@ -263,7 +270,8 @@
 | Data Processing | 3 | 0 | 0 | 1 | 0 | 0 | 2 |
 | Network | 2 | 0 | 0 | 0 | 0 | 0 | 0 |
 | Version Control | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | **107** | **1** | **1** | **1** | **4** | **13** | **2** |
+| Package Management | 2 | 0 | 0 | 0 | 0 | 0 | 0 |
+| **Total** | **109** | **1** | **1** | **1** | **4** | **13** | **2** |
 
 ---
 
