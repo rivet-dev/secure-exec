@@ -94,21 +94,17 @@ function resolveBinaryPath(): string {
 /**
  * Spawn the Rust V8 runtime process and return a handle.
  *
- * Generates a 128-bit auth token, passes it via SECURE_EXEC_V8_TOKEN,
- * reads the socket path from stdout, connects over UDS, and authenticates.
+ * Reads the socket path from stdout, connects over UDS, and optionally
+ * initializes the warm pool.
  */
 export async function createV8Runtime(
 	options?: V8RuntimeOptions,
 ): Promise<V8Runtime> {
 	const binaryPath = options?.binaryPath ?? resolveBinaryPath();
 
-	// Generate 128-bit random auth token
-	const authToken = randomBytes(16).toString("hex");
-
 	// Build child environment
 	const childEnv: Record<string, string> = {
 		...process.env as Record<string, string>,
-		SECURE_EXEC_V8_TOKEN: authToken,
 	};
 	if (options?.maxSessions != null) {
 		childEnv.SECURE_EXEC_V8_MAX_SESSIONS = String(options.maxSessions);
@@ -196,7 +192,6 @@ export async function createV8Runtime(
 
 	try {
 		await ipcClient.connect();
-		ipcClient.authenticate(authToken);
 
 		// Send Init to configure warm pool + snapshot cache.
 		// Warm pool defaults to 3 when bridge code is provided (snapshot-based

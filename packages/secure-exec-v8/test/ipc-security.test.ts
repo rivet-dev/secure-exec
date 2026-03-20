@@ -11,7 +11,6 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
-import { randomBytes } from "node:crypto";
 import { createInterface } from "node:readline";
 import net from "node:net";
 import v8 from "node:v8";
@@ -64,19 +63,14 @@ function defaultExecOptions(
 	};
 }
 
-/** Spawn the Rust binary and return the child, socket path, and auth token. */
+/** Spawn the Rust binary and return the child and socket path. */
 async function spawnRustBinary(): Promise<{
 	child: ChildProcess;
 	socketPath: string;
-	authToken: string;
 }> {
-	const authToken = randomBytes(16).toString("hex");
 	const child = spawn(BINARY_PATH!, [], {
 		stdio: ["ignore", "pipe", "pipe"],
-		env: {
-			...process.env,
-			SECURE_EXEC_V8_TOKEN: authToken,
-		},
+		env: { ...process.env },
 	});
 
 	// Read socket path from first stdout line
@@ -108,7 +102,7 @@ async function spawnRustBinary(): Promise<{
 		});
 	});
 
-	return { child, socketPath, authToken };
+	return { child, socketPath };
 }
 
 /** Kill child process and wait for exit. */
@@ -202,72 +196,10 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 		children.length = 0;
 	});
 
-	// --- Auth token rejection ---
-
-	it("rejects connection with wrong auth token", async () => {
-		const { child, socketPath } = await spawnRustBinary();
-		children.push(child);
-
-		const messages: BinaryFrame[] = [];
-		let connectionClosed = false;
-
-		const client = new IpcClient({
-			socketPath,
-			onMessage: (msg) => messages.push(msg),
-			onClose: () => {
-				connectionClosed = true;
-			},
-		});
-		await client.connect();
-		clients.push(client);
-
-		// Send wrong token
-		client.authenticate("wrong-token-0000000000000000");
-
-		// Wait for Rust to close the connection
-		await new Promise((r) => setTimeout(r, 500));
-
-		expect(connectionClosed).toBe(true);
-		// No valid messages should have been received
-		expect(messages.length).toBe(0);
-	});
-
-	it("rejects connection without auth token (non-Authenticate message first)", async () => {
-		const { child, socketPath } = await spawnRustBinary();
-		children.push(child);
-
-		const messages: BinaryFrame[] = [];
-		let connectionClosed = false;
-
-		const client = new IpcClient({
-			socketPath,
-			onMessage: (msg) => messages.push(msg),
-			onClose: () => {
-				connectionClosed = true;
-			},
-		});
-		await client.connect();
-		clients.push(client);
-
-		// Send a CreateSession instead of Authenticate
-		client.send({
-			type: "CreateSession",
-			sessionId: randomBytes(16).toString("hex"),
-			heapLimitMb: 0,
-			cpuTimeLimitMs: 0,
-		});
-
-		// Wait for Rust to close the connection
-		await new Promise((r) => setTimeout(r, 500));
-
-		expect(connectionClosed).toBe(true);
-		expect(messages.length).toBe(0);
-	});
-
 	// --- Cross-session access prevention ---
 
 	it("connection B cannot send messages to connection A's sessions", async () => {
-		const { child, socketPath, authToken } = await spawnRustBinary();
+		const { child, socketPath } = await spawnRustBinary();
 		children.push(child);
 
 		// Connect client A
@@ -276,7 +208,6 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 			messagesA.push(msg),
 		);
 		clients.push(clientA);
-		clientA.authenticate(authToken);
 
 		// Connect client B
 		const messagesB: BinaryFrame[] = [];
@@ -284,10 +215,9 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 			messagesB.push(msg),
 		);
 		clients.push(clientB);
-		clientB.authenticate(authToken);
 
 		// Client A creates a session
-		const sessionId = randomBytes(16).toString("hex");
+		const sessionId = "test-session-cross-conn";
 		clientA.send({
 			type: "CreateSession",
 			sessionId,
@@ -401,19 +331,11 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 	});
 
 	it("Rust process rejects oversized message length prefix", async () => {
-		const { child, socketPath, authToken } = await spawnRustBinary();
+		const { child, socketPath } = await spawnRustBinary();
 		children.push(child);
 
-		// First authenticate properly
 		const socket = net.createConnection(socketPath);
 		await new Promise<void>((r) => socket.on("connect", r));
-
-		// Send valid auth message using binary frame format
-		const authFrame = encodeFrame({ type: "Authenticate", token: authToken });
-		socket.write(authFrame);
-
-		// Wait for auth to be processed
-		await new Promise((r) => setTimeout(r, 200));
 
 		// Send a frame with length prefix > 64MB (but no actual payload)
 		const oversizedHeader = Buffer.alloc(4);
@@ -443,7 +365,7 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 	// --- Duplicate BridgeResponse callId integrity ---
 
 	it("duplicate BridgeResponse callId does not crash or corrupt state", async () => {
-		const { child, socketPath, authToken } = await spawnRustBinary();
+		const { child, socketPath } = await spawnRustBinary();
 		children.push(child);
 
 		const messages: BinaryFrame[] = [];
@@ -451,10 +373,9 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 			messages.push(msg),
 		);
 		clients.push(client);
-		client.authenticate(authToken);
 
 		// Create a session
-		const sessionId = randomBytes(16).toString("hex");
+		const sessionId = "test-session-dup-callid";
 		client.send({
 			type: "CreateSession",
 			sessionId,
