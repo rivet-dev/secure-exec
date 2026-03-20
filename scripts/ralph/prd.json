@@ -2134,7 +2134,7 @@
         "Tests pass"
       ],
       "priority": 106,
-      "passes": false,
+      "passes": true,
       "notes": "crossterm uses termios/ioctl for terminal setup. On WASI, our PTY provides a terminal fd. crossterm's UnixStream backend reads from stdin and writes to stdout \u2014 this should map to our PTY master. If crossterm's terminal detection fails on WASI, we may need to patch it to force-enable raw mode via our PTY. ratatui just renders to a crossterm backend so it should work if crossterm works. The codex-cli crate is the TUI entry point (as opposed to codex-exec which is headless)."
     },
     {
