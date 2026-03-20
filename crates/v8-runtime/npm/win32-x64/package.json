@@ -4,8 +4,11 @@
   "license": "Apache-2.0",
   "os": ["win32"],
   "cpu": ["x64"],
-  "main": "secure-exec-v8.exe",
-  "files": ["secure-exec-v8.exe"],
+  "main": "install.js",
+  "files": ["install.js"],
+  "scripts": {
+    "postinstall": "node install.js"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/rivet-dev/secure-exec.git",

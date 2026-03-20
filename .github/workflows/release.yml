@@ -52,9 +52,16 @@ jobs:
       - name: Build
         run: pnpm turbo build
 
+      - name: Build linux-x64 binary via Docker
+        run: |
+          cd crates/v8-runtime
+          docker build -f docker/Dockerfile.linux-x64-gnu -o type=local,dest=npm/linux-x64-gnu .
+
       - name: Publish to npm
         run: |
           FAILURES=""
+
+          # Publish workspace packages
           for dir in $(pnpm -r ls --json --depth -1 | jq -r '.[] | select(.private != true) | .path'); do
             # Skip the root package
             if [ "$dir" = "$(pwd)" ]; then
@@ -62,7 +69,6 @@ jobs:
             fi
             NAME=$(jq -r .name "$dir/package.json")
             VERSION="${{ inputs.version }}"
-            # Skip if already published
             if npm view "${NAME}@${VERSION}" version >/dev/null 2>&1; then
               echo "⏭ ${NAME}@${VERSION} already published, skipping."
               continue
@@ -72,6 +78,24 @@ jobs:
               FAILURES="${FAILURES} ${NAME}"
             fi
           done
+
+          # Publish v8 platform packages (not in pnpm workspace)
+          for dir in crates/v8-runtime/npm/*/; do
+            if [ ! -f "$dir/package.json" ]; then
+              continue
+            fi
+            NAME=$(jq -r .name "$dir/package.json")
+            VERSION="${{ inputs.version }}"
+            if npm view "${NAME}@${VERSION}" version >/dev/null 2>&1; then
+              echo "⏭ ${NAME}@${VERSION} already published, skipping."
+              continue
+            fi
+            echo "Publishing ${NAME}@${VERSION}..."
+            if ! (cd "$dir" && npm publish --access public --tag ${{ inputs.npm-tag }}); then
+              FAILURES="${FAILURES} ${NAME}"
+            fi
+          done
+
           if [ -n "$FAILURES" ]; then
             echo "::error::Failed to publish:${FAILURES}"
             exit 1
