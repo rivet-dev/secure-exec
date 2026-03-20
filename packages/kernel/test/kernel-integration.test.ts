@@ -4676,4 +4676,110 @@ describe("kernel + MockRuntimeDriver integration", () => {
 			await proc.wait();
 		});
 	});
+
+	// -----------------------------------------------------------------------
+	// umask
+	// -----------------------------------------------------------------------
+
+	describe("umask", () => {
+		it("default umask is 0o022", async () => {
+			const driver = new MockRuntimeDriver(["x"], { x: { neverExit: true } });
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("x", []);
+			const ki = driver.kernelInterface!;
+
+			// Query without changing — should return default 0o022
+			const mask = ki.umask(proc.pid);
+			expect(mask).toBe(0o022);
+
+			proc.kill(9);
+			await proc.wait();
+		});
+
+		it("umask(pid, newMask) sets new mask and returns old", async () => {
+			const driver = new MockRuntimeDriver(["x"], { x: { neverExit: true } });
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("x", []);
+			const ki = driver.kernelInterface!;
+
+			const old = ki.umask(proc.pid, 0o077);
+			expect(old).toBe(0o022);
+
+			const current = ki.umask(proc.pid);
+			expect(current).toBe(0o077);
+
+			proc.kill(9);
+			await proc.wait();
+		});
+
+		it("mkdir with mode 0o777 and umask 0o022 creates with effective mode 0o755", async () => {
+			const driver = new MockRuntimeDriver(["x"], { x: { neverExit: true } });
+			const { kernel: k, vfs } = await createTestKernel({ drivers: [driver] });
+			kernel = k;
+
+			const proc = kernel.spawn("x", []);
+			const ki = driver.kernelInterface!;
+
+			// Default umask is 0o022 — mkdir(0o777) → effective 0o755
+			await ki.mkdir(proc.pid, "/tmp/testdir", 0o777);
+
+			const st = await vfs.stat("/tmp/testdir");
+			expect(st.isDirectory).toBe(true);
+			expect(st.mode & 0o7777).toBe(0o755);
+
+			proc.kill(9);
+			await proc.wait();
+		});
+
+		it("umask(pid, 0o077) — files created with mode 0o700 when requesting 0o777", async () => {
+			const driver = new MockRuntimeDriver(["x"], { x: { neverExit: true } });
+			const { kernel: k, vfs } = await createTestKernel({ drivers: [driver] });
+			kernel = k;
+
+			const proc = kernel.spawn("x", []);
+			const ki = driver.kernelInterface!;
+
+			ki.umask(proc.pid, 0o077);
+
+			// Create a file via fdOpen with O_CREAT and write to it
+			const O_WRONLY = 1;
+			const O_CREAT = 0o100;
+			const fd = ki.fdOpen(proc.pid, "/tmp/masked.txt", O_WRONLY | O_CREAT, 0o777);
+			await ki.fdWrite(proc.pid, fd, new TextEncoder().encode("test"));
+
+			const st = await vfs.stat("/tmp/masked.txt");
+			expect(st.mode & 0o7777).toBe(0o700);
+
+			proc.kill(9);
+			await proc.wait();
+		});
+
+		it("child inherits parent umask", async () => {
+			const driver = new MockRuntimeDriver(["parent", "child"], {
+				parent: { neverExit: true },
+				child: { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const parent = kernel.spawn("parent", []);
+			const ki = driver.kernelInterface!;
+
+			// Set parent umask to 0o077
+			ki.umask(parent.pid, 0o077);
+
+			// Spawn child from parent
+			const child = ki.spawn("child", [], { pid: parent.pid, ppid: parent.pid, env: {}, cwd: "/", fds: { stdin: 0, stdout: 1, stderr: 2 } });
+
+			// Child should inherit parent's umask
+			const childMask = ki.umask(child.pid);
+			expect(childMask).toBe(0o077);
+
+			child.kill(9);
+			await child.wait();
+			parent.kill(9);
+			await parent.wait();
+		});
+	});
 });

@@ -327,6 +327,14 @@ export interface KernelInterface {
 
 	// Working directory
 	chdir(pid: number, path: string): Promise<void>;
+
+	// File mode creation mask
+	/** Get/set the process's umask. Returns the previous mask. If newMask is omitted, mask is unchanged. */
+	umask(pid: number, newMask?: number): number;
+
+	// Directory creation with umask
+	/** Create a directory, applying the process's umask to the given mode. */
+	mkdir(pid: number, path: string, mode?: number): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -345,6 +353,8 @@ export interface FileDescription {
 	cursor: bigint;
 	flags: number;
 	refCount: number;
+	/** Mode to apply when the file is first created (set by O_CREAT with umask). */
+	creationMode?: number;
 }
 
 export interface FDEntry {
@@ -412,6 +422,8 @@ export interface ProcessEntry {
 	exitTime: number | null;
 	env: Record<string, string>;
 	cwd: string;
+	/** File mode creation mask (POSIX umask). Inherited from parent, default 0o022. */
+	umask: number;
 	driverProcess: DriverProcess;
 }
 

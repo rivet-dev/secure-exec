@@ -46,6 +46,7 @@ let nextIno = 1;
 export class TestFileSystem implements VirtualFileSystem {
 	private files = new Map<string, { data: Uint8Array; mode: number; uid: number; gid: number; ino: number }>();
 	private dirs = new Set<string>(["/"]);
+	private dirModes = new Map<string, number>();
 	private symlinks = new Map<string, string>();
 
 	async readFile(path: string): Promise<Uint8Array> {
@@ -112,7 +113,7 @@ export class TestFileSystem implements VirtualFileSystem {
 		const now = Date.now();
 		const f = this.files.get(n);
 		if (f) return { mode: f.mode, size: f.data.length, isDirectory: false, isSymbolicLink: false, atimeMs: now, mtimeMs: now, ctimeMs: now, birthtimeMs: now, ino: f.ino, nlink: 1, uid: f.uid, gid: f.gid };
-		if (this.dirs.has(n)) return { mode: S_IFDIR | 0o755, size: 4096, isDirectory: true, isSymbolicLink: false, atimeMs: now, mtimeMs: now, ctimeMs: now, birthtimeMs: now, ino: 0, nlink: 2, uid: 1000, gid: 1000 };
+		if (this.dirs.has(n)) return { mode: S_IFDIR | (this.dirModes.get(n) ?? 0o755), size: 4096, isDirectory: true, isSymbolicLink: false, atimeMs: now, mtimeMs: now, ctimeMs: now, birthtimeMs: now, ino: 0, nlink: 2, uid: 1000, gid: 1000 };
 		throw new Error(`ENOENT: ${n}`);
 	}
 
@@ -177,7 +178,8 @@ export class TestFileSystem implements VirtualFileSystem {
 		const n = normalizePath(path);
 		const f = this.files.get(n);
 		if (f) { f.mode = (f.mode & 0o170000) | (mode & 0o7777); return; }
-		if (!this.dirs.has(n)) throw new Error(`ENOENT: ${n}`);
+		if (this.dirs.has(n)) { this.dirModes.set(n, mode & 0o7777); return; }
+		throw new Error(`ENOENT: ${n}`);
 	}
 
 	async chown(path: string, uid: number, gid: number): Promise<void> {

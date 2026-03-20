@@ -42,6 +42,7 @@ import {
 	SEEK_CUR,
 	SEEK_END,
 	O_APPEND,
+	O_CREAT,
 	SIGTERM,
 	SIGPIPE,
 	SIGWINCH,
@@ -652,7 +653,20 @@ class KernelImpl implements Kernel {
 				}
 				const table = this.getTable(pid);
 				const filetype = FILETYPE_REGULAR_FILE;
-				return table.open(path, flags, filetype);
+				const fd = table.open(path, flags, filetype);
+
+				// Apply umask to creation mode when O_CREAT is set
+				if (flags & O_CREAT) {
+					const entry = this.processTable.get(pid);
+					const umask = entry?.umask ?? 0o022;
+					const requestedMode = mode ?? 0o666;
+					const fdEntry = table.get(fd);
+					if (fdEntry) {
+						fdEntry.description.creationMode = requestedMode & ~umask;
+					}
+				}
+
+				return fd;
 			},
 			fdRead: async (pid, fd, length) => {
 				assertOwns(pid);
@@ -1046,6 +1060,29 @@ class KernelImpl implements Kernel {
 
 				entry.cwd = path;
 			},
+
+			// File mode creation mask
+			umask: (pid, newMask?) => {
+				assertOwns(pid);
+				const entry = this.processTable.get(pid);
+				if (!entry) throw new KernelError("ESRCH", `no such process ${pid}`);
+				const old = entry.umask;
+				if (newMask !== undefined) {
+					entry.umask = newMask & 0o777;
+				}
+				return old;
+			},
+
+			// Directory creation with umask
+			mkdir: async (pid, path, mode?) => {
+				assertOwns(pid);
+				const entry = this.processTable.get(pid);
+				const umask = entry?.umask ?? 0o022;
+				const requestedMode = mode ?? 0o777;
+				const effectiveMode = requestedMode & ~umask;
+				await this.vfs.mkdir(path);
+				await this.vfs.chmod(path, effectiveMode);
+			},
 		};
 	}
 
@@ -1198,10 +1235,12 @@ class KernelImpl implements Kernel {
 
 	private async vfsWrite(entry: FDEntry, data: Uint8Array): Promise<number> {
 		let content: Uint8Array;
+		let isNewFile = false;
 		try {
 			content = await this.vfs.readFile(entry.description.path);
 		} catch {
 			content = new Uint8Array(0);
+			isNewFile = true;
 		}
 
 		// O_APPEND: every write seeks to end of file first (POSIX)
@@ -1213,6 +1252,13 @@ class KernelImpl implements Kernel {
 		newContent.set(content);
 		newContent.set(data, cursor);
 		await this.vfs.writeFile(entry.description.path, newContent);
+
+		// Apply creation mode from umask on first write that creates the file
+		if (isNewFile && entry.description.creationMode !== undefined) {
+			await this.vfs.chmod(entry.description.path, entry.description.creationMode);
+			entry.description.creationMode = undefined;
+		}
+
 		entry.description.cursor = BigInt(endPos);
 		return data.length;
 	}

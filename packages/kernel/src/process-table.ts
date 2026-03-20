@@ -38,10 +38,11 @@ export class ProcessTable {
 		ctx: ProcessContext,
 		driverProcess: DriverProcess,
 	): ProcessEntry {
-		// Inherit pgid/sid from parent, or default to own pid (session leader)
+		// Inherit pgid/sid/umask from parent, or default to own pid / 0o022
 		const parent = ctx.ppid ? this.entries.get(ctx.ppid) : undefined;
 		const pgid = parent?.pgid ?? pid;
 		const sid = parent?.sid ?? pid;
+		const umask = parent?.umask ?? 0o022;
 
 		const entry: ProcessEntry = {
 			pid,
@@ -58,6 +59,7 @@ export class ProcessTable {
 			exitTime: null,
 			env: { ...ctx.env },
 			cwd: ctx.cwd,
+			umask,
 			driverProcess,
 		};
 		this.entries.set(pid, entry);
