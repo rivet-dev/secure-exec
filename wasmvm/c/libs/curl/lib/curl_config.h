@@ -5,8 +5,8 @@
  * WASI sysroot which provides POSIX socket APIs via host_net WASM imports.
  *
  * Key decisions:
- *   - HTTP only (all other protocols disabled)
- *   - No SSL/TLS (added later in US-088)
+ *   - HTTP and HTTPS (all other protocols disabled)
+ *   - TLS via WASI host runtime (USE_WASI_TLS backend)
  *   - No threads (single-threaded WASM)
  *   - No proxy support
  *   - No cookies
@@ -59,12 +59,14 @@
 
 /* Disable misc features */
 #define CURL_DISABLE_VERBOSE_STRINGS 0
-#define CURL_DISABLE_MIME 1
-#define CURL_DISABLE_FORM_API 1
+/* MIME and FORM_API enabled for multipart form uploads (-F) */
+/* #undef CURL_DISABLE_MIME */
+/* #undef CURL_DISABLE_FORM_API */
 #define CURL_DISABLE_BINDLOCAL 1
 #define CURL_DISABLE_PROGRESS_METER 1
 
-/* No SSL/TLS */
+/* TLS via host runtime (host_net WASM import) */
+#define USE_WASI_TLS 1
 #define CURL_DISABLE_OPENSSL_AUTO_LOAD_CONFIG 1
 
 /* ================================================================ */

@@ -1,7 +1,7 @@
 /**
  * Integration tests for curl C command (libcurl-based CLI).
  *
- * Verifies HTTP operations via kernel.exec() with real WASM binaries:
+ * Verifies HTTP and HTTPS operations via kernel.exec() with real WASM binaries:
  *   - Basic GET request
  *   - Download to file (-o)
  *   - POST with data (-d)
@@ -9,8 +9,14 @@
  *   - HEAD request (-I)
  *   - Follow redirects (-L)
  *   - Error handling for unreachable hosts
+ *   - HTTPS with self-signed cert + --insecure (-k)
+ *   - Basic authentication (-u)
+ *   - Multipart form upload (-F)
+ *   - Binary file download with integrity check
+ *   - Connection timeout (--connect-timeout)
+ *   - Write-out format (-w '%{http_code}')
  *
- * Tests start a local HTTP server in beforeAll and make curl requests against it.
+ * Tests start local HTTP/HTTPS servers in beforeAll and make curl requests against them.
  */
 
 import { describe, it, expect, afterEach, beforeAll, afterAll } from 'vitest';
@@ -18,7 +24,9 @@ import { createWasmVmRuntime } from '../src/driver.ts';
 import { createKernel } from '@secure-exec/kernel';
 import type { Kernel } from '@secure-exec/kernel';
 import { createServer as createHttpServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
-import { existsSync } from 'node:fs';
+import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https';
+import { execSync } from 'node:child_process';
+import { writeFileSync, readFileSync, existsSync, unlinkSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -26,6 +34,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const COMMANDS_DIR = resolve(__dirname, '../../../../wasmvm/target/wasm32-wasip1/release/commands');
 const hasWasmBinaries = existsSync(COMMANDS_DIR) &&
   existsSync(resolve(COMMANDS_DIR, 'curl'));
+
+// Check if openssl CLI is available for generating test certs
+let hasOpenssl = false;
+try {
+  execSync('openssl version', { stdio: 'pipe' });
+  hasOpenssl = true;
+} catch { /* openssl not available */ }
 
 // Minimal in-memory VFS for kernel tests
 class SimpleVFS {
@@ -122,6 +137,127 @@ class SimpleVFS {
     const data = this.files.get(path);
     return data ? new TextDecoder().decode(data) : undefined;
   }
+  getRawContent(path: string): Uint8Array | undefined {
+    return this.files.get(path);
+  }
+}
+
+// HTTP request handler shared between HTTP and HTTPS servers
+function requestHandler(port: number, httpsPort: number) {
+  return (req: IncomingMessage, res: ServerResponse) => {
+    const url = req.url ?? '/';
+
+    if (url === '/' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('hello from curl test');
+      return;
+    }
+
+    if (url === '/json' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', message: 'json response' }));
+      return;
+    }
+
+    if (url === '/echo-method') {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end(`method: ${req.method}`);
+      return;
+    }
+
+    if (url === '/echo-body' && (req.method === 'POST' || req.method === 'PUT')) {
+      let body = '';
+      req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+      req.on('end', () => {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end(`body: ${body}`);
+      });
+      return;
+    }
+
+    if (url === '/echo-headers') {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      const xCustom = req.headers['x-custom-header'] ?? 'none';
+      res.end(`x-custom-header: ${xCustom}`);
+      return;
+    }
+
+    if (url === '/redirect') {
+      res.writeHead(302, { 'Location': `http://127.0.0.1:${port}/redirected` });
+      res.end();
+      return;
+    }
+
+    if (url === '/redirected') {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('arrived after redirect');
+      return;
+    }
+
+    if (url === '/head-test') {
+      res.writeHead(200, {
+        'Content-Type': 'text/plain',
+        'X-Test-Header': 'present',
+      });
+      if (req.method !== 'HEAD') {
+        res.end('body should not appear in HEAD');
+      } else {
+        res.end();
+      }
+      return;
+    }
+
+    // Basic auth check
+    if (url === '/auth-required') {
+      const auth = req.headers['authorization'];
+      if (!auth || !auth.startsWith('Basic ')) {
+        res.writeHead(401, { 'Content-Type': 'text/plain' });
+        res.end('unauthorized');
+        return;
+      }
+      const decoded = Buffer.from(auth.slice(6), 'base64').toString();
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end(`authenticated: ${decoded}`);
+      return;
+    }
+
+    // Multipart form upload echo
+    if (url === '/upload' && req.method === 'POST') {
+      const contentType = req.headers['content-type'] ?? '';
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk: Buffer) => chunks.push(chunk));
+      req.on('end', () => {
+        const body = Buffer.concat(chunks).toString();
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        // Echo content-type and body summary for verification
+        const isMultipart = contentType.startsWith('multipart/form-data');
+        res.end(`multipart: ${isMultipart}\nbody-length: ${body.length}\nbody-contains-file: ${body.includes('upload.txt')}`);
+      });
+      return;
+    }
+
+    // Binary download (deterministic 1KB payload)
+    if (url === '/binary') {
+      const buf = Buffer.alloc(1024);
+      for (let i = 0; i < buf.length; i++) buf[i] = i & 0xff;
+      res.writeHead(200, {
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': String(buf.length),
+      });
+      res.end(buf);
+      return;
+    }
+
+    // Status code test
+    if (url === '/status') {
+      res.writeHead(201, { 'Content-Type': 'text/plain' });
+      res.end('created');
+      return;
+    }
+
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('not found');
+  };
 }
 
 describe.skipIf(!hasWasmBinaries)('curl command', () => {
@@ -130,76 +266,12 @@ describe.skipIf(!hasWasmBinaries)('curl command', () => {
   let port: number;
 
   beforeAll(async () => {
-    // Start local HTTP server with multiple routes
-    server = createHttpServer((req: IncomingMessage, res: ServerResponse) => {
-      const url = req.url ?? '/';
-
-      if (url === '/' && req.method === 'GET') {
-        res.writeHead(200, { 'Content-Type': 'text/plain' });
-        res.end('hello from curl test');
-        return;
-      }
-
-      if (url === '/json' && req.method === 'GET') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: 'ok', message: 'json response' }));
-        return;
-      }
-
-      if (url === '/echo-method') {
-        res.writeHead(200, { 'Content-Type': 'text/plain' });
-        res.end(`method: ${req.method}`);
-        return;
-      }
-
-      if (url === '/echo-body' && (req.method === 'POST' || req.method === 'PUT')) {
-        let body = '';
-        req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
-        req.on('end', () => {
-          res.writeHead(200, { 'Content-Type': 'text/plain' });
-          res.end(`body: ${body}`);
-        });
-        return;
-      }
-
-      if (url === '/echo-headers') {
-        res.writeHead(200, { 'Content-Type': 'text/plain' });
-        const xCustom = req.headers['x-custom-header'] ?? 'none';
-        res.end(`x-custom-header: ${xCustom}`);
-        return;
-      }
-
-      if (url === '/redirect') {
-        res.writeHead(302, { 'Location': `http://127.0.0.1:${port}/redirected` });
-        res.end();
-        return;
-      }
-
-      if (url === '/redirected') {
-        res.writeHead(200, { 'Content-Type': 'text/plain' });
-        res.end('arrived after redirect');
-        return;
-      }
-
-      if (url === '/head-test') {
-        res.writeHead(200, {
-          'Content-Type': 'text/plain',
-          'X-Test-Header': 'present',
-        });
-        if (req.method !== 'HEAD') {
-          res.end('body should not appear in HEAD');
-        } else {
-          res.end();
-        }
-        return;
-      }
-
-      res.writeHead(404, { 'Content-Type': 'text/plain' });
-      res.end('not found');
-    });
-
+    server = createHttpServer(requestHandler(0, 0));
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     port = (server.address() as import('node:net').AddressInfo).port;
+    // Patch handler to use actual port
+    server.removeAllListeners('request');
+    server.on('request', requestHandler(port, 0));
   });
 
   afterAll(async () => {
@@ -296,5 +368,223 @@ describe.skipIf(!hasWasmBinaries)('curl command', () => {
     // Note: kernel.exec wraps in sh -c, brush-shell may return 17
     // but the stderr should contain a curl error
     expect(result.stderr).toMatch(/curl|connect|refused|resolve|failed/i);
+  });
+
+  it('-u sends Basic authentication', async () => {
+    const vfs = new SimpleVFS();
+    kernel = createKernel({ filesystem: vfs as any });
+    await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
+
+    const result = await kernel.exec(`curl -u testuser:testpass http://127.0.0.1:${port}/auth-required`);
+    expect(result.stdout).toContain('authenticated: testuser:testpass');
+  });
+
+  it('-F uploads file via multipart form', async () => {
+    const vfs = new SimpleVFS();
+    // Create a file in VFS for curl to upload
+    await vfs.writeFile('/upload.txt', 'file-content-here');
+    kernel = createKernel({ filesystem: vfs as any });
+    await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
+
+    const result = await kernel.exec(`curl -F file=@/upload.txt http://127.0.0.1:${port}/upload`);
+    expect(result.stdout).toContain('multipart: true');
+    expect(result.stdout).toContain('body-contains-file: true');
+  });
+
+  it('-o downloads binary file with correct size', async () => {
+    const vfs = new SimpleVFS();
+    kernel = createKernel({ filesystem: vfs as any });
+    await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
+
+    await kernel.exec(`curl -o /output.bin http://127.0.0.1:${port}/binary`);
+
+    const data = vfs.getRawContent('/output.bin');
+    expect(data).toBeDefined();
+    expect(data!.length).toBe(1024);
+    // Verify first few bytes of deterministic pattern
+    expect(data![0]).toBe(0);
+    expect(data![1]).toBe(1);
+    expect(data![255]).toBe(255);
+  });
+
+  it('--connect-timeout times out for unreachable host', async () => {
+    const vfs = new SimpleVFS();
+    kernel = createKernel({ filesystem: vfs as any });
+    await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
+
+    // 10.255.255.1 is a non-routable address that should cause connection timeout
+    const result = await kernel.exec('curl --connect-timeout 1 http://10.255.255.1/');
+    expect(result.stderr).toMatch(/curl|timeout|timed out|connect/i);
+  }, 15000);
+
+  it('-w outputs http_code', async () => {
+    const vfs = new SimpleVFS();
+    kernel = createKernel({ filesystem: vfs as any });
+    await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
+
+    const result = await kernel.exec(`curl -s -w '%{http_code}' http://127.0.0.1:${port}/status`);
+    // stdout should contain both the body and the status code
+    expect(result.stdout).toContain('created');
+    expect(result.stdout).toContain('201');
+  });
+});
+
+// Generate self-signed certificate for HTTPS tests
+function generateSelfSignedCert(): { key: string; cert: string } {
+  const keyFile = '/tmp/se-curl-test.key';
+  const certFile = '/tmp/se-curl-test.crt';
+
+  execSync(
+    'openssl req -x509 -newkey rsa:2048 -keyout ' + keyFile +
+    ' -out ' + certFile +
+    ' -days 1 -nodes -subj "/CN=127.0.0.1"' +
+    ' -addext "subjectAltName=IP:127.0.0.1" 2>/dev/null',
+    { shell: '/bin/bash' },
+  );
+
+  const key = readFileSync(keyFile, 'utf-8');
+  const cert = readFileSync(certFile, 'utf-8');
+
+  // Clean up temp files
+  try { unlinkSync(keyFile); } catch { /* ignore */ }
+  try { unlinkSync(certFile); } catch { /* ignore */ }
+
+  return { key, cert };
+}
+
+describe.skipIf(!hasWasmBinaries || !hasOpenssl)('curl HTTPS', () => {
+  let kernel: Kernel;
+  let httpsServer: HttpsServer;
+  let httpsPort: number;
+
+  beforeAll(async () => {
+    const { key, cert } = generateSelfSignedCert();
+
+    httpsServer = createHttpsServer({ key, cert }, (req: IncomingMessage, res: ServerResponse) => {
+      const url = req.url ?? '/';
+
+      if (url === '/') {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('hello from https');
+        return;
+      }
+
+      if (url === '/auth-required') {
+        const auth = req.headers['authorization'];
+        if (!auth || !auth.startsWith('Basic ')) {
+          res.writeHead(401, { 'Content-Type': 'text/plain' });
+          res.end('unauthorized');
+          return;
+        }
+        const decoded = Buffer.from(auth.slice(6), 'base64').toString();
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end(`authenticated: ${decoded}`);
+        return;
+      }
+
+      if (url === '/upload' && req.method === 'POST') {
+        const contentType = req.headers['content-type'] ?? '';
+        const chunks: Buffer[] = [];
+        req.on('data', (chunk: Buffer) => chunks.push(chunk));
+        req.on('end', () => {
+          const body = Buffer.concat(chunks).toString();
+          res.writeHead(200, { 'Content-Type': 'text/plain' });
+          const isMultipart = contentType.startsWith('multipart/form-data');
+          res.end(`multipart: ${isMultipart}\nbody-length: ${body.length}\nbody-contains-file: ${body.includes('upload.txt')}`);
+        });
+        return;
+      }
+
+      if (url === '/binary') {
+        const buf = Buffer.alloc(1024);
+        for (let i = 0; i < buf.length; i++) buf[i] = i & 0xff;
+        res.writeHead(200, {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': String(buf.length),
+        });
+        res.end(buf);
+        return;
+      }
+
+      if (url === '/status') {
+        res.writeHead(201, { 'Content-Type': 'text/plain' });
+        res.end('created');
+        return;
+      }
+
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('not found');
+    });
+
+    await new Promise<void>((resolve) => httpsServer.listen(0, '127.0.0.1', resolve));
+    httpsPort = (httpsServer.address() as import('node:net').AddressInfo).port;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => httpsServer.close(() => resolve()));
+  });
+
+  afterEach(async () => {
+    await kernel?.dispose();
+  });
+
+  it('HTTPS GET with --insecure returns response', async () => {
+    const vfs = new SimpleVFS();
+    kernel = createKernel({ filesystem: vfs as any });
+    await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
+
+    const result = await kernel.exec(`curl -k https://127.0.0.1:${httpsPort}/`);
+    expect(result.stdout).toContain('hello from https');
+  });
+
+  it('-u sends Basic auth over HTTPS', async () => {
+    const vfs = new SimpleVFS();
+    kernel = createKernel({ filesystem: vfs as any });
+    await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
+
+    const result = await kernel.exec(`curl -k -u user:pass https://127.0.0.1:${httpsPort}/auth-required`);
+    expect(result.stdout).toContain('authenticated: user:pass');
+  });
+
+  it('-F uploads file via multipart form over HTTPS', async () => {
+    const vfs = new SimpleVFS();
+    await vfs.writeFile('/upload.txt', 'secure-file-content');
+    kernel = createKernel({ filesystem: vfs as any });
+    await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
+
+    const result = await kernel.exec(`curl -k -F file=@/upload.txt https://127.0.0.1:${httpsPort}/upload`);
+    expect(result.stdout).toContain('multipart: true');
+    expect(result.stdout).toContain('body-contains-file: true');
+  });
+
+  it('-o downloads binary file over HTTPS with correct size', async () => {
+    const vfs = new SimpleVFS();
+    kernel = createKernel({ filesystem: vfs as any });
+    await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
+
+    await kernel.exec(`curl -k -o /output.bin https://127.0.0.1:${httpsPort}/binary`);
+
+    const data = vfs.getRawContent('/output.bin');
+    expect(data).toBeDefined();
+    expect(data!.length).toBe(1024);
+  });
+
+  it('--connect-timeout times out for unreachable host', async () => {
+    const vfs = new SimpleVFS();
+    kernel = createKernel({ filesystem: vfs as any });
+    await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
+
+    const result = await kernel.exec('curl -k --connect-timeout 1 https://10.255.255.1/');
+    expect(result.stderr).toMatch(/curl|timeout|timed out|connect/i);
+  }, 15000);
+
+  it('-w outputs http_code over HTTPS', async () => {
+    const vfs = new SimpleVFS();
+    kernel = createKernel({ filesystem: vfs as any });
+    await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
+
+    const result = await kernel.exec(`curl -k -s -w '%{http_code}' https://127.0.0.1:${httpsPort}/status`);
+    expect(result.stdout).toContain('created');
+    expect(result.stdout).toContain('201');
   });
 });

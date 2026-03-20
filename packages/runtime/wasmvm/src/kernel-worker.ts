@@ -834,16 +834,18 @@ function createHostNetImports(getMemory: () => WebAssembly.Memory | null) {
       return res.errno;
     },
 
-    /** net_tls_connect(fd, hostname_ptr, hostname_len) -> errno */
-    net_tls_connect(fd: number, hostname_ptr: number, hostname_len: number): number {
+    /** net_tls_connect(fd, hostname_ptr, hostname_len, flags?) -> errno
+     *  flags: 0 = verify peer (default), 1 = skip verification (-k) */
+    net_tls_connect(fd: number, hostname_ptr: number, hostname_len: number, flags?: number): number {
       if (isNetworkBlocked()) return ERRNO_EACCES;
       const mem = getMemory();
       if (!mem) return ERRNO_EINVAL;
 
       const hostnameBytes = new Uint8Array(mem.buffer, hostname_ptr, hostname_len);
       const hostname = new TextDecoder().decode(hostnameBytes);
+      const verifyPeer = (flags ?? 0) === 0;
 
-      const res = rpcCall('netTlsConnect', { fd, hostname });
+      const res = rpcCall('netTlsConnect', { fd, hostname, verifyPeer });
       return res.errno;
     },
 

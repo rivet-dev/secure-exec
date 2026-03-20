@@ -942,14 +942,18 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
           }
 
           const hostname = msg.args.hostname as string;
+          // Only override rejectUnauthorized when explicitly provided
+          const tlsOpts: Record<string, unknown> = {
+            socket: sock,
+            servername: hostname, // SNI
+          };
+          if (msg.args.verifyPeer === false) {
+            tlsOpts.rejectUnauthorized = false;
+          }
           try {
             // Upgrade existing TCP socket to TLS
             const tlsSock = await new Promise<TLSSocket>((resolve, reject) => {
-              const s = tlsConnect({
-                socket: sock,
-                servername: hostname, // SNI
-                // Uses Node.js default CA store for certificate verification
-              }, () => resolve(s));
+              const s = tlsConnect(tlsOpts as any, () => resolve(s));
               s.on('error', reject);
             });
             // Replace plain socket with TLS socket — send/recv transparently use it
