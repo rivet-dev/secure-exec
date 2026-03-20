@@ -221,6 +221,16 @@ export class PtyManager {
 
 		if (ref.end === "master") {
 			state.closed.master = true;
+
+			// SIGHUP: when master closes, send SIGHUP to foreground process group
+			if (state.foregroundPgid > 0 && this.onSignal) {
+				try {
+					this.onSignal(state.foregroundPgid, 1 /* SIGHUP */, false);
+				} catch {
+					// Signal delivery failure must not break PTY cleanup
+				}
+			}
+
 			// Notify blocked slave readers with null (EIO / hangup)
 			for (const waiter of state.inputWaiters) {
 				waiter(null);
@@ -443,6 +453,10 @@ export class PtyManager {
 						continue;
 					}
 
+					// Echo ^\ for SIGQUIT
+					if (signal === 3 && termios.echo) {
+						this.echoOutput(state, new Uint8Array([0x5e, 0x5c, 0x0d, 0x0a]));
+					}
 					// Normal signal delivery (non-SIGINT or non-session-leader)
 					if (state.foregroundPgid > 0) {
 						try {

@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { ProcessTable } from "../src/process-table.js";
 import { WIFEXITED, WEXITSTATUS, WIFSIGNALED, WTERMSIG } from "../src/wstatus.js";
-import { WNOHANG } from "../src/types.js";
+import { WNOHANG, SIGCHLD, SIGALRM } from "../src/types.js";
 import type { DriverProcess, ProcessContext } from "../src/types.js";
 
 function createMockDriverProcess(exitAfterMs?: number): DriverProcess {
@@ -287,5 +287,143 @@ describe("ProcessTable", () => {
 	it("waitpid with WNOHANG rejects with ESRCH for non-existent PID", async () => {
 		const table = new ProcessTable();
 		await expect(table.waitpid(9999, WNOHANG)).rejects.toThrow(/ESRCH/);
+	});
+
+	// -----------------------------------------------------------------------
+	// SIGCHLD
+	// -----------------------------------------------------------------------
+
+	it("child exit delivers SIGCHLD to parent", () => {
+		const table = new ProcessTable();
+		const parentKillSignals: number[] = [];
+
+		const parentProc = createMockDriverProcess();
+		const origParentKill = parentProc.kill;
+		parentProc.kill = (signal) => {
+			parentKillSignals.push(signal);
+			// SIGCHLD default action is ignore — do not terminate
+			if (signal === SIGCHLD) return;
+			origParentKill.call(parentProc, signal);
+		};
+
+		const parentPid = table.allocatePid();
+		table.register(parentPid, "wasmvm", "sh", [], createCtx(), parentProc);
+
+		const childProc = createMockDriverProcess();
+		const childPid = table.allocatePid();
+		table.register(childPid, "wasmvm", "echo", ["hi"], createCtx({ ppid: parentPid }), childProc);
+
+		// Child exits — parent should receive SIGCHLD
+		table.markExited(childPid, 0);
+		expect(parentKillSignals).toContain(SIGCHLD);
+	});
+
+	it("SIGCHLD not delivered when parent is already exited", () => {
+		const table = new ProcessTable();
+		const parentKillSignals: number[] = [];
+
+		const parentProc = createMockDriverProcess();
+		parentProc.kill = (signal) => { parentKillSignals.push(signal); };
+
+		const parentPid = table.allocatePid();
+		table.register(parentPid, "wasmvm", "sh", [], createCtx(), parentProc);
+
+		const childProc = createMockDriverProcess();
+		const childPid = table.allocatePid();
+		table.register(childPid, "wasmvm", "echo", [], createCtx({ ppid: parentPid }), childProc);
+
+		// Parent exits first
+		table.markExited(parentPid, 0);
+		parentKillSignals.length = 0;
+
+		// Child exits — parent is already dead, no SIGCHLD delivered
+		table.markExited(childPid, 0);
+		expect(parentKillSignals).not.toContain(SIGCHLD);
+	});
+
+	// -----------------------------------------------------------------------
+	// SIGALRM
+	// -----------------------------------------------------------------------
+
+	it("alarm(1) delivers SIGALRM after ~1 second", async () => {
+		vi.useFakeTimers();
+		try {
+			const table = new ProcessTable();
+			const killSignals: number[] = [];
+
+			const proc = createMockDriverProcess();
+			proc.kill = (signal) => { killSignals.push(signal); };
+
+			const pid = table.allocatePid();
+			table.register(pid, "wasmvm", "sleep", ["10"], createCtx(), proc);
+
+			const prev = table.alarm(pid, 1);
+			expect(prev).toBe(0);
+
+			// Advance time by 1 second
+			vi.advanceTimersByTime(1000);
+
+			expect(killSignals).toContain(SIGALRM);
+			// termSignal should be set
+			const entry = table.get(pid)!;
+			expect(entry.termSignal).toBe(SIGALRM);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("alarm(0) cancels pending alarm", async () => {
+		vi.useFakeTimers();
+		try {
+			const table = new ProcessTable();
+			const killSignals: number[] = [];
+
+			const proc = createMockDriverProcess();
+			proc.kill = (signal) => { killSignals.push(signal); };
+
+			const pid = table.allocatePid();
+			table.register(pid, "wasmvm", "sleep", ["10"], createCtx(), proc);
+
+			table.alarm(pid, 2);
+
+			// Cancel the alarm — returns remaining seconds (ceil)
+			const remaining = table.alarm(pid, 0);
+			expect(remaining).toBeGreaterThanOrEqual(1);
+
+			// Advance time well past the original alarm — no signal should fire
+			vi.advanceTimersByTime(5000);
+			expect(killSignals).not.toContain(SIGALRM);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("second alarm replaces first", async () => {
+		vi.useFakeTimers();
+		try {
+			const table = new ProcessTable();
+			const killSignals: number[] = [];
+
+			const proc = createMockDriverProcess();
+			proc.kill = (signal) => { killSignals.push(signal); };
+
+			const pid = table.allocatePid();
+			table.register(pid, "wasmvm", "sleep", ["10"], createCtx(), proc);
+
+			table.alarm(pid, 5);
+			const prev = table.alarm(pid, 1);
+			expect(prev).toBeGreaterThanOrEqual(4); // ~5 remaining from first
+
+			// Advance 1 second — second alarm fires
+			vi.advanceTimersByTime(1000);
+			expect(killSignals).toContain(SIGALRM);
+			killSignals.length = 0;
+
+			// Advance 5 more seconds — first alarm should NOT fire (was replaced)
+			vi.advanceTimersByTime(5000);
+			expect(killSignals).not.toContain(SIGALRM);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });

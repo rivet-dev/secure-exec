@@ -7,7 +7,7 @@
  */
 
 import type { DriverProcess, ProcessContext, ProcessEntry, ProcessInfo } from "./types.js";
-import { KernelError, WNOHANG } from "./types.js";
+import { KernelError, SIGCHLD, SIGALRM, WNOHANG } from "./types.js";
 import { encodeExitStatus, encodeSignalStatus } from "./wstatus.js";
 
 const ZOMBIE_TTL_MS = 60_000;
@@ -17,6 +17,8 @@ export class ProcessTable {
 	private nextPid = 1;
 	private waiters: Map<number, Array<(info: { pid: number; status: number; termSignal: number }) => void>> = new Map();
 	private zombieTimers: Map<number, ReturnType<typeof setTimeout>> = new Map();
+	/** Pending alarm timers per PID: { timer, scheduledAt (ms epoch) }. */
+	private alarmTimers: Map<number, { timer: ReturnType<typeof setTimeout>; scheduledAt: number; seconds: number }> = new Map();
 
 	/** Called when a process exits, before waiters are notified. */
 	onProcessExit: ((pid: number) => void) | null = null;
@@ -106,8 +108,23 @@ export class ProcessTable {
 			? encodeSignalStatus(entry.termSignal)
 			: encodeExitStatus(exitCode);
 
+		// Cancel pending alarm
+		this.cancelAlarm(pid);
+
 		// Clean up process resources (FD table, pipe ends)
 		this.onProcessExit?.(pid);
+
+		// Deliver SIGCHLD to parent (default action: ignore — don't terminate)
+		if (entry.ppid > 0) {
+			const parent = this.entries.get(entry.ppid);
+			if (parent && parent.status === "running") {
+				try {
+					parent.driverProcess.kill(SIGCHLD);
+				} catch {
+					// Parent may not handle SIGCHLD — ignore errors
+				}
+			}
+		}
 
 		// Notify waiters
 		const waiters = this.waiters.get(pid);
@@ -193,6 +210,51 @@ export class ProcessTable {
 		if (signal === 0) return;
 		entry.termSignal = signal;
 		entry.driverProcess.kill(signal);
+	}
+
+	/**
+	 * Schedule SIGALRM delivery after `seconds`. Returns previous alarm remaining (0 if none).
+	 * alarm(pid, 0) cancels any pending alarm. A new alarm replaces the previous one.
+	 */
+	alarm(pid: number, seconds: number): number {
+		const entry = this.entries.get(pid);
+		if (!entry) throw new KernelError("ESRCH", `no such process ${pid}`);
+
+		// Calculate remaining time from any existing alarm
+		let remaining = 0;
+		const existing = this.alarmTimers.get(pid);
+		if (existing) {
+			const elapsed = (Date.now() - existing.scheduledAt) / 1000;
+			remaining = Math.max(0, Math.ceil(existing.seconds - elapsed));
+			clearTimeout(existing.timer);
+			this.alarmTimers.delete(pid);
+		}
+
+		if (seconds === 0) return remaining;
+
+		// Schedule new alarm
+		const scheduledAt = Date.now();
+		const timer = setTimeout(() => {
+			this.alarmTimers.delete(pid);
+			const e = this.entries.get(pid);
+			if (!e || e.status !== "running") return;
+
+			// Default SIGALRM action: terminate with 128+14=142
+			e.termSignal = SIGALRM;
+			e.driverProcess.kill(SIGALRM);
+		}, seconds * 1000);
+		this.alarmTimers.set(pid, { timer, scheduledAt, seconds });
+
+		return remaining;
+	}
+
+	/** Cancel a pending alarm for a process. */
+	private cancelAlarm(pid: number): void {
+		const existing = this.alarmTimers.get(pid);
+		if (existing) {
+			clearTimeout(existing.timer);
+			this.alarmTimers.delete(pid);
+		}
 	}
 
 	/** Set process group ID. Process can join existing group or create new one. */
@@ -324,6 +386,12 @@ export class ProcessTable {
 			clearTimeout(timer);
 		}
 		this.zombieTimers.clear();
+
+		// Clear all pending alarm timers
+		for (const { timer } of this.alarmTimers.values()) {
+			clearTimeout(timer);
+		}
+		this.alarmTimers.clear();
 
 		const running = [...this.entries.values()].filter(
 			(e) => e.status === "running",

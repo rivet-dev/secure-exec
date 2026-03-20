@@ -328,6 +328,10 @@ export interface KernelInterface {
 	// Working directory
 	chdir(pid: number, path: string): Promise<void>;
 
+	// Alarm (SIGALRM)
+	/** Schedule SIGALRM delivery after `seconds`. Returns previous alarm remaining (0 if none). alarm(pid, 0) cancels. */
+	alarm(pid: number, seconds: number): number;
+
 	// File mode creation mask
 	/** Get/set the process's umask. Returns the previous mask. If newMask is omitted, mask is unchanged. */
 	umask(pid: number, newMask?: number): number;
@@ -527,11 +531,14 @@ export function defaultTermios(): Termios {
 }
 
 // Signals
-export const SIGTERM = 15;
-export const SIGKILL = 9;
+export const SIGHUP = 1;
 export const SIGINT = 2;
 export const SIGQUIT = 3;
+export const SIGKILL = 9;
 export const SIGPIPE = 13;
+export const SIGALRM = 14;
+export const SIGTERM = 15;
+export const SIGCHLD = 17;
 export const SIGTSTP = 20;
 export const SIGWINCH = 28;
 

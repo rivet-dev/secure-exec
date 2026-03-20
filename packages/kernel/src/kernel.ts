@@ -1061,6 +1061,12 @@ class KernelImpl implements Kernel {
 				entry.cwd = path;
 			},
 
+			// Alarm (SIGALRM)
+			alarm: (pid, seconds) => {
+				assertOwns(pid);
+				return this.processTable.alarm(pid, seconds);
+			},
+
 			// File mode creation mask
 			umask: (pid, newMask?) => {
 				assertOwns(pid);

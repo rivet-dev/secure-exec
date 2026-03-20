@@ -2724,6 +2724,61 @@ describe("kernel + MockRuntimeDriver integration", () => {
 			parent.kill();
 		});
 
+		it("^\\ echoes ^\\ to master when isig and echo enabled", async () => {
+			const killSignals: number[] = [];
+			const driver = new MockRuntimeDriver(["parent", "child"], {
+				parent: { neverExit: true },
+				child: { neverExit: true, killSignals },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			const parent = kernel.spawn("parent", []);
+			const child = kernel.spawn("child", []);
+
+			ki.setpgid(child.pid, child.pid);
+
+			const { masterFd } = ki.openpty(parent.pid);
+			// Enable isig + echo (defaults are both on, but be explicit)
+			ki.ptySetDiscipline(parent.pid, masterFd, { isig: true, echo: true });
+			ki.ptySetForegroundPgid(parent.pid, masterFd, child.pid);
+
+			// Write ^\ (0x1C)
+			ki.fdWrite(parent.pid, masterFd, new Uint8Array([0x1c]));
+
+			// Read echo from master — should contain ^\ (0x5e 0x5c)
+			const echo = await ki.fdRead(parent.pid, masterFd, 1024);
+			const text = new TextDecoder().decode(echo);
+			expect(text).toContain("^\\");
+
+			parent.kill();
+		});
+
+		it("PTY master close delivers SIGHUP to foreground process group", async () => {
+			const killSignals: number[] = [];
+			const driver = new MockRuntimeDriver(["parent", "child"], {
+				parent: { neverExit: true },
+				child: { neverExit: true, killSignals, survivableSignals: [1] },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			const parent = kernel.spawn("parent", []);
+			const child = kernel.spawn("child", []);
+
+			ki.setpgid(child.pid, child.pid);
+
+			const { masterFd } = ki.openpty(parent.pid);
+			ki.ptySetForegroundPgid(parent.pid, masterFd, child.pid);
+
+			// Close master — should deliver SIGHUP (1) to foreground pgid
+			ki.fdClose(parent.pid, masterFd);
+
+			expect(killSignals).toContain(1); // SIGHUP
+
+			parent.kill();
+		});
+
 		it("^D at start of line delivers EOF in canonical mode", async () => {
 			const driver = new MockRuntimeDriver(["proc"], {
 				proc: { neverExit: true },
