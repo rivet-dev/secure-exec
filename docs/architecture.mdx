@@ -62,43 +62,95 @@ The narrow interface between the sandbox and the host. All privileged operations
 
 ## Node Runtime
 
-On Node, the sandbox is a V8 isolate managed by `isolated-vm`.
+On Node, the sandbox is a V8 isolate running in a **separate Rust process** (`@secure-exec/v8`). The host communicates with it over a Unix domain socket using length-prefixed MessagePack.
 
 ```mermaid
 flowchart TB
-    subgraph Host["Host (Node.js process)"]
+    subgraph Host["Host Process (Node.js / Bun)"]
         NR["NodeRuntime"]
         SD["System Driver"]
         MAFS["ModuleAccessFileSystem"]
+        IPC_H["IPC Client<br/>(MessagePack over UDS)"]
     end
-    subgraph ISO["V8 Isolate"]
+    subgraph Rust["V8 Runtime Process (Rust)"]
+        IPC_R["IPC Server"]
+        ISO["V8 Isolate<br/>(one per session)"]
         UC["User Code (CJS / ESM)"]
-        BR["Bridge (ivm.Reference callbacks)"]
-        MOD["Module Cache"]
+        BR["Bridge Functions<br/>(v8::FunctionTemplate)"]
     end
-    NR --> ISO
+    NR --> IPC_H
+    IPC_H -->|"UDS socket"| IPC_R
+    IPC_R --> ISO
     UC --> BR
-    BR -->|"fs / net / process / crypto"| SD
+    BR -->|"BridgeCall / BridgeResponse"| IPC_H
+    IPC_H --> SD
     SD --> MAFS
 ```
 
+### Why a separate process
+
+V8 has process-global state (`V8::Initialize`, signal handlers, ICU data) that makes running two V8 instances in one process unsafe. The separate process also provides defense-in-depth: V8 OOM kills the child not the host, FD tables are isolated, and the OS can enforce cgroups/seccomp on the sandbox process.
+
+### IPC protocol
+
+All host↔sandbox communication uses **length-prefixed MessagePack** over a Unix domain socket:
+
+```
+[4-byte u32 big-endian length][N-byte MessagePack payload]
+```
+
+Message types are internally tagged (`{"type": "BridgeCall", ...}`). Binary data fields use MessagePack's native `bin` format — no base64 encoding.
+
+### Serialization layers
+
+There are two MessagePack serialization layers:
+
+1. **IPC envelope** — the outer message (`BridgeCall`, `BridgeResponse`, `ExecutionResult`, etc.) serialized with `rmp_serde` (Rust) / `@msgpack/msgpack` (JS).
+2. **Bridge arguments/results** — function arguments and return values are separately MessagePack-encoded as opaque byte blobs (`args`, `result` fields) inside the IPC envelope. On the Rust side, V8 values are converted to/from `rmpv::Value` via native V8 API calls (`v8_to_rmpv` / `rmpv_to_v8`). On the JS host side, `@msgpack/msgpack` `encode()`/`decode()` handles the inner payloads.
+
+This double-encoding means the IPC framing layer doesn't need to understand bridge argument types — it just forwards opaque bytes.
+
+### Bridge calling conventions
+
+When sandbox code calls a bridge function (e.g. `fs.readFileSync()`):
+
+1. **Sync-blocking**: The V8 `FunctionTemplate` callback serializes args as MessagePack, sends a `BridgeCall` over IPC, and **blocks on `socket.read()`** for the `BridgeResponse`. The JS host processes the call asynchronously, sends the response back. From V8's perspective, the function is synchronous.
+2. **Async (promise-returning)**: The callback creates a `v8::PromiseResolver`, sends `BridgeCall` non-blocking, and returns the promise. When the `BridgeResponse` arrives during the session event loop, the resolver is fulfilled/rejected and microtasks are flushed.
+3. **Streaming (host→sandbox)**: The host sends `StreamEvent` messages for child process stdout/stderr/exit and HTTP server requests. The Rust event loop dispatches these into V8 callback functions.
+
+### What uses native V8 types (no serialization)
+
+- `_processConfig` and `_osConfig` are injected as frozen V8 objects directly by Rust
+- Bridge functions are registered via `v8::FunctionTemplate` (local V8 calls, not IPC)
+- Context hardening (SharedArrayBuffer removal, WASM disabling) uses direct V8 API calls
+- Module compilation, error extraction, and timeout termination are all native V8 operations
+
 **Inside the isolate:**
 - User code runs as CJS or ESM (auto-detected from `package.json` `type` field)
-- Bridge globals are injected as `ivm.Reference` callbacks for fs, network, child_process, crypto, and timers
-- Compiled modules are cached per isolate
+- Bridge globals are registered as V8 `FunctionTemplate` callbacks for fs, network, child_process, crypto, and timers
+- ESM modules are loaded via `v8::Module` with a sync-blocking `ResolveModuleCallback` (IPC round-trip per import)
+- Compiled modules are cached per session
 - `Date.now()` and `performance.now()` return frozen values by default (timing mitigation)
 - `SharedArrayBuffer` is unavailable in freeze mode
 
 **Outside the isolate (host):**
-- The V8 isolate execution environment creates contexts, compiles modules, and manages the isolate lifecycle
+- One Rust process is shared across all sessions (spawned by `createV8Runtime()`)
+- Each `exec()`/`run()` call creates a session (V8 isolate + dedicated OS thread on the Rust side)
 - `ModuleAccessFileSystem` overlays host `node_modules` at `/app/node_modules` (read-only, blocks `.node` native addons, prevents symlink escapes)
 - System driver applies permission checks before every host operation
 - Bridge enforces payload size limits on all transfers (`ERR_SANDBOX_PAYLOAD_TOO_LARGE`)
 
 **Resource controls:**
-- `memoryLimit`: V8 isolate memory cap (default 128 MB)
-- `cpuTimeLimitMs`: CPU time budget (exit code 124 on exceeded)
+- `memoryLimit`: V8 isolate heap cap (default 128 MB, enforced by Rust via `v8::CreateParams`)
+- `cpuTimeLimitMs`: CPU time budget (enforced by Rust timeout thread calling `terminate_execution()`)
 - `timingMitigation`: `"freeze"` (default) or `"off"`
+
+**IPC security:**
+- Socket path uses `mkdtemp` with 128-bit random suffix, directory permissions `0700`
+- Connection authenticated via one-time token (passed to Rust process via env var)
+- Sessions bound to creating connection; 128-bit nonce session IDs
+- 64 MB max message size enforced at framing layer
+- Rust process closes all inherited FDs except stdin/stdout/stderr on startup
 
 ## Browser Runtime
 

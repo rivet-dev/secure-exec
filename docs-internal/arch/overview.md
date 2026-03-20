@@ -18,8 +18,12 @@ Package index:
     Shared types, utilities, bridge, NodeRuntime/PythonRuntime classes,
     isolate-runtime source, build scripts
 
+  @secure-exec/v8          packages/secure-exec-v8/
+    V8 runtime process manager (spawns Rust binary, IPC client,
+    session abstraction). MessagePack framing over UDS.
+
   @secure-exec/node        packages/secure-exec-node/
-    V8 isolate execution driver, bridge-loader, module-access overlay,
+    Execution driver, bridge-handlers, bridge-loader, module-access overlay,
     createNodeDriver, createNodeRuntimeDriverFactory
 
   @secure-exec/browser     packages/secure-exec-browser/
@@ -116,15 +120,41 @@ Factory that builds a Python-backed execution driver factory.
 - Constructs `PyodideRuntimeDriver` instances
 - Owns Pyodide worker bootstrap and execution-driver creation options
 
+## @secure-exec/v8 (V8 Runtime)
+
+`packages/secure-exec-v8/`
+
+Manages the Rust V8 child process and provides the session API.
+
+- `createV8Runtime()` spawns the Rust binary, connects over UDS, authenticates
+- One Rust process is shared across all drivers (singleton)
+- `V8Session.execute()` sends InjectGlobals + Execute, routes BridgeCall/BridgeResponse
+- IPC uses length-prefixed MessagePack (64 MB max); binary data uses msgpack `bin` format (no base64)
+- Bridge args/results are double-encoded: inner msgpack blobs inside outer msgpack IPC messages
+
+### Rust binary (`crates/v8-runtime/`)
+
+The Rust V8 runtime process. One OS thread per session, each owning a `v8::Isolate`.
+
+- `ipc.rs` — message types (`HostMessage`/`RustMessage`), length-prefixed framing
+- `isolate.rs` — V8 platform init, isolate create/destroy, heap limits
+- `execution.rs` — CJS (`v8::Script`) and ESM (`v8::Module`) compilation/execution, globals injection, context hardening
+- `bridge.rs` — `v8::FunctionTemplate` registration, V8↔MessagePack conversion (`v8_to_rmpv`/`rmpv_to_v8` via `rmpv::Value`)
+- `host_call.rs` — sync-blocking bridge calls (serialize → write → block on read → deserialize)
+- `stream.rs` — StreamEvent dispatch into V8 (child process, HTTP server)
+- `timeout.rs` — per-session timer thread, `terminate_execution()` + abort channel
+- `session.rs` — session management, event loop, concurrency limiting
+- `main.rs` — UDS listener, connection auth, signal handling, FD hygiene
+
 ## NodeExecutionDriver
 
 `packages/secure-exec-node/src/execution-driver.ts`
 
-The engine. Owns the `isolated-vm` isolate and bridges host capabilities in.
+The engine. Obtains a V8 session from the shared `@secure-exec/v8` runtime and bridges host capabilities in.
 
-- Creates contexts, compiles ESM/CJS, runs code
-- Bridges fs, network, child_process, crypto, timers into the isolate via `ivm.Reference`
-- Caches compiled modules and resolved formats per isolate
+- Composes bridge code (ivm-compat shim + config + bridge bundle + timing mitigation)
+- Builds bridge handlers as plain functions (`bridge-handlers.ts`) passed to `V8Session.execute()`
+- Caches bridge code per driver instance
 - Enforces payload size limits on bridge transfers
 
 ## BrowserRuntimeDriver

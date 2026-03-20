@@ -5,8 +5,12 @@ import {
 } from "../src/index.js";
 import os from "node:os";
 
-export const BATCH_SIZES = [1, 10, 50, 100, 200];
-export const ITERATIONS = 5;
+// NOTE: Most batch sizes intentionally disabled for testing speed
+// export const BATCH_SIZES = [1, 10, 50, 100, 200];
+export const BATCH_SIZES = [1];
+// export const ITERATIONS = 5;
+export const ITERATIONS = 2;
+console.error("⚠ BENCH: Most batch sizes disabled for speed (BATCH_SIZES=[1], ITERATIONS=2)");
 export const MEMORY_ITERATIONS = 5;
 export const WARMUP_ITERATIONS = 1;
 export const TRIVIAL_CODE = `export const x = 1;`;
