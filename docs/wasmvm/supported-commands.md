@@ -143,6 +143,7 @@
 |---------|-----------|--------|----------------|--------|
 | expr | yes | done | `expr.rs` custom builtin (`regex` crate, US-014) | — |
 | factor | — | done | `uu_factor` | — |
+| make | yes | done | C program (clean-room POSIX make, `posix_spawn`, US-083) | — |
 | false | yes | done | `uu_false` | — |
 | nice | — | shim | `shims::nice` | — |
 | nohup | — | shim | `shims::nohup` | — |
@@ -247,14 +248,14 @@
 | Navigation & Path | 4 | 0 | 0 | 0 | 0 | 1 | 0 |
 | Disk & Filesystem | 1 | 0 | 0 | 0 | 1 | 0 | 0 |
 | System & Environment | 10 | 0 | 0 | 0 | 2 | 1 | 0 |
-| Process & Execution | 9 | 2 | 0 | 0 | 0 | 0 | 0 |
+| Process & Execution | 10 | 2 | 0 | 0 | 0 | 0 | 0 |
 | Search | 1 | 0 | 1 | 0 | 0 | 0 | 0 |
 | Formatting | 1 | 0 | 0 | 0 | 0 | 0 | 0 |
 | Compression | 6 | 0 | 0 | 0 | 0 | 0 | 0 |
 | Shell Builtins | 0 | 0 | 0 | 0 | 0 | 11 | 0 |
 | Data Processing | 3 | 0 | 0 | 1 | 0 | 0 | 2 |
 | Network | 0 | 0 | 0 | 2 | 0 | 0 | 0 |
-| **Total** | **101** | **1** | **1** | **3** | **4** | **13** | **2** |
+| **Total** | **102** | **1** | **1** | **3** | **4** | **13** | **2** |
 
 ---
 

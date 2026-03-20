@@ -65,6 +65,8 @@ export const WASMVM_COMMANDS: readonly string[] = [
   'gzip', 'gunzip', 'zcat', 'tar', 'zip', 'unzip',
   // Data Processing (C programs)
   'sqlite3',
+  // Build tools (C programs)
+  'make',
   // Shim commands
   'env', 'envsubst', 'nice', 'nohup', 'stdbuf', 'timeout', 'xargs',
   // uutils: text/encoding
@@ -113,6 +115,8 @@ export const DEFAULT_FIRST_PARTY_TIERS: Readonly<Record<string, PermissionTier>>
   'nice': 'full',
   'nohup': 'full',
   'stdbuf': 'full',
+  // Build tools — spawns child processes to run recipes
+  'make': 'full',
   // Read-only tools — never need to write files
   'grep': 'read-only',
   'egrep': 'read-only',
