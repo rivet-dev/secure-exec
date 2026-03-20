@@ -19,6 +19,8 @@ PRD: ralph/kernel-hardening (46 stories)
 - NodeRuntimeDriver doesn't bridge streaming stdin — exec() receives stdin as single string batch; PTY input doesn't reach sandbox process.stdin events (blocks interactive TUI tests)
 - filterEnv returns {} when permissions.env is undefined — use { ...allowAllChildProcess, ...allowAllEnv } in createNodeRuntime() for sandbox tests that need process.env.PATH
 - HostBinaryDriver pattern: inline RuntimeDriver that spawns real host binaries; must handle child 'error' event (ENOENT) and use exitResolved guard to prevent double-resolve
+- HostBinaryDriver with kernel PTY: must (1) use host-accessible cwd (not virtual /root), (2) merge process.env with ctx.env, (3) set kernel PTY to raw mode via ptySetDiscipline, (4) pump stdin from kernel PTY slave fd 0 to child.stdin, (5) reverse ICRNL (NL→CR) in pump
+- Claude Code interactive mode requires OAuth credentials (~/.claude/.credentials.json), not just ANTHROPIC_API_KEY — onboarding skip needs ~/.claude.json with hasCompletedOnboarding=true at HOME root
 - Buffer polyfill (feross/buffer@5.7.1) lacks V8 internal methods (latin1Slice, base64Slice, utf8Write, etc.) — must patch on BOTH globalThis.Buffer.prototype (in process.ts) AND require('buffer').Buffer.prototype (in _patchPolyfill)
 - NetSocket._readableState must include ALL fields libraries check — ssh2 checks `.ended`, not just `.endEmitted`; ws checks `.endEmitted`
 - SandboxCipher/SandboxDecipher update() must return data immediately for streaming protocols — use stateful bridge (_cryptoCipherivCreate/Update/Final) not buffer-to-final()
@@ -2949,3 +2951,29 @@ PRD: ralph/kernel-hardening (46 stories)
   - The unhandled rejection (getDispatchRef/getSync) during dispose is a pre-existing infrastructure issue in bridge-setup.js — it occurs in all CLI tool tests and doesn't affect test results
   - Claude Code --output-format json returns { type: 'result', result: '...' } structure
 ---
+---
+
+## 2026-03-20 - US-034
+- Rewrote claude-interactive.test.ts with fundamentally different architecture
+- HostBinaryDriver now spawns claude directly via kernel.openShell() — bypasses V8 isolate batched stdin
+- Added kernel PTY slave fd 0 stdin pump (fdRead → child.stdin) for streaming terminal input
+- Fixed: virtual cwd EACCES (/root → host-accessible workDir), merged host env for system vars
+- Set kernel PTY to raw mode (non-canonical, no-echo, no-signal) for transparent pass-through
+- NL→CR reversal in stdin pump (kernel PTY ICRNL converts CR→NL, host PTY expects CR)
+- Wrapped in script -qefc for host-side PTY (Ink isTTY detection)
+- OAuth credentials copied from ~/.claude/.credentials.json
+- .claude.json with hasCompletedOnboarding=true skips theme dialog
+- Three-stage boot probe: (1) node works, (2) claude --version works, (3) TUI reaches main prompt
+- Tests skip with clear reason when boot probe fails
+- Files changed:
+  - packages/secure-exec/tests/cli-tools/claude-interactive.test.ts — full rewrite
+- **Learnings for future iterations:**
+  - HostBinaryDriver spawning host binaries must use host-accessible cwd, not the kernel's virtual cwd (/root) — Node.js child_process.spawn with cwd=/root returns EACCES for non-root users
+  - Bridge child_process.spawn passes process.cwd() (default /root) as cwd even when sandbox code doesn't specify one — HostBinaryDriver must override
+  - kernel PTY line discipline ICRNL converts CR→NL — host binaries expecting CR for Enter need reversal in the stdin pump
+  - kernel PTY starts in canonical+echo mode — HostBinaryDriver must set raw mode via ptySetDiscipline for transparent stdin/stdout pass-through
+  - Claude Code v2.1.80 interactive mode requires OAuth credentials (~/.claude/.credentials.json); API key alone is insufficient
+  - Onboarding theme dialog is controlled by ~/.claude.json (at HOME root, NOT inside .claude/): hasCompletedOnboarding=true + lastOnboardingVersion skips it
+  - Host binary env must merge process.env with ctx.env — restricted sandbox env lacks system vars Claude needs
+  - tcsetattr with opost/onlcr/icrnl causes rapid process exit — use ptySetDiscipline for safe termios changes
+  - Claude workspace trust dialog requires Enter (CR/NL) to dismiss — boot probe must detect and handle it

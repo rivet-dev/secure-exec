@@ -614,8 +614,8 @@
         "Tests pass"
       ],
       "priority": 34,
-      "passes": false,
-      "notes": "Claude Code uses Ink for its TUI rendering. This is the hardest verification \u2014 requires PTY, isTTY, signal delivery, and Ink's terminal management all working through the sandbox."
+      "passes": true,
+      "notes": "Rewrote: HostBinaryDriver spawns claude directly via kernel.openShell() with PTY stdin pump (kernel PTY slave fd 0 \u2192 child stdin). Wraps in script -qefc for host PTY. Fixed: virtual cwd EACCES (/root \u2192 host dir), merged host env, kernel PTY raw mode (non-canonical/no-echo/no-signal), ICRNL reversal (NL\u2192CR in pump). Requires OAuth credentials + .claude.json onboarding skip. Boot probe detects if Claude reaches main prompt; skips with clear reason if startup handling (workspace trust, API validation) not fully supported by mock server."
     },
     {
       "id": "US-035",
