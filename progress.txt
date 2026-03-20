@@ -3148,3 +3148,24 @@ PRD: ralph/kernel-hardening (46 stories)
   - access() already works in wasi-libc through faccessat → __wasilibc_access → path_filestat_get WASI call — no new WASI imports needed
   - SimpleVFS in c-parity.test.ts was missing pread() method, causing silent fdRead failures; fread test was also broken
 ---
+
+## 2026-03-20 - US-066
+- Implemented umask for file creation mode in the kernel
+- Added `umask` field to ProcessEntry (default 0o022), inherited from parent in ProcessTable.register()
+- Added `umask(pid, newMask?)` method to KernelInterface — returns old mask, optionally sets new
+- Added `creationMode` field to FileDescription for O_CREAT mode tracking
+- fdOpen with O_CREAT applies umask to mode and stores in FileDescription
+- vfsWrite applies chmod on first write that creates a file
+- Added `mkdir(pid, path, mode?)` to KernelInterface — creates directory with umask-masked mode
+- Updated TestFileSystem to track directory modes via dirModes map
+- Files changed:
+  - packages/kernel/src/types.ts — ProcessEntry.umask, FileDescription.creationMode, KernelInterface.umask(), KernelInterface.mkdir()
+  - packages/kernel/src/process-table.ts — inherit umask from parent
+  - packages/kernel/src/kernel.ts — implement umask/mkdir in createKernelInterface, apply umask in fdOpen/vfsWrite
+  - packages/kernel/test/helpers.ts — TestFileSystem.dirModes for directory chmod support
+  - packages/kernel/test/kernel-integration.test.ts — 5 new umask tests
+- **Learnings for future iterations:**
+  - VFS writeFile/mkdir don't accept mode parameters — use chmod after creation to apply effective mode
+  - TestFileSystem directories are stored as a Set (no metadata) — need separate dirModes map for chmod tracking
+  - Pre-existing flaky test in resource-exhaustion.test.ts (PTY stress) and pre-existing typecheck error in example-ai-sdk (missing deps)
+---
