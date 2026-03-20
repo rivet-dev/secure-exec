@@ -7,6 +7,8 @@ PRD: ralph/kernel-hardening (46 stories)
 - V8Runtime (Rust process) is heavyweight — use shared singleton (getSharedV8Runtime) across all NodeExecutionDrivers; each driver creates its own V8Session
 - Bridge code composition order: ivm-compat shim → config injections → globalExposureHelpers → initialBridgeGlobals → consoleSetup → setupFsFacade → bridgeBundle → bridgeAttach → timingMitigation → requireSetup
 - Rust SYNC_BRIDGE_FNS/ASYNC_BRIDGE_FNS in session.rs must match HOST_BRIDGE_GLOBAL_KEYS from bridge-contract.ts — update both when adding new bridge functions
+- Bridge handler args are spread by host routing (runtime.ts): to pass a single array arg, serialize as [[array]] so handler(...args) gives handler(array)
+- V8 Module::get_module_requests() returns FixedArray — cast elements via data.cast::<v8::ModuleRequest>(), then get_specifier() for import specifier string
 - IPC writes use per-session ChannelFrameSender (crossbeam channel) + one writer thread per connection — never use shared mutex for socket writes; serialize via frame_to_bytes() first
 - V8 code caching: use `v8::script_compiler::compile()` (not `Script::compile()`) with `Source` + `CompileOptions`; generate cache via `UnboundScript::create_code_cache()`; resource name in ScriptOrigin is required
 - SharedArrayBuffer removal must happen AFTER bridge bundle loads (applyTimingMitigationFreeze JS), not in Rust inject_globals
@@ -2579,4 +2581,23 @@ PRD: ralph/kernel-hardening (46 stories)
   - frame_to_bytes() builds the complete frame as a single Vec<u8>, ensuring atomic writes through the channel
   - crossbeam Sender<Vec<u8>> is Clone + Send — no Arc needed, each session thread clones the sender directly
   - Writer thread ownership: when all senders are dropped (after session thread joins), rx.recv() returns Err and writer thread exits cleanly
+---
+
+## 2026-03-19 - US-047
+- Implemented batch module resolution to reduce IPC round-trips for import-heavy ESM code
+- After compiling each module, extracts static imports via V8 Module::get_module_requests()
+- Sends _batchResolveModules BridgeCall with all uncached specifiers in one round-trip
+- Host resolves+loads all specifiers concurrently via Promise.all, returns {resolved, source} array
+- BFS: recursively prefetches imports of newly compiled modules until no uncached imports remain
+- Falls back to individual _resolveModule/_loadFile calls if batch fails (backwards compatible)
+- Files changed:
+  - crates/v8-runtime/src/execution.rs — added extract_uncached_imports(), prefetch_module_imports(), batch_resolve_via_ipc(); updated execute_module() to prefetch before instantiate; 4 new test parts (65-68)
+  - packages/secure-exec-node/src/bridge-handlers.ts — added _batchResolveModules handler
+  - packages/secure-exec-v8/test/ipc-roundtrip.test.ts — 2 new integration tests (batch round-trip, fallback)
+  - scripts/ralph/prd.json — marked US-047 passes: true
+- **Learnings for future iterations:**
+  - V8 Module::get_module_requests() returns FixedArray of ModuleRequest objects; cast via data.cast::<v8::ModuleRequest>()
+  - Bridge handler args are spread by the host routing code (runtime.ts): serialize as [[batch]] so handler receives batch as single arg
+  - Existing ESM test (Part 30) must prepend a _batchResolveModules response since prefetch consumes call_id=1 before individual resolve callbacks run
+  - Thread-local MODULE_RESOLVE_STATE borrows must be brief — no V8 operations while RefCell is borrowed
 ---

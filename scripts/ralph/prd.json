@@ -793,8 +793,8 @@
         "Tests pass"
       ],
       "priority": 47,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added prefetch_module_imports() BFS in execution.rs: after compiling each module, extracts static imports via get_module_requests(), sends _batchResolveModules BridgeCall with all uncached specifiers, host resolves+loads concurrently via Promise.all, pre-compiles and caches results. Falls back to individual resolution if batch call fails. Added _batchResolveModules handler in bridge-handlers.ts. 4 new Rust tests (multi-import batch, fallback, nested BFS, no-import skip) + 2 integration tests (batch round-trip, fallback)."
     },
     {
       "id": "US-048",
