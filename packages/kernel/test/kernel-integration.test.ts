@@ -2531,6 +2531,138 @@ describe("kernel + MockRuntimeDriver integration", () => {
 	});
 
 	// -------------------------------------------------------------------
+	// PTY-based spawn (ExecCommandSession pattern)
+	// -------------------------------------------------------------------
+
+	describe("PTY-based spawn (interactive session)", () => {
+		it("spawn child with PTY slave as stdio: parent writes master → child reads stdin", async () => {
+			const driver = new MockRuntimeDriver(["parent-cmd", "child-cmd"], {
+				"parent-cmd": { neverExit: true },
+				"child-cmd": { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			const parent = kernel.spawn("parent-cmd", []);
+
+			// Allocate PTY in parent's FD table
+			const { masterFd, slaveFd } = ki.openpty(parent.pid);
+
+			// Set raw mode for direct pass-through
+			ki.ptySetDiscipline(parent.pid, masterFd, { canonical: false, echo: false, isig: false });
+
+			// Spawn child with PTY slave as stdin/stdout/stderr
+			const child = ki.spawn("child-cmd", [], {
+				ppid: parent.pid,
+				stdinFd: slaveFd,
+				stdoutFd: slaveFd,
+				stderrFd: slaveFd,
+			});
+
+			// Parent writes to PTY master → child can read from stdin (slave)
+			const msg = new TextEncoder().encode("hello from parent");
+			ki.fdWrite(parent.pid, masterFd, msg);
+
+			// Child reads from its stdin (FD 0, which is the PTY slave)
+			const childStdinFd = 0;
+			const data = await ki.fdRead(child.pid, childStdinFd, 1024);
+			expect(new TextDecoder().decode(data)).toBe("hello from parent");
+
+			child.kill();
+			parent.kill();
+		});
+
+		it("spawn child with PTY slave as stdio: child writes stdout → parent reads master", async () => {
+			const driver = new MockRuntimeDriver(["parent-cmd", "child-cmd"], {
+				"parent-cmd": { neverExit: true },
+				"child-cmd": { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			const parent = kernel.spawn("parent-cmd", []);
+
+			const { masterFd, slaveFd } = ki.openpty(parent.pid);
+
+			// Disable ONLCR for clean data comparison
+			ki.tcsetattr(parent.pid, slaveFd, { onlcr: false });
+
+			// Spawn child with PTY slave as all stdio
+			const child = ki.spawn("child-cmd", [], {
+				ppid: parent.pid,
+				stdinFd: slaveFd,
+				stdoutFd: slaveFd,
+				stderrFd: slaveFd,
+			});
+
+			// Child writes to stdout (FD 1, PTY slave) → parent reads from master
+			const childStdoutFd = 1;
+			ki.fdWrite(child.pid, childStdoutFd, new TextEncoder().encode("child output"));
+
+			const data = await ki.fdRead(parent.pid, masterFd, 1024);
+			expect(new TextDecoder().decode(data)).toBe("child output");
+
+			child.kill();
+			parent.kill();
+		});
+
+		it("PTY-based spawn: process termination via kill is visible to parent waitpid", async () => {
+			const driver = new MockRuntimeDriver(["parent-cmd", "child-cmd"], {
+				"parent-cmd": { neverExit: true },
+				"child-cmd": { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			const parent = kernel.spawn("parent-cmd", []);
+
+			const { masterFd, slaveFd } = ki.openpty(parent.pid);
+
+			const child = ki.spawn("child-cmd", [], {
+				ppid: parent.pid,
+				stdinFd: slaveFd,
+				stdoutFd: slaveFd,
+				stderrFd: slaveFd,
+			});
+
+			// Kill child → wait should resolve
+			child.kill();
+			const exitCode = await child.wait();
+			expect(exitCode).toBe(128 + 15); // SIGTERM (default signal from kill())
+
+			parent.kill();
+		});
+
+		it("PTY-based spawn: isatty returns true for child stdio FDs", async () => {
+			const driver = new MockRuntimeDriver(["parent-cmd", "child-cmd"], {
+				"parent-cmd": { neverExit: true },
+				"child-cmd": { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			const parent = kernel.spawn("parent-cmd", []);
+
+			const { masterFd, slaveFd } = ki.openpty(parent.pid);
+
+			const child = ki.spawn("child-cmd", [], {
+				ppid: parent.pid,
+				stdinFd: slaveFd,
+				stdoutFd: slaveFd,
+				stderrFd: slaveFd,
+			});
+
+			// Child's FD 0, 1, 2 are PTY slave → isatty should be true
+			expect(ki.isatty(child.pid, 0)).toBe(true);
+			expect(ki.isatty(child.pid, 1)).toBe(true);
+			expect(ki.isatty(child.pid, 2)).toBe(true);
+
+			child.kill();
+			parent.kill();
+		});
+	});
+
+	// -------------------------------------------------------------------
 	// PTY line discipline
 	// -------------------------------------------------------------------
 

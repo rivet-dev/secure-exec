@@ -3723,6 +3723,14 @@ name = "secureexec-tree"
 version = "0.1.0"
 
 [[package]]
+name = "secureexec-wasi-pty"
+version = "0.1.0"
+dependencies = [
+ "secureexec-wasi-spawn",
+ "wasi-ext",
+]
+
+[[package]]
 name = "secureexec-wasi-spawn"
 version = "0.1.0"
 dependencies = [

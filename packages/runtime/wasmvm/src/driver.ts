@@ -732,6 +732,13 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
           intResult = (pipeFds.readFd & 0xFFFF) | ((pipeFds.writeFd & 0xFFFF) << 16);
           break;
         }
+        case 'openpty': {
+          // pty_open → allocate PTY master/slave pair in this process's FD table
+          const ptyFds = kernel.openpty(pid);
+          // Pack master + slave FDs: low 16 bits = masterFd, high 16 bits = slaveFd
+          intResult = (ptyFds.masterFd & 0xFFFF) | ((ptyFds.slaveFd & 0xFFFF) << 16);
+          break;
+        }
         case 'fdDup': {
           intResult = kernel.fdDup(pid, msg.args.fd as number);
           break;

@@ -760,6 +760,41 @@ function createHostProcessImports(getMemory: () => WebAssembly.Memory | null) {
       Atomics.wait(buf, 0, 0, milliseconds);
       return ERRNO_SUCCESS;
     },
+
+    /**
+     * pty_open(ret_master_fd, ret_write_fd) -> errno
+     * Allocates a PTY master/slave pair via the kernel and installs both FDs.
+     * The slave FD is passed to proc_spawn as stdin/stdout/stderr for interactive use.
+     */
+    pty_open(ret_master_fd_ptr: number, ret_slave_fd_ptr: number): number {
+      if (isSpawnBlocked()) return ERRNO_EACCES;
+      const mem = getMemory();
+      if (!mem) return ERRNO_EINVAL;
+
+      const res = rpcCall('openpty', {});
+      if (res.errno !== 0) return res.errno;
+
+      // Master + slave kernel FDs packed: low 16 bits = masterFd, high 16 bits = slaveFd
+      const kernelMasterFd = res.intResult & 0xFFFF;
+      const kernelSlaveFd = (res.intResult >>> 16) & 0xFFFF;
+
+      // Register PTY FDs in local table (same pattern as fd_pipe)
+      const localMasterFd = fdTable.open(
+        { type: 'vfsFile', ino: 0, path: '' },
+        { filetype: FILETYPE_CHARACTER_DEVICE },
+      );
+      const localSlaveFd = fdTable.open(
+        { type: 'vfsFile', ino: 0, path: '' },
+        { filetype: FILETYPE_CHARACTER_DEVICE },
+      );
+      localToKernelFd.set(localMasterFd, kernelMasterFd);
+      localToKernelFd.set(localSlaveFd, kernelSlaveFd);
+
+      const view = new DataView(mem.buffer);
+      view.setUint32(ret_master_fd_ptr, localMasterFd, true);
+      view.setUint32(ret_slave_fd_ptr, localSlaveFd, true);
+      return ERRNO_SUCCESS;
+    },
   };
 }
 

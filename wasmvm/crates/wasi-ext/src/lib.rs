@@ -92,6 +92,13 @@ extern "C" {
     ///
     /// Blocks via Atomics.wait on the host side. Returns errno.
     fn sleep_ms(milliseconds: u32) -> Errno;
+
+    /// Allocate a pseudo-terminal (PTY) master/slave pair.
+    ///
+    /// On success, the master FD is written to `ret_master_fd` and the slave FD
+    /// to `ret_slave_fd`. Both ends are installed in the process's kernel FD table.
+    /// Returns errno.
+    fn pty_open(ret_master_fd: *mut u32, ret_slave_fd: *mut u32) -> Errno;
 }
 
 // ============================================================
@@ -262,6 +269,22 @@ pub fn host_sleep_ms(milliseconds: u32) -> Result<(), Errno> {
     let errno = unsafe { sleep_ms(milliseconds) };
     if errno == ERRNO_SUCCESS {
         Ok(())
+    } else {
+        Err(errno)
+    }
+}
+
+/// Allocate a pseudo-terminal (PTY) master/slave pair.
+///
+/// Returns `Ok((master_fd, slave_fd))` on success, `Err(errno)` on failure.
+/// The master FD is used to read output and write input.
+/// The slave FD is passed to a child process as its stdin/stdout/stderr.
+pub fn openpty() -> Result<(u32, u32), Errno> {
+    let mut master_fd: u32 = 0;
+    let mut slave_fd: u32 = 0;
+    let errno = unsafe { pty_open(&mut master_fd, &mut slave_fd) };
+    if errno == ERRNO_SUCCESS {
+        Ok((master_fd, slave_fd))
     } else {
         Err(errno)
     }
