@@ -3089,8 +3089,29 @@ PRD: ralph/kernel-hardening (46 stories)
   - packages/kernel/test/kernel-integration.test.ts — 4 new tests (cloexec spawn EBADF, no-cloexec inherit, fdSetCloexec then spawn, EBADF for invalid FD)
   - packages/kernel/test/resource-exhaustion.test.ts — added cloexec: false to testAllocDesc
 - **Learnings for future iterations:**
-  - Adding a field to FileDescription requires updating all creation sites: fd-table.ts allocDesc, pipe-manager.ts, pty.ts, and test fixtures
+  - cloexec is per-FD (on FDEntry), NOT per-FileDescription — dup/dup2 clear it on new FD; F_DUPFD_CLOEXEC and O_CLOEXEC set it
+- Adding a field to FileDescription requires updating all creation sites: fd-table.ts allocDesc, pipe-manager.ts, pty.ts, and test fixtures
   - O_CLOEXEC should be stripped from stored flags (it's a creation-time flag, not a persistent open flag)
   - Pre-existing typecheck error in resource-exhaustion.test.ts (`echo` possibly null) is unrelated
   - Pre-existing flaky PTY buffer test in resource-exhaustion.test.ts is unrelated
+---
+
+## 2026-03-20 - US-063
+- What was implemented: fcntl(pid, fd, cmd, arg?) supporting F_DUPFD, F_DUPFD_CLOEXEC, F_GETFD, F_SETFD, F_GETFL
+- Also moved cloexec from FileDescription (per-open-file-description) to FDEntry (per-FD) for POSIX correctness
+- Files changed:
+  - packages/kernel/src/types.ts — added fcntl constants (F_DUPFD, F_GETFD, F_SETFD, F_GETFL, F_DUPFD_CLOEXEC, FD_CLOEXEC), added fcntl to KernelInterface, moved cloexec from FileDescription to FDEntry
+  - packages/kernel/src/fd-table.ts — added dupMinFd method, added cloexec to all FDEntry creation sites, updated fork() to check entry.cloexec
+  - packages/kernel/src/kernel.ts — implemented fcntl in createKernelInterface, updated fdSetCloexec/fdGetCloexec to use entry.cloexec
+  - packages/kernel/src/index.ts — exported new fcntl constants
+  - packages/kernel/src/pipe-manager.ts — removed cloexec from FileDescription creation
+  - packages/kernel/src/pty.ts — removed cloexec from FileDescription creation
+  - packages/kernel/test/fd-table.test.ts — updated tests for per-FD cloexec, added dupMinFd and cloexec independence tests
+  - packages/kernel/test/kernel-integration.test.ts — added 6 fcntl integration tests
+  - packages/kernel/test/resource-exhaustion.test.ts — removed cloexec from test allocator
+- **Learnings for future iterations:**
+  - cloexec is per-FD (POSIX), not per-open-file-description — dup/dup2 clear cloexec on the new FD, F_DUPFD_CLOEXEC sets it only on the new FD
+  - This means cloexec must live on FDEntry, not FileDescription, so two duped FDs can have independent cloexec state
+  - F_DUPFD_CLOEXEC is 1030 (Linux value), not sequential with F_DUPFD (0)
+  - dup/dup2/dupMinFd always clear cloexec on new FD — only F_DUPFD_CLOEXEC and O_CLOEXEC set it
 ---
