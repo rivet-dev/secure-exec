@@ -672,8 +672,8 @@
         "Tests pass"
       ],
       "priority": 37,
-      "passes": false,
-      "notes": "This specifically tests tool execution round-trips, not just prompt\u2192response. The mock LLM must be configured to return tool_use responses that trigger Pi's built-in tools."
+      "passes": true,
+      "notes": "Completed. 5 tests verify tool execution round-trips: file_write (creates file, tool_result sent back), file_read (content returned in tool_result via fs bridge), bash success (stdout captured in tool_result), bash failure (exit code propagates in tool_result), multi-tool write+read (both tool_results flow back correctly). Fixed: bridged fs.promises.open() with minimal FileHandle to support Pi's image MIME detection. Added getReceivedBodies() to mock LLM server for tool_result content verification."
     },
     {
       "id": "US-038",

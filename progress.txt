@@ -8,6 +8,8 @@ PRD: ralph/kernel-hardening (46 stories)
 - globalThis.fetch/Headers/Request/Response are non-writable in the sandbox (exposeCustomGlobal uses writable:false, configurable:false) — cannot override from sandbox code; use network adapter redirect at host level instead
 - process.stdout.write(data, callback) callback must be called synchronously — Pi's runPrintMode awaits a Promise that resolves in the callback; if callback isn't called, the exec() hangs forever
 - Pi SDK uses Anthropic SDK which hardcodes baseURL from model config — ANTHROPIC_BASE_URL env var is overridden; must redirect via network adapter fetch() wrapper, not env var or fetch patch
+- Pi createAgentSession ignores custom tool implementations — options.tools only filters active tool names against internal allTools registry; cannot override tool behavior via SDK options
+- fs.promises.open() returns FileHandle (read/write/close/stat) wrapping existing openSync/readSync/closeSync — Pi's image MIME detection requires this
 - Pi CLI binary test: use PI_CODING_AGENT_DIR env var + models.json provider override to redirect API calls to mock server (Pi agent dir is at $PI_CODING_AGENT_DIR or ~/.pi/agent/, not ~/.pi/)
 - Docker containers on default bridge can reach each other by internal IP (docker inspect IPAddress), not by 127.0.0.1 host-mapped ports — use getContainerInternalIp() for cross-container tunnel destinations
 - process.exit() inside bridge callbacks (childProcessDispatch, timer refs) causes unhandled ProcessExitError — always await a Promise from the callback, then call process.exit() at the top-level await
@@ -3011,3 +3013,21 @@ PRD: ralph/kernel-hardening (46 stories)
   - Direct HostBinaryDriver approach (kernel.openShell dispatches to driver) is cleaner than intermediate node process approach (openShell runs node -e which spawns via child_process)
   - OpenCode uses kitty keyboard protocol — `\x1b[13u` for Enter key, not raw `\r`
   - XDG_DATA_HOME isolation prevents test pollution of real opencode config
+---
+
+## 2026-03-20 - US-037
+- Implemented Pi tool use round-trip tests verifying tool execution through sandbox bridges
+- 5 tests: file_write (creates file + tool_result), file_read (content in tool_result), bash success (stdout in tool_result), bash failure (exit code propagates), multi-tool write+read (both tool_results flow back)
+- Bridged fs.promises.open() with minimal FileHandle (read/write/close/stat) to support Pi's image MIME detection
+- Added getReceivedBodies() to mock LLM server for tool_result content verification
+- All 5 tests pass; typecheck passes
+- Files changed:
+  - packages/secure-exec-core/src/bridge/fs.ts (added fs.promises.open with FileHandle)
+  - packages/secure-exec/tests/cli-tools/mock-llm-server.ts (added request body capture)
+  - packages/secure-exec/tests/cli-tools/pi-tool-use.test.ts (new)
+  - scripts/ralph/prd.json (US-037 passes: true)
+- **Learnings for future iterations:**
+  - Pi's createAgentSession ignores custom tool implementations — options.tools only filters which tool names are active, it always uses its internal allTools registry
+  - Pi's read tool uses fs.promises.open() for image MIME type detection — without this bridge method, the read tool fails even for text files
+  - Mock LLM server getReceivedBodies() captures request bodies for verifying tool_result payloads flow back correctly
+  - fs.promises.open() FileHandle needs read/write/close/stat methods — openSync/readSync/closeSync already existed in the bridge, FileHandle wraps them
