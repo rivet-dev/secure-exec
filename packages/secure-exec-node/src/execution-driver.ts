@@ -121,21 +121,20 @@ export function composePostRestoreScript(config: {
 		payloadLimitErrorCode: config.payloadLimitErrorCode,
 	})});`);
 
+	// Reset mutable state from snapshot (no-op on fresh context, resets stale
+	// values on snapshot-restored context)
+	parts.push(`if (typeof globalThis.__runtimeResetProcessState === "function") globalThis.__runtimeResetProcessState();`);
+
 	return parts.join("\n");
 }
 
 /**
- * Compose the default bridge code for snapshot warm-up.
- * Uses timingMitigation='none' and default budget values so the snapshot
- * is ready for the most common session configuration.
+ * Compose the bridge code for snapshot warm-up.
+ * Returns only the static IIFE — the post-restore script is sent
+ * separately per-execution so the snapshot is config-independent.
  */
 export function composeBridgeCodeForWarmup(): string {
-	return composeStaticBridgeCode() + "\n" + composePostRestoreScript({
-		timingMitigation: "off",
-		frozenTimeMs: 0,
-		payloadLimitBytes: DEFAULT_ISOLATE_JSON_PAYLOAD_BYTES,
-		payloadLimitErrorCode: PAYLOAD_LIMIT_ERROR_CODE,
-	});
+	return composeStaticBridgeCode();
 }
 
 const MAX_ERROR_MESSAGE_CHARS = 8192;
@@ -274,12 +273,17 @@ export class NodeExecutionDriver implements RuntimeDriver {
 		});
 	}
 
-	/** Compose the full bridge code: static IIFE + per-execution post-restore script. */
-	private composeBridgeCode(
+	/** Compose the static bridge IIFE (no per-session config). */
+	private composeBridgeCode(): string {
+		return composeStaticBridgeCode();
+	}
+
+	/** Compose the per-execution post-restore script. */
+	private composePostRestore(
 		timingMitigation: TimingMitigation,
 		frozenTimeMs: number,
 	): string {
-		return composeStaticBridgeCode() + "\n" + composePostRestoreScript({
+		return composePostRestoreScript({
 			timingMitigation,
 			frozenTimeMs,
 			maxTimers: this.deps.maxTimers,
@@ -325,8 +329,9 @@ export class NodeExecutionDriver implements RuntimeDriver {
 			},
 		});
 
-		// Compose bridge code
-		const bridgeCode = this.composeBridgeCode(timingMitigation, frozenTimeMs);
+		// Compose bridge code and post-restore script (sent separately over IPC)
+		const bridgeCode = this.composeBridgeCode();
+		const postRestoreScript = this.composePostRestore(timingMitigation, frozenTimeMs);
 
 		// Transform user code (dynamic import → __dynamicImport)
 		const userCode = transformDynamicImport(options.code);
@@ -370,6 +375,7 @@ export class NodeExecutionDriver implements RuntimeDriver {
 			// Execute via V8 session
 			const result: V8ExecutionResult = await session.execute({
 				bridgeCode,
+				postRestoreScript,
 				userCode: fullUserCode,
 				mode: options.mode,
 				filePath: options.filePath,

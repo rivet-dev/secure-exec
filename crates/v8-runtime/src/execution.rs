@@ -237,6 +237,54 @@ fn run_bridge_cached(
     (0, None)
 }
 
+/// Run a short init script (e.g. post-restore config). Compiles and executes
+/// via v8::Script, returning (exit_code, error) on failure. No code caching.
+pub fn run_init_script(
+    scope: &mut v8::HandleScope,
+    code: &str,
+) -> (i32, Option<ExecutionError>) {
+    if code.is_empty() {
+        return (0, None);
+    }
+    let tc = &mut v8::TryCatch::new(scope);
+    let source = match v8::String::new(tc, code) {
+        Some(s) => s,
+        None => {
+            return (
+                1,
+                Some(ExecutionError {
+                    error_type: "Error".into(),
+                    message: "init script string too large for V8".into(),
+                    stack: String::new(),
+                    code: None,
+                }),
+            );
+        }
+    };
+    let script = match v8::Script::compile(tc, source, None) {
+        Some(s) => s,
+        None => {
+            return match tc.exception() {
+                Some(e) => {
+                    let (c, err) = exception_to_result(tc, e);
+                    (c, Some(err))
+                }
+                None => (1, None),
+            };
+        }
+    };
+    if script.run(tc).is_none() {
+        return match tc.exception() {
+            Some(e) => {
+                let (c, err) = exception_to_result(tc, e);
+                (c, Some(err))
+            }
+            None => (1, None),
+        };
+    }
+    (0, None)
+}
+
 /// Execute user code as a CJS script (mode='exec').
 ///
 /// Runs bridge_code as IIFE first (if non-empty), then compiles and runs user_code

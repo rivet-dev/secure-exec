@@ -114,6 +114,7 @@ declare global {
 				payloadLimitErrorCode?: string;
 		  }) => void)
 		| undefined;
+	var __runtimeResetProcessState: (() => void) | undefined;
 	var __runtimeProcessCwdOverride: unknown;
 	var __runtimeProcessEnvOverride: unknown;
 	var __runtimeStdinData: unknown;

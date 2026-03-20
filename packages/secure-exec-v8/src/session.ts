@@ -23,6 +23,8 @@ export interface V8ExecutionResult {
 export interface V8ExecutionOptions {
 	/** Bridge bundle IIFE to execute before user code. */
 	bridgeCode: string;
+	/** Post-restore config script — runs after bridge replacement, before user code. */
+	postRestoreScript?: string;
 	/** User code to execute. */
 	userCode: string;
 	/** Execution mode: 'exec' for CJS script, 'run' for ES module. */

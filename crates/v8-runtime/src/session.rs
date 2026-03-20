@@ -309,6 +309,7 @@ fn session_thread(
                     BinaryFrame::Execute {
                         session_id,
                         bridge_code,
+                        post_restore_script,
                         user_code,
                         mode,
                         file_path,
@@ -399,6 +400,30 @@ fn session_thread(
                                 &SYNC_BRIDGE_FNS,
                                 &ASYNC_BRIDGE_FNS,
                             );
+                        }
+
+                        // Run post-restore init script (config, mutable state reset)
+                        // after bridge fn replacement but before user code
+                        if !post_restore_script.is_empty() {
+                            let scope = &mut v8::HandleScope::new(iso);
+                            let ctx = v8::Local::new(scope, &exec_context);
+                            let scope = &mut v8::ContextScope::new(scope, ctx);
+                            let (prs_code, prs_err) = execution::run_init_script(scope, &post_restore_script);
+                            if prs_code != 0 {
+                                let result_frame = BinaryFrame::ExecutionResult {
+                                    session_id,
+                                    exit_code: prs_code,
+                                    exports: None,
+                                    error: prs_err.map(|e| ExecutionErrorBin {
+                                        error_type: e.error_type,
+                                        message: e.message,
+                                        stack: e.stack,
+                                        code: e.code.unwrap_or_default(),
+                                    }),
+                                };
+                                send_message(&ipc_tx, &result_frame, &mut msg_frame_buf);
+                                continue;
+                            }
                         }
 
                         // Start timeout guard before execution

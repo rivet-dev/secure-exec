@@ -73,6 +73,7 @@ describe("Host → Rust messages", () => {
 			mode: 0,
 			filePath: "",
 			bridgeCode: "(function(){ /* bridge */ })()",
+			postRestoreScript: "",
 			userCode: "console.log('hello')",
 		});
 	});
@@ -84,6 +85,7 @@ describe("Host → Rust messages", () => {
 			mode: 1,
 			filePath: "/app/index.mjs",
 			bridgeCode: "(function(){ /* bridge */ })()",
+			postRestoreScript: "",
 			userCode: "export default 42",
 		});
 	});
@@ -315,6 +317,7 @@ describe("framing validation", () => {
 				mode: 0,
 				filePath: "",
 				bridgeCode: "bridge()",
+				postRestoreScript: "",
 				userCode: "1+1",
 			},
 			{ type: "DestroySession", sessionId: "a" },
@@ -379,6 +382,7 @@ describe("session_id extraction", () => {
 					mode: 0,
 					filePath: "",
 					bridgeCode: "",
+					postRestoreScript: "",
 					userCode: "",
 				},
 				"sess-exec",
@@ -470,6 +474,7 @@ describe("wire format interop", () => {
 					mode: 0,
 					filePath: "",
 					bridgeCode: "",
+					postRestoreScript: "",
 					userCode: "",
 				},
 				0x05,

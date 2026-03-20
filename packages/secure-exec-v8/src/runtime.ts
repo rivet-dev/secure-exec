@@ -389,6 +389,7 @@ export async function createV8Runtime(
 						type: "Execute",
 						sessionId,
 						bridgeCode: sendBridgeCode ? execOptions.bridgeCode : "",
+						postRestoreScript: execOptions.postRestoreScript ?? "",
 						userCode: execOptions.userCode,
 						mode: execOptions.mode === "exec" ? 0 : 1,
 						filePath: execOptions.filePath ?? "",

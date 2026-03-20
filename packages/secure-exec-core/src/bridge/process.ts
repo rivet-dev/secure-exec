@@ -113,8 +113,8 @@ function getNowMs(): number {
     : Date.now();
 }
 
-// Start time for uptime calculation
-const _processStartTime = getNowMs();
+// Start time for uptime calculation (mutable for snapshot restore)
+let _processStartTime = getNowMs();
 
 const BUFFER_MAX_LENGTH =
   typeof (BufferPolyfill as unknown as { kMaxLength?: unknown }).kMaxLength ===
@@ -155,6 +155,19 @@ if (
 // Exit code tracking
 let _exitCode = 0;
 let _exited = false;
+
+// Expose reset function for snapshot restore — resets mutable state
+// captured in this closure so each restored context starts fresh.
+(globalThis as Record<string, unknown>).__runtimeResetProcessState =
+  function () {
+    _processStartTime =
+      typeof performance !== "undefined" && performance.now
+        ? performance.now()
+        : Date.now();
+    _exitCode = 0;
+    _exited = false;
+    delete (globalThis as Record<string, unknown>).__runtimeResetProcessState;
+  };
 
 /**
  * Thrown by `process.exit()` to unwind the sandbox call stack. The host

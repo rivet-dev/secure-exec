@@ -60,6 +60,7 @@ pub enum BinaryFrame {
         mode: u8, // 0 = exec, 1 = run
         file_path: String,
         bridge_code: String,
+        post_restore_script: String,
         user_code: String,
     },
     BridgeResponse {
@@ -224,6 +225,7 @@ fn encode_body(buf: &mut Vec<u8>, frame: &BinaryFrame) -> io::Result<()> {
             mode,
             file_path,
             bridge_code,
+            post_restore_script,
             user_code,
         } => {
             buf.push(MSG_EXECUTE);
@@ -235,6 +237,10 @@ fn encode_body(buf: &mut Vec<u8>, frame: &BinaryFrame) -> io::Result<()> {
             let bc_bytes = bridge_code.as_bytes();
             buf.extend_from_slice(&(bc_bytes.len() as u32).to_be_bytes());
             buf.extend_from_slice(bc_bytes);
+            // post_restore_script length (u32 BE)
+            let prs_bytes = post_restore_script.as_bytes();
+            buf.extend_from_slice(&(prs_bytes.len() as u32).to_be_bytes());
+            buf.extend_from_slice(prs_bytes);
             // user_code (rest of frame)
             buf.extend_from_slice(user_code.as_bytes());
         }
@@ -377,6 +383,8 @@ fn decode_body(buf: &[u8]) -> io::Result<BinaryFrame> {
             let file_path = read_utf8(buf, &mut pos, fp_len)?;
             let bc_len = read_u32(buf, &mut pos)? as usize;
             let bridge_code = read_utf8(buf, &mut pos, bc_len)?;
+            let prs_len = read_u32(buf, &mut pos)? as usize;
+            let post_restore_script = read_utf8(buf, &mut pos, prs_len)?;
             let remaining = buf.len() - pos;
             let user_code = read_utf8(buf, &mut pos, remaining)?;
             Ok(BinaryFrame::Execute {
@@ -384,6 +392,7 @@ fn decode_body(buf: &[u8]) -> io::Result<BinaryFrame> {
                 mode,
                 file_path,
                 bridge_code,
+                post_restore_script,
                 user_code,
             })
         }
@@ -640,6 +649,7 @@ mod tests {
             mode: 0,
             file_path: "".into(),
             bridge_code: "(function(){ /* bridge */ })()".into(),
+            post_restore_script: "".into(),
             user_code: "console.log('hello')".into(),
         });
     }
@@ -651,6 +661,7 @@ mod tests {
             mode: 1,
             file_path: "/app/index.mjs".into(),
             bridge_code: "(function(){ /* bridge */ })()".into(),
+            post_restore_script: "__runtimeApplyConfig({})".into(),
             user_code: "export default 42".into(),
         });
     }
@@ -900,6 +911,7 @@ mod tests {
                 mode: 0,
                 file_path: "".into(),
                 bridge_code: "bridge()".into(),
+                post_restore_script: "".into(),
                 user_code: "1+1".into(),
             },
             BinaryFrame::DestroySession {
@@ -989,6 +1001,7 @@ mod tests {
                 mode: 0,
                 file_path: "".into(),
                 bridge_code: "".into(),
+                post_restore_script: "".into(),
                 user_code: "".into(),
             },
             BinaryFrame::BridgeResponse {
@@ -1085,6 +1098,7 @@ mod tests {
                     mode: 0,
                     file_path: "".into(),
                     bridge_code: "".into(),
+                    post_restore_script: "".into(),
                     user_code: "".into(),
                 },
                 0x05,
@@ -1354,6 +1368,7 @@ mod tests {
             mode: 0,
             file_path: long_path,
             bridge_code: "".into(),
+            post_restore_script: "".into(),
             user_code: "".into(),
         };
         let result = frame_to_bytes(&frame);
