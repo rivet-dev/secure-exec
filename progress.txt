@@ -3492,3 +3492,28 @@ PRD: ralph/kernel-hardening (46 stories)
   - Driver auto-discovers commands via commandDirs — adding to WASMVM_COMMANDS is only for legacy mode fallback
   - DEFAULT_FIRST_PARTY_TIERS in driver.ts must set 'full' for any command that spawns subprocesses (like make)
 ---
+
+## 2026-03-20 - US-084
+- What was implemented: Basic make test suite with 9 tests covering all acceptance criteria
+- Tests added to packages/runtime/wasmvm/test/make.test.ts:
+  - Simple Makefile with one target and recipe
+  - Variable expansion (VAR=value, $(VAR))
+  - Automatic variable $@ (target name)
+  - Automatic variables $< (first prereq) and $^ (all prereqs)
+  - Dependency ordering (prerequisite built before target)
+  - .PHONY target execution
+  - Multiple targets via all
+  - Recipe failure detection (non-zero exit stops make)
+  - -f flag for alternate Makefile path
+- All tests use -C /work to set working directory and write Makefiles to VFS
+- Tests skip when WASM binaries aren't built (skipIf pattern)
+- Files changed:
+  - packages/runtime/wasmvm/test/make.test.ts (new)
+  - scripts/ralph/prd.json (US-084 passes: true)
+- **Learnings for future iterations:**
+  - make tests follow same pattern as sqlite3: SimpleVFS + createKernel + createWasmVmRuntime with commandDirs
+  - Use -C /work flag to change make's working directory to where Makefile lives in VFS
+  - Recipes in Makefiles must use tab indentation (not spaces) — join lines with \t prefix
+  - For dependency ordering tests, check relative positions in stdout rather than exact output matching
+  - Recipe failure tests: use `false` command (available in WasmVM) to produce non-zero exit
+---
