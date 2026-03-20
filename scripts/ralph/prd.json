@@ -519,7 +519,7 @@
       ],
       "priority": 29,
       "passes": false,
-      "notes": "Significant framework fixes applied: removed duplicate _netModule global, pnpm transitive dep resolution via workspace root moduleAccess, ESM star export deconfliction, import.meta.url polyfill, comprehensive fs/stream ESM exports, CJS wrapper const\u2192let fix, stream/web handler, sandboxToHostPath for sync resolver. Pi test skips with clear reason: V8 ESM 'Not supported' from deep dependency chain. Test infrastructure is fully in place and will pass once remaining ESM compat gap is resolved."
+      "notes": "HIGHEST PRIORITY. Remaining blocker: V8 ESM 'Not supported' error from deep in Pi's dependency evaluation chain. Need to investigate which specific V8 module API is unsupported in isolated-vm and fix the ESM bridge gap. Significant framework fixes already applied: removed duplicate _netModule global, pnpm transitive dep resolution via workspace root moduleAccess, ESM star export deconfliction, import.meta.url polyfill, comprehensive fs/stream ESM exports, CJS wrapper const\u2192let fix, stream/web handler, sandboxToHostPath for sync resolver. Test infrastructure is fully in place and will pass once remaining ESM compat gap is resolved."
     },
     {
       "id": "US-030",
