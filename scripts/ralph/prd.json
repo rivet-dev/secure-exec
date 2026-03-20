@@ -809,8 +809,8 @@
         "Typecheck passes"
       ],
       "priority": 48,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added SessionBuffers with pre-allocated ser_buf (Vec<u8>) per session for V8 ValueSerializer output. serialize_v8_value_into() copies V8 output into reusable buffer that grows to high-water mark. encode_frame_into() writes length-prefixed frames into provided buffer, eliminating intermediate body+result double-allocation in frame_to_bytes. ChannelFrameSender now holds a reusable frame_buf (RefCell<Vec<u8>>) for frame construction. send_message in session.rs uses per-session msg_frame_buf. 5 new tests for buffer reuse, high-water mark, and correctness."
     }
   ]
 }

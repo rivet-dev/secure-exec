@@ -2601,3 +2601,25 @@ PRD: ralph/kernel-hardening (46 stories)
   - Existing ESM test (Part 30) must prepend a _batchResolveModules response since prefetch consumes call_id=1 before individual resolve callbacks run
   - Thread-local MODULE_RESOLVE_STATE borrows must be brief — no V8 operations while RefCell is borrowed
 ---
+
+## 2026-03-19 - US-048
+- Implemented per-session pre-allocated V8 serialization buffers
+- Added SessionBuffers struct (bridge.rs) with ser_buf: Vec<u8> for V8 ValueSerializer output
+- Added serialize_v8_value_into() that copies V8 serializer output into reusable buffer
+- Added encode_frame_into() (ipc_binary.rs) that writes length-prefixed frames into provided buffer, eliminating double-allocation in frame_to_bytes
+- Updated ChannelFrameSender with reusable frame_buf (RefCell<Vec<u8>>), clone for channel send
+- Updated session.rs: SessionBuffers per execution, msg_frame_buf for send_message
+- Updated sync_bridge_callback and async_bridge_callback to use SessionBuffers via pointer in External data
+- Files changed:
+  - crates/v8-runtime/src/bridge.rs — SessionBuffers struct, serialize_v8_value_into, serialize_v8_args_into, buffers pointer in SyncBridgeFnData/AsyncBridgeFnData
+  - crates/v8-runtime/src/ipc_binary.rs — encode_frame_into(); frame_to_bytes reimplemented in terms of it; 3 new tests
+  - crates/v8-runtime/src/host_call.rs — ChannelFrameSender::new() with frame_buf, updated send_frame; 1 new test
+  - crates/v8-runtime/src/session.rs — session_buffers + msg_frame_buf per-session, passed to bridge registration and send_message
+  - crates/v8-runtime/src/execution.rs — session_buffers added to all 21 test register call sites; 2 new test parts (57-58)
+  - scripts/ralph/prd.json — marked US-048 passes: true
+- **Learnings for future iterations:**
+  - rusty_v8 ValueSerializer hardcodes alloc/realloc in ReallocateBufferMemory (not customizable via ValueSerializerImpl trait) — can't avoid V8's internal buffer allocation, but can reuse our own output buffer
+  - frame_to_bytes had a double-allocation pattern (body Vec + result Vec) — encode_frame_into eliminates this by writing header placeholder + body into single buffer
+  - ChannelFrameSender.send_frame takes &self (not &mut self) because it's shared via BridgeCallContext — use RefCell for interior mutability on frame buffer
+  - V8 callbacks access session-level state via raw pointers in External data — SessionBuffers pointer added alongside BridgeCallContext pointer
+---
