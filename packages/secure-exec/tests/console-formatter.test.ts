@@ -94,4 +94,76 @@ describe("console formatter", () => {
 		expect(stdout[0]).toContain("[Circular]");
 		expect(stderr[0]).toContain("[Circular]");
 	});
+
+	it("console.debug routes to _log (stdout)", () => {
+		const stdout: string[] = [];
+		const stderr: string[] = [];
+		const context = createContext({
+			_log: (msg: unknown) => {
+				stdout.push(String(msg));
+			},
+			_error: (msg: unknown) => {
+				stderr.push(String(msg));
+			},
+		});
+
+		runInContext(getConsoleSetupCode(), context);
+		runInContext(`console.debug("debug-msg");`, context);
+
+		expect(stdout).toHaveLength(1);
+		expect(stdout[0]).toContain("debug-msg");
+		expect(stderr).toHaveLength(0);
+	});
+
+	it("console.trace routes to _error (stderr)", () => {
+		const stdout: string[] = [];
+		const stderr: string[] = [];
+		const context = createContext({
+			_log: (msg: unknown) => {
+				stdout.push(String(msg));
+			},
+			_error: (msg: unknown) => {
+				stderr.push(String(msg));
+			},
+		});
+
+		runInContext(getConsoleSetupCode(), context);
+		runInContext(`console.trace("trace-msg");`, context);
+
+		expect(stderr).toHaveLength(1);
+		expect(stderr[0]).toContain("trace-msg");
+		expect(stdout).toHaveLength(0);
+	});
+
+	it("console.dir routes to _log (stdout)", () => {
+		const stdout: string[] = [];
+		const context = createContext({
+			_log: (msg: unknown) => {
+				stdout.push(String(msg));
+			},
+			_error: () => {},
+		});
+
+		runInContext(getConsoleSetupCode(), context);
+		runInContext(`console.dir({ key: "val" });`, context);
+
+		expect(stdout).toHaveLength(1);
+		expect(stdout[0]).toContain("key");
+	});
+
+	it("console.table routes to _log (stdout)", () => {
+		const stdout: string[] = [];
+		const context = createContext({
+			_log: (msg: unknown) => {
+				stdout.push(String(msg));
+			},
+			_error: () => {},
+		});
+
+		runInContext(getConsoleSetupCode(), context);
+		runInContext(`console.table([{ a: 1 }, { a: 2 }]);`, context);
+
+		expect(stdout).toHaveLength(1);
+		expect(stdout[0]).toContain("1");
+	});
 });

@@ -192,6 +192,10 @@ export function getConsoleSetupCode(
         error: (...args) => _error(formatConsoleArgs(args, __consoleBudget)),
         warn: (...args) => _error(formatConsoleArgs(args, __consoleBudget)),
         info: (...args) => _log(formatConsoleArgs(args, __consoleBudget)),
+        debug: (...args) => _log(formatConsoleArgs(args, __consoleBudget)),
+        trace: (...args) => _error(formatConsoleArgs(args, __consoleBudget)),
+        dir: (...args) => _log(formatConsoleArgs(args, __consoleBudget)),
+        table: (...args) => _log(formatConsoleArgs(args, __consoleBudget)),
       };
     `;
 }

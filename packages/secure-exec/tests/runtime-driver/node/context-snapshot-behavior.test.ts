@@ -147,6 +147,26 @@ describe("context snapshot behavior", () => {
 			expect(result.code).toBe(0);
 			expect(capture.stdout()).toContain("[Circular]");
 		});
+
+		it("console.debug routes to stdout", async () => {
+			const capture = createConsoleCapture();
+			proc = createTestNodeRuntime({ onStdio: capture.onStdio });
+
+			const result = await proc.exec(`console.debug("debug-output");`);
+
+			expect(result.code).toBe(0);
+			expect(capture.stdout()).toContain("debug-output");
+		});
+
+		it("console.trace routes to stderr", async () => {
+			const capture = createConsoleCapture();
+			proc = createTestNodeRuntime({ onStdio: capture.onStdio });
+
+			const result = await proc.exec(`console.trace("trace-output");`);
+
+			expect(result.code).toBe(0);
+			expect(capture.stderr()).toContain("trace-output");
+		});
 	});
 
 	// -------------------------------------------------------------------
