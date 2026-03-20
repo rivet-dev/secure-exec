@@ -3366,3 +3366,20 @@ PRD: ralph/kernel-hardening (46 stories)
   - WASM binary size for zip is ~77KB (after wasm-opt -O3 --strip-debug)
   - COMMANDS list in Makefile controls which C programs get installed to the commands dir
 ---
+
+## 2026-03-20 - US-077
+- Implemented unzip command wrapping minizip for ZIP archive extraction
+- Created comprehensive zip/unzip integration test suite (5 tests)
+- Files changed:
+  - wasmvm/c/programs/unzip.c — CLI wrapper for minizip unzip API (extract all, extract to dir, list contents)
+  - wasmvm/c/Makefile — added unzip to COMMANDS list, added MINIZIP_UNZIP_SRCS and build rules
+  - packages/runtime/wasmvm/src/driver.ts — added 'unzip' to WASMVM_COMMANDS
+  - packages/runtime/wasmvm/test/zip-unzip.test.ts — 5 integration tests: roundtrip, recursive dir, list mode, binary content preservation, extract-to-dir
+  - docs/wasmvm/supported-commands.md — added unzip entry, updated compression count 5→6, total 97→98
+- **Learnings for future iterations:**
+  - minizip has separate zip.c/zip.h (creation) and unzip.c/unzip.h (extraction) — they share ioapi.c but use different library source files
+  - unzGetGlobalInfo + unzGoToNextFile + unzGetCurrentFileInfo + unzOpenCurrentFile + unzReadCurrentFile is the full read pipeline
+  - MINIZIP_UNZIP_SRCS only needs ioapi.c + unzip.c (not zip.c) — keeps binary smaller
+  - mkdirs() helper needed for creating parent directories when extracting nested files
+  - zip-unzip integration tests are skipIf(!hasWasmBinaries) gated — they check for both zip and unzip binary existence
+---
