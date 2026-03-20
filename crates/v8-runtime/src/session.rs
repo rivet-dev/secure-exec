@@ -262,6 +262,13 @@ fn session_thread(
     #[cfg(not(test))]
     let mut _v8_context: Option<v8::Global<v8::Context>> = None;
 
+    // Whether the isolate was created from a context snapshot.
+    // When true, Execute uses the snapshot's default context (bridge IIFE
+    // already executed) and skips re-running the bridge code. Bridge function
+    // stubs in the snapshot are replaced with real session-local functions.
+    #[cfg(not(test))]
+    let mut from_snapshot = false;
+
     #[cfg(not(test))]
     let pending = bridge::PendingPromises::new();
 
@@ -320,6 +327,7 @@ fn session_thread(
                             let mut iso = if !effective_bridge_code.is_empty() {
                                 match snapshot_cache.get_or_create(&effective_bridge_code) {
                                     Ok(blob) => {
+                                        from_snapshot = true;
                                         snapshot::create_isolate_from_snapshot((*blob).clone(), heap_limit_mb)
                                     }
                                     Err(e) => {
@@ -339,10 +347,13 @@ fn session_thread(
 
                         let iso = v8_isolate.as_mut().unwrap();
 
-                        // Create a fresh V8 context per execution (clean global scope)
+                        // Create execution context: Context::new on a snapshot-restored
+                        // isolate gives a fresh clone of the snapshot's default context
+                        // (bridge IIFE already executed, all infrastructure set up).
+                        // On a non-snapshot isolate, this gives a blank context.
                         let exec_context = isolate::create_context(iso);
 
-                        // Inject globals from last InjectGlobals payload into the fresh context
+                        // Inject globals from last InjectGlobals payload
                         if let Some(ref payload) = last_globals_payload {
                             let scope = &mut v8::HandleScope::new(iso);
                             let ctx = v8::Local::new(scope, &exec_context);
@@ -370,7 +381,9 @@ fn session_thread(
                             Arc::clone(&call_id_router),
                         );
 
-                        // Register sync and async bridge functions
+                        // Replace stub bridge functions with real session-local ones
+                        // (on snapshot context) or register from scratch (on fresh context).
+                        // Both paths use the same function — global.set() works for both.
                         let _sync_store;
                         let _async_store;
                         {
@@ -378,18 +391,12 @@ fn session_thread(
                             let ctx = v8::Local::new(scope, &exec_context);
                             let scope = &mut v8::ContextScope::new(scope, ctx);
 
-                            _sync_store = bridge::register_sync_bridge_fns(
-                                scope,
-                                &bridge_ctx as *const BridgeCallContext,
-                                &session_buffers as *const std::cell::RefCell<bridge::SessionBuffers>,
-                                &SYNC_BRIDGE_FNS,
-                            );
-
-                            _async_store = bridge::register_async_bridge_fns(
+                            (_sync_store, _async_store) = bridge::replace_bridge_fns(
                                 scope,
                                 &bridge_ctx as *const BridgeCallContext,
                                 &pending as *const bridge::PendingPromises,
                                 &session_buffers as *const std::cell::RefCell<bridge::SessionBuffers>,
+                                &SYNC_BRIDGE_FNS,
                                 &ASYNC_BRIDGE_FNS,
                             );
                         }
@@ -403,14 +410,17 @@ fn session_thread(
                             _ => None,
                         };
 
-                        // Execute code (fresh context per execution)
+                        // On snapshot-restored context, skip bridge IIFE (already in
+                        // snapshot) and run user code only. On fresh context, run full
+                        // bridge code + user code as before.
+                        let bridge_code_for_exec = if from_snapshot { "" } else { &effective_bridge_code };
                         let file_path_opt = if file_path.is_empty() { None } else { Some(file_path.as_str()) };
                         let (code, exports, error) = if mode == 0 {
                             let scope = &mut v8::HandleScope::new(iso);
                             let ctx = v8::Local::new(scope, &exec_context);
                             let scope = &mut v8::ContextScope::new(scope, ctx);
                             let (c, e) =
-                                execution::execute_script(scope, &effective_bridge_code, &user_code, &mut bridge_cache);
+                                execution::execute_script(scope, bridge_code_for_exec, &user_code, &mut bridge_cache);
                             (c, None, e)
                         } else {
                             let scope = &mut v8::HandleScope::new(iso);
@@ -419,7 +429,7 @@ fn session_thread(
                             execution::execute_module(
                                 scope,
                                 &bridge_ctx,
-                                &effective_bridge_code,
+                                bridge_code_for_exec,
                                 &user_code,
                                 file_path_opt,
                                 &mut bridge_cache,

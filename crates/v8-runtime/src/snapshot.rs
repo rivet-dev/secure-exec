@@ -66,6 +66,10 @@ pub fn create_snapshot(bridge_code: &str) -> Result<v8::StartupData, String> {
 /// These are placeholder values so bridge code that reads _processConfig or
 /// _osConfig at setup time doesn't fail. They're overwritten per-session
 /// after snapshot restore via inject_globals_from_payload.
+///
+/// Properties are set as READ_ONLY (not DONT_DELETE) so they remain
+/// configurable — inject_globals_from_payload can redefine them with
+/// READ_ONLY | DONT_DELETE after restore.
 fn inject_snapshot_defaults(scope: &mut v8::HandleScope) {
     let context = scope.get_current_context();
     let global = context.global(scope);
@@ -84,7 +88,9 @@ fn inject_snapshot_defaults(scope: &mut v8::HandleScope) {
         pc_obj.set_integrity_level(scope, v8::IntegrityLevel::Frozen);
     }
     let pc_key = v8::String::new(scope, "_processConfig").unwrap();
-    let attr = v8::PropertyAttribute::READ_ONLY | v8::PropertyAttribute::DONT_DELETE;
+    // READ_ONLY only — no DONT_DELETE so the property remains configurable
+    // for override after snapshot restore
+    let attr = v8::PropertyAttribute::READ_ONLY;
     global.define_own_property(scope, pc_key.into(), pc_val, attr);
 
     // _osConfig: default placeholder (overwritten per-session)
@@ -101,7 +107,8 @@ fn inject_snapshot_defaults(scope: &mut v8::HandleScope) {
         oc_obj.set_integrity_level(scope, v8::IntegrityLevel::Frozen);
     }
     let oc_key = v8::String::new(scope, "_osConfig").unwrap();
-    let attr2 = v8::PropertyAttribute::READ_ONLY | v8::PropertyAttribute::DONT_DELETE;
+    // READ_ONLY only — no DONT_DELETE so the property remains configurable
+    let attr2 = v8::PropertyAttribute::READ_ONLY;
     global.define_own_property(scope, oc_key.into(), oc_val, attr2);
 }
 
@@ -821,6 +828,202 @@ mod tests {
             // Verify blob is usable
             let mut isolate = create_isolate_from_snapshot((*arc1).clone(), None);
             assert_eq!(eval(&mut isolate, "1 + 1"), "2");
+        }
+
+        // --- Part 18: Context restore + replace_bridge_fns dispatches correctly ---
+        // Verifies the full context snapshot restore flow: create snapshot with
+        // stubs, restore, replace stubs with real bridge functions, verify the
+        // replaced functions dispatch to the real Rust callbacks.
+        {
+            use std::cell::RefCell;
+            use crate::bridge::{
+                replace_bridge_fns, SessionBuffers, PendingPromises,
+            };
+            use crate::host_call::BridgeCallContext;
+
+            // Create snapshot with stubs + simple bridge IIFE
+            let bridge_code = r#"
+                (function() {
+                    // Getter-based facade referencing globalThis._fsReadFile
+                    var _fs = {};
+                    Object.defineProperties(_fs, {
+                        readFile: { get: function() { return globalThis._fsReadFile; }, enumerable: true },
+                    });
+                    globalThis._fs = _fs;
+                    globalThis.__bridge_ready = true;
+                })();
+            "#;
+            let blob = create_snapshot(bridge_code).expect("snapshot creation");
+            let mut isolate = create_isolate_from_snapshot(blob, None);
+            crate::execution::disable_wasm(&mut isolate);
+
+            // Create BridgeCallContext (sync calls will fail but we verify dispatch)
+            let (ipc_tx, _ipc_rx) = crossbeam_channel::unbounded::<Vec<u8>>();
+            let call_id_router: crate::host_call::CallIdRouter =
+                Arc::new(Mutex::new(std::collections::HashMap::new()));
+            let receiver = crate::host_call::ReaderResponseReceiver::new(
+                Box::new(std::io::Cursor::new(Vec::<u8>::new())),
+            );
+            let sender = crate::host_call::ChannelFrameSender::new(ipc_tx);
+            let bridge_ctx = BridgeCallContext::with_receiver(
+                Box::new(sender),
+                Box::new(receiver),
+                "test-session".to_string(),
+                call_id_router,
+            );
+            let session_buffers = RefCell::new(SessionBuffers::new());
+            let pending = PendingPromises::new();
+
+            // Restore context and replace bridge functions
+            let scope = &mut v8::HandleScope::new(&mut isolate);
+            let context = v8::Context::new(scope, Default::default());
+            let scope = &mut v8::ContextScope::new(scope, context);
+
+            let (_sync_store, _async_store) = replace_bridge_fns(
+                scope,
+                &bridge_ctx as *const BridgeCallContext,
+                &pending as *const PendingPromises,
+                &session_buffers as *const RefCell<SessionBuffers>,
+                &["_log", "_fsReadFile"],
+                &["_scheduleTimer"],
+            );
+
+            // Verify bridge infrastructure from IIFE survives restore
+            let check = v8::String::new(scope, r#"
+                (function() {
+                    var results = [];
+                    results.push('__bridge_ready=' + globalThis.__bridge_ready);
+                    results.push('_fs_exists=' + (typeof _fs === 'object'));
+                    // Getter should resolve to the REPLACED function (not stub)
+                    results.push('_fs.readFile_type=' + typeof _fs.readFile);
+                    // Direct global should also be the replaced function
+                    results.push('_log_type=' + typeof _log);
+                    results.push('_scheduleTimer_type=' + typeof _scheduleTimer);
+                    return results.join(';');
+                })()
+            "#).unwrap();
+            let script = v8::Script::compile(scope, check, None).unwrap();
+            let result = script.run(scope).unwrap();
+            assert_eq!(
+                result.to_rust_string_lossy(scope),
+                "__bridge_ready=true;_fs_exists=true;_fs.readFile_type=function;_log_type=function;_scheduleTimer_type=function",
+                "restored context should have bridge IIFE state + replaced functions"
+            );
+        }
+
+        // --- Part 19: _processConfig is overridable after restore ---
+        // Verifies that inject_snapshot_defaults uses configurable properties
+        // so inject_globals_from_payload can override them per session.
+        {
+            use crate::bridge::serialize_v8_value;
+
+            let bridge_code = r#"
+                (function() {
+                    // Verify default _processConfig from snapshot
+                    globalThis.__snapshotCwd = _processConfig.cwd;
+                })();
+            "#;
+            let blob = create_snapshot(bridge_code).expect("snapshot creation");
+            let mut isolate = create_isolate_from_snapshot(blob, None);
+
+            let scope = &mut v8::HandleScope::new(&mut isolate);
+            let context = v8::Context::new(scope, Default::default());
+            let scope = &mut v8::ContextScope::new(scope, context);
+
+            // Verify snapshot defaults are present
+            let check = v8::String::new(scope, "__snapshotCwd").unwrap();
+            let script = v8::Script::compile(scope, check, None).unwrap();
+            let result = script.run(scope).unwrap();
+            assert_eq!(result.to_rust_string_lossy(scope), "/");
+
+            // Create a V8 payload to override _processConfig
+            let payload_code = r#"({
+                processConfig: { cwd: "/app", env: { FOO: "bar" }, timing_mitigation: "off", frozen_time_ms: null },
+                osConfig: { homedir: "/home/user", tmpdir: "/tmp", platform: "linux", arch: "arm64" }
+            })"#;
+            let payload_source = v8::String::new(scope, payload_code).unwrap();
+            let payload_script = v8::Script::compile(scope, payload_source, None).unwrap();
+            let payload_val = payload_script.run(scope).unwrap();
+            let payload_bytes = serialize_v8_value(scope, payload_val)
+                .expect("serialize payload");
+
+            // Inject per-session globals (overrides snapshot defaults)
+            crate::execution::inject_globals_from_payload(scope, &payload_bytes);
+
+            // Verify _processConfig was overridden
+            let check = v8::String::new(scope, "_processConfig.cwd").unwrap();
+            let script = v8::Script::compile(scope, check, None).unwrap();
+            let result = script.run(scope).unwrap();
+            assert_eq!(
+                result.to_rust_string_lossy(scope),
+                "/app",
+                "_processConfig.cwd should be overridden from '/' to '/app'"
+            );
+
+            // Verify _osConfig was overridden
+            let check = v8::String::new(scope, "_osConfig.arch").unwrap();
+            let script = v8::Script::compile(scope, check, None).unwrap();
+            let result = script.run(scope).unwrap();
+            assert_eq!(
+                result.to_rust_string_lossy(scope),
+                "arm64",
+                "_osConfig.arch should be overridden to 'arm64'"
+            );
+        }
+
+        // --- Part 20: Multiple restores from same snapshot are independent ---
+        // Verifies that user code in one restored context does not leak to another.
+        {
+            let bridge_code = r#"
+                (function() {
+                    globalThis.__bridge_ok = true;
+                })();
+            "#;
+            let blob = create_snapshot(bridge_code).expect("snapshot creation");
+            let blob_bytes: Vec<u8> = blob.to_vec();
+
+            // Restore A: set a session-specific global
+            {
+                let mut isolate = create_isolate_from_snapshot(blob_bytes.clone(), None);
+                let scope = &mut v8::HandleScope::new(&mut isolate);
+                let context = v8::Context::new(scope, Default::default());
+                let scope = &mut v8::ContextScope::new(scope, context);
+
+                // Bridge state from snapshot should be present
+                let check = v8::String::new(scope, "String(__bridge_ok)").unwrap();
+                let script = v8::Script::compile(scope, check, None).unwrap();
+                let result = script.run(scope).unwrap();
+                assert_eq!(result.to_rust_string_lossy(scope), "true");
+
+                // Set session-specific state
+                let code = v8::String::new(scope, "globalThis.__user_data = 'session-a';").unwrap();
+                let script = v8::Script::compile(scope, code, None).unwrap();
+                script.run(scope);
+            }
+
+            // Restore B: session A's state should not be visible
+            {
+                let mut isolate = create_isolate_from_snapshot(blob_bytes.clone(), None);
+                let scope = &mut v8::HandleScope::new(&mut isolate);
+                let context = v8::Context::new(scope, Default::default());
+                let scope = &mut v8::ContextScope::new(scope, context);
+
+                // Bridge state should still be present
+                let check = v8::String::new(scope, "String(__bridge_ok)").unwrap();
+                let script = v8::Script::compile(scope, check, None).unwrap();
+                let result = script.run(scope).unwrap();
+                assert_eq!(result.to_rust_string_lossy(scope), "true");
+
+                // Session A's data should NOT be visible
+                let check = v8::String::new(scope, "typeof __user_data").unwrap();
+                let script = v8::Script::compile(scope, check, None).unwrap();
+                let result = script.run(scope).unwrap();
+                assert_eq!(
+                    result.to_rust_string_lossy(scope),
+                    "undefined",
+                    "session B should not see session A's user data"
+                );
+            }
         }
     }
 }

@@ -410,6 +410,25 @@ fn async_bridge_callback(
     rv.set(promise.into());
 }
 
+/// Replace stub bridge functions on a snapshot-restored context with real
+/// session-local bridge functions. Overwrites the 38 stub globals with
+/// functions backed by session-local BridgeCallContext and SessionBuffers.
+///
+/// Returns (BridgeFnStore, AsyncBridgeFnStore) that must be kept alive
+/// for the lifetime of the V8 context.
+pub fn replace_bridge_fns(
+    scope: &mut v8::HandleScope,
+    ctx: *const BridgeCallContext,
+    pending: *const PendingPromises,
+    buffers: *const RefCell<SessionBuffers>,
+    sync_fns: &[&str],
+    async_fns: &[&str],
+) -> (BridgeFnStore, AsyncBridgeFnStore) {
+    let sync_store = register_sync_bridge_fns(scope, ctx, buffers, sync_fns);
+    let async_store = register_async_bridge_fns(scope, ctx, pending, buffers, async_fns);
+    (sync_store, async_store)
+}
+
 /// Register stub bridge functions on the V8 global for snapshot creation.
 ///
 /// Uses the same sync_bridge_callback / async_bridge_callback as real
