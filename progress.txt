@@ -3606,3 +3606,23 @@ PRD: ralph/kernel-hardening (46 stories)
   - CURL_DISABLE_MIME and CURL_DISABLE_FORM_API must be undefined (not 0) for multipart form (-F) support
   - vtls.c glob wildcards already pick up new .c files in vtls/ — no Makefile changes needed for new backends
 ---
+
+## 2026-03-20 - US-089
+- Implemented wget command as a minimal C program using libcurl
+- wget supports: URL download to basename, -O FILE output, -q quiet mode, --no-check-certificate, follows redirects by default
+- Created integration test suite (5 tests) with local HTTP server: download to VFS, -O specified file, -q suppression, 404 error handling, redirect following
+- Registered wget in WASMVM_COMMANDS and DEFAULT_FIRST_PARTY_TIERS (full tier, like curl)
+- Added wget to C Makefile: COMMANDS, PATCHED_PROGRAMS, build rules (WASM + native)
+- Updated docs/wasmvm/supported-commands.md: added wget to Network section, updated summary counts
+- Files changed:
+  - wasmvm/c/programs/wget.c (new)
+  - wasmvm/c/Makefile
+  - packages/runtime/wasmvm/src/driver.ts
+  - packages/runtime/wasmvm/test/wget.test.ts (new)
+  - docs/wasmvm/supported-commands.md
+- **Learnings for future iterations:**
+  - wget is structurally identical to curl_cli.c but simpler — same libcurl build rules, same CURL_SRCS/CURL_INCLUDES/CURL_DEFS
+  - wget follows redirects by default (CURLOPT_FOLLOWLOCATION), unlike curl which requires -L
+  - wget exit code 8 = server error (HTTP 4xx/5xx), exit code 1 = general error
+  - C commands with same name as build artifact need no COMMAND_MAP entry in Makefile install
+---
