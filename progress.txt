@@ -3329,3 +3329,19 @@ PRD: ralph/kernel-hardening (46 stories)
   - poll/select headers (poll.h, sys/select.h) already exist in wasi-libc sysroot — just need implementations
   - WASI fd_set uses a different internal representation (__fd_set.h) than POSIX — FD_ISSET/FD_SET macros are inline functions, not bitmask operations
 ---
+
+## 2026-03-20 - US-075
+- What was implemented: C socket test fixtures (tcp_echo.c, http_get.c, dns_lookup.c) and parity tests with local test servers
+- Files changed:
+  - wasmvm/c/programs/tcp_echo.c — connects to TCP echo server, sends "hello", receives response
+  - wasmvm/c/programs/http_get.c — connects to HTTP server, sends GET request, prints response body
+  - wasmvm/c/programs/dns_lookup.c — resolves hostname via getaddrinfo, prints IP address
+  - wasmvm/c/Makefile — added tcp_echo, http_get, dns_lookup to PATCHED_PROGRAMS
+  - packages/runtime/wasmvm/test/c-parity.test.ts — added Tier 6 networking tests with local TCP echo and HTTP servers, plus DNS localhost resolution test
+- **Learnings for future iterations:**
+  - Socket C programs use standard POSIX socket API (socket/connect/send/recv/getaddrinfo) — the patched sysroot routes these through host_net WASM imports automatically
+  - Parity tests for networking need local servers (net.createServer / http.createServer with port 0 for random port assignment)
+  - Network tests gate on both C WASM binary and native binary existence (hasCNetBinaries + hasNativeNetBinaries)
+  - close() on sockets in WASM goes through WASI fd_close, not host_net.net_close — the C programs use close() from unistd.h
+  - Pre-existing 35 test failures in c-parity (exit code 17 across the board) are a WasmVM runtime issue, not related to these changes
+---
