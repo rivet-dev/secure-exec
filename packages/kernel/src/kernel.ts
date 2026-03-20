@@ -507,11 +507,15 @@ class KernelImpl implements Kernel {
 			if (!stderrCb) stderrCb = (data) => stderrBuf.push(data);
 		}
 
+		// Inherit env from parent process if spawned by another process, else use kernel defaults
+		const parentEntry = callerPid ? this.processTable.get(callerPid) : undefined;
+		const baseEnv = parentEntry?.env ?? this.env;
+
 		// Build process context with pre-wired callbacks
 		const ctx: ProcessContext = {
 			pid,
 			ppid: callerPid ?? 0,
-			env: { ...this.env, ...options?.env },
+			env: { ...baseEnv, ...options?.env },
 			cwd: options?.cwd ?? this.cwd,
 			fds: { stdin: 0, stdout: 1, stderr: 2 },
 			onStdout: stdoutCb,
@@ -940,6 +944,18 @@ class KernelImpl implements Kernel {
 				assertOwns(pid);
 				const entry = this.processTable.get(pid);
 				return entry?.env ?? { ...this.env };
+			},
+			setenv: (pid, key, value) => {
+				assertOwns(pid);
+				const entry = this.processTable.get(pid);
+				if (!entry) throw new KernelError("ESRCH", `no such process ${pid}`);
+				entry.env[key] = value;
+			},
+			unsetenv: (pid, key) => {
+				assertOwns(pid);
+				const entry = this.processTable.get(pid);
+				if (!entry) throw new KernelError("ESRCH", `no such process ${pid}`);
+				delete entry.env[key];
 			},
 			getcwd: (pid) => {
 				assertOwns(pid);

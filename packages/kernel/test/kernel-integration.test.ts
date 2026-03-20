@@ -5,7 +5,7 @@ import {
 	createTestKernel,
 	type MockCommandConfig,
 } from "./helpers.js";
-import type { Kernel, Permissions, ProcessContext } from "../src/types.js";
+import type { Kernel, Permissions, ProcessContext, RuntimeDriver, DriverProcess, KernelInterface } from "../src/types.js";
 import { FILETYPE_PIPE, FILETYPE_CHARACTER_DEVICE } from "../src/types.js";
 import { filterEnv, wrapFileSystem } from "../src/permissions.js";
 import { MAX_CANON, MAX_PTY_BUFFER_BYTES } from "../src/pty.js";
@@ -4049,6 +4049,138 @@ describe("kernel + MockRuntimeDriver integration", () => {
 
 			proc.kill();
 			await proc.wait();
+		});
+	});
+
+	// -----------------------------------------------------------------------
+	// setenv / unsetenv — mutable environment after spawn
+	// -----------------------------------------------------------------------
+
+	describe("setenv / unsetenv", () => {
+		it("setenv then getenv reflects change", async () => {
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("sh", []);
+			const ki = driver.kernelInterface!;
+
+			ki.setenv(proc.pid, "MY_VAR", "hello");
+			const env = ki.getenv(proc.pid);
+			expect(env.MY_VAR).toBe("hello");
+
+			proc.kill();
+			await proc.wait();
+		});
+
+		it("setenv then spawn child — child has new var", async () => {
+			// Capture env from child's ProcessContext
+			const childEnvs: Record<string, string>[] = [];
+			class EnvCaptureDriver implements RuntimeDriver {
+				name = "envcap";
+				commands = ["sh", "child-cmd"];
+				ki: KernelInterface | null = null;
+				async init(kernel: KernelInterface) { this.ki = kernel; }
+				spawn(_command: string, _args: string[], ctx: ProcessContext): DriverProcess {
+					childEnvs.push({ ...ctx.env });
+					let exitResolve: (code: number) => void;
+					const exitPromise = new Promise<number>((r) => { exitResolve = r; });
+					const driverProc: DriverProcess = {
+						writeStdin() {},
+						closeStdin() {},
+						kill(signal) { exitResolve!(128 + signal); queueMicrotask(() => driverProc.onExit?.(128 + signal)); },
+						wait() { return exitPromise; },
+						onStdout: null, onStderr: null, onExit: null,
+					};
+					return driverProc;
+				}
+				async dispose() {}
+			}
+
+			const driver = new EnvCaptureDriver();
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			// Spawn parent
+			const parent = kernel.spawn("sh", []);
+			const ki = driver.ki!;
+
+			// Set env on parent
+			ki.setenv(parent.pid, "INJECTED", "value123");
+
+			// Spawn child from parent
+			const child = ki.spawn("child-cmd", [], { ppid: parent.pid });
+
+			// child's env should have INJECTED
+			expect(childEnvs.length).toBeGreaterThanOrEqual(2); // parent + child
+			const childEnv = childEnvs[childEnvs.length - 1];
+			expect(childEnv.INJECTED).toBe("value123");
+
+			child.kill();
+			parent.kill();
+			await child.wait();
+			await parent.wait();
+		});
+
+		it("unsetenv removes var from getenv", async () => {
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("sh", [], { env: { REMOVE_ME: "exists" } });
+			const ki = driver.kernelInterface!;
+
+			expect(ki.getenv(proc.pid).REMOVE_ME).toBe("exists");
+
+			ki.unsetenv(proc.pid, "REMOVE_ME");
+			const env = ki.getenv(proc.pid);
+			expect(env.REMOVE_ME).toBeUndefined();
+			expect("REMOVE_ME" in env).toBe(false);
+
+			proc.kill();
+			await proc.wait();
+		});
+
+		it("cross-driver setenv blocked with EPERM", async () => {
+			// Create two drivers
+			class SimpleDriver implements RuntimeDriver {
+				name: string;
+				commands: string[];
+				ki: KernelInterface | null = null;
+				constructor(name: string, commands: string[]) { this.name = name; this.commands = commands; }
+				async init(kernel: KernelInterface) { this.ki = kernel; }
+				spawn(_command: string, _args: string[], _ctx: ProcessContext): DriverProcess {
+					let exitResolve: (code: number) => void;
+					const exitPromise = new Promise<number>((r) => { exitResolve = r; });
+					const driverProc: DriverProcess = {
+						writeStdin() {},
+						closeStdin() {},
+						kill(signal) { exitResolve!(128 + signal); queueMicrotask(() => driverProc.onExit?.(128 + signal)); },
+						wait() { return exitPromise; },
+						onStdout: null, onStderr: null, onExit: null,
+					};
+					return driverProc;
+				}
+				async dispose() {}
+			}
+
+			const driverA = new SimpleDriver("alpha", ["alpha-cmd"]);
+			const driverB = new SimpleDriver("beta", ["beta-cmd"]);
+			({ kernel } = await createTestKernel({ drivers: [driverA, driverB] }));
+
+			const procA = kernel.spawn("alpha-cmd", []);
+			const procB = kernel.spawn("beta-cmd", []);
+
+			// Driver B tries to setenv on Driver A's process
+			expect(() => driverB.ki!.setenv(procA.pid, "X", "Y")).toThrow(/EPERM/);
+			// Driver A tries to unsetenv on Driver B's process
+			expect(() => driverA.ki!.unsetenv(procB.pid, "X")).toThrow(/EPERM/);
+
+			procA.kill();
+			procB.kill();
+			await procA.wait();
+			await procB.wait();
 		});
 	});
 });

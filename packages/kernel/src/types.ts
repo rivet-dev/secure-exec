@@ -314,6 +314,8 @@ export interface KernelInterface {
 
 	// Environment
 	getenv(pid: number): Record<string, string>;
+	setenv(pid: number, key: string, value: string): void;
+	unsetenv(pid: number, key: string): void;
 	getcwd(pid: number): string;
 
 	// Working directory
