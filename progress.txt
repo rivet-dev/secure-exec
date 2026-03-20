@@ -3308,3 +3308,24 @@ PRD: ralph/kernel-hardening (46 stories)
   - connect() must serialize sockaddr_in/sockaddr_in6 to "host:port" string format (what net_connect expects) using inet_ntop + ntohs
   - getaddrinfo() parses JSON response from host ([{"addr":"...","family":N},...]) and builds linked list of struct addrinfo
 ---
+
+## 2026-03-20 - US-074
+- Implemented select/poll emulation via host_net blocking RPC
+- Added `net_poll` host import to Rust wasi-ext (`wasmvm/crates/wasi-ext/src/lib.rs`) — takes pollfd array, nfds, timeout, returns ready count
+- Added `netPoll` RPC handler in driver.ts — checks socket readability (readableLength > 0) and writability (writable), supports timeout via socket 'readable' event listener
+- Added `net_poll` kernel-worker import (`kernel-worker.ts`) — reads pollfd structs from WASM memory, sends RPC, writes revents back into WASM pollfd structs
+- Added `poll()` and `select()` C implementations to `0008-sockets.patch` — poll passes pollfd directly to host, select converts fd_sets to pollfd and calls poll
+- Added 6 new tests in net-socket.test.ts: POLLIN with data ready, timeout on idle socket, non-blocking (timeout=0), POLLNVAL on invalid fd, POLLOUT on writable socket, multi-FD poll
+- Files changed:
+  - wasmvm/crates/wasi-ext/src/lib.rs
+  - packages/runtime/wasmvm/src/driver.ts
+  - packages/runtime/wasmvm/src/kernel-worker.ts
+  - packages/runtime/wasmvm/test/net-socket.test.ts
+  - wasmvm/patches/wasi-libc/0008-sockets.patch
+- **Learnings for future iterations:**
+  - WASI poll constants differ from Linux POSIX: POLLIN=0x1, POLLOUT=0x2, POLLERR=0x1000, POLLHUP=0x2000, POLLNVAL=0x4000 (in `__header_poll.h`)
+  - Node.js socket.readableLength > 0 indicates buffered data available for read without blocking
+  - netPoll RPC returns revents as JSON array in the data buffer (same pattern as netGetaddrinfo)
+  - poll/select headers (poll.h, sys/select.h) already exist in wasi-libc sysroot — just need implementations
+  - WASI fd_set uses a different internal representation (__fd_set.h) than POSIX — FD_ISSET/FD_SET macros are inline functions, not bitmask operations
+---

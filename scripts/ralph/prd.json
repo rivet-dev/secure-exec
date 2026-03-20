@@ -1470,7 +1470,7 @@
         "Tests pass"
       ],
       "priority": 74,
-      "passes": false,
+      "passes": true,
       "notes": "Full select/poll/epoll is not possible in JS, but we can emulate basic poll semantics. The main thread checks socket state (readable/writable/error) and returns results. This is sufficient for curl's synchronous mode and simple network tools. curl's multi interface may need further work."
     },
     {
