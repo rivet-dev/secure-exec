@@ -1,54 +1,77 @@
 # Architecture Overview
 
 ```
-  NodeRuntime / PythonRuntime
+  Kernel-first API (createKernel + mount + exec)
   packages/secure-exec-core/
+
+  Legacy facade: NodeRuntime (packages/secure-exec/src/runtime.ts)
          │
-    ┌────┴─────┬──────────┐
-    │          │          │
-  Node      Browser    Python
-  packages/ packages/  packages/
-  secure-   secure-    secure-
-  exec-     exec-      exec-
-  node/     browser/   python/
+    ┌────┴─────┬──────────┬──────────┐
+    │          │          │          │
+  Node      Browser    Python    WasmVM
+  packages/ packages/  packages/ packages/
+  secure-   secure-    secure-   secure-
+  exec-     exec-      exec-     exec-
+  nodejs/   browser/   python/   wasmvm/
 
 Package index:
 
   @secure-exec/core        packages/secure-exec-core/
-    Shared types, utilities, bridge, NodeRuntime/PythonRuntime classes,
-    isolate-runtime source, build scripts
+    Kernel (VFS, FD table, process table, device layer, pipes, PTY,
+    command registry, permissions), shared types, utilities,
+    isolate-runtime source, in-memory filesystem
 
   @secure-exec/v8          packages/secure-exec-v8/
     V8 runtime process manager (spawns Rust binary, IPC client,
     session abstraction). MessagePack framing over UDS.
 
   @secure-exec/nodejs      packages/secure-exec-nodejs/
-    Execution driver, bridge-handlers, bridge-loader, module-access overlay,
-    createNodeDriver, createNodeRuntimeDriverFactory
+    Node execution driver, bridge polyfills, bridge-handlers,
+    bridge-loader, module-access overlay, ESM compiler,
+    module resolver, package bundler, kernel runtime driver
+    (createNodeRuntime), createNodeDriver, createNodeRuntimeDriverFactory
 
   @secure-exec/browser     packages/secure-exec-browser/
-    Web Worker execution driver, createBrowserDriver,
+    Web Worker execution driver, browser VFS (InMemoryFileSystem),
+    browser worker adapter, createBrowserDriver,
     createBrowserRuntimeDriverFactory
 
   @secure-exec/python      packages/secure-exec-python/
-    Pyodide execution driver, createPyodideRuntimeDriverFactory
+    Pyodide execution driver, kernel runtime driver
+    (createPythonRuntime), createPyodideRuntimeDriverFactory
+
+  @secure-exec/wasmvm      packages/secure-exec-wasmvm/
+    WasmVM runtime driver (createWasmVmRuntime), WASI polyfill,
+    kernel worker management. WASM binaries in native/wasmvm/target/
 
   @secure-exec/typescript  packages/secure-exec-typescript/
     Optional TypeScript compiler tools (type-checking, compilation)
 
   secure-exec              packages/secure-exec/
-    Barrel re-export layer (re-exports core, node, browser, python)
+    Barrel re-export layer (re-exports core, nodejs).
+    Contains legacy NodeRuntime facade class.
 ```
 
-## NodeRuntime / PythonRuntime
+## Kernel (createKernel)
 
-`packages/secure-exec-core/src/runtime.ts`, `packages/secure-exec-core/src/python-runtime.ts`
+`packages/secure-exec-core/src/kernel/kernel.ts`
 
-Public APIs. Thin facades that delegate orchestration to execution drivers.
+Primary API. Creates a kernel with shared VFS, FD table, process table, device layer, pipes, PTY, and command registry.
+
+- `kernel.mount(driver)` — register a RuntimeDriver and its commands
+- `kernel.exec(command)` — high-level execute-and-collect (spawn via shell, capture stdout/stderr)
+- `kernel.spawn(command, args, options)` — low-level process spawn with PID allocation and FD table setup
+- `kernel.openShell(options)` — open an interactive PTY shell
+- `kernel.dispose()` — terminate all processes and release resources
+
+## NodeRuntime (legacy facade)
+
+`packages/secure-exec/src/runtime.ts`
+
+Legacy facade for direct code execution. Delegates to execution drivers.
 
 - `NodeRuntime.run(code)` — execute JS module, get exports back
-- `PythonRuntime.run(code)` — execute Python and return structured value/global wrapper
-- `exec(code)` — execute as script, get exit code/error contract
+- `NodeRuntime.exec(code)` — execute as script, get exit code/error contract
 - `dispose()` / `terminate()`
 - Requires both:
   - `systemDriver` for runtime capabilities/config
@@ -58,7 +81,7 @@ Public APIs. Thin facades that delegate orchestration to execution drivers.
 
 `packages/secure-exec-core/src/types.ts`
 
-Config object that bundles what the isolate can access. Deny-by-default.
+Config object that bundles what the isolate can access. Deny-by-default. Used by the legacy NodeRuntime facade.
 
 - `filesystem` — VFS adapter
 - `network` — fetch, DNS, HTTP
@@ -91,6 +114,16 @@ Factory that builds a Node-backed execution driver factory.
 - Constructs `NodeExecutionDriver` instances
 - Owns optional Node-specific isolate creation hook
 
+### createNodeRuntime()
+
+`packages/secure-exec-nodejs/src/kernel-runtime.ts`
+
+Factory that creates a kernel-compatible Node RuntimeDriver for use with `kernel.mount()`.
+
+- Returns a `KernelRuntimeDriver` with commands like `node`, `npx`, `npm`
+- Manages V8 session lifecycle for kernel-spawned processes
+- Bridges kernel VFS/FD table into Node execution context
+
 ### createBrowserDriver()
 
 `packages/secure-exec-browser/src/driver.ts`
@@ -119,6 +152,25 @@ Factory that builds a Python-backed execution driver factory.
 
 - Constructs `PyodideRuntimeDriver` instances
 - Owns Pyodide worker bootstrap and execution-driver creation options
+
+### createPythonRuntime()
+
+`packages/secure-exec-python/src/kernel-runtime.ts`
+
+Factory that creates a kernel-compatible Python RuntimeDriver for use with `kernel.mount()`.
+
+- Returns a `KernelRuntimeDriver` with `python` command
+- Manages Pyodide worker lifecycle for kernel-spawned processes
+
+### createWasmVmRuntime()
+
+`packages/secure-exec-wasmvm/src/runtime.ts`
+
+Factory that creates a kernel-compatible WasmVM RuntimeDriver for use with `kernel.mount()`.
+
+- Returns a `KernelRuntimeDriver` with POSIX commands (`sh`, `ls`, `cat`, `grep`, etc.)
+- Loads WASM binaries from `native/wasmvm/target/`
+- Manages WASI polyfill and kernel worker threads
 
 ## @secure-exec/v8 (V8 Runtime)
 
@@ -219,7 +271,3 @@ Wraps each adapter with allow/deny checks before calls reach the host.
 
 - `wrapFileSystem()`, `wrapNetworkAdapter()`, `wrapCommandExecutor()`
 - Missing adapters get deny-all stubs
-
----
-
-> **Kernel packages** (`packages/kernel/`, `packages/runtime/`, `packages/os/`) are experimental and not part of the public API. See `native/wasmvm/CLAUDE.md` for kernel and WasmVM architecture details.

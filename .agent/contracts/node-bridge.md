@@ -117,7 +117,7 @@ Bridge-exposed filesystem metadata calls (`exists`, `stat`, and typed directory 
 - **THEN** bridge handling MUST return entry type information without a repeated `readDir` probe for each entry
 
 ### Requirement: Bridge Boundary Contracts SHALL Be Defined In A Canonical Shared Type Module
-Bridge global keys and host/isolate boundary type contracts SHALL be defined in one canonical shared type module under `packages/secure-exec-core/src/shared/` and reused across host runtime setup and bridge modules.
+Bridge global keys and host/isolate boundary type contracts SHALL be defined in canonical shared type modules — bridge-contract types in `packages/secure-exec-nodejs/src/bridge-contract.ts` and global-exposure helpers in `packages/secure-exec-core/src/shared/global-exposure.ts` — and reused across host runtime setup and bridge modules.
 
 #### Scenario: Host runtime injects bridge globals
 - **WHEN** host runtime code wires bridge globals into the isolate

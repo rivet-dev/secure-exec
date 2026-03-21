@@ -1,6 +1,7 @@
 ## Codebase Patterns
 - Kernel VFS canonical source is now packages/secure-exec-core/src/kernel/vfs.ts — includes realpath, pread, full VirtualStat (ino, nlink, uid, gid)
-- @secure-exec/kernel is a thin re-export from @secure-exec/core — canonical kernel source lives in core/src/kernel/
+- @secure-exec/kernel package has been deleted — all kernel types/functions import from @secure-exec/core directly
+- Use `KernelRuntimeDriver as RuntimeDriver` when importing kernel RuntimeDriver from @secure-exec/core (core also exports an SDK-level `RuntimeDriver` which is different)
 - When creating VFS adapters/wrappers, always include realpath and pread pass-through
 - VirtualStat must always include ino, nlink, uid, gid fields (kernel canonical type)
 - Permission types (Permissions, FsAccessRequest, etc.) canonical source is core/src/kernel/types.ts (re-exported through @secure-exec/kernel for backward compat)
@@ -476,4 +477,51 @@ Started: Sat Mar 21 02:49:43 AM PDT 2026
   - Historical/proposal docs (kernel-integration.md, proposal-kernel-consolidation.md) describe migration plans and reference old paths intentionally — update active reference docs, not historical narratives
   - `packages/runtime/wasmvm` references are about old package structure (cleaned up in US-017), not the native/ restructure (US-016)
   - .gitignore had stale `wasmvm/target/` and `wasmvm/vendor/` that were deferred from US-015
+---
+
+## 2026-03-21 - US-017
+- Deleted 6 merged packages: @secure-exec/kernel, @secure-exec/runtime-node, @secure-exec/runtime-python, @secure-exec/runtime-wasmvm, @secure-exec/os-node, @secure-exec/os-browser
+- Replaced all `@secure-exec/kernel` imports with `@secure-exec/core` across surviving packages (40+ files)
+- Fixed RuntimeDriver type aliasing: kernel package re-exported `KernelRuntimeDriver as RuntimeDriver`, so updated imports to use `KernelRuntimeDriver as RuntimeDriver` from core
+- Updated 5 package.json files to remove @secure-exec/kernel dependency
+- Updated pnpm-workspace.yaml: removed `packages/os/*` and `packages/runtime/*` entries
+- Regenerated pnpm-lock.yaml
+- Build and typecheck pass (only pre-existing failures in sqlite/s3 VFS examples and features example)
+- Files changed:
+  - Deleted: packages/kernel/ (4 files), packages/os/{browser,node}/ (8 files), packages/runtime/{node,python,wasmvm}/ (22 files)
+  - Modified: 40 .ts source/test files across secure-exec-nodejs, secure-exec-wasmvm, secure-exec-browser, secure-exec-python, secure-exec
+  - Modified: 5 package.json files (removed @secure-exec/kernel dep)
+  - Modified: pnpm-workspace.yaml, pnpm-lock.yaml
+- **Learnings for future iterations:**
+  - @secure-exec/core exports TWO different RuntimeDriver types: `KernelRuntimeDriver` (kernel mount interface with spawn/name) and `RuntimeDriver` (SDK runtime driver with run/exec) — when migrating from @secure-exec/kernel, always use KernelRuntimeDriver
+  - The kernel package aliased `KernelRuntimeDriver as RuntimeDriver` in its re-exports, so a simple find-replace of the package name is NOT sufficient — the type name also needs updating
+  - packages/secure-exec-node/ (old name before rename to nodejs) has a stale dist/ directory — not harmful but could be cleaned up
+  - Workspace project count dropped from 30 to 24 after removing 6 packages
+---
+
+## 2026-03-21 - US-018
+- Updated turbo, CI, contracts, and architecture docs for final consolidated state
+- **CI fix**: `.github/workflows/ci.yml` line 38: `cd wasmvm && make wasm` → `cd native/wasmvm && make wasm` (stale path missed in US-016)
+- **Contracts updated**:
+  - `documentation-site.md`: `node-compatability` → `nodejs-compatibility` (6 occurrences — matched actual file `docs/nodejs-compatibility.mdx`)
+  - `compatibility-governance.md`: `node-compatability` → `nodejs-compatibility` (7 occurrences), bridge path `packages/secure-exec-core/src/bridge` → `packages/secure-exec-nodejs/src/bridge` (moved in US-002)
+  - `runtime-driver-test-suite-structure.md`: `packages/kernel/test/` → `packages/secure-exec-core/test/kernel/` (4 occurrences — kernel merged to core in US-005)
+  - `node-bridge.md`: bridge-contract location updated to reflect split between `packages/secure-exec-nodejs/src/bridge-contract.ts` and `packages/secure-exec-core/src/shared/global-exposure.ts`
+- **Architecture overview rewritten**: `docs-internal/arch/overview.md` now reflects kernel-first API as primary, NodeRuntime as legacy facade, includes WasmVM package, correct package descriptions, removed stale kernel/runtime/os package note
+- turbo.json and CLAUDE.md already clean — no changes needed
+- Build passes (13/13 turbo tasks cached)
+- Typecheck: 19/27 successful (pre-existing failures: sqlite VFS example from US-001, features example from US-011)
+- Tests: all pass except pre-existing S3 VFS example (needs running MinIO) and flaky PTY resource-exhaustion test (documented in Codebase Patterns)
+- Files changed:
+  - .github/workflows/ci.yml
+  - .agent/contracts/compatibility-governance.md
+  - .agent/contracts/documentation-site.md
+  - .agent/contracts/node-bridge.md
+  - .agent/contracts/runtime-driver-test-suite-structure.md
+  - docs-internal/arch/overview.md
+- **Learnings for future iterations:**
+  - The actual docs file is `docs/nodejs-compatibility.mdx` — contracts and docs-site config had `node-compatability` (misspelled and wrong slug)
+  - Historical/proposal docs in docs-internal/ intentionally reference old paths (migration plans, specs) — only update active reference docs and contracts
+  - CI workflow had a stale `cd wasmvm` that was missed in US-016's path update sweep — always verify CI with `grep -r` after path moves
+  - packages/secure-exec-node/ (old name) still has a stale dist/ directory — harmless but cruft
 ---

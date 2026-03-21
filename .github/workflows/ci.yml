@@ -35,7 +35,7 @@ jobs:
           key: wasm-${{ runner.os }}-${{ hashFiles('native/wasmvm/Cargo.lock', 'native/wasmvm/rust-toolchain.toml') }}
 
       - name: Build WASM binary
-        run: cd wasmvm && make wasm
+        run: cd native/wasmvm && make wasm
 
       # --- C toolchain (wasi-sdk + patched sysroot + C test fixtures) ---
       - name: Cache wasi-sdk

@@ -8,25 +8,25 @@ Changes that add, remove, or materially alter TypeScript compile/typecheck behav
 
 #### Scenario: Core runtime TypeScript handling changes
 - **WHEN** the core runtime adds or removes implicit TypeScript preprocessing behavior
-- **THEN** `docs/quickstart.mdx`, `docs/api-reference.mdx`, `docs/runtimes/node.mdx`, `docs/node-compatability.mdx`, `docs-internal/arch/overview.md`, and `docs-internal/friction.md` MUST be updated in the same change
+- **THEN** `docs/quickstart.mdx`, `docs/api-reference.mdx`, `docs/runtimes/node.mdx`, `docs/nodejs-compatibility.mdx`, `docs-internal/arch/overview.md`, and `docs-internal/friction.md` MUST be updated in the same change
 
 #### Scenario: Companion TypeScript tooling API changes
 - **WHEN** the public API of the companion TypeScript tooling package changes
 - **THEN** `docs/quickstart.mdx` and `docs/api-reference.mdx` MUST be updated in the same change so project/source helper semantics remain accurate
 
 ### Requirement: Maintain Node Stdlib Compatibility Matrix
-Changes affecting bridged or polyfilled Node APIs MUST keep `docs/node-compatability.mdx` synchronized with the actual runtime surface, including supported, limited, and unsupported modules/APIs. Every module entry in the matrix MUST include an explicit support-tier classification (Bridge, Polyfill, Stub, Deferred, or Unsupported) as defined by the `node-stdlib` spec. The page MUST include a top-of-page target Node version statement.
+Changes affecting bridged or polyfilled Node APIs MUST keep `docs/nodejs-compatibility.mdx` synchronized with the actual runtime surface, including supported, limited, and unsupported modules/APIs. Every module entry in the matrix MUST include an explicit support-tier classification (Bridge, Polyfill, Stub, Deferred, or Unsupported) as defined by the `node-stdlib` spec. The page MUST include a top-of-page target Node version statement.
 
 #### Scenario: Bridge API surface changes
 - **WHEN** a change adds, removes, or materially alters bridged Node API behavior
-- **THEN** the compatibility matrix page at `docs/node-compatability.mdx` MUST be updated in the same change to reflect the new runtime contract
+- **THEN** the compatibility matrix page at `docs/nodejs-compatibility.mdx` MUST be updated in the same change to reflect the new runtime contract
 
 #### Scenario: Legacy internal matrix path appears anywhere in repository docs/spec sources
 - **WHEN** a repository document or spec source references the legacy internal stdlib compatibility document
-- **THEN** the reference MUST be replaced with `docs/node-compatability.mdx` before the change is considered complete
+- **THEN** the reference MUST be replaced with `docs/nodejs-compatibility.mdx` before the change is considered complete
 
 #### Scenario: Target Node version callout is missing
-- **WHEN** `docs/node-compatability.mdx` is updated
+- **WHEN** `docs/nodejs-compatibility.mdx` is updated
 - **THEN** the page MUST retain an explicit target Node version statement at the top
 
 ### Requirement: Node Compatibility Target Version Tracks Test Type Baseline
@@ -38,7 +38,7 @@ The runtime compatibility target MUST align with the `@types/node` package major
 
 #### Scenario: `@types/node` target major is upgraded
 - **WHEN** the workspace intentionally upgrades `@types/node` to a new major version used by secure-exec validation
-- **THEN** the same change MUST update `docs/node-compatability.mdx` and related compatibility-governance references to the new target Node major line
+- **THEN** the same change MUST update `docs/nodejs-compatibility.mdx` and related compatibility-governance references to the new target Node major line
 
 #### Scenario: Compatibility target is documented
 - **WHEN** compatibility requirements or docs declare a target Node version
@@ -67,10 +67,10 @@ Unexpected issues, workarounds, and integration friction encountered during secu
 - **THEN** its log entry MUST be updated to indicate resolution and summarize the fix
 
 ### Requirement: Run Bridge Type Conformance Tests After Bridge Changes
-Any change to files under `packages/secure-exec-core/src/bridge` MUST run bridge type conformance checks via `pnpm run check-types:test` in `packages/secure-exec` before completion.
+Any change to files under `packages/secure-exec-nodejs/src/bridge` MUST run bridge type conformance checks via `pnpm run check-types:test` in `packages/secure-exec` before completion.
 
 #### Scenario: Bridge source file is modified
-- **WHEN** a commit modifies one or more files in `packages/secure-exec-core/src/bridge`
+- **WHEN** a commit modifies one or more files in `packages/secure-exec-nodejs/src/bridge`
 - **THEN** `pnpm run check-types:test` MUST be executed and failures MUST be addressed before the change is considered complete
 
 ### Requirement: Compatibility Project Matrix Uses Black-Box Node Fixtures
@@ -251,7 +251,7 @@ Any change that introduces or modifies runtime log-capture defaults or hook-base
 
 #### Scenario: Runtime introduces or changes log-stream hook behavior
 - **WHEN** runtime log-stream hook contract changes (event shape, ordering semantics, or failure behavior)
-- **THEN** `docs/security-model.mdx` MUST describe trust-boundary and resource-consumption implications and `docs/node-compatability.mdx` MUST reflect user-visible behavior changes where applicable
+- **THEN** `docs/security-model.mdx` MUST describe trust-boundary and resource-consumption implications and `docs/nodejs-compatibility.mdx` MUST reflect user-visible behavior changes where applicable
 
 #### Scenario: Logging changes include exploit regression coverage
 - **WHEN** logging/output behavior is changed in runtime or bridge paths

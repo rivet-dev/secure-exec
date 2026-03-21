@@ -10,7 +10,7 @@ Secure-exec runtime-driver integration coverage MUST use the canonical filesyste
 - `packages/secure-exec/tests/test-suite/{name}.ts`
 - `packages/secure-exec/tests/exec-driver/{name}.test.ts`
 - `packages/secure-exec/tests/runtime-driver/{name}.test.ts`
-- `packages/kernel/test/{name}.test.ts` (kernel unit tests)
+- `packages/secure-exec-core/test/kernel/{name}.test.ts` (kernel unit tests)
 - `packages/secure-exec/tests/kernel/{name}.test.ts` (kernel cross-runtime integration tests)
 
 #### Scenario: Shared matrix entrypoint exists at canonical path
@@ -48,15 +48,15 @@ Shared suite registration order in the matrix entrypoint MUST be explicit and st
 - **THEN** they MUST be imported and invoked in deterministic source order rather than filesystem discovery
 
 ### Requirement: Kernel Unit Tests SHALL Use MockRuntimeDriver In Kernel Package
-Kernel unit tests that validate kernel subsystem behavior (VFS, FD table, process table, device layer, pipe manager, command registry, permissions) SHALL reside under `packages/kernel/test/` and use MockRuntimeDriver for driver interactions.
+Kernel unit tests that validate kernel subsystem behavior (VFS, FD table, process table, device layer, pipe manager, command registry, permissions) SHALL reside under `packages/secure-exec-core/test/kernel/` and use MockRuntimeDriver for driver interactions.
 
 #### Scenario: Kernel unit tests live in kernel package
 - **WHEN** contributors add or update tests for kernel subsystem behavior
-- **THEN** those tests MUST reside under `packages/kernel/test/` as `*.test.ts` files
+- **THEN** those tests MUST reside under `packages/secure-exec-core/test/kernel/` as `*.test.ts` files
 
 #### Scenario: Kernel unit tests use MockRuntimeDriver
 - **WHEN** kernel unit tests need to validate spawn/exec orchestration or command registration
-- **THEN** they MUST use a MockRuntimeDriver (from `packages/kernel/test/helpers.ts`) that implements the RuntimeDriver interface with controllable behavior, rather than requiring real runtime drivers
+- **THEN** they MUST use a MockRuntimeDriver (from `packages/secure-exec-core/test/kernel/helpers.ts`) that implements the RuntimeDriver interface with controllable behavior, rather than requiring real runtime drivers
 
 #### Scenario: Kernel unit tests validate subsystem invariants independently
 - **WHEN** kernel unit tests validate FD table, process table, pipe manager, or device layer behavior
