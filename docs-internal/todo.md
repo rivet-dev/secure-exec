@@ -55,9 +55,29 @@ Priority order is:
 ## Priority 1: Compatibility and API Coverage
 
 - [ ] Add Node.js test suite and get it passing.
-  - Run the official Node.js test suite (or a curated subset) against secure-exec to systematically find compatibility gaps.
-  - Prioritize `test/parallel/` tests for core modules already bridged (fs, path, crypto, http, net, child_process, stream, buffer, events, url, util).
-  - Track pass/fail rates per module and use failures to drive bridge fixes.
+  - Spec: `docs-internal/specs/nodejs-test-suite.md`
+  - Run a curated subset of the official Node.js `test/parallel/` tests against secure-exec to systematically find compatibility gaps.
+  - Vendor tests, provide a `common` shim (mustCall, mustSucceed, tmpdir, fixtures), run each through `proc.exec()` in a fresh `NodeRuntime`, report per-module pass/fail/skip/error.
+  - Ratchet rule: once a test passes, it cannot regress without justification.
+  - **Phase 1 — Harness + path module:**
+    - [ ] Build `common` shim module (mustCall, mustSucceed, mustNotCall, expectsError, tmpdir, fixtures, platform checks) as injectable CJS string for sandbox require() interception.
+    - [ ] Build test runner engine (`runner.ts`) + Vitest driver (`nodejs-suite.test.ts`) + manifest format (`manifest.json`). Runner creates fresh NodeRuntime per test, prepends common shim, captures exit code/stdio. Driver reads manifest, generates one Vitest test per entry, enforces ratchet.
+    - [ ] Vendor `test-path-*.js` from Node.js v22.14.0. Validate harness works. Target 100% pass rate (path is a pure polyfill via path-browserify, ~15 test files).
+  - **Phase 2 — Pure-JS polyfill modules:**
+    - [ ] Vendor + run `buffer` tests (~60 files). Expected 80-95% pass rate.
+    - [ ] Vendor + run `events` tests (~30 files). Expected 80-95% pass rate.
+    - [ ] Vendor + run `url` + `querystring` + `string_decoder` tests (~35 files combined).
+    - [ ] Vendor + run `util` + `assert` tests (~60 files combined). Expect util.inspect() divergences.
+  - **Phase 3 — Bridge modules:**
+    - [ ] Vendor + run `fs` tests (~150 files, largest surface). Skip deferred APIs (chmod, chown, symlink, watch). Target 50%+ on compatible tests.
+    - [ ] Vendor + run `process` + `os` + `timers` tests. Skip exit/abort/signal tests for process.
+    - [ ] Vendor + run `child_process` tests (~50 files). Skip fork (not bridged). Target spawn/exec basics.
+    - [ ] Vendor + run `http` + `dns` tests. Skip Agent pooling, upgrade, trailers for http.
+  - **Phase 4 — Stubs + automation + dashboard:**
+    - [ ] Vendor + run `stream` + `zlib` tests. Expect moderate pass rate.
+    - [ ] Vendor + run `crypto` tests. Expect very low pass rate (~5%) — purpose is gap documentation.
+    - [ ] Build automated curation script: clone nodejs/node at pinned tag, filter test/parallel/ by module, static analysis for skip patterns, copy to vendored/, generate manifest.
+    - [ ] Build CI compatibility report + ratchet enforcement. Per-module pass/fail/skip/error counts and percentages. Publish scores to `docs/nodejs-compatibility.mdx`.
 
 - [ ] Add support for forking and snapshotting.
   - Enable isolate snapshots so a warm VM state (loaded modules, initialized globals) can be captured and restored without re-executing boot code.
@@ -136,9 +156,11 @@ Priority order is:
 - [ ] CLI tool E2E validation: Pi, Claude Code, and OpenCode inside sandbox.
   - Prove that real-world AI coding agents boot and produce output in secure-exec.
   - Spec: `docs-internal/specs/cli-tool-e2e.md`
-  - Phases: Pi headless → Pi interactive/PTY → OpenCode headless (binary spawn + SDK) → OpenCode interactive/PTY → Claude Code headless → Claude Code interactive/PTY
-  - OpenCode is a Bun binary (hardest) — tests the child_process spawn path and SDK HTTP/SSE client path (not in-VM execution); done before Claude Code to front-load risk
-  - Prerequisite bridge gaps: controllable `isTTY`, `setRawMode()` under PTY, HTTPS client verification, Stream Transform/PassThrough, SSE/EventSource client
+  - SDK, headless binary, and tool-use modes are passing for all three tools. Agentic workflow tests (multi-turn, npm install, npx, dev server lifecycle) also passing.
+  - Remaining work — full TTY / interactive mode for all three tools:
+    - [ ] Pi full TTY mode — BLOCKED: all 5 PTY tests skip. Pi CLI can't fully load in sandbox — undici requires `util/types` which is not yet bridged. Test infrastructure in place (TerminalHarness + kernel.openShell + HostBinaryDriver). Blocker: implement `util/types` bridge or workaround for undici dependency.
+    - [ ] Claude Code full TTY mode — BLOCKED: all 6 PTY tests skip. HostBinaryDriver + TerminalHarness infrastructure is in place, but boot probe fails — Claude Code's interactive startup requires handling workspace trust dialog and API validation that the mock server doesn't fully support. Blocker: mock server needs to handle Claude's full startup handshake.
+    - [ ] OpenCode full TTY mode — PARTIALLY WORKING: 4 of 5 PTY tests pass (TUI renders, input works, ^C works, exit works), but 'submit prompt and see response' test FAILS with waitFor timeout. Mock LLM response doesn't render on screen after submit. Also: HostBinaryDriver is copy-pasted across 3 interactive test files — needs extraction to shared module. Blocker: fix submit+response rendering through kernel PTY.
 
 - [x] Review the Node driver against the intended long-term runtime contract. *(done — `.agent/contracts/node-runtime.md` and `node-bridge.md` exist)*
 
