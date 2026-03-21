@@ -14,6 +14,9 @@
 - bridge-registry-policy test "keeps canonical bridge key lists" has pre-existing failure (inventory out of sync)
 - Core's module-resolver.ts was renamed to builtin-modules.ts in node package (node already had its own module-resolver.ts)
 - When moving files from core to node that import VirtualFileSystem, change import from ./types.js to @secure-exec/kernel
+- Build scripts that generate into another package use fileURLToPath + relative path from __dirname to find the target package root
+- bridge-loader.ts uses fileURLToPath(import.meta.url) to resolve its own package root (not createRequire to find @secure-exec/core)
+- turbo.json `build:generated` task chains build:bridge, build:polyfills, build:isolate-runtime — only exists in node package
 
 # Ralph Progress Log
 Started: Sat Mar 21 02:49:43 AM PDT 2026
@@ -87,4 +90,30 @@ Started: Sat Mar 21 02:49:43 AM PDT 2026
   - package-bundler.ts imports VirtualFileSystem from ./types.js in core; in node, import from @secure-exec/kernel instead
   - bridge-handlers.ts also imported VirtualFileSystem from @secure-exec/core — when splitting that import, use @secure-exec/kernel directly
   - 8 test files in runtime-driver/node/ have pre-existing failures unrelated to US-003 (verified by running before/after)
+---
+
+## 2026-03-21 04:05 - US-004
+- Moved bridge build scripts (build:bridge, build:polyfills, build:isolate-runtime) from core to nodejs package
+- Created build:bridge script in node that compiles src/bridge/index.ts into dist/bridge.js IIFE
+- Moved build:polyfills and build:isolate-runtime scripts to node/scripts/ (they generate into core's src/generated/ via cross-package paths)
+- Removed heavy deps from core's dependencies: esbuild, node-stdlib-browser, sucrase, buffer, text-encoding-utf-8, whatwg-url
+- Added sucrase to node's devDependencies (esbuild and node-stdlib-browser already in node's dependencies for runtime use)
+- Updated turbo.json: replaced per-task deps (build:bridge, build:polyfills, build:isolate-runtime) with build:generated task chain
+- Updated bridge-loader.ts to resolve bridge.js from node's own dist/ (via import.meta.url) instead of @secure-exec/core's dist/
+- Simplified core's build script to just `tsc` (no build:generated prerequisite — turbo handles ordering)
+- Files changed:
+  - packages/secure-exec-core/package.json (removed heavy deps, simplified scripts)
+  - packages/secure-exec-core/scripts/ (deleted — moved to node)
+  - packages/secure-exec-node/package.json (added build scripts, added sucrase devDep)
+  - packages/secure-exec-node/scripts/build-bridge.mjs (new)
+  - packages/secure-exec-node/scripts/build-polyfills.mjs (moved from core, updated paths)
+  - packages/secure-exec-node/scripts/build-isolate-runtime.mjs (moved from core, updated paths)
+  - packages/secure-exec-node/src/bridge-loader.ts (local path resolution)
+  - turbo.json (new build:generated task, updated build/check-types/test deps)
+  - pnpm-lock.yaml
+- **Learnings for future iterations:**
+  - esbuild and node-stdlib-browser must remain production deps of node (used at runtime by polyfills.ts and bridge-loader.ts), not just devDeps
+  - Build scripts that generate files into another package use import.meta.url + relative path to find the target package root — more reliable than require.resolve which needs dist/ to exist
+  - bridge-loader.ts previously resolved @secure-exec/core via createRequire; now uses fileURLToPath(import.meta.url) for self-referencing
+  - turbo v2 handles missing same-package task deps gracefully (skips them) — so build:generated in generic build task only triggers for packages that define it
 ---
