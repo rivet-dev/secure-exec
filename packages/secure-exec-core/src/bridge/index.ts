@@ -30,6 +30,8 @@ import * as childProcess from "./child-process.js";
 // Network modules (fetch, dns, http, https)
 import * as network from "./network.js";
 
+
+
 // Process and global polyfills
 import process, {
   setupGlobals,
@@ -60,7 +62,7 @@ export {
   process,
   moduleModule as module,
 
-  // Network
+  // Network (includes net, http, https, dns, tls, fetch)
   network,
 
   // Process globals

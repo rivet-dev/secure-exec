@@ -400,6 +400,9 @@ importers:
         specifier: workspace:*
         version: link:../secure-exec-python
     devDependencies:
+      '@anthropic-ai/claude-code':
+        specifier: ^2.1.80
+        version: 2.1.80
       '@mariozechner/pi-coding-agent':
         specifier: ^0.60.0
         version: 0.60.0(zod@3.25.76)
@@ -628,6 +631,22 @@ packages:
     resolution: {integrity: sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw==}
     engines: {node: '>=10'}
     dev: false
+
+  /@anthropic-ai/claude-code@2.1.80:
+    resolution: {integrity: sha512-YAgNNr3fzn3xaTNm+CYgebdEinU9D0HxGUT2C1N2Ej2HCvt5AjrSoU8vTgccxx4oPkj1R4gpuZWi1rTKvxNaPQ==}
+    engines: {node: '>=18.0.0'}
+    hasBin: true
+    optionalDependencies:
+      '@img/sharp-darwin-arm64': 0.34.5
+      '@img/sharp-darwin-x64': 0.34.5
+      '@img/sharp-linux-arm': 0.34.5
+      '@img/sharp-linux-arm64': 0.34.5
+      '@img/sharp-linux-x64': 0.34.5
+      '@img/sharp-linuxmusl-arm64': 0.34.5
+      '@img/sharp-linuxmusl-x64': 0.34.5
+      '@img/sharp-win32-arm64': 0.34.5
+      '@img/sharp-win32-x64': 0.34.5
+    dev: true
 
   /@anthropic-ai/sdk@0.73.0(zod@3.25.76):
     resolution: {integrity: sha512-URURVzhxXGJDGUGFunIOtBlSl7KWvZiAAKY/ttTkZAkXT9bTPqdk2eK0b8qqSxXpikh3QKPnPYpiyX98zf5ebw==}
@@ -2853,7 +2872,6 @@ packages:
     requiresBuild: true
     optionalDependencies:
       '@img/sharp-libvips-darwin-arm64': 1.2.4
-    dev: false
     optional: true
 
   /@img/sharp-darwin-x64@0.34.5:
@@ -2864,7 +2882,6 @@ packages:
     requiresBuild: true
     optionalDependencies:
       '@img/sharp-libvips-darwin-x64': 1.2.4
-    dev: false
     optional: true
 
   /@img/sharp-libvips-darwin-arm64@1.2.4:
@@ -2872,7 +2889,6 @@ packages:
     cpu: [arm64]
     os: [darwin]
     requiresBuild: true
-    dev: false
     optional: true
 
   /@img/sharp-libvips-darwin-x64@1.2.4:
@@ -2880,7 +2896,6 @@ packages:
     cpu: [x64]
     os: [darwin]
     requiresBuild: true
-    dev: false
     optional: true
 
   /@img/sharp-libvips-linux-arm64@1.2.4:
@@ -2888,7 +2903,6 @@ packages:
     cpu: [arm64]
     os: [linux]
     requiresBuild: true
-    dev: false
     optional: true
 
   /@img/sharp-libvips-linux-arm@1.2.4:
@@ -2896,7 +2910,6 @@ packages:
     cpu: [arm]
     os: [linux]
     requiresBuild: true
-    dev: false
     optional: true
 
   /@img/sharp-libvips-linux-ppc64@1.2.4:
@@ -2928,7 +2941,6 @@ packages:
     cpu: [x64]
     os: [linux]
     requiresBuild: true
-    dev: false
     optional: true
 
   /@img/sharp-libvips-linuxmusl-arm64@1.2.4:
@@ -2936,7 +2948,6 @@ packages:
     cpu: [arm64]
     os: [linux]
     requiresBuild: true
-    dev: false
     optional: true
 
   /@img/sharp-libvips-linuxmusl-x64@1.2.4:
@@ -2944,7 +2955,6 @@ packages:
     cpu: [x64]
     os: [linux]
     requiresBuild: true
-    dev: false
     optional: true
 
   /@img/sharp-linux-arm64@0.34.5:
@@ -2955,7 +2965,6 @@ packages:
     requiresBuild: true
     optionalDependencies:
       '@img/sharp-libvips-linux-arm64': 1.2.4
-    dev: false
     optional: true
 
   /@img/sharp-linux-arm@0.34.5:
@@ -2966,7 +2975,6 @@ packages:
     requiresBuild: true
     optionalDependencies:
       '@img/sharp-libvips-linux-arm': 1.2.4
-    dev: false
     optional: true
 
   /@img/sharp-linux-ppc64@0.34.5:
@@ -3010,7 +3018,6 @@ packages:
     requiresBuild: true
     optionalDependencies:
       '@img/sharp-libvips-linux-x64': 1.2.4
-    dev: false
     optional: true
 
   /@img/sharp-linuxmusl-arm64@0.34.5:
@@ -3021,7 +3028,6 @@ packages:
     requiresBuild: true
     optionalDependencies:
       '@img/sharp-libvips-linuxmusl-arm64': 1.2.4
-    dev: false
     optional: true
 
   /@img/sharp-linuxmusl-x64@0.34.5:
@@ -3032,7 +3038,6 @@ packages:
     requiresBuild: true
     optionalDependencies:
       '@img/sharp-libvips-linuxmusl-x64': 1.2.4
-    dev: false
     optional: true
 
   /@img/sharp-wasm32@0.34.5:
@@ -3051,7 +3056,6 @@ packages:
     cpu: [arm64]
     os: [win32]
     requiresBuild: true
-    dev: false
     optional: true
 
   /@img/sharp-win32-ia32@0.34.5:
@@ -3069,7 +3073,6 @@ packages:
     cpu: [x64]
     os: [win32]
     requiresBuild: true
-    dev: false
     optional: true
 
   /@inquirer/ansi@1.0.2:

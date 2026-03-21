@@ -188,6 +188,8 @@ export interface ProcessContext {
 	env: Record<string, string>;
 	cwd: string;
 	fds: { stdin: number; stdout: number; stderr: number };
+	/** Whether stdin/stdout/stderr are connected to a PTY (terminal). */
+	isTTY: { stdin: boolean; stdout: boolean; stderr: boolean };
 	/** Kernel-provided callback for stdout data emitted during spawn. */
 	onStdout?: (data: Uint8Array) => void;
 	/** Kernel-provided callback for stderr data emitted during spawn. */

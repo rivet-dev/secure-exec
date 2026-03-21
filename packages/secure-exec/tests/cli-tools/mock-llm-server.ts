@@ -38,6 +38,8 @@ export interface MockLlmServerHandle {
   requestCount: () => number;
   /** Replace the response queue and reset the request counter. */
   reset: (newQueue: MockLlmResponse[]) => void;
+  /** Return all captured request bodies (parsed JSON). */
+  getReceivedBodies: () => unknown[];
 }
 
 // ---------------------------------------------------------------------------
@@ -56,12 +58,20 @@ export async function createMockLlmServer(
 ): Promise<MockLlmServerHandle> {
   let queue = responseQueue;
   let requestIndex = 0;
+  let receivedBodies: unknown[] = [];
 
   const server = http.createServer((req, res) => {
     // Drain request body before responding
     const chunks: Buffer[] = [];
     req.on('data', (chunk: Buffer) => chunks.push(chunk));
     req.on('end', () => {
+      // Capture request body for inspection
+      try {
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        receivedBodies.push(body);
+      } catch {
+        // Non-JSON request; skip capture
+      }
       // Anthropic Messages API
       if (req.method === 'POST' && req.url?.includes('/messages')) {
         const response =
@@ -101,7 +111,9 @@ export async function createMockLlmServer(
     reset: (newQueue: MockLlmResponse[]) => {
       queue = newQueue;
       requestIndex = 0;
+      receivedBodies = [];
     },
+    getReceivedBodies: () => receivedBodies,
   };
 }
 

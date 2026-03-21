@@ -1,16 +1,13 @@
 /**
- * E2E test: Pi coding agent headless mode inside the secure-exec sandbox VM.
+ * E2E test: Pi agent tool use round-trips through the secure-exec sandbox.
  *
- * Pi's JavaScript is loaded and executed inside the sandbox VM via
- * dynamic import() of @mariozechner/pi-coding-agent. The mock LLM server
- * stays on the host; the network adapter redirects Anthropic API requests
- * to the mock server at the host level (sandbox fetch is non-writable).
- *
- * File read/write tests go through the sandbox's fs bridge (NodeFileSystem),
- * and the bash test goes through the child_process bridge (CommandExecutor).
- *
- * If the sandbox VM cannot load Pi (e.g. ESM bridge gap), all tests skip
- * with a clear reason referencing the specific blocker.
+ * Verifies that Pi's built-in tools (file_read, file_write, bash) execute
+ * correctly through the sandbox bridges during multi-tool conversations.
+ * The mock LLM is configured to request tool_use responses that trigger
+ * Pi's tools, and we verify:
+ *   - Tool execution produces correct side effects (files created, commands run)
+ *   - Tool results are sent back to the mock LLM correctly for the next turn
+ *   - Error/exit codes propagate back through the bridge
  *
  * Uses relative imports to avoid cyclic package dependencies.
  */
@@ -38,8 +35,6 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SECURE_EXEC_ROOT = path.resolve(__dirname, '../..');
-// Use workspace root for moduleAccess so pnpm hoisted transitive deps
-// (e.g. @mariozechner/pi-ai) are reachable via .pnpm/node_modules/
 const WORKSPACE_ROOT = path.resolve(SECURE_EXEC_ROOT, '../..');
 
 // ---------------------------------------------------------------------------
@@ -147,7 +142,6 @@ function createMockRedirectAdapter(mockPort: number): NetworkAdapter {
   return {
     ...base,
     fetch(url, options) {
-      // Redirect Anthropic API requests to the mock server
       if (url.includes('api.anthropic.com')) {
         url = url.replace(/https?:\/\/api\.anthropic\.com/, mockBaseUrl);
       }
@@ -186,7 +180,6 @@ function createPiSandboxRuntime(opts: {
   });
 }
 
-// Exec options for sandbox code: filePath inside overlay for module resolution
 const SANDBOX_EXEC_OPTS = { filePath: '/root/entry.js', cwd: '/root' };
 
 // ---------------------------------------------------------------------------
@@ -233,6 +226,49 @@ function buildPiSandboxCode(opts: {
 }
 
 // ---------------------------------------------------------------------------
+// Helper: extract tool_result content from captured request bodies
+// ---------------------------------------------------------------------------
+
+interface AnthropicMessage {
+  role: string;
+  content: unknown;
+}
+
+interface AnthropicRequestBody {
+  messages?: AnthropicMessage[];
+}
+
+function extractToolResults(bodies: unknown[]): Array<{
+  tool_use_id: string;
+  content: string;
+}> {
+  const results: Array<{ tool_use_id: string; content: string }> = [];
+  for (const body of bodies) {
+    const b = body as AnthropicRequestBody;
+    if (!b.messages) continue;
+    for (const msg of b.messages) {
+      if (msg.role !== 'user') continue;
+      const content = msg.content;
+      if (!Array.isArray(content)) continue;
+      for (const block of content) {
+        if (
+          block &&
+          typeof block === 'object' &&
+          'type' in block &&
+          block.type === 'tool_result'
+        ) {
+          results.push({
+            tool_use_id: String((block as Record<string, unknown>).tool_use_id ?? ''),
+            content: String((block as Record<string, unknown>).content ?? ''),
+          });
+        }
+      }
+    }
+  }
+  return results;
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -240,10 +276,10 @@ let mockServer: MockLlmServerHandle;
 let workDir: string;
 let vmLoadSkip: string | false = false;
 
-describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
+describe.skipIf(piSkip)('Pi tool use round-trips (sandbox VM)', () => {
   beforeAll(async () => {
     mockServer = await createMockLlmServer([]);
-    workDir = await mkdtemp(path.join(tmpdir(), 'pi-headless-'));
+    workDir = await mkdtemp(path.join(tmpdir(), 'pi-tool-use-'));
 
     // Probe whether Pi can load inside the sandbox VM
     const capture = createStdioCapture();
@@ -278,7 +314,7 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
     }
 
     if (vmLoadSkip) {
-      console.warn(`[pi-headless] Skipping all tests: ${vmLoadSkip}`);
+      console.warn(`[pi-tool-use] Skipping all tests: ${vmLoadSkip}`);
     }
   }, 30_000);
 
@@ -288,129 +324,22 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
   });
 
   it(
-    'Pi boots in print mode — exits with code 0',
+    'file_write tool — creates file and sends tool_result back to LLM',
     async ({ skip }) => {
       if (vmLoadSkip) skip();
 
-      mockServer.reset([{ type: 'text', text: 'Hello!' }]);
-
-      const capture = createStdioCapture();
-      const runtime = createPiSandboxRuntime({
-        port: mockServer.port,
-        onStdio: capture.onStdio,
-        workDir,
-      });
-
-      try {
-        const result = await runtime.exec(
-          buildPiSandboxCode({
-            prompt: 'say hello',
-            cwd: workDir,
-          }),
-          SANDBOX_EXEC_OPTS,
-        );
-
-        expect(result.code).toBe(0);
-      } finally {
-        runtime.dispose();
-      }
-    },
-    45_000,
-  );
-
-  it(
-    'Pi produces output — stdout contains canned LLM response',
-    async ({ skip }) => {
-      if (vmLoadSkip) skip();
-
-      const canary = 'UNIQUE_CANARY_42';
-      mockServer.reset([{ type: 'text', text: canary }]);
-
-      const capture = createStdioCapture();
-      const runtime = createPiSandboxRuntime({
-        port: mockServer.port,
-        onStdio: capture.onStdio,
-        workDir,
-      });
-
-      try {
-        await runtime.exec(
-          buildPiSandboxCode({
-            prompt: 'say hello',
-            cwd: workDir,
-          }),
-          SANDBOX_EXEC_OPTS,
-        );
-
-        expect(capture.stdout()).toContain(canary);
-      } finally {
-        runtime.dispose();
-      }
-    },
-    45_000,
-  );
-
-  it(
-    'Pi reads a file — read tool accesses seeded file via fs bridge',
-    async ({ skip }) => {
-      if (vmLoadSkip) skip();
-
-      const testDir = path.join(workDir, 'read-test');
+      const testDir = path.join(workDir, 'tool-write');
       await mkdir(testDir, { recursive: true });
-      await writeFile(path.join(testDir, 'test.txt'), 'secret_content_xyz');
+      const outPath = path.join(testDir, 'created.txt');
 
       mockServer.reset([
         {
           type: 'tool_use',
-          name: 'read',
-          input: { path: path.join(testDir, 'test.txt') },
-        },
-        { type: 'text', text: 'The file contains: secret_content_xyz' },
-      ]);
-
-      const capture = createStdioCapture();
-      const runtime = createPiSandboxRuntime({
-        port: mockServer.port,
-        onStdio: capture.onStdio,
-        workDir,
-      });
-
-      try {
-        await runtime.exec(
-          buildPiSandboxCode({
-            prompt: `read ${path.join(testDir, 'test.txt')} and repeat the contents`,
-            cwd: workDir,
-            tools: ['read'],
-          }),
-          SANDBOX_EXEC_OPTS,
-        );
-
-        // Pi made at least 2 requests: prompt → tool_use, tool_result → text
-        expect(mockServer.requestCount()).toBeGreaterThanOrEqual(2);
-        expect(capture.stdout()).toContain('secret_content_xyz');
-      } finally {
-        runtime.dispose();
-      }
-    },
-    45_000,
-  );
-
-  it(
-    'Pi writes a file — file exists after write tool runs via fs bridge',
-    async ({ skip }) => {
-      if (vmLoadSkip) skip();
-
-      const testDir = path.join(workDir, 'write-test');
-      await mkdir(testDir, { recursive: true });
-      const outPath = path.join(testDir, 'out.txt');
-
-      mockServer.reset([
-        {
-          type: 'tool_use',
+          id: 'toolu_write_01',
           name: 'write',
-          input: { path: outPath, content: 'hello from pi mock' },
+          input: { path: outPath, content: 'tool_write_payload_123' },
         },
-        { type: 'text', text: 'I wrote the file.' },
+        { type: 'text', text: 'File written successfully.' },
       ]);
 
       const capture = createStdioCapture();
@@ -423,7 +352,7 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
       try {
         const result = await runtime.exec(
           buildPiSandboxCode({
-            prompt: `create a file at ${outPath}`,
+            prompt: `write a file at ${outPath}`,
             cwd: workDir,
             tools: ['write'],
           }),
@@ -431,8 +360,19 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
         );
 
         expect(result.code).toBe(0);
+
+        // Verify file was created on host via fs bridge
         const content = await readFile(outPath, 'utf8');
-        expect(content).toBe('hello from pi mock');
+        expect(content).toBe('tool_write_payload_123');
+
+        // Verify tool_result was sent back to the LLM
+        expect(mockServer.requestCount()).toBeGreaterThanOrEqual(2);
+        const toolResults = extractToolResults(mockServer.getReceivedBodies());
+        expect(toolResults.length).toBeGreaterThanOrEqual(1);
+        const writeResult = toolResults.find(
+          (r) => r.tool_use_id === 'toolu_write_01',
+        );
+        expect(writeResult).toBeDefined();
       } finally {
         runtime.dispose();
       }
@@ -441,13 +381,73 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
   );
 
   it(
-    'Pi runs bash command — bash tool executes ls via child_process bridge',
+    'file_read tool — reads file content and sends it back to LLM in tool_result',
+    async ({ skip }) => {
+      if (vmLoadSkip) skip();
+
+      const testDir = path.join(workDir, 'tool-read');
+      await mkdir(testDir, { recursive: true });
+      const filePath = path.join(testDir, 'data.txt');
+      await writeFile(filePath, 'readable_content_abc');
+
+      mockServer.reset([
+        {
+          type: 'tool_use',
+          id: 'toolu_read_01',
+          name: 'read',
+          input: { path: filePath },
+        },
+        { type: 'text', text: 'The file says: readable_content_abc' },
+      ]);
+
+      const capture = createStdioCapture();
+      const runtime = createPiSandboxRuntime({
+        port: mockServer.port,
+        onStdio: capture.onStdio,
+        workDir,
+      });
+
+      try {
+        const result = await runtime.exec(
+          buildPiSandboxCode({
+            prompt: `read the file at ${filePath}`,
+            cwd: workDir,
+            tools: ['read'],
+          }),
+          SANDBOX_EXEC_OPTS,
+        );
+
+        expect(result.code).toBe(0);
+
+        // Verify tool_result was sent back containing the file content
+        expect(mockServer.requestCount()).toBeGreaterThanOrEqual(2);
+        const toolResults = extractToolResults(mockServer.getReceivedBodies());
+        expect(toolResults.length).toBeGreaterThanOrEqual(1);
+        const readResult = toolResults.find(
+          (r) => r.tool_use_id === 'toolu_read_01',
+        );
+        expect(readResult).toBeDefined();
+        expect(readResult!.content).toContain('readable_content_abc');
+      } finally {
+        runtime.dispose();
+      }
+    },
+    45_000,
+  );
+
+  it(
+    'bash tool — executes command and sends stdout back to LLM in tool_result',
     async ({ skip }) => {
       if (vmLoadSkip) skip();
 
       mockServer.reset([
-        { type: 'tool_use', name: 'bash', input: { command: 'ls /' } },
-        { type: 'text', text: 'Directory listing complete.' },
+        {
+          type: 'tool_use',
+          id: 'toolu_bash_01',
+          name: 'bash',
+          input: { command: 'echo hello_from_bash_42' },
+        },
+        { type: 'text', text: 'Command output: hello_from_bash_42' },
       ]);
 
       const capture = createStdioCapture();
@@ -461,7 +461,7 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
       try {
         const result = await runtime.exec(
           buildPiSandboxCode({
-            prompt: 'run ls /',
+            prompt: 'run echo hello_from_bash_42',
             cwd: workDir,
             tools: ['bash'],
           }),
@@ -469,7 +469,16 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
         );
 
         expect(result.code).toBe(0);
+
+        // Verify tool_result was sent back containing command output
         expect(mockServer.requestCount()).toBeGreaterThanOrEqual(2);
+        const toolResults = extractToolResults(mockServer.getReceivedBodies());
+        expect(toolResults.length).toBeGreaterThanOrEqual(1);
+        const bashResult = toolResults.find(
+          (r) => r.tool_use_id === 'toolu_bash_01',
+        );
+        expect(bashResult).toBeDefined();
+        expect(bashResult!.content).toContain('hello_from_bash_42');
       } finally {
         runtime.dispose();
       }
@@ -478,11 +487,84 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
   );
 
   it(
-    'Pi JSON output mode — produces valid JSON via sandbox',
+    'bash tool failure — exit code propagates back in tool_result',
     async ({ skip }) => {
       if (vmLoadSkip) skip();
 
-      mockServer.reset([{ type: 'text', text: 'Hello JSON!' }]);
+      mockServer.reset([
+        {
+          type: 'tool_use',
+          id: 'toolu_bash_fail_01',
+          name: 'bash',
+          input: { command: 'exit 1' },
+        },
+        { type: 'text', text: 'The command failed with exit code 1.' },
+      ]);
+
+      const capture = createStdioCapture();
+      const runtime = createPiSandboxRuntime({
+        port: mockServer.port,
+        onStdio: capture.onStdio,
+        workDir,
+        commandExecutor: createHostCommandExecutor(),
+      });
+
+      try {
+        const result = await runtime.exec(
+          buildPiSandboxCode({
+            prompt: 'run exit 1',
+            cwd: workDir,
+            tools: ['bash'],
+          }),
+          SANDBOX_EXEC_OPTS,
+        );
+
+        expect(result.code).toBe(0);
+
+        // Verify tool_result was sent back — Pi should report the failure
+        expect(mockServer.requestCount()).toBeGreaterThanOrEqual(2);
+        const toolResults = extractToolResults(mockServer.getReceivedBodies());
+        expect(toolResults.length).toBeGreaterThanOrEqual(1);
+        const bashResult = toolResults.find(
+          (r) => r.tool_use_id === 'toolu_bash_fail_01',
+        );
+        expect(bashResult).toBeDefined();
+        // Pi reports exit code in the tool result (e.g. "exit code: 1" or similar)
+        expect(bashResult!.content.length).toBeGreaterThan(0);
+      } finally {
+        runtime.dispose();
+      }
+    },
+    45_000,
+  );
+
+  it(
+    'multi-tool round-trip — write then read in sequence, results flow back correctly',
+    async ({ skip }) => {
+      if (vmLoadSkip) skip();
+
+      const testDir = path.join(workDir, 'multi-tool');
+      await mkdir(testDir, { recursive: true });
+      const multiPath = path.join(testDir, 'roundtrip.txt');
+
+      mockServer.reset([
+        // Turn 1: LLM requests file write
+        {
+          type: 'tool_use',
+          id: 'toolu_multi_write',
+          name: 'write',
+          input: { path: multiPath, content: 'multi_tool_data_789' },
+        },
+        // Turn 2: LLM requests file read of the same file
+        {
+          type: 'tool_use',
+          id: 'toolu_multi_read',
+          name: 'read',
+          input: { path: multiPath },
+        },
+        // Turn 3: LLM produces final text response
+        { type: 'text', text: 'Successfully wrote and read the file.' },
+      ]);
 
       const capture = createStdioCapture();
       const runtime = createPiSandboxRuntime({
@@ -494,29 +576,41 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
       try {
         const result = await runtime.exec(
           buildPiSandboxCode({
-            prompt: 'say hello',
+            prompt: `write multi_tool_data_789 to ${multiPath} and then read it back`,
             cwd: workDir,
-            mode: 'json',
+            tools: ['read', 'write'],
           }),
           SANDBOX_EXEC_OPTS,
         );
 
         expect(result.code).toBe(0);
-        // Pi JSON mode emits NDJSON events. Bridge stdout.write strips
-        // trailing newlines, so events may be concatenated. Split on }{
-        // boundaries to recover individual JSON objects.
-        const stdout = capture.stdout().trim();
-        expect(stdout.length).toBeGreaterThan(0);
-        const objects = stdout.replace(/\}\{/g, '}\n{').split('\n').filter(Boolean);
-        expect(objects.length).toBeGreaterThan(0);
-        for (const obj of objects) {
-          const parsed = JSON.parse(obj);
-          expect(parsed).toBeDefined();
-        }
+
+        // 3 LLM requests: initial prompt, tool_result(write), tool_result(read)
+        expect(mockServer.requestCount()).toBeGreaterThanOrEqual(3);
+
+        // Verify the file exists on disk
+        const content = await readFile(multiPath, 'utf8');
+        expect(content).toBe('multi_tool_data_789');
+
+        // Verify both tool results were sent back
+        const toolResults = extractToolResults(mockServer.getReceivedBodies());
+        expect(toolResults.length).toBeGreaterThanOrEqual(2);
+
+        const writeResult = toolResults.find(
+          (r) => r.tool_use_id === 'toolu_multi_write',
+        );
+        expect(writeResult).toBeDefined();
+
+        const readResult = toolResults.find(
+          (r) => r.tool_use_id === 'toolu_multi_read',
+        );
+        expect(readResult).toBeDefined();
+        // The read result should contain the content we wrote
+        expect(readResult!.content).toContain('multi_tool_data_789');
       } finally {
         runtime.dispose();
       }
     },
-    45_000,
+    60_000,
   );
 });

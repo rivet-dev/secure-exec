@@ -458,6 +458,11 @@ class KernelImpl implements Kernel {
 			if (!stderrCb) stderrCb = (data) => stderrBuf.push(data);
 		}
 
+		// Detect TTY attachment — check if each stdio FD is a PTY slave
+		const stdinEntry = table.get(0);
+		const stdoutEntry = table.get(1);
+		const stderrEntry = table.get(2);
+
 		// Build process context with pre-wired callbacks
 		const ctx: ProcessContext = {
 			pid,
@@ -465,6 +470,11 @@ class KernelImpl implements Kernel {
 			env: { ...this.env, ...options?.env },
 			cwd: options?.cwd ?? this.cwd,
 			fds: { stdin: 0, stdout: 1, stderr: 2 },
+			isTTY: {
+				stdin: !!stdinEntry && this.ptyManager.isSlave(stdinEntry.description.id),
+				stdout: !!stdoutEntry && this.ptyManager.isSlave(stdoutEntry.description.id),
+				stderr: !!stderrEntry && this.ptyManager.isSlave(stderrEntry.description.id),
+			},
 			onStdout: stdoutCb,
 			onStderr: stderrCb,
 		};

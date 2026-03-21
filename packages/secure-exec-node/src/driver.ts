@@ -292,6 +292,7 @@ export function createDefaultNetworkAdapter(options?: {
 	let onUpgradeSocketData: ((socketId: number, dataBase64: string) => void) | null = null;
 	let onUpgradeSocketEnd: ((socketId: number) => void) | null = null;
 
+
 	return {
 		async httpServerListen(options) {
 			const listenHost = normalizeLoopbackHostname(options.hostname);
@@ -733,6 +734,7 @@ export function createDefaultNetworkAdapter(options?: {
 				req.end();
 			});
 		},
+
 	};
 }
 

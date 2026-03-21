@@ -2267,6 +2267,29 @@ const fs = {
     async glob(pattern: string | string[], _options?: nodeFs.GlobOptionsWithFileTypes) {
       return fs.globSync(pattern, _options);
     },
+    async open(path: string, flags?: OpenMode, _mode?: Mode | null) {
+      const fd = fs.openSync(path, flags ?? "r", _mode);
+      // Minimal FileHandle for fs.promises.open() consumers
+      return {
+        fd,
+        async read(buffer: NodeJS.ArrayBufferView, offset?: number | null, length?: number | null, position?: number | null) {
+          const bytesRead = fs.readSync(fd, buffer, offset, length, position);
+          return { bytesRead, buffer };
+        },
+        async write(data: string | Uint8Array, ...args: unknown[]) {
+          const written = fs.writeSync(fd, data, ...(args as [number?, number?, number?]));
+          return { bytesWritten: written, buffer: data };
+        },
+        async close() {
+          fs.closeSync(fd);
+        },
+        async stat() {
+          const entry = fdTable.get(fd);
+          if (!entry) throw createFsError("EBADF", "EBADF: bad file descriptor, fstat", "fstat");
+          return fs.statSync(entry.path);
+        },
+      };
+    },
     async access(path: string) {
       if (!fs.existsSync(path)) {
         throw createFsError(

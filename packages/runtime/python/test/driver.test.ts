@@ -208,6 +208,7 @@ describe('Python RuntimeDriver', () => {
       const ctx: ProcessContext = {
         pid: 1, ppid: 0, env: {}, cwd: '/home/user',
         fds: { stdin: 0, stdout: 1, stderr: 2 },
+        isTTY: { stdin: false, stdout: false, stderr: false },
       };
       expect(() => driver.spawn('python', ['-c', 'pass'], ctx)).toThrow(/not initialized/);
     });

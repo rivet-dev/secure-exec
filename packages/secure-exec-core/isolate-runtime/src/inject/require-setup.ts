@@ -524,6 +524,13 @@
             };
           }
 
+          // Overlay host-backed randomUUID
+          if (typeof _cryptoRandomUUID !== 'undefined') {
+            result.randomUUID = function randomUUID() {
+              return _cryptoRandomUUID.applySync(undefined, []);
+            };
+          }
+
           // Overlay host-backed pbkdf2/pbkdf2Sync
           if (typeof _cryptoPbkdf2 !== 'undefined') {
             result.pbkdf2Sync = function pbkdf2Sync(password, salt, iterations, keylen, digest) {
@@ -1057,14 +1064,34 @@
                 var reqAlgo = Object.assign({}, algo);
                 if (reqAlgo.hash) reqAlgo.hash = normalizeAlgo(reqAlgo.hash);
                 if (reqAlgo.salt) reqAlgo.salt = toBase64(reqAlgo.salt);
+                if (reqAlgo.info) reqAlgo.info = toBase64(reqAlgo.info);
                 var result2 = JSON.parse(subtleCall({
                   op: 'deriveBits',
                   algorithm: reqAlgo,
-                  key: baseKey._keyData,
+                  baseKey: baseKey._keyData,
                   length: length,
                 }));
                 var buf = Buffer.from(result2.data, 'base64');
                 return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+              });
+            };
+
+            SandboxSubtle.deriveKey = function deriveKey(algorithm, baseKey, derivedKeyType, extractable, keyUsages) {
+              return Promise.resolve().then(function() {
+                var algo = normalizeAlgo(algorithm);
+                var reqAlgo = Object.assign({}, algo);
+                if (reqAlgo.hash) reqAlgo.hash = normalizeAlgo(reqAlgo.hash);
+                if (reqAlgo.salt) reqAlgo.salt = toBase64(reqAlgo.salt);
+                if (reqAlgo.info) reqAlgo.info = toBase64(reqAlgo.info);
+                var result2 = JSON.parse(subtleCall({
+                  op: 'deriveKey',
+                  algorithm: reqAlgo,
+                  baseKey: baseKey._keyData,
+                  derivedKeyType: normalizeAlgo(derivedKeyType),
+                  extractable: extractable,
+                  usages: Array.from(keyUsages),
+                }));
+                return new SandboxCryptoKey(result2.key);
               });
             };
 
@@ -1442,6 +1469,26 @@
           __internalModuleCache['stream/promises'] = promisesModule;
           _debugRequire('loaded', name, 'stream-promises-special');
           return promisesModule;
+        }
+
+        // Special handling for stream/web module.
+        // Expose V8's built-in Web Streams API objects.
+        if (name === 'stream/web') {
+          if (__internalModuleCache['stream/web']) return __internalModuleCache['stream/web'];
+          var streamWebModule = {
+            ReadableStream: globalThis.ReadableStream,
+            ReadableStreamDefaultReader: globalThis.ReadableStreamDefaultReader,
+            WritableStream: globalThis.WritableStream,
+            WritableStreamDefaultWriter: globalThis.WritableStreamDefaultWriter,
+            TransformStream: globalThis.TransformStream,
+            ByteLengthQueuingStrategy: globalThis.ByteLengthQueuingStrategy,
+            CountQueuingStrategy: globalThis.CountQueuingStrategy,
+            TextEncoderStream: globalThis.TextEncoderStream,
+            TextDecoderStream: globalThis.TextDecoderStream,
+          };
+          __internalModuleCache['stream/web'] = streamWebModule;
+          _debugRequire('loaded', name, 'stream-web-special');
+          return streamWebModule;
         }
 
         // Special handling for child_process module

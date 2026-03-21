@@ -101,6 +101,14 @@ interface FetchResponse {
   url: string;
   redirected: boolean;
   type: string;
+  body: {
+    getReader(): {
+      read(): Promise<{ done: boolean; value?: Uint8Array }>;
+      releaseLock(): void;
+      cancel(): Promise<void>;
+    };
+  } | null;
+  bodyUsed: boolean;
   text(): Promise<string>;
   json(): Promise<unknown>;
   arrayBuffer(): Promise<ArrayBuffer>;
@@ -148,7 +156,26 @@ export async function fetch(input: string | URL | Request, options: FetchOptions
     body?: string;
   };
 
-  // Create Response-like object
+  // Create Response-like object with ReadableStream body for SSE streaming
+  const rawBody = response.body || "";
+  const encoder = new TextEncoder();
+  const encoded = encoder.encode(rawBody);
+  let bodyConsumed = false;
+
+  const bodyStream = {
+    getReader() {
+      return {
+        async read(): Promise<{ done: boolean; value?: Uint8Array }> {
+          if (bodyConsumed) return { done: true };
+          bodyConsumed = true;
+          return { done: false, value: encoded };
+        },
+        releaseLock() {},
+        async cancel() { bodyConsumed = true; },
+      };
+    },
+  };
+
   return {
     ok: response.ok,
     status: response.status,
@@ -157,16 +184,17 @@ export async function fetch(input: string | URL | Request, options: FetchOptions
     url: response.url || resolvedUrl,
     redirected: response.redirected || false,
     type: "basic",
+    body: bodyStream,
+    bodyUsed: false,
 
     async text(): Promise<string> {
-      return response.body || "";
+      return rawBody;
     },
     async json(): Promise<unknown> {
-      return JSON.parse(response.body || "{}");
+      return JSON.parse(rawBody || "{}");
     },
     async arrayBuffer(): Promise<ArrayBuffer> {
-      // Not fully supported - return empty buffer
-      return new ArrayBuffer(0);
+      return encoder.encode(rawBody).buffer as ArrayBuffer;
     },
     async blob(): Promise<never> {
       throw new Error("Blob not supported in sandbox");
@@ -207,6 +235,15 @@ export class Headers {
 
   has(name: string): boolean {
     return name.toLowerCase() in this._headers;
+  }
+
+  append(name: string, value: string): void {
+    const key = name.toLowerCase();
+    if (key in this._headers) {
+      this._headers[key] += ", " + value;
+    } else {
+      this._headers[key] = value;
+    }
   }
 
   delete(name: string): void {
@@ -275,6 +312,16 @@ export class Response {
   type: string;
   url: string;
   redirected: boolean;
+  bodyUsed: boolean;
+
+  // ReadableStream-like body for SDK streaming (e.g. @anthropic-ai/sdk SSE).
+  body: {
+    getReader(): {
+      read(): Promise<{ done: boolean; value?: Uint8Array }>;
+      releaseLock(): void;
+      cancel(): Promise<void>;
+    };
+  } | null;
 
   constructor(body?: string | null, init: { status?: number; statusText?: string; headers?: Record<string, string> } = {}) {
     this._body = body || null;
@@ -285,14 +332,47 @@ export class Response {
     this.type = "default";
     this.url = "";
     this.redirected = false;
+    this.bodyUsed = false;
+
+    const rawBody = this._body;
+    if (rawBody !== null) {
+      const encoder = new TextEncoder();
+      const encoded = encoder.encode(rawBody);
+      let consumed = false;
+      const self = this;
+      this.body = {
+        getReader() {
+          return {
+            async read() {
+              if (consumed) return { done: true as const };
+              consumed = true;
+              self.bodyUsed = true;
+              return { done: false as const, value: encoded };
+            },
+            releaseLock() {},
+            async cancel() { consumed = true; },
+          };
+        },
+      };
+    } else {
+      this.body = null;
+    }
   }
 
   async text(): Promise<string> {
+    this.bodyUsed = true;
     return String(this._body || "");
   }
 
   async json(): Promise<unknown> {
+    this.bodyUsed = true;
     return JSON.parse(this._body || "{}");
+  }
+
+  async arrayBuffer(): Promise<ArrayBuffer> {
+    this.bodyUsed = true;
+    const encoder = new TextEncoder();
+    return encoder.encode(this._body || "").buffer as ArrayBuffer;
   }
 
   clone(): Response {
@@ -1933,6 +2013,18 @@ export const https = createHttpModule("https");
 export const http2 = {
   Http2ServerRequest: class Http2ServerRequest {},
   Http2ServerResponse: class Http2ServerResponse {},
+  constants: {
+    HTTP2_HEADER_AUTHORITY: ":authority",
+    HTTP2_HEADER_METHOD: ":method",
+    HTTP2_HEADER_PATH: ":path",
+    HTTP2_HEADER_SCHEME: ":scheme",
+    HTTP2_HEADER_CONTENT_LENGTH: "content-length",
+    HTTP2_HEADER_EXPECT: "expect",
+    HTTP2_HEADER_STATUS: ":status",
+    HTTP2_HEADER_PROTOCOL: ":protocol",
+    NGHTTP2_REFUSED_STREAM: 7,
+    NGHTTP2_CANCEL: 8,
+  },
   createServer(): never {
     throw new Error("http2.createServer is not supported in sandbox");
   },
@@ -2364,6 +2456,28 @@ exposeCustomGlobal("Response", Response);
 if (typeof (globalThis as Record<string, unknown>).Blob === "undefined") {
   // Minimal Blob stub used by server frameworks for instanceof checks.
   exposeCustomGlobal("Blob", class BlobStub {});
+}
+if (typeof (globalThis as Record<string, unknown>).FormData === "undefined") {
+  // Minimal FormData stub — SDKs (e.g. @anthropic-ai/sdk) check for its
+  // existence and use it for multipart uploads and instanceof checks.
+  class FormDataStub {
+    private _entries: [string, unknown][] = [];
+    append(name: string, value: unknown): void { this._entries.push([name, value]); }
+    set(name: string, value: unknown): void {
+      this._entries = this._entries.filter(([k]) => k !== name);
+      this._entries.push([name, value]);
+    }
+    get(name: string): unknown { return this._entries.find(([k]) => k === name)?.[1] ?? null; }
+    getAll(name: string): unknown[] { return this._entries.filter(([k]) => k === name).map(([, v]) => v); }
+    has(name: string): boolean { return this._entries.some(([k]) => k === name); }
+    delete(name: string): void { this._entries = this._entries.filter(([k]) => k !== name); }
+    entries(): IterableIterator<[string, unknown]> { return this._entries[Symbol.iterator]() as IterableIterator<[string, unknown]>; }
+    keys(): IterableIterator<string> { return this._entries.map(([k]) => k)[Symbol.iterator](); }
+    values(): IterableIterator<unknown> { return this._entries.map(([, v]) => v)[Symbol.iterator](); }
+    forEach(cb: (value: unknown, key: string, parent: unknown) => void): void { this._entries.forEach(([k, v]) => cb(v, k, this)); }
+    [Symbol.iterator](): IterableIterator<[string, unknown]> { return this.entries(); }
+  }
+  exposeCustomGlobal("FormData", FormDataStub);
 }
 
 export default {
