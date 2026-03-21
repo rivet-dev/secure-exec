@@ -11,12 +11,20 @@
 - Bridge files import bridge-contract from ../bridge-contract.js (sibling in node/src)
 - Cross-package relative imports (e.g., ../../../secure-exec-node/src/) cause rootDir violation in tsc — use @deprecated copy or package imports instead
 - VFS example-virtual-file-system-sqlite and example-virtual-file-system-s3 have pre-existing typecheck failures from US-001
+- HostNodeFileSystem (os-filesystem.ts) = kernel VFS with root-based sandboxing; NodeFileSystem (driver.ts) = SDK VFS with direct fs pass-through — don't confuse them
+- Kernel runtime driver (createNodeRuntime, NodeRuntimeDriver) canonical source is now secure-exec-node/src/kernel-runtime.ts
+- NodeWorkerAdapter canonical source is now secure-exec-node/src/worker-adapter.ts
 - bridge-registry-policy test "keeps canonical bridge key lists" has pre-existing failure (inventory out of sync)
 - Core's module-resolver.ts was renamed to builtin-modules.ts in node package (node already had its own module-resolver.ts)
 - When importing VFS types in core, use ./kernel/vfs.js (not ./types.js which no longer has VFS)
 - Build scripts that generate into another package use fileURLToPath + relative path from __dirname to find the target package root
 - bridge-loader.ts uses fileURLToPath(import.meta.url) to resolve its own package root (not createRequire to find @secure-exec/core)
 - turbo.json `build:generated` task chains build:bridge, build:polyfills, build:isolate-runtime — only exists in node package
+- After moving source between packages, verify all package.json exports map to real dist/ files from a clean build (rm -rf dist && pnpm build)
+- WasmVM runtime canonical source is now packages/secure-exec-wasmvm/src/ (createWasmVmRuntime, WasiPolyfill, etc.)
+- When converting .ts→.js imports for publishable packages, also check `new URL('./file.ts', import.meta.url)` patterns — sed for `from` won't catch them
+- Python kernel runtime (createPythonRuntime, PythonRuntimeDriver) canonical source is now secure-exec-python/src/kernel-runtime.ts
+- When deleting test directories from old packages, also update tsconfig.json to remove test/**/*.ts from include
 
 # Ralph Progress Log
 Started: Sat Mar 21 02:49:43 AM PDT 2026
@@ -147,4 +155,109 @@ Started: Sat Mar 21 02:49:43 AM PDT 2026
   - When making a package a thin re-export, conflicting value exports must come from a subpath export (./internal/kernel) rather than the main barrel
   - Core's tsconfig rootDir: ./src means tests in test/ need vitest (which resolves .ts naturally) rather than being type-checked by the build tsc — test type-checking would need a separate tsconfig
   - fs-helpers.ts and package-bundler.ts in core also imported VFS types from ./types.js — easy to miss when deleting deprecated types
+---
+
+## 2026-03-21 04:35 - US-006
+- Validated that @secure-exec/core already has full tsc build infrastructure (tsconfig.json, build script, dist/ exports) from US-004/US-005
+- Removed stale `./internal/bridge` export from package.json — pointed to dist/bridge/ but bridge source was moved to @secure-exec/nodejs in US-002
+- Verified clean build produces all expected dist/ output (.js + .d.ts for all modules including kernel/, shared/, generated/)
+- Confirmed downstream packages resolve imports from compiled @secure-exec/core (20/26 typecheck tasks pass; 1 failure is pre-existing sqlite VFS example)
+- Core tests: 390/391 pass (1 pre-existing PTY flaky test)
+- Files changed:
+  - packages/secure-exec-core/package.json (removed stale bridge export)
+- **Learnings for future iterations:**
+  - Core's build pipeline was incrementally established across US-004 (build script, turbo config) and US-005 (kernel + test infrastructure) — US-006 was effectively a validation/cleanup story
+  - After moving source files between packages, stale exports in package.json can point to non-existent dist/ files — always verify exports against clean build output
+  - dist/ is gitignored by a top-level rule, not a package-local .gitignore
+---
+
+## 2026-03-21 04:45 - US-007
+- Merged runtime-node (NodeRuntimeDriver, createNodeRuntime, createKernelCommandExecutor, createKernelVfsAdapter, createHostFallbackVfs) into secure-exec-node as kernel-runtime.ts
+- Merged os-node platform adapter (NodeFileSystem → HostNodeFileSystem, NodeWorkerAdapter) into secure-exec-node as os-filesystem.ts and worker-adapter.ts
+- Renamed os-node NodeFileSystem to HostNodeFileSystem to avoid collision with existing SDK NodeFileSystem in driver.ts
+- Made runtime-node and os-node thin re-exports from @secure-exec/node for backward compatibility
+- Moved runtime-node tests (25 tests) to secure-exec-node/test/kernel-runtime.test.ts
+- Added vitest devDependency to secure-exec-node
+- Added subpath exports for kernel-runtime, os-filesystem, worker-adapter to node package.json
+- All 25 kernel-runtime tests pass in new location
+- All 25 tests still pass via runtime-node re-export (backward compat verified)
+- Typecheck passes (18/25 turbo tasks — failures are pre-existing sqlite VFS examples)
+- Files changed:
+  - packages/secure-exec-node/src/kernel-runtime.ts (new — from runtime-node)
+  - packages/secure-exec-node/src/os-filesystem.ts (new — from os-node/filesystem.ts)
+  - packages/secure-exec-node/src/worker-adapter.ts (new — from os-node/worker.ts)
+  - packages/secure-exec-node/test/kernel-runtime.test.ts (new — from runtime-node/test)
+  - packages/secure-exec-node/src/index.ts (added exports for kernel-runtime, os-filesystem, worker-adapter)
+  - packages/secure-exec-node/package.json (added subpath exports, vitest devDep, test script)
+  - packages/runtime/node/src/index.ts (thin re-export from @secure-exec/node)
+  - packages/runtime/node/src/driver.ts (thin re-export from @secure-exec/node)
+  - packages/os/node/src/index.ts (thin re-export from @secure-exec/node)
+  - packages/os/node/src/filesystem.ts (thin re-export from @secure-exec/node)
+  - packages/os/node/src/worker.ts (thin re-export from @secure-exec/node)
+  - packages/os/node/package.json (added @secure-exec/node dependency for re-exports)
+  - pnpm-lock.yaml
+- **Learnings for future iterations:**
+  - secure-exec-node already had its own NodeFileSystem (SDK version in driver.ts) — os-node's NodeFileSystem needed renaming to HostNodeFileSystem to coexist
+  - The SDK NodeFileSystem (no root option, direct fs pass-through) is different from os-node's (root-based sandboxing, path normalization) — they serve different purposes
+  - SystemDriver type is defined in core's runtime-driver.ts and used broadly — making it "private internal" is deferred to US-011 (API cleanup)
+  - runtime-node tests import from ../src/driver.ts — after moving to secure-exec-node, imports point to ../src/kernel-runtime.ts
+  - os-node kernel tests use relative imports (../../../os/node/src/index.ts) which still work through the thin re-exports without changes
+  - 23 runtime-driver/node/index.test.ts failures are pre-existing (verified by running on stashed state)
+---
+
+## 2026-03-21 05:00 - US-008
+- Merged runtime-wasmvm (WasmVmRuntime, WASI polyfill, worker adapter, browser driver, all supporting modules) into publishable @secure-exec/wasmvm
+- Converted all internal imports from .ts to .js extensions for NodeNext module resolution
+- Fixed kernel-worker.ts URL reference (new URL('./kernel-worker.ts') → .js) for compiled dist/ usage
+- Created publishable package.json with dist/ exports, build script, declarationMap/sourceMap
+- Created tsconfig.json with NodeNext, outDir: dist, rootDir: src, DOM+WebWorker libs
+- Moved all 27 test files + fixtures + helpers to secure-exec-wasmvm/test/
+- Made runtime-wasmvm a thin re-export (`export * from '@secure-exec/wasmvm'`) for backward compatibility
+- Removed source files and tests from runtime-wasmvm (only index.ts re-export remains)
+- Verified clean tsc build produces all expected dist/ output (17 modules with .js + .d.ts + maps)
+- All 560 tests pass in new location (169 skipped = WASM binary-gated, same as before)
+- Typecheck passes: 22/28 tasks (1 pre-existing sqlite VFS example failure)
+- Files changed:
+  - packages/secure-exec-wasmvm/ (new package — 17 source files, 27 test files, package.json, tsconfig.json)
+  - packages/runtime/wasmvm/src/index.ts (thin re-export)
+  - packages/runtime/wasmvm/package.json (added @secure-exec/wasmvm dep, removed test script + unused devDeps)
+  - packages/runtime/wasmvm/src/*.ts (16 source files deleted)
+  - packages/runtime/wasmvm/test/ (entire directory deleted)
+  - pnpm-lock.yaml
+- **Learnings for future iterations:**
+  - Source files with .ts extension imports need sed conversion to .js for NodeNext resolution — but `new URL('./file.ts', import.meta.url)` patterns aren't caught by `from` import sed and need separate handling
+  - WasmVM tsconfig needs DOM + WebWorker libs because browser-driver.ts uses Cache API, IndexedDB, crypto.subtle
+  - pnpm-workspace.yaml `packages/*` glob already covers new packages at that level — no workspace config change needed
+  - `export * from '@secure-exec/wasmvm'` is the simplest thin re-export pattern (covers named exports + `export *` re-exports like wasi-constants)
+  - Test files can keep .ts extension imports since vitest resolves them natively and they're excluded from tsc compilation
+---
+
+## 2026-03-21 05:05 - US-009
+- Merged runtime-python (createPythonRuntime, PythonRuntimeDriver, kernel spawn RPC) into publishable @secure-exec/python as kernel-runtime.ts
+- Added @secure-exec/kernel dependency and vitest devDependency to secure-exec-python
+- Added ./internal/kernel-runtime subpath export to secure-exec-python package.json
+- Updated secure-exec-python index.ts to export createPythonRuntime + PythonRuntimeOptions from kernel-runtime
+- Moved test file (23 tests) to secure-exec-python/test/kernel-runtime.test.ts
+- Made runtime-python a thin re-export (`export { createPythonRuntime } from '@secure-exec/python'`)
+- Removed source files, test directory, and unused devDeps from runtime-python
+- Updated runtime-python tsconfig to exclude deleted test directory
+- Verified clean tsc build produces all expected dist/ output (driver.js/d.ts, index.js/d.ts, kernel-runtime.js/d.ts)
+- All 23 kernel-runtime tests pass in new location
+- Typecheck passes: 23/31 turbo tasks (1 failure is pre-existing sqlite VFS example)
+- Files changed:
+  - packages/secure-exec-python/src/kernel-runtime.ts (new — from runtime-python)
+  - packages/secure-exec-python/test/kernel-runtime.test.ts (new — from runtime-python)
+  - packages/secure-exec-python/src/index.ts (added kernel-runtime exports)
+  - packages/secure-exec-python/package.json (added @secure-exec/kernel dep, vitest devDep, kernel-runtime export, test script)
+  - packages/runtime/python/src/index.ts (thin re-export from @secure-exec/python)
+  - packages/runtime/python/src/driver.ts (thin re-export from @secure-exec/python)
+  - packages/runtime/python/package.json (added @secure-exec/python dep, removed unused deps + test script)
+  - packages/runtime/python/test/ (deleted — tests moved)
+  - packages/runtime/python/tsconfig.json (removed test include)
+  - pnpm-lock.yaml
+- **Learnings for future iterations:**
+  - secure-exec-python already had a tsconfig with NodeNext + outDir: dist, so kernel-runtime.ts just needed to use .js import extensions — no tsconfig changes needed
+  - pyodide is both a production dependency (for the SDK driver) and an optional peerDependency — keep both declarations in package.json
+  - runtime-python's tsconfig included test/**/*.ts which caused type errors after removing deps — update tsconfig when deleting test directories
+  - The pattern is consistent across all runtime merges: copy source → convert imports → add subpath export → move tests → thin re-export old package
 ---

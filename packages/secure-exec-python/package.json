@@ -19,19 +19,34 @@
       "types": "./dist/driver.d.ts",
       "import": "./dist/driver.js",
       "default": "./dist/driver.js"
+    },
+    "./internal/kernel-runtime": {
+      "types": "./dist/kernel-runtime.d.ts",
+      "import": "./dist/kernel-runtime.js",
+      "default": "./dist/kernel-runtime.js"
     }
   },
   "scripts": {
     "check-types": "tsc --noEmit",
     "build": "tsc",
-    "test": "echo 'no tests yet'"
+    "test": "vitest run"
   },
   "dependencies": {
     "@secure-exec/core": "workspace:*",
+    "@secure-exec/kernel": "workspace:*",
     "pyodide": "^0.28.3"
+  },
+  "peerDependencies": {
+    "pyodide": ">=0.28.0"
+  },
+  "peerDependenciesMeta": {
+    "pyodide": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
   }
 }

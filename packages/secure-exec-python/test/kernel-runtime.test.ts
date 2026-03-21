@@ -9,8 +9,8 @@
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { createPythonRuntime } from '../src/driver.ts';
-import type { PythonRuntimeOptions } from '../src/driver.ts';
+import { createPythonRuntime } from '../src/kernel-runtime.ts';
+import type { PythonRuntimeOptions } from '../src/kernel-runtime.ts';
 import { createKernel } from '@secure-exec/kernel';
 import type {
   RuntimeDriver,

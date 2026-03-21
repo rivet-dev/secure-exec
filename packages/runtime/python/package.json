@@ -1,7 +1,7 @@
 {
   "name": "@secure-exec/runtime-python",
   "version": "0.1.1-rc.3",
-  "description": "Python runtime driver — wraps Pyodide behind the kernel RuntimeDriver interface",
+  "description": "Python runtime driver — thin re-export from @secure-exec/python",
   "type": "module",
   "main": "src/index.ts",
   "exports": {
@@ -9,25 +9,14 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "check-types": "tsc --noEmit",
-    "test": "vitest run"
+    "check-types": "tsc --noEmit"
   },
   "license": "Apache-2.0",
   "dependencies": {
-    "@secure-exec/kernel": "workspace:*"
-  },
-  "peerDependencies": {
-    "pyodide": ">=0.28.0"
-  },
-  "peerDependenciesMeta": {
-    "pyodide": {
-      "optional": true
-    }
+    "@secure-exec/python": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
-    "pyodide": "^0.28.3",
-    "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "typescript": "^5.7.2"
   }
 }
