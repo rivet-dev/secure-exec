@@ -3,8 +3,8 @@
  *
  * Compiles C test fixtures to both native and WASM, runs both, and
  * compares stdout/stderr/exit code for parity. Tests skip when
- * WASM binaries (make wasm), C WASM binaries (make -C wasmvm/c programs),
- * or native binaries (make -C wasmvm/c native) are not built.
+ * WASM binaries (make wasm), C WASM binaries (make -C native/wasmvm/c programs),
+ * or native binaries (make -C native/wasmvm/c native) are not built.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -21,18 +21,18 @@ import { createServer as createTcpServer } from 'node:net';
 import { createServer as createHttpServer } from 'node:http';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const COMMANDS_DIR = resolve(__dirname, '../../../../wasmvm/target/wasm32-wasip1/release/commands');
-const C_BUILD_DIR = resolve(__dirname, '../../../../wasmvm/c/build');
-const NATIVE_DIR = resolve(__dirname, '../../../../wasmvm/c/build/native');
+const COMMANDS_DIR = resolve(__dirname, '../../../native/wasmvm/target/wasm32-wasip1/release/commands');
+const C_BUILD_DIR = resolve(__dirname, '../../../native/wasmvm/c/build');
+const NATIVE_DIR = resolve(__dirname, '../../../native/wasmvm/c/build/native');
 
 const hasWasmBinaries = existsSync(COMMANDS_DIR);
 const hasCWasmBinaries = existsSync(join(C_BUILD_DIR, 'hello'));
 const hasNativeBinaries = existsSync(join(NATIVE_DIR, 'hello'));
 
 function skipReason(): string | false {
-  if (!hasWasmBinaries) return 'WASM binaries not built (run make wasm in wasmvm/)';
-  if (!hasCWasmBinaries) return 'C WASM binaries not built (run make -C wasmvm/c programs)';
-  if (!hasNativeBinaries) return 'C native binaries not built (run make -C wasmvm/c native)';
+  if (!hasWasmBinaries) return 'WASM binaries not built (run make wasm in native/wasmvm/)';
+  if (!hasCWasmBinaries) return 'C WASM binaries not built (run make -C native/wasmvm/c programs)';
+  if (!hasNativeBinaries) return 'C native binaries not built (run make -C native/wasmvm/c native)';
   return false;
 }
 
@@ -326,7 +326,7 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
 
   const hasCTier2Binaries = existsSync(join(C_BUILD_DIR, 'pipe_test'));
   const tier2Skip = !hasCTier2Binaries
-    ? 'C Tier 2 WASM binaries not built (need patched sysroot: make -C wasmvm/c sysroot && make -C wasmvm/c programs)'
+    ? 'C Tier 2 WASM binaries not built (need patched sysroot: make -C native/wasmvm/c sysroot && make -C native/wasmvm/c programs)'
     : false;
 
   it.skipIf(tier2Skip)('isatty_test: piped stdin/stdout/stderr all report not-a-tty', async () => {
@@ -438,7 +438,7 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
 
   const hasCTier3Binaries = existsSync(join(C_BUILD_DIR, 'spawn_child'));
   const tier3Skip = !hasCTier3Binaries
-    ? 'C Tier 3 WASM binaries not built (need patched sysroot: make -C wasmvm/c sysroot && make -C wasmvm/c programs)'
+    ? 'C Tier 3 WASM binaries not built (need patched sysroot: make -C native/wasmvm/c sysroot && make -C native/wasmvm/c programs)'
     : false;
 
   it.skipIf(tier3Skip)('spawn_child: posix_spawn echo, capture stdout via pipe', async () => {
@@ -612,7 +612,7 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
 
   const hasSyscallCoverage = existsSync(join(C_BUILD_DIR, 'syscall_coverage'));
   const syscallCoverageSkip = !hasSyscallCoverage
-    ? 'syscall_coverage WASM binary not built (need patched sysroot: make -C wasmvm/c sysroot && make -C wasmvm/c programs)'
+    ? 'syscall_coverage WASM binary not built (need patched sysroot: make -C native/wasmvm/c sysroot && make -C native/wasmvm/c programs)'
     : false;
 
   it.skipIf(syscallCoverageSkip)('syscall_coverage: all syscall categories pass parity', async () => {
@@ -667,7 +667,7 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
   const hasCTier4Binaries = existsSync(join(C_BUILD_DIR, 'c-ls'));
   const hasCTier4Native = existsSync(join(NATIVE_DIR, 'c-ls'));
   const tier4Skip = (!hasCTier4Binaries || !hasCTier4Native)
-    ? 'C Tier 4 binaries not built (run make -C wasmvm/c programs && make -C wasmvm/c native)'
+    ? 'C Tier 4 binaries not built (run make -C native/wasmvm/c programs && make -C native/wasmvm/c native)'
     : false;
 
   // Helper: create test directory tree on disk and in VFS
@@ -785,13 +785,13 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
   const hasCTier5Binaries = existsSync(join(C_BUILD_DIR, 'json_parse'));
   const hasCTier5Native = existsSync(join(NATIVE_DIR, 'json_parse'));
   const tier5Skip = (!hasCTier5Binaries || !hasCTier5Native)
-    ? 'C Tier 5 binaries not built (run make -C wasmvm/c programs && make -C wasmvm/c native)'
+    ? 'C Tier 5 binaries not built (run make -C native/wasmvm/c programs && make -C native/wasmvm/c native)'
     : false;
 
   const hasSqliteBinary = existsSync(join(C_BUILD_DIR, 'sqlite3_mem'));
   const hasSqliteNative = existsSync(join(NATIVE_DIR, 'sqlite3_mem'));
   const sqliteSkip = (!hasSqliteBinary || !hasSqliteNative)
-    ? 'SQLite binaries not built (run make -C wasmvm/c programs && make -C wasmvm/c native)'
+    ? 'SQLite binaries not built (run make -C native/wasmvm/c programs && make -C native/wasmvm/c native)'
     : false;
 
   it.skipIf(sqliteSkip)('sqlite3_mem: in-memory SQL operations parity', async () => {
@@ -844,7 +844,7 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
   const hasCNetBinaries = existsSync(join(C_BUILD_DIR, 'tcp_echo'));
   const hasNativeNetBinaries = existsSync(join(NATIVE_DIR, 'tcp_echo'));
   const netSkip = (!hasCNetBinaries || !hasNativeNetBinaries)
-    ? 'C networking binaries not built (need patched sysroot: make -C wasmvm/c sysroot && make -C wasmvm/c programs && make -C wasmvm/c native)'
+    ? 'C networking binaries not built (need patched sysroot: make -C native/wasmvm/c sysroot && make -C native/wasmvm/c programs && make -C native/wasmvm/c native)'
     : false;
 
   it.skipIf(netSkip)('tcp_echo: connect to TCP echo server, send and receive', async () => {

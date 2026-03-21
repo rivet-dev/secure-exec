@@ -11,8 +11,8 @@
     },
     "build:wasm": {
       "dependsOn": [],
-      "inputs": ["wasmvm/**/*.rs", "wasmvm/Cargo.toml", "wasmvm/patches/**"],
-      "outputs": ["wasmvm/target/wasm32-wasip1/release/multicall.opt.wasm"]
+      "inputs": ["native/wasmvm/**/*.rs", "native/wasmvm/Cargo.toml", "native/wasmvm/patches/**"],
+      "outputs": ["native/wasmvm/target/wasm32-wasip1/release/multicall.opt.wasm"]
     },
     "build": {
       "dependsOn": ["^build", "build:generated"],

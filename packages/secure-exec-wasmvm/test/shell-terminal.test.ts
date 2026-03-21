@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const COMMANDS_DIR = resolve(
 	__dirname,
-	"../../../../wasmvm/target/wasm32-wasip1/release/commands",
+	"../../../native/wasmvm/target/wasm32-wasip1/release/commands",
 );
 const hasWasmBinaries = existsSync(COMMANDS_DIR);
 

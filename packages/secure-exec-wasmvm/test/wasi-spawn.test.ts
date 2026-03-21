@@ -5,7 +5,7 @@
  * to spawn child processes via host_process imports and capture output
  * through pipes.
  *
- * Requires WASM binaries built (make wasm in wasmvm/).
+ * Requires WASM binaries built (make wasm in native/wasmvm/).
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -17,11 +17,11 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const COMMANDS_DIR = resolve(__dirname, '../../../../wasmvm/target/wasm32-wasip1/release/commands');
+const COMMANDS_DIR = resolve(__dirname, '../../../native/wasmvm/target/wasm32-wasip1/release/commands');
 const hasWasmBinaries = existsSync(COMMANDS_DIR);
 
 function skipReason(): string | false {
-  if (!hasWasmBinaries) return 'WASM binaries not built (run make wasm in wasmvm/)';
+  if (!hasWasmBinaries) return 'WASM binaries not built (run make wasm in native/wasmvm/)';
   if (!existsSync(resolve(COMMANDS_DIR, 'spawn-test-host'))) return 'spawn-test-host binary not built';
   return false;
 }

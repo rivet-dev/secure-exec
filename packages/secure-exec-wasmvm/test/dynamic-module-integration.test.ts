@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const COMMANDS_DIR = resolve(__dirname, '../../../../wasmvm/target/wasm32-wasip1/release/commands');
+const COMMANDS_DIR = resolve(__dirname, '../../../native/wasmvm/target/wasm32-wasip1/release/commands');
 const hasWasmBinaries = existsSync(COMMANDS_DIR);
 
 // Valid WASM magic: \0asm + version 1
