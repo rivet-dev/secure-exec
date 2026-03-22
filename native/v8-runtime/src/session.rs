@@ -119,6 +119,7 @@ impl SessionManager {
         };
         let join_handle = thread::Builder::new()
             .name(format!("session-{}", name_prefix))
+            .stack_size(32 * 1024 * 1024) // 32 MiB — V8 microtask checkpoints with large module graphs need extra stack
             .spawn(move || {
                 session_thread(
                     heap_limit_mb,
@@ -363,8 +364,9 @@ fn session_thread(
                             } else {
                                 isolate::create_isolate(heap_limit_mb)
                             };
-                            // Must re-apply WASM disable after every restore (not captured in snapshot)
+                            // Must re-apply after every restore (not captured in snapshot)
                             execution::disable_wasm(&mut iso);
+                            execution::enable_dynamic_import(&mut iso);
                             let ctx = isolate::create_context(&mut iso);
                             _v8_context = Some(ctx);
                             v8_isolate = Some(iso);
@@ -490,6 +492,7 @@ fn session_thread(
                             let scope = &mut v8::ContextScope::new(scope, ctx);
                             let (c, e) = execution::execute_script(
                                 scope,
+                                Some(&bridge_ctx),
                                 bridge_code_for_exec,
                                 &user_code,
                                 &mut bridge_cache,
@@ -509,21 +512,88 @@ fn session_thread(
                             )
                         };
 
+                        // Update module resolve state for the event loop.
+                        // execute_module preserves the module cache (names + compiled
+                        // modules) on success so the event loop can reuse them for
+                        // dynamic import() in timer callbacks. We update the bridge_ctx
+                        // pointer (it points to the stack-local bridge_ctx which is still
+                        // valid). For execute_script (CJS), state was cleared on return,
+                        // so we initialize fresh if needed.
+                        execution::MODULE_RESOLVE_STATE.with(|cell| {
+                            if cell.borrow().is_some() {
+                                // Preserve module cache, just update bridge pointer
+                                execution::update_bridge_ctx(&bridge_ctx as *const _);
+                            } else {
+                                // CJS path or error path — initialize fresh
+                                *cell.borrow_mut() = Some(execution::ModuleResolveState {
+                                    bridge_ctx: &bridge_ctx as *const _,
+                                    module_names: std::collections::HashMap::new(),
+                                    module_cache: std::collections::HashMap::new(),
+                                });
+                            }
+                        });
+
                         // Run event loop if there are pending async promises
-                        let terminated = if pending.len() > 0 {
+                        // Keep auto microtask policy during event loop.
+                        // The SIGSEGV that previously occurred during auto microtask
+                        // processing in resolver.resolve() was caused by V8's native
+                        // Intl.Segmenter crashing (JSSegments::Create NULL deref in ICU).
+                        // With Intl.Segmenter polyfilled in JS, auto policy works correctly.
+
+                        let mut terminated = if pending.len() > 0 {
                             let scope = &mut v8::HandleScope::new(iso);
                             let ctx = v8::Local::new(scope, &exec_context);
                             let scope = &mut v8::ContextScope::new(scope, ctx);
-                            !run_event_loop(
+                            let result = run_event_loop(
                                 scope,
                                 &rx,
                                 &pending,
                                 maybe_abort_rx.as_ref(),
                                 Some(&deferred_queue),
-                            )
+                            );
+                            !result
                         } else {
                             false
                         };
+
+                        // Final microtask drain: after the event loop exits (all bridge
+                        // promises resolved), there may be pending V8 microtasks from
+                        // nested async generator yield chains (e.g. Anthropic SDK's SSE
+                        // parser). These chains don't create bridge calls so pending.len()
+                        // reaches 0 while V8 still has queued PromiseReactionJobs.
+                        // Run repeated checkpoints until no new pending bridge calls are
+                        // created and all microtasks are fully drained.
+                        if !terminated {
+                            loop {
+                                let scope = &mut v8::HandleScope::new(iso);
+                                let ctx = v8::Local::new(scope, &exec_context);
+                                let scope = &mut v8::ContextScope::new(scope, ctx);
+                                scope.perform_microtask_checkpoint();
+
+                                // If microtask processing created new async bridge calls,
+                                // run the event loop again to handle them
+                                if pending.len() > 0 {
+                                    if !run_event_loop(
+                                        scope,
+                                        &rx,
+                                        &pending,
+                                        maybe_abort_rx.as_ref(),
+                                        Some(&deferred_queue),
+                                    ) {
+                                        terminated = true;
+                                        break;
+                                    }
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+
+
+                        // Clear module resolve state after event loop completes
+                        execution::MODULE_RESOLVE_STATE.with(|cell| {
+                            *cell.borrow_mut() = None;
+                        });
 
                         // Check if timeout fired
                         let timed_out = timeout_guard.as_ref().is_some_and(|g| g.timed_out());
@@ -604,7 +674,7 @@ fn session_thread(
 ///
 /// Sync functions block V8 while the host processes the call (applySync/applySyncPromise).
 /// Async functions return a Promise to V8, resolved when the host responds (apply).
-pub(crate) const SYNC_BRIDGE_FNS: [&str; 31] = [
+pub(crate) const SYNC_BRIDGE_FNS: [&str; 33] = [
     // Console
     "_log",
     "_error",
@@ -641,9 +711,13 @@ pub(crate) const SYNC_BRIDGE_FNS: [&str; 31] = [
     "_childProcessStdinClose",
     "_childProcessKill",
     "_childProcessSpawnSync",
+    // PTY
+    "_ptySetRawMode",
+    // Process exit notification
+    "_notifyProcessExit",
 ];
 
-pub(crate) const ASYNC_BRIDGE_FNS: [&str; 7] = [
+pub(crate) const ASYNC_BRIDGE_FNS: [&str; 8] = [
     // Module loading (async)
     "_dynamicImport",
     // Timer
@@ -654,6 +728,8 @@ pub(crate) const ASYNC_BRIDGE_FNS: [&str; 7] = [
     "_networkHttpRequestRaw",
     "_networkHttpServerListenRaw",
     "_networkHttpServerCloseRaw",
+    // Streaming stdin (async — must not block V8 thread)
+    "_stdinRead",
 ];
 
 /// Run the session event loop: dispatch incoming messages to V8.
@@ -700,7 +776,6 @@ pub(crate) fn run_event_loop(
                     Err(_) => return false,
                 },
                 recv(abort) -> _ => {
-                    // Timeout fired — abort channel closed
                     scope.terminate_execution();
                     return false;
                 },
@@ -741,13 +816,13 @@ fn dispatch_event_loop_frame(
             let (result, error) = if status == 1 {
                 (None, Some(String::from_utf8_lossy(&payload).to_string()))
             } else if !payload.is_empty() {
-                // status=0: V8-serialized, status=2: raw binary (Uint8Array)
+                // V8-serialized or raw binary
                 (Some(payload), None)
             } else {
                 (None, None)
             };
             let _ = crate::bridge::resolve_pending_promise(scope, pending, call_id, result, error);
-            // Microtasks already flushed in resolve_pending_promise
+            scope.perform_microtask_checkpoint();
             true
         }
         BinaryFrame::StreamEvent {
@@ -809,6 +884,10 @@ impl ChannelResponseReceiver {
 }
 
 impl crate::host_call::ResponseReceiver for ChannelResponseReceiver {
+    fn defer(&self, frame: BinaryFrame) {
+        self.deferred.lock().unwrap().push_back(frame);
+    }
+
     fn recv_response(&self) -> Result<BinaryFrame, String> {
         loop {
             // Wait for next command, with optional abort monitoring

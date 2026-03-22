@@ -10,6 +10,14 @@ pub fn init_v8_platform() {
     V8_INIT.call_once(|| {
         let platform = v8::new_default_platform(0, false).make_shared();
         v8::V8::initialize_platform(platform);
+        // Set V8 flags before initialization.
+        // Increase V8's internal stack limit to match the 32 MiB thread stack.
+        // Default V8 stack limit is ~1 MB which is insufficient for deep
+        // microtask chains from TUI frameworks (Ink/React).
+        v8::V8::set_flags_from_string("--stack-size=16384");
+        if std::env::var("SECURE_EXEC_V8_JITLESS").is_ok() {
+            v8::V8::set_flags_from_string("--jitless");
+        }
         v8::V8::initialize();
     });
 }

@@ -302,7 +302,7 @@ export interface KernelInterface {
 	ptySetDiscipline(
 		pid: number,
 		fd: number,
-		config: { canonical?: boolean; echo?: boolean; isig?: boolean },
+		config: { canonical?: boolean; echo?: boolean; isig?: boolean; icrnl?: boolean },
 	): void;
 	/** Set the foreground process group for signal delivery on the PTY. */
 	ptySetForegroundPgid(pid: number, fd: number, pgid: number): void;

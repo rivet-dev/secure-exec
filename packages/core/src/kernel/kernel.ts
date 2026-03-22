@@ -316,11 +316,28 @@ class KernelImpl implements Kernel {
 			}
 		})();
 
+		// Start stdin pump: master write → PTY input buffer → slave read → writeStdin
+		// Bridges shell.write() data to the runtime driver's streaming stdin path
+		const stdinPumpPromise = (async () => {
+			try {
+				while (!pump.exited) {
+					const data = await this.ptyManager.read(slaveDescId, 4096);
+					if (!data || data.length === 0) break;
+					proc.writeStdin(data);
+				}
+			} catch {
+				// PTY closed — expected when shell exits
+			}
+			// Signal stdin EOF to the runtime driver
+			try { proc.closeStdin(); } catch { /* already closed */ }
+		})();
+
 		// wait() resolves after both shell exit AND pump drain
 		const waitPromise = proc.wait().then(async (exitCode) => {
 			pump.exited = true;
-			// Wait for pump to finish delivering remaining data
+			// Wait for pumps to finish delivering remaining data
 			await pumpPromise;
+			await stdinPumpPromise;
 			// Clean up controller PID's FD table (incl. PTY master)
 			this.cleanupProcessFDs(controllerPid);
 			return exitCode;

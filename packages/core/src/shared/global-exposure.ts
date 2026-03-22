@@ -331,12 +331,12 @@ export const NODE_CUSTOM_GLOBAL_INVENTORY: readonly CustomGlobalInventoryEntry[]
 	{
 		name: "_dynamicImport",
 		classification: "hardened",
-		rationale: "Runtime-owned host callback reference for dynamic import resolution.",
+		rationale: "Runtime-owned host callback reference for dynamic import resolution. Browser-only fallback — V8-backed execution uses native HostImportModuleDynamicallyCallback (US-023).",
 	},
 	{
 		name: "__dynamicImport",
 		classification: "hardened",
-		rationale: "Runtime-owned dynamic-import shim entrypoint.",
+		rationale: "Runtime-owned dynamic-import shim entrypoint. Browser-only fallback — V8-backed execution uses native import() (US-023).",
 	},
 	{
 		name: "_moduleCache",

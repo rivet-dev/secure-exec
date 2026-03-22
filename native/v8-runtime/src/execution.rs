@@ -300,16 +300,33 @@ pub fn run_init_script(scope: &mut v8::HandleScope, code: &str) -> (i32, Option<
 /// Runs bridge_code as IIFE first (if non-empty), then compiles and runs user_code
 /// via v8::Script. Returns (exit_code, error) — exit code 0 on success, 1 on error.
 /// The `bridge_cache` parameter enables code caching for repeated bridge compilations.
+/// When `bridge_ctx` is provided, MODULE_RESOLVE_STATE is set up so that dynamic
+/// import() expressions inside CJS code can resolve modules via IPC.
 pub fn execute_script(
     scope: &mut v8::HandleScope,
+    bridge_ctx: Option<&BridgeCallContext>,
     bridge_code: &str,
     user_code: &str,
     bridge_cache: &mut Option<BridgeCodeCache>,
 ) -> (i32, Option<ExecutionError>) {
+    // Set up module resolve state for dynamic import support in CJS mode
+    if let Some(ctx) = bridge_ctx {
+        MODULE_RESOLVE_STATE.with(|cell| {
+            *cell.borrow_mut() = Some(ModuleResolveState {
+                bridge_ctx: ctx as *const BridgeCallContext,
+                module_names: HashMap::new(),
+                module_cache: HashMap::new(),
+            });
+        });
+    }
+
     // Run bridge code IIFE (with code caching)
     if !bridge_code.is_empty() {
         let (code, err) = run_bridge_cached(scope, bridge_code, bridge_cache);
         if code != 0 {
+            if bridge_ctx.is_some() {
+                clear_module_state();
+            }
             return (code, err);
         }
     }
@@ -320,6 +337,9 @@ pub fn execute_script(
         let source = match v8::String::new(tc, user_code) {
             Some(s) => s,
             None => {
+                if bridge_ctx.is_some() {
+                    clear_module_state();
+                }
                 return (
                     1,
                     Some(ExecutionError {
@@ -334,6 +354,9 @@ pub fn execute_script(
         let script = match v8::Script::compile(tc, source, None) {
             Some(s) => s,
             None => {
+                if bridge_ctx.is_some() {
+                    clear_module_state();
+                }
                 return match tc.exception() {
                     Some(e) => {
                         let (c, err) = exception_to_result(tc, e);
@@ -344,6 +367,9 @@ pub fn execute_script(
             }
         };
         if script.run(tc).is_none() {
+            if bridge_ctx.is_some() {
+                clear_module_state();
+            }
             return match tc.exception() {
                 Some(e) => {
                     let (c, err) = exception_to_result(tc, e);
@@ -352,8 +378,12 @@ pub fn execute_script(
                 None => (1, None),
             };
         }
+
     }
 
+    if bridge_ctx.is_some() {
+        clear_module_state();
+    }
     (0, None)
 }
 
@@ -533,12 +563,12 @@ fn build_os_config<'s>(
 
 /// Thread-local state for module resolution during execute_module.
 /// Avoids passing user data through V8's ResolveModuleCallback (which is a plain fn pointer).
-struct ModuleResolveState {
-    bridge_ctx: *const BridgeCallContext,
+pub(crate) struct ModuleResolveState {
+    pub(crate) bridge_ctx: *const BridgeCallContext,
     /// identity_hash → resource_name for referrer lookup
-    module_names: HashMap<NonZeroI32, String>,
+    pub(crate) module_names: HashMap<NonZeroI32, String>,
     /// resolved_path → Global<Module> cache
-    module_cache: HashMap<String, v8::Global<v8::Module>>,
+    pub(crate) module_cache: HashMap<String, v8::Global<v8::Module>>,
 }
 
 // SAFETY: ModuleResolveState is only accessed from the session thread
@@ -547,13 +577,290 @@ struct ModuleResolveState {
 unsafe impl Send for ModuleResolveState {}
 
 thread_local! {
-    static MODULE_RESOLVE_STATE: RefCell<Option<ModuleResolveState>> = const { RefCell::new(None) };
+    pub(crate) static MODULE_RESOLVE_STATE: RefCell<Option<ModuleResolveState>> = const { RefCell::new(None) };
 }
 
 fn clear_module_state() {
     MODULE_RESOLVE_STATE.with(|cell| {
         *cell.borrow_mut() = None;
     });
+}
+
+/// Update the bridge_ctx pointer in module resolve state without clearing the
+/// module cache. Used to preserve compiled modules across the event loop while
+/// updating the bridge context for the new session.
+pub(crate) fn update_bridge_ctx(bridge_ctx: *const crate::host_call::BridgeCallContext) {
+    MODULE_RESOLVE_STATE.with(|cell| {
+        if let Some(state) = cell.borrow_mut().as_mut() {
+            state.bridge_ctx = bridge_ctx;
+        }
+    });
+}
+
+/// Register the dynamic import callback on the isolate.
+/// Must be called after isolate creation (not captured in snapshots).
+pub fn enable_dynamic_import(isolate: &mut v8::OwnedIsolate) {
+    isolate.set_host_import_module_dynamically_callback(dynamic_import_callback);
+    isolate.set_host_initialize_import_meta_object_callback(import_meta_callback);
+}
+
+/// V8 HostInitializeImportMetaObjectCallback — populates import.meta for ES modules.
+///
+/// Sets import.meta.url to "file://<path>" using the module's resolved path
+/// from MODULE_RESOLVE_STATE.module_names.
+extern "C" fn import_meta_callback(
+    context: v8::Local<v8::Context>,
+    module: v8::Local<v8::Module>,
+    meta: v8::Local<v8::Object>,
+) {
+    // Look up the module's file path from thread-local state
+    let hash = module.get_identity_hash();
+    let url = MODULE_RESOLVE_STATE.with(|cell| {
+        let borrow = cell.borrow();
+        borrow.as_ref().and_then(|state| {
+            state.module_names.get(&hash).map(|path| {
+                if path.starts_with("file://") {
+                    path.clone()
+                } else {
+                    format!("file://{}", path)
+                }
+            })
+        })
+    });
+
+    if let Some(url) = url {
+        // SAFETY: callback is invoked within V8 execution scope
+        let scope = unsafe { &mut v8::CallbackScope::new(context) };
+        let key = v8::String::new(scope, "url").unwrap();
+        let val = v8::String::new(scope, &url).unwrap();
+        meta.create_data_property(scope, key.into(), val.into());
+    }
+}
+
+/// V8 HostImportModuleDynamicallyCallback — called when import() is evaluated.
+///
+/// Resolves the specifier via IPC, loads source, compiles as a module,
+/// instantiates + evaluates it, and returns a Promise resolving to the
+/// module namespace. Uses the same MODULE_RESOLVE_STATE thread-local
+/// as module_resolve_callback.
+fn dynamic_import_callback<'s>(
+    scope: &mut v8::HandleScope<'s>,
+    _host_defined_options: v8::Local<'s, v8::Data>,
+    resource_name: v8::Local<'s, v8::Value>,
+    specifier: v8::Local<'s, v8::String>,
+    _import_attributes: v8::Local<'s, v8::FixedArray>,
+) -> Option<v8::Local<'s, v8::Promise>> {
+    let resolver = v8::PromiseResolver::new(scope)?;
+    let promise = resolver.get_promise(scope);
+
+    let specifier_str = specifier.to_rust_string_lossy(scope);
+    let referrer_str = resource_name.to_rust_string_lossy(scope);
+
+    // Get bridge context from thread-local state
+    let bridge_ctx_ptr = MODULE_RESOLVE_STATE.with(|cell| {
+        let borrow = cell.borrow();
+        borrow.as_ref().map(|state| state.bridge_ctx)
+    });
+    let bridge_ctx_ptr = match bridge_ctx_ptr {
+        Some(p) => p,
+        None => {
+            let msg = v8::String::new(
+                scope,
+                "dynamic import() not available: no module resolve state",
+            )
+            .unwrap();
+            let exc = v8::Exception::error(scope, msg);
+            resolver.reject(scope, exc);
+            return Some(promise);
+        }
+    };
+
+    // SAFETY: bridge_ctx pointer is valid for the duration of execute_module/execute_script
+    let ctx = unsafe { &*bridge_ctx_ptr };
+
+    // Resolve specifier via IPC
+    let resolved_path = match resolve_module_via_ipc(scope, ctx, &specifier_str, &referrer_str) {
+        Some(p) => p,
+        None => {
+            // resolve_module_via_ipc already threw — extract and reject the promise
+            let tc = &mut v8::TryCatch::new(scope);
+            if tc.has_caught() {
+                let exc = tc.exception().unwrap();
+                let exc_global = v8::Global::new(tc, exc);
+                tc.reset();
+                let exc_local = v8::Local::new(tc, &exc_global);
+                resolver.reject(tc, exc_local);
+            } else {
+                let msg = v8::String::new(tc, &format!("Cannot resolve module '{}'", specifier_str))
+                    .unwrap();
+                let exc = v8::Exception::error(tc, msg);
+                resolver.reject(tc, exc);
+            }
+            return Some(promise);
+        }
+    };
+
+    // Check cache first
+    let cached_global = MODULE_RESOLVE_STATE.with(|cell| {
+        let borrow = cell.borrow();
+        let state = borrow.as_ref()?;
+        state.module_cache.get(&resolved_path).cloned()
+    });
+
+    if let Some(cached) = cached_global {
+        // Module already compiled — get its namespace
+        let module = v8::Local::new(scope, &cached);
+        if module.get_status() == v8::ModuleStatus::Evaluated
+            || module.get_status() == v8::ModuleStatus::Instantiated
+        {
+            if module.get_status() == v8::ModuleStatus::Instantiated {
+                let tc = &mut v8::TryCatch::new(scope);
+                if module.evaluate(tc).is_none() {
+                    if let Some(exc) = tc.exception() {
+                        let exc_global = v8::Global::new(tc, exc);
+                        tc.reset();
+                        let exc_local = v8::Local::new(tc, &exc_global);
+                        resolver.reject(tc, exc_local);
+                        return Some(promise);
+                    }
+                }
+            }
+            let namespace = module.get_module_namespace();
+            resolver.resolve(scope, namespace);
+            return Some(promise);
+        }
+    }
+
+    // Load source via IPC
+    let source_code = match load_module_via_ipc(scope, ctx, &resolved_path) {
+        Some(s) => s,
+        None => {
+            let tc = &mut v8::TryCatch::new(scope);
+            if tc.has_caught() {
+                let exc = tc.exception().unwrap();
+                let exc_global = v8::Global::new(tc, exc);
+                tc.reset();
+                let exc_local = v8::Local::new(tc, &exc_global);
+                resolver.reject(tc, exc_local);
+            } else {
+                let msg =
+                    v8::String::new(tc, &format!("Cannot load module '{}'", resolved_path))
+                        .unwrap();
+                let exc = v8::Exception::error(tc, msg);
+                resolver.reject(tc, exc);
+            }
+            return Some(promise);
+        }
+    };
+
+    // Compile as ES module
+    let resource = match v8::String::new(scope, &resolved_path) {
+        Some(s) => s,
+        None => {
+            let msg = v8::String::new(scope, "module path too large for V8").unwrap();
+            let exc = v8::Exception::error(scope, msg);
+            resolver.reject(scope, exc);
+            return Some(promise);
+        }
+    };
+    let origin = v8::ScriptOrigin::new(
+        scope,
+        resource.into(),
+        0,
+        0,
+        false,
+        -1,
+        None,
+        false,
+        false,
+        true, // is_module
+        None,
+    );
+    let v8_source = match v8::String::new(scope, &source_code) {
+        Some(s) => s,
+        None => {
+            let msg = v8::String::new(scope, "module source too large for V8").unwrap();
+            let exc = v8::Exception::error(scope, msg);
+            resolver.reject(scope, exc);
+            return Some(promise);
+        }
+    };
+    let mut compiled = v8::script_compiler::Source::new(v8_source, Some(&origin));
+    let module = match v8::script_compiler::compile_module(scope, &mut compiled) {
+        Some(m) => m,
+        None => {
+            let tc = &mut v8::TryCatch::new(scope);
+            if tc.has_caught() {
+                let exc = tc.exception().unwrap();
+                let exc_global = v8::Global::new(tc, exc);
+                tc.reset();
+                let exc_local = v8::Local::new(tc, &exc_global);
+                resolver.reject(tc, exc_local);
+            } else {
+                let msg = v8::String::new(tc, "module compilation failed").unwrap();
+                let exc = v8::Exception::error(tc, msg);
+                resolver.reject(tc, exc);
+            }
+            return Some(promise);
+        }
+    };
+
+    // Cache the module
+    MODULE_RESOLVE_STATE.with(|cell| {
+        if let Some(state) = cell.borrow_mut().as_mut() {
+            state
+                .module_names
+                .insert(module.get_identity_hash(), resolved_path.clone());
+            let global = v8::Global::new(scope, module);
+            state.module_cache.insert(resolved_path, global);
+        }
+    });
+
+    // Instantiate
+    {
+        let tc = &mut v8::TryCatch::new(scope);
+        if module.instantiate_module(tc, module_resolve_callback).is_none() {
+            if let Some(exc) = tc.exception() {
+                let exc_global = v8::Global::new(tc, exc);
+                tc.reset();
+                let exc_local = v8::Local::new(tc, &exc_global);
+                resolver.reject(tc, exc_local);
+            } else {
+                let msg = v8::String::new(tc, "module instantiation failed").unwrap();
+                let exc = v8::Exception::error(tc, msg);
+                resolver.reject(tc, exc);
+            }
+            return Some(promise);
+        }
+    }
+
+    // Evaluate
+    {
+        let tc = &mut v8::TryCatch::new(scope);
+        if module.evaluate(tc).is_none() {
+            if let Some(exc) = tc.exception() {
+                let exc_global = v8::Global::new(tc, exc);
+                tc.reset();
+                let exc_local = v8::Local::new(tc, &exc_global);
+                resolver.reject(tc, exc_local);
+            } else {
+                let msg = v8::String::new(tc, "module evaluation failed").unwrap();
+                let exc = v8::Exception::error(tc, msg);
+                resolver.reject(tc, exc);
+            }
+            return Some(promise);
+        }
+        if module.get_status() == v8::ModuleStatus::Errored {
+            let exc = module.get_exception();
+            resolver.reject(tc, exc);
+            return Some(promise);
+        }
+    }
+
+    // Resolve with module namespace
+    let namespace = module.get_module_namespace();
+    resolver.resolve(scope, namespace);
+    Some(promise)
 }
 
 /// Execute user code as an ES module (mode='run').
@@ -749,7 +1056,10 @@ pub fn execute_module(
             }
         };
 
-        clear_module_state();
+        // NOTE: Do NOT clear module state on success path.
+        // The event loop re-uses the module cache for dynamic import()
+        // in timer callbacks. The session clears it after the event loop ends.
+        // Error paths above still clear on failure.
         (0, Some(exports_bytes), None)
     }
 }
@@ -2092,7 +2402,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, "", "var x = 1 + 2;", &mut None)
+                execute_script(scope, None, "", "var x = 1 + 2;", &mut None)
             };
 
             assert_eq!(code, 0);
@@ -2112,7 +2422,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, bridge, user, &mut None)
+                execute_script(scope, None, bridge, user, &mut None)
             };
 
             assert_eq!(code, 0);
@@ -2130,7 +2440,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, "", "var x = {;", &mut None)
+                execute_script(scope, None, "", "var x = {;", &mut None)
             };
 
             assert_eq!(code, 1);
@@ -2148,7 +2458,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, "", "null.foo", &mut None)
+                execute_script(scope, None, "","null.foo", &mut None)
             };
 
             assert_eq!(code, 1);
@@ -2167,7 +2477,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, "function {", "var x = 1;", &mut None)
+                execute_script(scope, None, "function {", "var x = 1;", &mut None)
             };
 
             assert_eq!(code, 1);
@@ -2186,7 +2496,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, "", "'hello'", &mut None)
+                execute_script(scope, None, "","'hello'", &mut None)
             };
 
             assert_eq!(code, 0);
@@ -2204,6 +2514,7 @@ mod tests {
                 let scope = &mut v8::ContextScope::new(scope, local);
                 execute_script(
                     scope,
+                    None,
                     "",
                     "var e = new Error('not found'); e.code = 'ERR_MODULE_NOT_FOUND'; throw e;",
                     &mut None,
@@ -2226,7 +2537,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, "", "throw 'raw string error';", &mut None)
+                execute_script(scope, None, "","throw 'raw string error';", &mut None)
             };
 
             assert_eq!(code, 1);
@@ -3304,7 +3615,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, "", "while(true) {}", &mut None)
+                execute_script(scope, None, "","while(true) {}", &mut None)
             };
 
             assert!(guard.timed_out(), "timeout should have fired");
@@ -3331,7 +3642,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, "", "1 + 1", &mut None)
+                execute_script(scope, None, "","1 + 1", &mut None)
             };
 
             assert!(!guard.timed_out(), "timeout should not have fired");
@@ -3391,7 +3702,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, "", "_slowFn('never-responds')", &mut None)
+                execute_script(scope, None, "","_slowFn('never-responds')", &mut None)
             };
 
             assert_eq!(pending.len(), 1, "should have 1 pending promise");
@@ -3447,7 +3758,7 @@ mod tests {
                 throw err;
             "#;
 
-            let (exit_code, error) = execute_script(scope, "", code, &mut None);
+            let (exit_code, error) = execute_script(scope, None, "",code, &mut None);
             assert_eq!(
                 exit_code, 42,
                 "ProcessExitError should return the error's exit code"
@@ -3475,7 +3786,7 @@ mod tests {
                 throw err;
             "#;
 
-            let (exit_code, error) = execute_script(scope, "", code, &mut None);
+            let (exit_code, error) = execute_script(scope, None, "",code, &mut None);
             assert_eq!(
                 exit_code, 0,
                 "ProcessExitError code 0 should return exit code 0"
@@ -3495,7 +3806,7 @@ mod tests {
             // Regular error without _isProcessExit sentinel
             let code = r#"throw new TypeError("not a process exit")"#;
 
-            let (exit_code, error) = execute_script(scope, "", code, &mut None);
+            let (exit_code, error) = execute_script(scope, None, "",code, &mut None);
             assert_eq!(exit_code, 1, "Regular errors should return exit code 1");
             let err = error.unwrap();
             assert_eq!(err.error_type, "TypeError");
@@ -3523,7 +3834,7 @@ mod tests {
                 throw new ProcessExitError(7);
             "#;
 
-            let (exit_code, error) = execute_script(scope, "", code, &mut None);
+            let (exit_code, error) = execute_script(scope, None, "",code, &mut None);
             assert_eq!(exit_code, 7);
             let err = error.unwrap();
             assert_eq!(err.error_type, "ProcessExitError");
@@ -3541,7 +3852,7 @@ mod tests {
 
             // Thrown string — not an object, should not be detected as ProcessExitError
             let code = r#"throw "just a string""#;
-            let (exit_code, error) = execute_script(scope, "", code, &mut None);
+            let (exit_code, error) = execute_script(scope, None, "",code, &mut None);
             assert_eq!(exit_code, 1);
             let err = error.unwrap();
             assert_eq!(err.error_type, "Error");
@@ -3554,7 +3865,7 @@ mod tests {
                 obj.code = 99;
                 throw obj;
             "#;
-            let (exit_code2, error2) = execute_script(scope, "", code2, &mut None);
+            let (exit_code2, error2) = execute_script(scope, None, "",code2, &mut None);
             assert_eq!(exit_code2, 1, "_isProcessExit:false should not be detected");
             assert!(error2.is_some());
         }
@@ -3574,7 +3885,7 @@ mod tests {
                 throw err;
             "#;
 
-            let (exit_code, error) = execute_script(scope, "", code, &mut None);
+            let (exit_code, error) = execute_script(scope, None, "",code, &mut None);
             assert_eq!(exit_code, 1);
             let err = error.unwrap();
             assert_eq!(err.error_type, "Error");
@@ -3591,17 +3902,17 @@ mod tests {
             let scope = &mut v8::ContextScope::new(scope, local);
 
             // SyntaxError
-            let (_, err) = execute_script(scope, "", "eval('function(')", &mut None);
+            let (_, err) = execute_script(scope, None, "","eval('function(')", &mut None);
             let err = err.unwrap();
             assert_eq!(err.error_type, "SyntaxError");
 
             // RangeError
-            let (_, err2) = execute_script(scope, "", "new Array(-1)", &mut None);
+            let (_, err2) = execute_script(scope, None, "","new Array(-1)", &mut None);
             let err2 = err2.unwrap();
             assert_eq!(err2.error_type, "RangeError");
 
             // ReferenceError
-            let (_, err3) = execute_script(scope, "", "undefinedVariable", &mut None);
+            let (_, err3) = execute_script(scope, None, "","undefinedVariable", &mut None);
             let err3 = err3.unwrap();
             assert_eq!(err3.error_type, "ReferenceError");
         }
@@ -3621,7 +3932,7 @@ mod tests {
                 outerFn();
             "#;
 
-            let (_, error) = execute_script(scope, "", code, &mut None);
+            let (_, error) = execute_script(scope, None, "",code, &mut None);
             let err = error.unwrap();
             assert_eq!(err.error_type, "Error");
             assert_eq!(err.message, "deep error");
@@ -4032,7 +4343,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, bridge, "var _saw = _cached;", &mut cache)
+                execute_script(scope, None, bridge, "var _saw = _cached;", &mut cache)
             };
 
             assert_eq!(code, 0);
@@ -4059,7 +4370,7 @@ mod tests {
                     let scope = &mut v8::HandleScope::new(&mut iso);
                     let local = v8::Local::new(scope, &ctx);
                     let scope = &mut v8::ContextScope::new(scope, local);
-                    execute_script(scope, bridge, "", &mut cache)
+                    execute_script(scope, None, bridge, "", &mut cache)
                 };
                 assert_eq!(code, 0);
                 assert!(cache.is_some());
@@ -4074,7 +4385,7 @@ mod tests {
                     let scope = &mut v8::HandleScope::new(&mut iso);
                     let local = v8::Local::new(scope, &ctx);
                     let scope = &mut v8::ContextScope::new(scope, local);
-                    execute_script(scope, bridge, "", &mut cache)
+                    execute_script(scope, None, bridge, "", &mut cache)
                 };
                 assert_eq!(code, 0);
                 // Cache should still be present (not invalidated)
@@ -4103,6 +4414,7 @@ mod tests {
                     let scope = &mut v8::ContextScope::new(scope, local);
                     execute_script(
                         scope,
+                        None,
                         "(function() { globalThis.x = 'A'; })()",
                         "",
                         &mut cache,
@@ -4123,6 +4435,7 @@ mod tests {
                     let scope = &mut v8::ContextScope::new(scope, local);
                     execute_script(
                         scope,
+                        None,
                         "(function() { globalThis.x = 'B'; })()",
                         "",
                         &mut cache,
@@ -4202,7 +4515,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, "", "var x = 1;", &mut cache)
+                execute_script(scope, None, "","var x = 1;", &mut cache)
             };
 
             assert_eq!(code, 0);
@@ -4487,6 +4800,84 @@ mod tests {
                 written.is_empty(),
                 "no IPC calls expected for module with no imports"
             );
+        }
+
+        // --- Part 69: Dynamic import() resolves a sibling module ---
+        {
+            let mut iso = isolate::create_isolate(None);
+            enable_dynamic_import(&mut iso);
+            let ctx = isolate::create_context(&mut iso);
+
+            let mut response_buf = Vec::new();
+
+            // _resolveModule response (call_id=1): returns "/sibling.mjs"
+            let resolve_result = v8_serialize_str(&mut iso, &ctx, "/sibling.mjs");
+            crate::ipc_binary::write_frame(
+                &mut response_buf,
+                &crate::ipc_binary::BinaryFrame::BridgeResponse {
+                    session_id: String::new(),
+                    call_id: 1,
+                    status: 0,
+                    payload: resolve_result,
+                },
+            )
+            .unwrap();
+
+            // _loadFile response (call_id=2): returns module source
+            let load_result =
+                v8_serialize_str(&mut iso, &ctx, "export const greeting = 'hello from dynamic';");
+            crate::ipc_binary::write_frame(
+                &mut response_buf,
+                &crate::ipc_binary::BinaryFrame::BridgeResponse {
+                    session_id: String::new(),
+                    call_id: 2,
+                    status: 0,
+                    payload: load_result,
+                },
+            )
+            .unwrap();
+
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(Vec::new()),
+                Box::new(Cursor::new(response_buf)),
+                "test-session".into(),
+            );
+
+            // ESM code that uses dynamic import()
+            let user_code = r#"
+                export const result = await import('./sibling.mjs').then(m => m.greeting);
+            "#;
+            let (code, exports, error) = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                execute_module(
+                    scope,
+                    &bridge_ctx,
+                    "",
+                    user_code,
+                    Some("/app/main.mjs"),
+                    &mut None,
+                )
+            };
+
+            assert_eq!(code, 0, "dynamic import should succeed, error: {:?}", error);
+            assert!(error.is_none());
+            let exports = exports.unwrap();
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                let val = crate::bridge::deserialize_v8_value(scope, &exports).unwrap();
+                let obj = v8::Local::<v8::Object>::try_from(val).unwrap();
+                let k = v8::String::new(scope, "result").unwrap();
+                assert_eq!(
+                    obj.get(scope, k.into())
+                        .unwrap()
+                        .to_rust_string_lossy(scope),
+                    "hello from dynamic"
+                );
+            }
         }
 
         // --- Part 57: serialize_v8_value_into reuses buffer capacity ---
