@@ -69,6 +69,11 @@
 - buildPtyBridgeHandlers must be called ONCE per executeInternal — the result is shared between dispatch handlers and main bridge handlers to avoid split closure state
 - process.exit() inside setTimeout callbacks is silently caught by timer error handler — use process.exit() only in synchronous or stdinDispatch contexts
 - PTY stdin flow: shell.write() → PTY master → input buffer → stdin pump (kernel openShell) → proc.writeStdin → onStdinData → resolves _stdinRead promise → readLoop dispatches to stdinDispatch → process.stdin 'data' events
+- globalThis.fetch is hardened (non-writable, non-configurable) in the sandbox — redirect API calls at the network adapter level using createNodeRuntime({ networkAdapter })
+- V8 execute_script() (CJS exec mode) doesn't await returned promises — use ESM mode (add `export {}` to trigger isESM detection) for code that needs top-level await
+- Pi's cli.js calls main() without await — import main.js directly and call `await main(argv)` for headless mode
+- Polyfill ESM wrappers need BUILTIN_NAMED_EXPORTS entries to support `import { X } from 'module'` — without them, only default import works
+- CJS modules using TypeScript __exportStar pattern need host require() to discover named exports — static extractCjsNamedExports doesn't follow sub-module requires
 
 # Ralph Progress Log
 Started: Sat Mar 21 02:49:43 AM PDT 2026
@@ -845,4 +850,35 @@ Started: Sat Mar 21 02:49:43 AM PDT 2026
   - process.exit() inside setTimeout callbacks is silently caught by the timer error handler — avoid process.exit() in async timer callbacks
   - The _stdinRead bridge call pattern keeps the V8 event loop alive via pending promises — each call creates a pending promise until the host resolves it
   - buildPtyBridgeHandlers exists in BOTH dispatch handlers (inside buildModuleLoadingBridgeHandlers) and main handlers — must use the same ptyDeps/ptyHandlers instance
+---
+
+## 2026-03-21 20:15 - US-027 (in progress — bridge improvements only)
+- Rewrote pi-headless.test.ts to use kernel.spawn() in-VM instead of host child_process.spawn
+- Added `networkAdapter` option to NodeRuntimeOptions for custom network adapters (URL rewriting for mock servers)
+- Added stream/promises as known builtin with static ESM wrapper (promisified pipeline/finished)
+- Added empty stub fallback with named exports for known builtins without wrappers (readline, stream/web)
+- Added /v regex flag graceful degradation: converts regex literals to new RegExp() with try-catch for V8 ICU compat
+- Fixed resolvePackageExport to handle nested export conditions (import → {types, default})
+- Added polyfill ESM wrapper named re-exports from BUILTIN_NAMED_EXPORTS (previously polyfills only had default export)
+- Added comprehensive BUILTIN_NAMED_EXPORTS for url, events, buffer, util, assert, crypto, string_decoder, querystring, readline, fs
+- Added __exportStar CJS detection: uses host require() to discover named exports for TypeScript re-export bundles
+- Files changed:
+  - packages/nodejs/src/kernel-runtime.ts (networkAdapter option)
+  - packages/nodejs/src/bridge-handlers.ts (ESM module loading improvements, /v regex transform, __exportStar handling, polyfill named exports)
+  - packages/nodejs/src/builtin-modules.ts (stream/promises, comprehensive BUILTIN_NAMED_EXPORTS)
+  - packages/nodejs/src/esm-compiler.ts (stream/promises static wrapper)
+  - packages/secure-exec/tests/cli-tools/pi-headless.test.ts (full rewrite for in-VM execution)
+- **Story NOT passing** — Pi loads partially in-VM but hits cascading ESM module compatibility issues:
+  - V8 ICU doesn't support \p{RGI_Emoji} (workaround added via RegExp constructor)
+  - CJS-to-ESM wrapping for packages using __exportStar loses named exports (partially fixed)
+  - Many npm packages need named ESM re-exports that weren't previously needed
+  - Core remaining blocker: the sandbox ESM module system needs broader CJS/ESM interop improvements
+- **Learnings for future iterations:**
+  - globalThis.fetch is hardened (non-writable) in the sandbox — can't patch from sandbox code, must redirect at the network adapter level
+  - V8 execute_script() (CJS mode) doesn't await returned promises — use execute_module() (ESM mode via `export {}`) for top-level await
+  - Pi's cli.js calls main() without await — must import main.js directly and await main() for headless mode
+  - Regex literal /v flag errors are compile-time (can't catch with try-catch) — must convert to new RegExp() constructor
+  - Polyfill ESM wrappers from esbuild bundles are IIFEs that don't assign to outer module.exports — can't auto-discover exports by evaluating
+  - findEsmEntryFromCjsPath (preferring ESM entries over CJS) causes cascading issues because polyfill builtins (path, url, etc.) lack named exports in their ESM wrappers
+  - The V8 module system uses _resolveModule (async handler in buildModuleLoadingBridgeHandlers), NOT _resolveModuleSync
 ---

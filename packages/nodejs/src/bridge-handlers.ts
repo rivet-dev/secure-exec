@@ -33,7 +33,7 @@ import {
 import {
 	mkdir,
 } from "@secure-exec/core";
-import { normalizeBuiltinSpecifier } from "./builtin-modules.js";
+import { normalizeBuiltinSpecifier, BUILTIN_NAMED_EXPORTS } from "./builtin-modules.js";
 import { resolveModule, loadFile } from "./package-bundler.js";
 import { isESM, wrapCJSForESMWithModulePath } from "@secure-exec/core/internal/shared/esm-utils";
 import { bundlePolyfill, hasPolyfill } from "./polyfills.js";
@@ -1108,8 +1108,13 @@ function resolvePackageExport(req: string, startDir: string): string | null {
 			let entry: string | undefined;
 			if (pkg.exports) {
 				const exportEntry = pkg.exports[subpath];
-				if (typeof exportEntry === "string") entry = exportEntry;
-				else if (exportEntry) entry = exportEntry.import ?? exportEntry.default;
+				if (typeof exportEntry === "string") {
+					entry = exportEntry;
+				} else if (exportEntry) {
+					// Handle nested conditions: { import: { types, default }, require: { ... } }
+					const target = exportEntry.import ?? exportEntry.default;
+					entry = typeof target === "string" ? target : target?.default;
+				}
 			}
 			if (!entry && subpath === ".") entry = pkg.main;
 			if (entry) return pathResolve(pathDirname(pkgJsonPath), entry);
@@ -1120,6 +1125,7 @@ function resolvePackageExport(req: string, startDir: string): string | null {
 }
 
 const hostRequire = createRequire(import.meta.url);
+
 
 /**
  * Build sync module resolution bridge handlers.
@@ -1333,7 +1339,8 @@ export function buildModuleLoadingBridgeHandlers(
 		try {
 			let realDir: string;
 			try { realDir = realpathSync(hostDir); } catch { realDir = hostDir; }
-			// Try require.resolve (works for CJS packages)
+			// Try require.resolve first (handles pnpm symlinks correctly)
+			// Try require.resolve first (handles pnpm symlinks correctly)
 			try {
 				return hostRequire.resolve(req, { paths: [realDir] });
 			} catch { /* ESM-only, try manual resolution */ }
@@ -1362,16 +1369,59 @@ export function buildModuleLoadingBridgeHandlers(
 		// Polyfill-backed builtins (crypto, zlib, etc.)
 		if (hasPolyfill(bare)) {
 			const code = await bundlePolyfill(bare);
-			// Wrap polyfill CJS bundle as ESM: export default + named re-exports
-			return `const _p = (function(){var module={exports:{}};var exports=module.exports;${code};return module.exports})();\nexport default _p;\n` +
-				`for(const[k,v]of Object.entries(_p)){if(k!=='default'&&/^[A-Za-z_$]/.test(k))globalThis['__esm_'+k]=v;}\n`;
+			const namedExports = BUILTIN_NAMED_EXPORTS[bare] ?? [];
+			const namedLines = namedExports
+				.map(name => `export const ${name} = _p.${name};`)
+				.join("\n");
+			return `const _p = (function(){var module={exports:{}};var exports=module.exports;${code};return module.exports})();\nexport default _p;\n${namedLines}\n`;
+		}
+		// Recognized builtin without a static wrapper or polyfill — return empty stub with named exports
+		if (normalizeBuiltinSpecifier(bare)) {
+			const namedExports = BUILTIN_NAMED_EXPORTS[bare] ?? [];
+			if (namedExports.length > 0) {
+				const namedLines = namedExports.map(name => `export const ${name} = undefined;`).join("\n");
+				return `export default {};\n${namedLines}\n`;
+			}
+			return getEmptyBuiltinESMWrapper();
 		}
 		// Regular file — V8 handles import() natively via dynamic_import_callback (US-023)
-		const source = await loadFile(p, deps.filesystem);
+		let source = await loadFile(p, deps.filesystem);
 		if (source === null) return null;
+		// V8 regex /v flag graceful degradation: some V8 builds lack full ICU
+		// support for properties like \p{RGI_Emoji}. Convert regex literals with
+		// /v flag to new RegExp() constructor calls wrapped in try-catch. This is
+		// necessary because regex literal syntax errors are compile-time (can't be
+		// caught), but new RegExp() throws at runtime (can be caught).
+		if (source.includes('/v;') || source.includes('/v,') || source.includes('/v\n')) {
+			source = source.replace(
+				/((?:const|let|var)\s+\w+\s*=\s*)\/([^\/\\]*(?:\\.[^\/\\]*)*)\/v\s*;/g,
+				(_, decl, pattern) => {
+					// Escape backslashes for string literal (\ → \\)
+					const escaped = pattern.replace(/\\/g, '\\\\');
+					return `${decl}(() => { try { return new RegExp(${JSON.stringify(pattern)}, "v"); } catch { return /(?!)/; } })();`;
+				},
+			);
+		}
 		// Wrap CJS files as ESM so V8's module system can import them correctly
 		// (CJS uses module.exports which isn't available in ESM context)
 		if (!isESM(source, p)) {
+			// For TypeScript CJS modules with __exportStar, static analysis misses
+			// re-exported names. Discover them by requiring the module on the host.
+			if (source.includes('__exportStar')) {
+				const hostPath = deps.sandboxToHostPath?.(p) ?? p;
+				try {
+					const hostMod = hostRequire(hostPath);
+					const exportNames = Object.keys(hostMod)
+						.filter(k => k !== 'default' && k !== '__esModule' && /^[A-Za-z_$][\w$]*$/.test(k));
+					if (exportNames.length > 0) {
+						return wrapCJSForESMWithModulePath(source, p) + '\n' +
+							exportNames
+								.filter(name => !source.match(new RegExp(`\\bexports\\.${name}\\s*=`)))
+								.map(name => `export const __star_${name} = __cjs?.${name};\nexport { __star_${name} as ${name} };`)
+								.join('\n');
+					}
+				} catch { /* host require failed, fall through to static analysis */ }
+			}
 			return wrapCJSForESMWithModulePath(source, p);
 		}
 		return source;

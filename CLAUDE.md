@@ -17,9 +17,29 @@
 
 - NEVER mock external services in tests — use real implementations (Docker containers for databases/services, real HTTP servers for network tests, real binaries for CLI tool tests)
 - tests that validate sandbox behavior MUST run code through the secure-exec sandbox (NodeRuntime/proc.exec()), never directly on the host
-- CLI tool tests (Pi, Claude Code, OpenCode) must execute inside the sandbox: Pi runs as JS in the VM, Claude Code and OpenCode spawn their binaries via the sandbox's child_process.spawn bridge
+- NOTHING runs on the host except Docker containers for e2e-docker tests — all CLI tool code executes inside the sandbox VM
+- Pi and Claude Code are pure JS — they run in-VM via `import()` or `node -e` through `kernel.openShell()`, NOT via host `child_process.spawn`
+- Claude Code is a bundled ESM Node.js script (`@anthropic-ai/claude-code/cli.js`), not a native binary — its `.node` addons (tree-sitter, audio-capture) are optional and gracefully degrade
+- OpenCode is a compiled Bun binary — it runs via the sandbox's `child_process.spawn` bridge (the bridge routes to the host, but from the sandbox's perspective it's a normal spawn)
+- NEVER use `HostBinaryDriver` or `script -qefc` to bypass the sandbox — if the sandbox can't run something, fix the sandbox
+- if a test skips because of a sandbox limitation (module resolution, stdin streaming, isTTY), that is a secure-exec bug to fix, not a test to skip
+- NEVER work around sandbox limitations with host-side execution:
+  - do NOT create `HostBinaryDriver` classes that spawn binaries on the host
+  - do NOT use `script -qefc` to give host processes a PTY
+  - do NOT use `node:child_process.spawn` from test code to run tools on the host when the tool should run in-VM
+  - do NOT add `sandboxSkip` / probe-based skip logic that silently skips when the sandbox can't do something
+  - do NOT mark a story as passing if tests are skipping due to sandbox limitations
+  - if the sandbox can't run something, the correct action is to FIX the sandbox code in packages/nodejs/src/ or packages/core/src/
 - e2e-docker fixtures connect to real Docker containers (Postgres, MySQL, Redis, SSH/SFTP) — skip gracefully via `skipUnlessDocker()` when Docker is unavailable
 - interactive/PTY tests must use `kernel.openShell()` with `@xterm/headless`, not host PTY via `script -qefc`
+- CLI tool tests (Pi, Claude Code, OpenCode) must support both mock and real LLM API tokens:
+  - check `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` env vars at test startup
+  - if a real token is present, use it instead of the mock LLM server — this validates true e2e behavior
+  - Pi supports both Anthropic and OpenAI tokens; OpenCode uses OpenAI; Claude Code uses Anthropic
+  - log which mode each test suite is using at startup: `"Using real ANTHROPIC_API_KEY"`, `"Using real OPENAI_API_KEY"`, or `"Using mock LLM server"`
+  - tests must pass with both mock and real tokens — mock is the fallback, real is preferred
+  - to run with real tokens locally: `source ~/misc/env.txt` before running tests
+  - real-token tests may use longer timeouts (up to 60s) since they hit external APIs
 
 ## Tooling
 

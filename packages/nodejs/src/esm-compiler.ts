@@ -83,6 +83,13 @@ const STATIC_BUILTIN_WRAPPER_SOURCES: Readonly<Record<string, string>> = {
 		"globalThis.process || {}",
 		BUILTIN_NAMED_EXPORTS.process,
 	),
+	"stream/promises": buildWrapperSource(
+		"(function(){var s=require('stream');if(s.promises)return s.promises;" +
+		"function promisePipeline(){var args=[].slice.call(arguments);return new Promise(function(ok,fail){args.push(function(e){e?fail(e):ok()});s.pipeline.apply(null,args)})}" +
+		"function promiseFinished(stream,opts){return new Promise(function(ok,fail){s.finished(stream,opts||{},function(e){e?fail(e):ok()})})}" +
+		"return{pipeline:promisePipeline,finished:promiseFinished}})()",
+		BUILTIN_NAMED_EXPORTS["stream/promises"],
+	),
 	v8: buildWrapperSource("globalThis._moduleCache?.v8 || {}", []),
 };
 

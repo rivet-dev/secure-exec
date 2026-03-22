@@ -18,6 +18,7 @@ import type {
   DriverProcess,
   Permissions,
   VirtualFileSystem,
+  NetworkAdapter,
 } from '@secure-exec/core';
 import { NodeExecutionDriver } from './execution-driver.js';
 import { createNodeDriver } from './driver.js';
@@ -50,6 +51,13 @@ export interface NodeRuntimeOptions {
    * Nested objects become dot-separated paths (max depth 4, max 64 leaves).
    */
   bindings?: BindingTree;
+  /**
+   * Network adapter for HTTP/fetch/DNS. When provided, sandbox processes can
+   * make network requests through the bridge. When omitted, network calls
+   * throw ENOSYS. Use createDefaultNetworkAdapter() for real network access,
+   * or provide a custom adapter for URL rewriting / mock servers.
+   */
+  networkAdapter?: NetworkAdapter;
 }
 
 /**
@@ -326,12 +334,14 @@ class NodeRuntimeDriver implements RuntimeDriver {
   private _memoryLimit: number;
   private _permissions: Partial<Permissions>;
   private _bindings?: BindingTree;
+  private _networkAdapter?: NetworkAdapter;
   private _activeDrivers = new Map<number, NodeExecutionDriver>();
 
   constructor(options?: NodeRuntimeOptions) {
     this._memoryLimit = options?.memoryLimit ?? 128;
     this._permissions = options?.permissions ?? { ...allowAllChildProcess };
     this._bindings = options?.bindings;
+    this._networkAdapter = options?.networkAdapter;
   }
 
   async init(kernel: KernelInterface): Promise<void> {
@@ -494,6 +504,7 @@ class NodeRuntimeDriver implements RuntimeDriver {
         filesystem,
         commandExecutor,
         permissions,
+        networkAdapter: this._networkAdapter,
         processConfig: {
           cwd: ctx.cwd,
           env: ctx.env,
