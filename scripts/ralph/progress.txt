@@ -1,5 +1,7 @@
 ## Codebase Patterns
-- V8 SIGSEGV on v134.5.0 during Pi interactive TUI init is a confirmed blocker — not a stack overflow, not a bridge issue, crash is inside V8 JIT/C++ code after ~1600 modules loaded
+- V8 SIGSEGV on v134.5.0 during Pi interactive TUI init was caused by native Intl.Segmenter (ICU JSSegments::Create) — fixed with JS polyfill in bridge setupGlobals() and inline in test code for snapshot contexts
+- To debug V8 SIGSEGV: add SIGSEGV handler with backtrace_symbols_fd, write to file (SECURE_EXEC_V8_DIAG_FILE), then use addr2line on crash addresses to identify the specific V8 built-in
+- Intl.Segmenter polyfill must be applied BOTH in bridge setupGlobals() (fresh isolates) AND in user code (snapshot-restored contexts) until snapshot rebuild
 - process.nextTick, queueMicrotask, and setTimeout(fn, 0) all route through _scheduleTimer bridge call (not V8 microtasks) — prevents perform_microtask_checkpoint() infinite loops
 - Kernel VFS canonical source is now packages/secure-exec-core/src/kernel/vfs.ts — includes realpath, pread, full VirtualStat (ino, nlink, uid, gid)
 - @secure-exec/kernel package has been deleted — all kernel types/functions import from @secure-exec/core directly
@@ -1077,4 +1079,39 @@ Started: Sat Mar 21 02:49:43 AM PDT 2026
   - The V8 SIGSEGV on v134.5.0 is distinct from the v130.0.7 NULL dereference — different crash point, same symptom
   - V8 sidecar "IPC connection closed" error flows: session.execute() rejects → executeInternal() catch → returns { code: 1, errorMessage } → kernel-runtime resolves (not rejects)
   - To debug V8 SIGSEGV: need to run binary under GDB or with ASAN (release builds strip symbols, backtrace_symbols_fd returns unhelpful addresses)
+---
+
+## 2026-03-22 - US-028 (SIGSEGV root cause found and fixed)
+- **Root cause identified**: V8's native `Intl.Segmenter` (ICU `JSSegments::Create`) crashes with SIGSEGV during `perform_microtask_checkpoint()`. Pi's TUI framework (Ink/cli-truncate) calls `Intl.Segmenter.prototype.segment()` for text wrapping. The crash happens in V8's C++ ICU code, not in Rust or JS bridge code.
+- **Diagnosis method**: Custom SIGSEGV handler with `backtrace_symbols_fd` + `addr2line` on the crash address → identified `v8::internal::JSSegments::Create` and `Builtin_SegmenterPrototypeSegment`
+- **Fix**: Added JS polyfill for `Intl.Segmenter` in bridge `setupGlobals()` (covers grapheme/word/sentence granularity). Also added inline polyfill in test code for snapshot-restored contexts.
+- **Additional V8 improvements**:
+  - Preserve MODULE_RESOLVE_STATE module cache across event loop (execute_module no longer clears on success)
+  - Added `update_bridge_ctx()` to update bridge pointer without losing cached modules
+  - Set V8 `--stack-size=16384` for deep microtask chains
+  - Support `SECURE_EXEC_V8_JITLESS=1` env var for debugging
+  - Keep auto microtask policy during event loop (explicit policy starved the event loop)
+- **Test results**: 4/9 Pi interactive tests pass (TUI renders, input, Ctrl+C, PTY resize). 5 fail on LLM streaming response and clean exit (separate issues from SIGSEGV).
+- **What was NOT the cause** (investigated and ruled out):
+  - NOT TryCatch scope invalidation (Rust borrow checker prevents this)
+  - NOT HandleScope management in event loop
+  - NOT module cache loss (preserving cache didn't fix crash)
+  - NOT V8 version (136.0.0 same crash as 134.5.0)
+  - NOT JIT compilation bug (--jitless same crash)
+  - NOT stack overflow (128 MiB stack same crash)
+  - NOT snapshot corruption (no-snapshot same crash)
+  - NOT GC heap corruption (pre-event-loop GC didn't help)
+- Files changed:
+  - native/v8-runtime/src/execution.rs (update_bridge_ctx, preserve module cache on success)
+  - native/v8-runtime/src/isolate.rs (--stack-size=16384, --jitless support)
+  - native/v8-runtime/src/session.rs (module cache preservation, auto microtask policy comment)
+  - native/v8-runtime/src/main.rs (cleanup diagnostic code)
+  - packages/nodejs/src/bridge/process.ts (Intl.Segmenter polyfill in setupGlobals)
+  - packages/secure-exec/tests/cli-tools/pi-interactive.test.ts (inline Segmenter polyfill)
+- **Learnings for future iterations:**
+  - V8's native Intl.Segmenter (ICU) crashes on large module graphs — polyfill it in the bridge
+  - SIGSEGV during perform_microtask_checkpoint() can be caused by ANY V8 built-in called from microtask callbacks — use SIGSEGV handler + addr2line to identify the specific built-in
+  - V8 process stderr is NOT captured by vitest — use file-based logging (SECURE_EXEC_V8_DIAG_FILE) for crash diagnostics
+  - Explicit microtask policy starves the V8 event loop (timer callbacks don't chain properly) — keep auto policy
+  - The bridge's Intl.Segmenter polyfill only covers fresh isolates; snapshot-restored contexts need the polyfill re-applied in user code or postRestoreScript
 ---
