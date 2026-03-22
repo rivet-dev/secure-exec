@@ -62,7 +62,7 @@
       ],
       "priority": 4,
       "passes": true,
-      "notes": "Phase 2 step 3. Highest risk part of the bridge move — build pipeline changes."
+      "notes": "Phase 2 step 3. Highest risk part of the bridge move \u2014 build pipeline changes."
     },
     {
       "id": "US-005",
@@ -109,7 +109,7 @@
       ],
       "priority": 7,
       "passes": true,
-      "notes": "Phase 4 — Node runtime. Highest risk phase, many file moves and import rewrites."
+      "notes": "Phase 4 \u2014 Node runtime. Highest risk phase, many file moves and import rewrites."
     },
     {
       "id": "US-008",
@@ -125,7 +125,7 @@
       ],
       "priority": 8,
       "passes": true,
-      "notes": "Phase 4 — WasmVM runtime."
+      "notes": "Phase 4 \u2014 WasmVM runtime."
     },
     {
       "id": "US-009",
@@ -139,7 +139,7 @@
       ],
       "priority": 9,
       "passes": true,
-      "notes": "Phase 4 — Python runtime."
+      "notes": "Phase 4 \u2014 Python runtime."
     },
     {
       "id": "US-010",
@@ -152,7 +152,7 @@
       ],
       "priority": 10,
       "passes": true,
-      "notes": "Phase 4 — Browser. Browser support is already broken/deferred, so this is organizational only."
+      "notes": "Phase 4 \u2014 Browser. Browser support is already broken/deferred, so this is organizational only."
     },
     {
       "id": "US-011",
@@ -166,7 +166,7 @@
       ],
       "priority": 11,
       "passes": true,
-      "notes": "Phase 5 step 1. Breaking change — part of the semver major bump."
+      "notes": "Phase 5 step 1. Breaking change \u2014 part of the semver major bump."
     },
     {
       "id": "US-012",
@@ -302,7 +302,7 @@
       ],
       "priority": 19,
       "passes": true,
-      "notes": "Custom bindings Phase 1. ~40-50 LOC. No Rust changes needed — bridgeHandlers already accepts dynamic entries."
+      "notes": "Custom bindings Phase 1. ~40-50 LOC. No Rust changes needed \u2014 bridgeHandlers already accepts dynamic entries."
     },
     {
       "id": "US-020",
@@ -330,7 +330,7 @@
       "acceptanceCriteria": [
         "Test: host registers nested bindings, sandbox calls them, values round-trip correctly",
         "Test: sync bindings return values directly, async bindings return Promises",
-        "Test: SecureExec.bindings is frozen — mutation attempts throw in sandbox",
+        "Test: SecureExec.bindings is frozen \u2014 mutation attempts throw in sandbox",
         "Test: validation rejects invalid JS identifiers as binding keys",
         "Test: validation rejects nesting depth > 4",
         "Test: validation rejects > 64 leaf functions",
@@ -361,12 +361,12 @@
       ],
       "priority": 22,
       "passes": true,
-      "notes": "CLI Tool E2E Phase 0 — bridge prerequisites. Must be completed before interactive CLI tool tests (US-025, US-027, US-029)."
+      "notes": "CLI Tool E2E Phase 0 \u2014 bridge prerequisites. Must be completed before interactive CLI tool tests (US-025, US-027, US-029)."
     },
     {
       "id": "US-023",
       "title": "V8 sidecar: native dynamic import() via HostImportModuleDynamicallyCallback",
-      "description": "As a developer, I want the V8 sidecar to handle dynamic import() natively so we can remove the regex import() → __dynamicImport() rewrite hack.",
+      "description": "As a developer, I want the V8 sidecar to handle dynamic import() natively so we can remove the regex import() \u2192 __dynamicImport() rewrite hack.",
       "acceptanceCriteria": [
         "Register HostImportModuleDynamicallyCallback on the V8 isolate in native/v8-runtime/src/execution.rs",
         "The callback resolves specifiers and loads source via the same IPC bridge that module_resolve_callback already uses",
@@ -378,7 +378,7 @@
       ],
       "priority": 23,
       "passes": true,
-      "notes": "V8 provides set_host_import_module_dynamically_callback() for handling import() at the engine level. Currently the Rust side has NO dynamic import support — all import() calls are regex-rewritten to __dynamicImport() by transformDynamicImport() in packages/core/src/shared/esm-utils.ts:22 and routed to a TS-side bridge handler that returns null (packages/nodejs/src/bridge-handlers.ts:1350). The fix is in the Rust sidecar: register the V8 callback, resolve the specifier via resolve_module_via_ipc (already exists at execution.rs:1055), load source via load_module_via_ipc (already exists), compile as v8::Module, instantiate, evaluate, and resolve the Promise. Reference: module_resolve_callback at execution.rs:961 already does all of this for static imports — the dynamic import callback is the async equivalent. DO NOT fix this in TypeScript. DO NOT keep the regex rewrite."
+      "notes": "V8 provides set_host_import_module_dynamically_callback() for handling import() at the engine level. Currently the Rust side has NO dynamic import support \u2014 all import() calls are regex-rewritten to __dynamicImport() by transformDynamicImport() in packages/core/src/shared/esm-utils.ts:22 and routed to a TS-side bridge handler that returns null (packages/nodejs/src/bridge-handlers.ts:1350). The fix is in the Rust sidecar: register the V8 callback, resolve the specifier via resolve_module_via_ipc (already exists at execution.rs:1055), load source via load_module_via_ipc (already exists), compile as v8::Module, instantiate, evaluate, and resolve the Promise. Reference: module_resolve_callback at execution.rs:961 already does all of this for static imports \u2014 the dynamic import callback is the async equivalent. DO NOT fix this in TypeScript. DO NOT keep the regex rewrite."
     },
     {
       "id": "US-024",
@@ -386,7 +386,7 @@
       "description": "As a developer, I want ESM files executed using V8's native module system (run mode) instead of being regex-converted to CJS.",
       "acceptanceCriteria": [
         "kernel-runtime.ts detects ESM files (.mjs, 'type: module' in package.json, or import/export syntax) and uses executionDriver.run() instead of executionDriver.exec()",
-        "ESM files are loaded by V8's native module system via module_resolve_callback — no convertEsmToCjs regex transformation",
+        "ESM files are loaded by V8's native module system via module_resolve_callback \u2014 no convertEsmToCjs regex transformation",
         "CJS files (.cjs, no ESM syntax) continue to use exec mode unchanged",
         "The convertEsmToCjs function in bridge-handlers.ts is no longer called for ESM files loaded via run mode",
         "The transformDynamicImport regex rewrite is removed or bypassed for code running in native ESM mode (V8 handles import() natively via US-023)",
@@ -400,7 +400,7 @@
       ],
       "priority": 24,
       "passes": true,
-      "notes": "Currently kernel-runtime.ts line ~488 ALWAYS calls executionDriver.exec() (CJS mode). This forces ALL code through the CJS path: loadFileSync → convertEsmToCjs (regex ESM→CJS, bridge-handlers.ts:968) → transformDynamicImport (regex import()→__dynamicImport(), esm-utils.ts:22). These regex transforms break on minified code (like Claude Code's 358KB cli.js). The V8 sidecar already has full native ESM support in execute_module() (execution.rs:566) with module_resolve_callback for static imports. The fix: (1) detect ESM in kernel-runtime.ts and call executionDriver.run() for ESM files, (2) the loadFile bridge handler (bridge-handlers.ts:1355) should NOT apply convertEsmToCjs when serving files to V8's native module system, (3) optionally register HostInitializeImportMetaObjectCallback in Rust to set import.meta.url. DO NOT keep the regex ESM→CJS conversion for files loaded via V8's native module system."
+      "notes": "Currently kernel-runtime.ts line ~488 ALWAYS calls executionDriver.exec() (CJS mode). This forces ALL code through the CJS path: loadFileSync \u2192 convertEsmToCjs (regex ESM\u2192CJS, bridge-handlers.ts:968) \u2192 transformDynamicImport (regex import()\u2192__dynamicImport(), esm-utils.ts:22). These regex transforms break on minified code (like Claude Code's 358KB cli.js). The V8 sidecar already has full native ESM support in execute_module() (execution.rs:566) with module_resolve_callback for static imports. The fix: (1) detect ESM in kernel-runtime.ts and call executionDriver.run() for ESM files, (2) the loadFile bridge handler (bridge-handlers.ts:1355) should NOT apply convertEsmToCjs when serving files to V8's native module system, (3) optionally register HostInitializeImportMetaObjectCallback in Rust to set import.meta.url. DO NOT keep the regex ESM\u2192CJS conversion for files loaded via V8's native module system."
     },
     {
       "id": "US-025",
@@ -412,13 +412,13 @@
         "The __dynamicImport global and _dynamicImport bridge handler are no longer needed for V8-backed execution (may remain for browser worker backward compat)",
         "loadFileSync bridge handler stops applying convertEsmToCjs for files resolved during native ESM execution",
         "loadFile bridge handler stops applying transformDynamicImport for files resolved during native ESM execution",
-        "All existing tests still pass — CJS code paths unchanged",
+        "All existing tests still pass \u2014 CJS code paths unchanged",
         "Typecheck passes",
         "pnpm --filter secure-exec exec vitest run passes"
       ],
       "priority": 25,
       "passes": true,
-      "notes": "Cleanup story after US-023 and US-024. The regex hacks to remove/bypass: (1) transformDynamicImport in esm-utils.ts:22 — replaces import( with __dynamicImport( via regex, breaks minified code, (2) convertEsmToCjs in bridge-handlers.ts:968 — 100-line regex ESM→CJS converter, breaks on edge cases, (3) __dynamicImport shim in global-exposure.ts:337 and bridge-contract.ts:24 — no longer needed when V8 handles import() natively. The browser worker (packages/browser/src/worker.ts) may still need these hacks since it doesn't use the V8 sidecar — leave those paths intact but clearly mark them as browser-only fallbacks."
+      "notes": "Cleanup story after US-023 and US-024. The regex hacks to remove/bypass: (1) transformDynamicImport in esm-utils.ts:22 \u2014 replaces import( with __dynamicImport( via regex, breaks minified code, (2) convertEsmToCjs in bridge-handlers.ts:968 \u2014 100-line regex ESM\u2192CJS converter, breaks on edge cases, (3) __dynamicImport shim in global-exposure.ts:337 and bridge-contract.ts:24 \u2014 no longer needed when V8 handles import() natively. The browser worker (packages/browser/src/worker.ts) may still need these hacks since it doesn't use the V8 sidecar \u2014 leave those paths intact but clearly mark them as browser-only fallbacks."
     },
     {
       "id": "US-026",
@@ -436,20 +436,20 @@
       ],
       "priority": 26,
       "passes": true,
-      "notes": "ROOT CAUSE: packages/nodejs/src/kernel-runtime.ts lines ~355-391: writeStdin() pushes to a buffer array, closeStdin() concatenates and resolves a promise that exec() awaits. Stdin is never delivered to the running sandbox process — it's only available as a complete string AFTER closeStdin(). FIX: For PTY-backed processes (openShell), writeStdin() must deliver data to the sandbox's process.stdin in real-time via the V8 session's sendStreamEvent() method (already exists for child process stdout). The bridge's stdin handler in packages/nodejs/src/bridge/process.ts needs a streaming data path, not just the batched _stdinData global. DO NOT work around this by spawning on the host. DO NOT add skip logic."
+      "notes": "ROOT CAUSE: packages/nodejs/src/kernel-runtime.ts lines ~355-391: writeStdin() pushes to a buffer array, closeStdin() concatenates and resolves a promise that exec() awaits. Stdin is never delivered to the running sandbox process \u2014 it's only available as a complete string AFTER closeStdin(). FIX: For PTY-backed processes (openShell), writeStdin() must deliver data to the sandbox's process.stdin in real-time via the V8 session's sendStreamEvent() method (already exists for child process stdout). The bridge's stdin handler in packages/nodejs/src/bridge/process.ts needs a streaming data path, not just the batched _stdinData global. DO NOT work around this by spawning on the host. DO NOT add skip logic."
     },
     {
       "id": "US-027",
       "title": "Pi headless tests running in-VM (native ESM)",
       "description": "As a developer, I want Pi to boot and produce LLM-backed output in headless mode running INSIDE the sandbox VM.",
       "acceptanceCriteria": [
-        "Pi runs INSIDE the sandbox VM via kernel.spawn() or kernel.openShell() — NOT via host child_process.spawn",
+        "Pi runs INSIDE the sandbox VM via kernel.spawn() or kernel.openShell() \u2014 NOT via host child_process.spawn",
         "Test code uses createKernel() + kernel.mount(createNodeRuntime()) to set up the sandbox",
         "Pi boots in print mode and exits with code 0",
         "Pi produces stdout containing the canned LLM response",
         "Pi reads/writes files via its tools through the sandbox bridge",
         "Pi runs bash commands via its bash tool through the child_process bridge",
-        "Mock LLM server runs on host (infrastructure) — only Pi itself runs in-VM",
+        "Mock LLM server runs on host (infrastructure) \u2014 only Pi itself runs in-VM",
         "Tests skip gracefully if Pi dependency is unavailable",
         "Tests pass",
         "Typecheck passes",
@@ -461,15 +461,15 @@
     },
     {
       "id": "US-028",
-      "title": "Pi interactive tests (in-VM PTY) — must pass, no skips",
+      "title": "Pi interactive tests (in-VM PTY) \u2014 must pass, no skips",
       "description": "As a developer, I want Pi's TUI to render correctly running in-VM through kernel.openShell() PTY + headless xterm.",
       "acceptanceCriteria": [
         "Remove all sandboxSkip / probe-based skip logic from pi-interactive.test.ts",
         "Pi loaded inside sandbox VM via kernel.openShell() with PTY via TerminalHarness",
-        "Pi TUI renders — screen shows prompt/editor UI after boot",
+        "Pi TUI renders \u2014 screen shows prompt/editor UI after boot",
         "Typed input appears in editor area",
         "Submitted prompt renders LLM response on screen",
-        "Ctrl+C interrupts during response streaming — Pi stays alive",
+        "Ctrl+C interrupts during response streaming \u2014 Pi stays alive",
         "PTY resize triggers Pi re-render for new dimensions",
         "Exit command (/exit or ^D) cleanly closes Pi and PTY",
         "All tests pass (zero skips except skipUnlessPiInstalled)",
@@ -478,33 +478,50 @@
       ],
       "priority": 28,
       "passes": true,
-      "notes": "Fixed PTY icrnl (CR→NL conversion) not being disabled by setRawMode — added icrnl to LineDisciplineConfig and set it in the onPtySetRawMode callback. Added _notifyProcessExit bridge handler to flush pending timer promises and stdin on process.exit(). Registered _ptySetRawMode and _notifyProcessExit in V8 SYNC_BRIDGE_FNS. Exit tests use grace-period pattern due to V8 event loop pending _stdinRead promises."
+      "notes": "Fixed PTY icrnl (CR\u2192NL conversion) not being disabled by setRawMode \u2014 added icrnl to LineDisciplineConfig and set it in the onPtySetRawMode callback. Added _notifyProcessExit bridge handler to flush pending timer promises and stdin on process.exit(). Registered _ptySetRawMode and _notifyProcessExit in V8 SYNC_BRIDGE_FNS. Exit tests use grace-period pattern due to V8 event loop pending _stdinRead promises."
     },
     {
       "id": "US-029",
-      "title": "OpenCode headless tests via sandbox child_process bridge",
-      "description": "As a developer, I want OpenCode spawned from sandbox code via the child_process bridge, not from host test code.",
+      "title": "Build OpenCode JS bundle from source for in-VM execution",
+      "description": "As a developer, I want OpenCode's TypeScript source built into a JS bundle so it can run inside the sandbox VM like Pi and Claude Code.",
       "acceptanceCriteria": [
-        "Test uses createKernel() + kernel.spawn() — sandbox code calls require('child_process').spawn('opencode', ...)",
-        "The kernel's child_process bridge routes the spawn to the host opencode binary",
-        "OpenCode is NOT spawned directly from host test code via node:child_process",
-        "Tests skip gracefully if opencode binary is not installed",
-        "OpenCode boots, produces output, handles signals, reports errors correctly",
+        "OpenCode source cloned/vendored from https://github.com/anomalyco/opencode",
+        "Build script produces a JS bundle (esbuild or the project's own build) that can be loaded via import() in the V8 sandbox",
+        "Bundle added as a devDependency or build artifact in packages/secure-exec",
+        "Smoke test: kernel.spawn('node', ['-e', 'import(\"opencode-bundle\")']) loads without error",
+        "Typecheck passes"
+      ],
+      "priority": 29,
+      "passes": false,
+      "notes": "OpenCode (https://github.com/anomalyco/opencode) is TypeScript, not a native binary — the distributed 'opencode' command is a Bun-compiled binary but the source is vanilla TS/JS. Build the JS bundle so it can run in-VM like Pi and Claude Code. All three agents (Pi, Claude Code, OpenCode) are JS and MUST run inside the sandbox VM. DO NOT use the compiled Bun binary. DO NOT use child_process bridge to spawn the binary on the host."
+    },
+    {
+      "id": "US-030",
+      "title": "OpenCode headless tests running in-VM (native ESM)",
+      "description": "As a developer, I want OpenCode to boot and produce output in headless mode running INSIDE the sandbox VM, not spawned as a host binary.",
+      "acceptanceCriteria": [
+        "OpenCode runs INSIDE the sandbox VM via kernel.spawn() or kernel.openShell() — NOT via host child_process.spawn or Bun binary",
+        "Test uses createKernel() + kernel.mount(createNodeRuntime()) to set up the sandbox",
+        "OpenCode boots in run mode and exits with code 0",
+        "OpenCode produces stdout containing the canned LLM response",
+        "OpenCode text and JSON output formats work",
+        "Environment variables (API key, base URL) passed through sandbox env",
+        "Tests skip gracefully if OpenCode bundle is not built",
         "Tests pass",
         "Typecheck passes",
         "pnpm --filter secure-exec exec vitest run tests/cli-tools/opencode-headless.test.ts passes"
       ],
-      "priority": 29,
+      "priority": 30,
       "passes": false,
-      "notes": "OpenCode is a compiled Bun binary — can't run in-VM. But the spawn MUST go through the sandbox's child_process bridge. Current test uses host node:child_process.spawn directly — rewrite so sandbox code does the spawn. The bridge in packages/nodejs/src/bridge/child-process.ts handles routing. DO NOT spawn from host test code."
+      "notes": "Depends on US-029 (OpenCode JS bundle) and US-023/US-024 (V8 native ESM + dynamic import). OpenCode is JS — runs in-VM like Pi. Current test spawns the Bun binary on the host which is cheating. Rewrite to use kernel.spawn() with the JS bundle from US-029. DO NOT use the compiled Bun binary. DO NOT use child_process bridge to spawn on host."
     },
     {
-      "id": "US-030",
-      "title": "Claude Code headless tests running in-VM (native ESM)",
-      "description": "As a developer, I want Claude Code to boot and produce output in -p mode running INSIDE the sandbox VM.",
+      "id": "US-031",
+      "title": "Claude Code headless tests running in-VM (native ESM) — no bridge spawning",
+      "description": "As a developer, I want Claude Code to boot and produce output in -p mode running INSIDE the sandbox VM via import(), not via child_process bridge to the host binary.",
       "acceptanceCriteria": [
-        "Claude Code runs INSIDE the sandbox VM via kernel.spawn() or kernel.openShell() — NOT via host child_process.spawn",
-        "Test uses createKernel() + kernel.mount(createNodeRuntime()) to set up the sandbox",
+        "Claude Code runs INSIDE the sandbox VM via import() — NOT via child_process.spawn or spawnSync to the host claude binary",
+        "Test uses createKernel() + kernel.mount(createNodeRuntime()) + kernel.spawn('node', ['-e', 'import(...)'])",
         "Claude boots in headless mode (-p) and exits with code 0",
         "Claude produces stdout containing canned LLM response",
         "Claude JSON and stream-json output formats work",
@@ -512,48 +529,46 @@
         "Tests skip gracefully if @anthropic-ai/claude-code is not installed",
         "Tests pass",
         "Typecheck passes",
-        "pnpm --filter secure-exec exec vitest run tests/cli-tools/claude-headless.test.ts passes with zero skipped tests (when Claude Code is installed)"
-      ],
-      "priority": 30,
-      "passes": false,
-      "notes": "US-023/US-024 make import() and ESM work natively — after those land, Claude Code's bundled ESM loads in-VM with no further sandbox fixes. This story is ONLY a test rewrite: change claude-headless.test.ts to use kernel.spawn('node', ['-e', 'import(...)']) instead of host child_process.spawn. Claude Code is a bundled ESM script (cli.js, zero npm deps) — NOT a native binary. Its .node addons (tree-sitter, audio-capture) are optional. ANTHROPIC_BASE_URL is natively supported so mock server integration is straightforward. DO NOT spawn from host. If import() fails, that means US-023/US-024 are not done — go back and fix those."
-    },
-    {
-      "id": "US-031",
-      "title": "OpenCode interactive tests via sandbox bridge + PTY — must pass, no skips",
-      "description": "As a developer, I want OpenCode's TUI to render correctly spawned through the sandbox's child_process bridge with PTY.",
-      "acceptanceCriteria": [
-        "Remove all sandboxSkip / probe-based skip logic",
-        "Remove HostBinaryDriver and script -qefc",
-        "Sandbox code spawns opencode via child_process bridge through kernel.openShell()",
-        "OpenTUI renders, input works, responses stream, Ctrl+C interrupts, PTY resize works, exit works",
-        "All tests pass (zero skips except skipUnless opencode binary installed)",
-        "Typecheck passes",
-        "pnpm --filter secure-exec exec vitest run tests/cli-tools/opencode-interactive.test.ts passes"
+        "pnpm --filter secure-exec exec vitest run tests/cli-tools/claude-headless.test.ts passes"
       ],
       "priority": 31,
       "passes": false,
-      "notes": "Depends on US-026 (streaming stdin). OpenCode is a Bun binary so it uses child_process bridge (not in-VM), but the call must come from sandbox code. No HostBinaryDriver, no script -qefc, no host spawning."
+      "notes": "Ralph previously marked this passing but cheated — it uses spawnSync('claude', [...args]) via child_process bridge to run the binary on the host. This violates the testing policy. Claude Code is a bundled ESM Node.js script (cli.js) — it MUST run in-VM via import() like Pi. The current test's note says 'initialization hangs on sync bridge calls' — that is a secure-exec bug to fix, not a reason to spawn on the host. If import() hangs, diagnose and fix the bridge hang. ANTHROPIC_BASE_URL is natively supported for mock server integration. DO NOT use child_process bridge. DO NOT spawn on host."
     },
     {
       "id": "US-032",
-      "title": "Claude Code interactive tests (in-VM PTY) — must pass, no skips",
-      "description": "As a developer, I want Claude Code's Ink TUI to render correctly running in-VM through kernel.openShell() PTY + headless xterm.",
+      "title": "OpenCode interactive tests (in-VM PTY) — must pass, no skips",
+      "description": "As a developer, I want OpenCode's TUI to render correctly running in-VM through kernel.openShell() PTY + headless xterm.",
       "acceptanceCriteria": [
         "Remove all sandboxSkip / probe-based skip logic",
-        "Remove HostBinaryDriver and script -qefc — Claude Code runs in-VM via import()",
-        "Claude Code loaded inside sandbox VM via kernel.openShell() with PTY",
+        "OpenCode loaded inside sandbox VM via kernel.openShell() with PTY using the JS bundle from US-029",
+        "OpenTUI renders, input works, responses stream, Ctrl+C interrupts, PTY resize works, exit works",
+        "All tests pass (zero skips except skipUnless OpenCode bundle is built)",
+        "Typecheck passes",
+        "pnpm --filter secure-exec exec vitest run tests/cli-tools/opencode-interactive.test.ts passes"
+      ],
+      "priority": 32,
+      "passes": false,
+      "notes": "Depends on US-029 (OpenCode JS bundle), US-023/US-024 (V8 native ESM), US-026 (streaming stdin), US-022 (isTTY/setRawMode). OpenCode is JS — runs in-VM like Pi. Ralph previously cheated by spawning the Bun binary via child_process bridge + python3 pty.spawn. That is host execution, not in-VM. Rewrite to use kernel.openShell() with the JS bundle."
+    },
+    {
+      "id": "US-033",
+      "title": "Claude Code interactive tests (in-VM PTY) — must pass, no skips",
+      "description": "As a developer, I want Claude Code's Ink TUI to render correctly running in-VM through kernel.openShell() PTY + headless xterm via import(), not via host binary spawning.",
+      "acceptanceCriteria": [
+        "Remove all sandboxSkip / probe-based skip logic",
+        "Claude Code loaded inside sandbox VM via kernel.openShell() with PTY via import()",
         "Ink TUI renders, input works, responses stream, tool UI appears, Ctrl+C works, PTY resize works, /help works, /exit works",
         "All tests pass (zero skips except skipUnless @anthropic-ai/claude-code installed)",
         "Typecheck passes",
         "pnpm --filter secure-exec exec vitest run tests/cli-tools/claude-interactive.test.ts passes"
       ],
-      "priority": 32,
+      "priority": 33,
       "passes": false,
-      "notes": "US-023/US-024 make import() and ESM work, US-026 makes streaming stdin work, US-022 makes isTTY/setRawMode work. After those land, this is ONLY a test rewrite: remove sandboxSkip probes, remove HostBinaryDriver/script -qefc, load Claude Code in-VM via kernel.openShell(). If import() or stdin streaming fails, that means the dependency stories are not done — go back and fix those."
+      "notes": "Depends on US-023/US-024 (V8 native ESM + dynamic import), US-026 (streaming stdin), US-022 (isTTY/setRawMode). Claude Code is pure JS — runs in-VM like Pi. DO NOT use child_process bridge. DO NOT spawn the host binary. If import() or the TUI init hangs, that is a secure-exec bug to fix."
     },
     {
-      "id": "US-033",
+      "id": "US-034",
       "title": "Real API token support for all CLI tool tests",
       "description": "As a developer, I want CLI tool tests to use real LLM API tokens when available, falling back to mock when absent.",
       "acceptanceCriteria": [
@@ -564,7 +579,7 @@
         "Real-token tests use longer timeouts (up to 60s)",
         "Typecheck passes"
       ],
-      "priority": 33,
+      "priority": 34,
       "passes": false,
       "notes": "Applies to all test files. Pi supports both Anthropic and OpenAI; OpenCode uses OpenAI; Claude Code uses Anthropic. Source ~/misc/env.txt for local real-token runs."
     }

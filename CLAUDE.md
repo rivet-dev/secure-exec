@@ -18,18 +18,19 @@
 - NEVER mock external services in tests — use real implementations (Docker containers for databases/services, real HTTP servers for network tests, real binaries for CLI tool tests)
 - tests that validate sandbox behavior MUST run code through the secure-exec sandbox (NodeRuntime/proc.exec()), never directly on the host
 - NOTHING runs on the host except Docker containers for e2e-docker tests — all CLI tool code executes inside the sandbox VM
-- Pi and Claude Code are pure JS — they run in-VM via `import()` or `node -e` through `kernel.openShell()`, NOT via host `child_process.spawn`
+- Pi, Claude Code, and OpenCode are ALL pure JavaScript/TypeScript — they ALL run in-VM via `import()` through `kernel.openShell()` or `kernel.spawn()`
 - Claude Code is a bundled ESM Node.js script (`@anthropic-ai/claude-code/cli.js`), not a native binary — its `.node` addons (tree-sitter, audio-capture) are optional and gracefully degrade
-- OpenCode is a compiled Bun binary — it runs via the sandbox's `child_process.spawn` bridge (the bridge routes to the host, but from the sandbox's perspective it's a normal spawn)
-- NEVER use `HostBinaryDriver` or `script -qefc` to bypass the sandbox — if the sandbox can't run something, fix the sandbox
-- if a test skips because of a sandbox limitation (module resolution, stdin streaming, isTTY), that is a secure-exec bug to fix, not a test to skip
-- NEVER work around sandbox limitations with host-side execution:
+- OpenCode is TypeScript (https://github.com/anomalyco/opencode) — the distributed `opencode` command is a Bun-compiled binary but the source is vanilla TS/JS; build the JS bundle from source and run it in-VM
+- if the sandbox can't run something, that is a secure-exec bug to fix, not a reason to spawn on the host
+- NEVER work around sandbox limitations with host-side execution — this is the #1 rule for CLI tool tests:
+  - do NOT use `child_process.spawn` or `child_process.spawnSync` from INSIDE sandbox code to run a tool binary on the host (e.g. `spawnSync('claude', [...args])` routing through the child_process bridge) — this is still host execution, the tool's JS runs on the host not in the V8 isolate
+  - do NOT use `node:child_process.spawn` from TEST code to run tools on the host
   - do NOT create `HostBinaryDriver` classes that spawn binaries on the host
-  - do NOT use `script -qefc` to give host processes a PTY
-  - do NOT use `node:child_process.spawn` from test code to run tools on the host when the tool should run in-VM
+  - do NOT use `script -qefc` or `python3 pty.spawn` to give host processes a PTY
   - do NOT add `sandboxSkip` / probe-based skip logic that silently skips when the sandbox can't do something
-  - do NOT mark a story as passing if tests are skipping due to sandbox limitations
-  - if the sandbox can't run something, the correct action is to FIX the sandbox code in packages/nodejs/src/ or packages/core/src/
+  - do NOT mark a story as passing if the tool runs on the host instead of in the V8 isolate
+  - the ONLY correct pattern is: `kernel.spawn('node', ['-e', 'import("tool-entry.js")'])` or equivalent — the tool's JavaScript executes inside the V8 sandbox isolate
+  - if `import()` hangs, if ESM loading fails, if the TUI crashes — those are secure-exec bugs to fix in packages/nodejs/src/, packages/core/src/, or native/v8-runtime/src/
 - e2e-docker fixtures connect to real Docker containers (Postgres, MySQL, Redis, SSH/SFTP) — skip gracefully via `skipUnlessDocker()` when Docker is unavailable
 - interactive/PTY tests must use `kernel.openShell()` with `@xterm/headless`, not host PTY via `script -qefc`
 - CLI tool tests (Pi, Claude Code, OpenCode) must support both mock and real LLM API tokens:
