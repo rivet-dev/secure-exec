@@ -74,6 +74,13 @@
 - Pi's cli.js calls main() without await — import main.js directly and call `await main(argv)` for headless mode
 - Polyfill ESM wrappers need BUILTIN_NAMED_EXPORTS entries to support `import { X } from 'module'` — without them, only default import works
 - CJS modules using TypeScript __exportStar pattern need host require() to discover named exports — static extractCjsNamedExports doesn't follow sub-module requires
+- _resolveModule handler must use "import" mode (not "require") — it's called by V8's ESM module system
+- bundlePolyfill() returns an IIFE — _loadFile must NOT re-wrap (double-wrapping discards inner result)
+- CJS-to-ESM wrapper must use `let exports` not `const` — CJS modules (ajv) reassign exports
+- Non-TTY stdin must emit "end" on resume when empty — without it, apps hang at readPipedStdin()
+- SSRF check in createDefaultNetworkAdapter blocks 127.0.0.1 — test network adapters need directFetch bypass for mock servers
+- crypto polyfill (node-stdlib-browser) lacks randomUUID — augment with bridge _cryptoRandomUUID
+- process.stdout.write(data, callback) callback must be invoked — Pi's flush Promise depends on it
 
 # Ralph Progress Log
 Started: Sat Mar 21 02:49:43 AM PDT 2026
@@ -881,4 +888,53 @@ Started: Sat Mar 21 02:49:43 AM PDT 2026
   - Polyfill ESM wrappers from esbuild bundles are IIFEs that don't assign to outer module.exports — can't auto-discover exports by evaluating
   - findEsmEntryFromCjsPath (preferring ESM entries over CJS) causes cascading issues because polyfill builtins (path, url, etc.) lack named exports in their ESM wrappers
   - The V8 module system uses _resolveModule (async handler in buildModuleLoadingBridgeHandlers), NOT _resolveModuleSync
+---
+
+## 2026-03-21 22:00 - US-027 (bridge improvements, not yet passing)
+- Implemented 13 sandbox bridge compatibility fixes for in-VM Pi execution
+- Fixes committed:
+  1. _resolveModule: use "import" ESM export conditions for V8 module system (was always using "require")
+  2. extractCjsNamedExports: add esbuild __export() pattern for CJS modules (e.g., marked)
+  3. wrapCJSForESMWithModulePath: const→let for exports (ajv reassigns exports)
+  4. _loadFile polyfill path: fix double-wrapping bug (bundlePolyfill returns IIFE, handler wrapped again)
+  5. url module: add static wrapper with correct fileURLToPath/pathToFileURL (polyfill rejects valid file:// URLs)
+  6. global alias: add `global = globalThis` in postRestoreScript for CJS compat (graceful-fs)
+  7. BUILTIN_NAMED_EXPORTS: add tty (isatty), net, path (posix/win32)
+  8. stdin end: fix _emitStdinData to emit "end" for non-TTY empty stdin (Pi's readPipedStdin hangs)
+  9. AbortSignal: add addEventListener/removeEventListener no-op stubs (V8 lacks EventTarget on AbortSignal)
+  10. crypto: augment polyfill with bridge-backed randomUUID (crypto-browserify lacks it)
+  11. stdout/stderr: add write(data, callback) support and writableLength (Pi's flush hangs)
+  12. Response.body: add ReadableStream-like body to bridge fetch (Anthropic SDK needs body.getReader())
+  13. Network: SSRF bypass for localhost in test adapter + ANTHROPIC_BASE_URL env var
+- Test setup: allowAll permissions, ANTHROPIC_BASE_URL pointing to mock server, closeStdin()
+- Status: Pi boots, imports main(), stdin resolves, fetch completes (200 OK from mock), BUT
+  sandbox still hangs after fetch — the V8 bridge's async Promise delivery from networkFetchRaw
+  to sandbox-side _networkFetchRaw.apply() doesn't resolve, likely a V8 IPC issue with
+  large async bridge responses or SSE content parsing
+- Remaining blockers:
+  - V8 bridge async response delivery: host-side networkFetchRaw resolves but sandbox-side
+    Promise from _networkFetchRaw.apply(..., { result: { promise: true } }) never resolves
+  - This affects ALL async bridge calls that return large responses, not just fetch
+  - Simple fetch + response.text() works; body.getReader() works in isolation
+  - The hang occurs specifically when the Anthropic SDK processes the full flow
+- Files changed:
+  - packages/core/src/shared/esm-utils.ts (let exports, __export pattern)
+  - packages/nodejs/src/bridge-handlers.ts (import mode, polyfill wrapping, crypto augment)
+  - packages/nodejs/src/bridge/network.ts (Response.body ReadableStream)
+  - packages/nodejs/src/bridge/process.ts (stdin end, stdout callback, writableLength)
+  - packages/nodejs/src/builtin-modules.ts (tty, net, path named exports)
+  - packages/nodejs/src/esm-compiler.ts (url static wrapper)
+  - packages/nodejs/src/execution-driver.ts (global alias, AbortSignal stubs)
+  - packages/secure-exec/tests/cli-tools/pi-headless.test.ts (SSRF bypass, allowAll, closeStdin, mockUrl)
+- **Learnings for future iterations:**
+  - _resolveModule uses "require" mode hardcoded — dual CJS/ESM packages (marked, chalk) resolve to CJS entry; fix: use "import" mode since called from V8 ESM system
+  - bundlePolyfill() already wraps in IIFE — _loadFile was double-wrapping with its own IIFE, discarding the inner result
+  - CJS-to-ESM wrapper uses `const exports = module.exports` but CJS code (ajv) reassigns `exports` — must use `let`
+  - node-stdlib-browser url polyfill rejects valid file:///path URLs — need custom static wrapper
+  - Non-TTY stdin _emitStdinData returned early on empty stdinData without emitting "end" — async apps hang at readPipedStdin()
+  - V8 sandbox AbortSignal lacks EventTarget interface — providing full implementation causes fetch to hang (event listeners keep session alive)
+  - crypto polyfill from node-stdlib-browser lacks randomUUID — must augment with bridge's _cryptoRandomUUID
+  - process.stdout.write("", callback) — bridge didn't invoke callback, Pi's flush Promise hangs
+  - SSRF check in createDefaultNetworkAdapter blocks 127.0.0.1 — test needs directFetch bypass
+  - Anthropic SDK uses ANTHROPIC_BASE_URL env var for API endpoint override
 ---
