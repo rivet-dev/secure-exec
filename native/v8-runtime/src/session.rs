@@ -486,7 +486,7 @@ fn session_thread(
                         } else {
                             Some(file_path.as_str())
                         };
-                        let (code, exports, error) = if mode == 0 {
+                        let (mut code, exports, mut error) = if mode == 0 {
                             let scope = &mut v8::HandleScope::new(iso);
                             let ctx = v8::Local::new(scope, &exec_context);
                             let scope = &mut v8::ContextScope::new(scope, ctx);
@@ -589,6 +589,46 @@ fn session_thread(
                             }
                         }
 
+                        // Fire process 'exit' event after event loop drains
+                        // (only on normal completion — process.exit() already fires it)
+                        if error.is_none() && !terminated {
+                            let scope = &mut v8::HandleScope::new(iso);
+                            let ctx = v8::Local::new(scope, &exec_context);
+                            let scope = &mut v8::ContextScope::new(scope, ctx);
+                            let tc = &mut v8::TryCatch::new(scope);
+                            let src = v8::String::new(
+                                tc,
+                                "(function(){return typeof __secureExecFireExit==='function'?__secureExecFireExit():0})()",
+                            );
+                            if let Some(source) = src {
+                                if let Some(script) = v8::Script::compile(tc, source, None) {
+                                    match script.run(tc) {
+                                        Some(val) => {
+                                            // Normal return — check if exitCode was set
+                                            if val.is_number() {
+                                                let ec = val.int32_value(tc).unwrap_or(0);
+                                                if ec != 0 {
+                                                    code = ec;
+                                                }
+                                            }
+                                        }
+                                        None => {
+                                            // Exception thrown (e.g. exit handler called process.exit)
+                                            if let Some(exception) = tc.exception() {
+                                                if let Some(exit_code) = execution::extract_process_exit_code(tc, exception) {
+                                                    code = exit_code;
+                                                    // ProcessExitError is expected — don't set error
+                                                } else {
+                                                    let err_info = execution::extract_error_info(tc, exception);
+                                                    code = 1;
+                                                    error = Some(err_info);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
 
                         // Clear module resolve state after event loop completes
                         execution::MODULE_RESOLVE_STATE.with(|cell| {

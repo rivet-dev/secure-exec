@@ -2,6 +2,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::ffi::c_void;
 use std::num::NonZeroI32;
 
 use crate::bridge::{deserialize_v8_value, serialize_v8_value};
@@ -637,6 +638,81 @@ extern "C" fn import_meta_callback(
     }
 }
 
+/// Data passed to TLA dynamic-import resolution callbacks via v8::External.
+/// Stores the outer import() PromiseResolver and the module whose namespace
+/// to resolve with once top-level await settles.
+struct TlaImportData {
+    resolver: v8::Global<v8::PromiseResolver>,
+    module: v8::Global<v8::Module>,
+}
+
+/// Callback for when a TLA module's evaluation Promise fulfills.
+/// Resolves the outer import() Promise with the module namespace.
+fn tla_import_resolve(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    _rv: v8::ReturnValue,
+) {
+    let external = v8::Local::<v8::External>::try_from(args.data()).unwrap();
+    // SAFETY: pointer was created by Box::into_raw in dynamic_import_callback,
+    // and exactly one of resolve/reject fires per Promise, so this runs once.
+    let data = unsafe { Box::from_raw(external.value() as *mut TlaImportData) };
+    let resolver = v8::Local::new(scope, data.resolver);
+    let module = v8::Local::new(scope, data.module);
+    let namespace = module.get_module_namespace();
+    resolver.resolve(scope, namespace);
+}
+
+/// Callback for when a TLA module's evaluation Promise rejects.
+/// Rejects the outer import() Promise with the rejection reason.
+fn tla_import_reject(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    _rv: v8::ReturnValue,
+) {
+    let external = v8::Local::<v8::External>::try_from(args.data()).unwrap();
+    // SAFETY: same as tla_import_resolve — exactly one callback fires.
+    let data = unsafe { Box::from_raw(external.value() as *mut TlaImportData) };
+    let resolver = v8::Local::new(scope, data.resolver);
+    let reason = args.get(0);
+    resolver.reject(scope, reason);
+}
+
+/// If the evaluation result is a pending Promise (top-level await), chain
+/// .then/.catch to defer resolution of the outer import() Promise.
+/// Returns true if deferred (caller should return early), false if
+/// the caller should resolve immediately.
+fn maybe_defer_tla_resolution(
+    scope: &mut v8::HandleScope,
+    eval_val: v8::Local<v8::Value>,
+    resolver: v8::Local<v8::PromiseResolver>,
+    module: v8::Local<v8::Module>,
+) -> bool {
+    if !eval_val.is_promise() {
+        return false;
+    }
+    let eval_promise = v8::Local::<v8::Promise>::try_from(eval_val).unwrap();
+    if eval_promise.state() != v8::PromiseState::Pending {
+        return false;
+    }
+    // TLA module — defer resolution until evaluation promise settles
+    let data = Box::new(TlaImportData {
+        resolver: v8::Global::new(scope, resolver),
+        module: v8::Global::new(scope, module),
+    });
+    let external = v8::External::new(scope, Box::into_raw(data) as *mut c_void);
+    let on_fulfilled = v8::Function::builder(tla_import_resolve)
+        .data(external.into())
+        .build(scope)
+        .unwrap();
+    let on_rejected = v8::Function::builder(tla_import_reject)
+        .data(external.into())
+        .build(scope)
+        .unwrap();
+    eval_promise.then2(scope, on_fulfilled, on_rejected);
+    true
+}
+
 /// V8 HostImportModuleDynamicallyCallback — called when import() is evaluated.
 ///
 /// Resolves the specifier via IPC, loads source, compiles as a module,
@@ -715,12 +791,19 @@ fn dynamic_import_callback<'s>(
         {
             if module.get_status() == v8::ModuleStatus::Instantiated {
                 let tc = &mut v8::TryCatch::new(scope);
-                if module.evaluate(tc).is_none() {
+                let eval_val = module.evaluate(tc);
+                if eval_val.is_none() {
                     if let Some(exc) = tc.exception() {
                         let exc_global = v8::Global::new(tc, exc);
                         tc.reset();
                         let exc_local = v8::Local::new(tc, &exc_global);
                         resolver.reject(tc, exc_local);
+                        return Some(promise);
+                    }
+                }
+                // Check for top-level await on cached module evaluation
+                if let Some(val) = eval_val {
+                    if maybe_defer_tla_resolution(tc, val, resolver, module) {
                         return Some(promise);
                     }
                 }
@@ -837,7 +920,8 @@ fn dynamic_import_callback<'s>(
     // Evaluate
     {
         let tc = &mut v8::TryCatch::new(scope);
-        if module.evaluate(tc).is_none() {
+        let eval_val = module.evaluate(tc);
+        if eval_val.is_none() {
             if let Some(exc) = tc.exception() {
                 let exc_global = v8::Global::new(tc, exc);
                 tc.reset();
@@ -855,9 +939,15 @@ fn dynamic_import_callback<'s>(
             resolver.reject(tc, exc);
             return Some(promise);
         }
+        // Check for top-level await — defer resolution until TLA settles
+        if let Some(val) = eval_val {
+            if maybe_defer_tla_resolution(tc, val, resolver, module) {
+                return Some(promise);
+            }
+        }
     }
 
-    // Resolve with module namespace
+    // Non-TLA or already fulfilled — resolve with module namespace
     let namespace = module.get_module_namespace();
     resolver.resolve(scope, namespace);
     Some(promise)
@@ -4876,6 +4966,96 @@ mod tests {
                         .unwrap()
                         .to_rust_string_lossy(scope),
                     "hello from dynamic"
+                );
+            }
+        }
+
+        // --- Part 70: Dynamic import() of TLA module waits for top-level await ---
+        // Verifies that import() of a module with chained top-level awaits
+        // resolves only after ALL awaits settle, not just the first one.
+        {
+            let mut iso = isolate::create_isolate(None);
+            enable_dynamic_import(&mut iso);
+            let ctx = isolate::create_context(&mut iso);
+
+            let mut response_buf = Vec::new();
+
+            // _resolveModule response (call_id=1): returns "/tla.mjs"
+            let resolve_result = v8_serialize_str(&mut iso, &ctx, "/tla.mjs");
+            crate::ipc_binary::write_frame(
+                &mut response_buf,
+                &crate::ipc_binary::BinaryFrame::BridgeResponse {
+                    session_id: String::new(),
+                    call_id: 1,
+                    status: 0,
+                    payload: resolve_result,
+                },
+            )
+            .unwrap();
+
+            // _loadFile response (call_id=2): TLA module with chained awaits.
+            // Two awaits ensure the evaluation Promise is still Pending when the
+            // first microtask batch completes — this is what exposes the bug where
+            // the import() Promise was resolved before TLA finished.
+            let tla_source = r#"
+                const step1 = await Promise.resolve('A');
+                const step2 = await Promise.resolve(step1 + 'B');
+                export const status = step2;
+            "#;
+            let load_result = v8_serialize_str(&mut iso, &ctx, tla_source);
+            crate::ipc_binary::write_frame(
+                &mut response_buf,
+                &crate::ipc_binary::BinaryFrame::BridgeResponse {
+                    session_id: String::new(),
+                    call_id: 2,
+                    status: 0,
+                    payload: load_result,
+                },
+            )
+            .unwrap();
+
+            let bridge_ctx = BridgeCallContext::new(
+                Box::new(Vec::new()),
+                Box::new(Cursor::new(response_buf)),
+                "test-session".into(),
+            );
+
+            let user_code = r#"
+                export const result = await import('./tla.mjs').then(m => m.status);
+            "#;
+            let (code, exports, error) = {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                execute_module(
+                    scope,
+                    &bridge_ctx,
+                    "",
+                    user_code,
+                    Some("/app/main.mjs"),
+                    &mut None,
+                )
+            };
+
+            assert_eq!(
+                code, 0,
+                "TLA dynamic import should succeed, error: {:?}",
+                error
+            );
+            assert!(error.is_none());
+            let exports = exports.unwrap();
+            {
+                let scope = &mut v8::HandleScope::new(&mut iso);
+                let local = v8::Local::new(scope, &ctx);
+                let scope = &mut v8::ContextScope::new(scope, local);
+                let val = crate::bridge::deserialize_v8_value(scope, &exports).unwrap();
+                let obj = v8::Local::<v8::Object>::try_from(val).unwrap();
+                let k = v8::String::new(scope, "result").unwrap();
+                let result = obj.get(scope, k.into()).unwrap();
+                assert_eq!(
+                    result.to_rust_string_lossy(scope),
+                    "AB",
+                    "import() must wait for TLA to settle — got undefined instead of 'AB'"
                 );
             }
         }

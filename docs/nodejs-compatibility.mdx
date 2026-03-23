@@ -4,19 +4,21 @@ description: Target Node.js version and standard-library compatibility matrix fo
 icon: "list-check"
 ---
 
+<Info>See the [Node.js Conformance Report](/conformance-report) for per-module pass rates from the upstream Node.js test suite.</Info>
+
 ## Target Node Version
 
 `22.x` (derived from the `@types/node` `22.x` validation baseline used by tests and type checks).
 
 ## Support Tiers
 
-| Tier | Label | Meaning |
-| --- | --- | --- |
-| 1 | Bridge | Runtime implementation in secure-exec bridge modules. |
-| 2 | Polyfill | Browser-compatible polyfill package implementation. |
-| 3 | Stub | Minimal compatibility surface for lightweight usage and type/instance checks. |
-| 4 | Deferred | `require()` succeeds, but APIs throw deterministic unsupported errors on call. |
-| 5 | Unsupported | Not implemented by design; `require()` throws immediately. |
+| Icon | Tier | Label | Meaning |
+| --- | --- | --- | --- |
+| 🟢 | 1 | Bridge | Runtime implementation in secure-exec bridge modules. |
+| 🔵 | 2 | Polyfill | Browser-compatible polyfill package implementation. |
+| 🟡 | 3 | Stub | Minimal compatibility surface for lightweight usage and type/instance checks. |
+| 🔴 | 4 | Deferred | `require()` succeeds, but APIs throw deterministic unsupported errors on call. |
+| ⛔ | 5 | Unsupported | Not implemented by design; `require()` throws immediately. |
 
 Unsupported API errors follow this format: `"<module>.<api> is not supported in sandbox"`.
 Unsupported modules use: `"<module> is not supported in sandbox"`.
@@ -25,38 +27,48 @@ Unsupported modules use: `"<module> is not supported in sandbox"`.
 
 | Module | Tier | Status |
 | --- | --- | --- |
-| `fs` | 1 (Bridge) + 4 (Deferred APIs) | Implemented: `readFile`, `writeFile`, `appendFile`, `open`, `read`, `write`, `close`, `readdir`, `mkdir`, `rmdir`, `rm`, `unlink`, `stat`, `lstat`, `rename`, `copyFile`, `exists`, `createReadStream`, `createWriteStream`, `writev`, `access`, `realpath`, `chmod`, `chown`, `link`, `symlink`, `readlink`, `truncate`, `utimes`, `cp`, `mkdtemp`, `opendir`, `glob`, `statfs`, `readv`, `fdatasync`, `fsync`. Metadata-sensitive operations (`stat`, `exists`, `readdir` with `withFileTypes`) use metadata-native driver paths instead of content probing. `rename` delegates to driver semantics (atomic where supported; explicit limitation errors where not). Deferred: `watch`, `watchFile`. |
-| `process` | 1 (Bridge) | Env access (permission-gated), cwd/chdir, exit semantics, timers, stdio, eventing, and basic usage/system metadata APIs. |
-| `os` | 1 (Bridge) | Platform/arch/version, user/system info, and `os.constants`. |
-| `child_process` | 1 (Bridge) + 5 (`fork`) | Implemented: `spawn`, `spawnSync`, `exec`, `execSync`, `execFile`, `execFileSync`; `fork` is intentionally unsupported. |
-| `http` | 1 (Bridge) | Implemented: `request`, `get`, `createServer`; bridged request/response/server classes and constants. Includes `Agent` with connection pooling (`maxSockets`, `keepAlive`), HTTP upgrade (101 Switching Protocols) handling, and trailer headers support. |
-| `https` | 1 (Bridge) | Implemented: `request`, `get`, `createServer` with the same contract as `http`, including `Agent` pooling, upgrade handling, and trailer headers. |
-| `http2` | 3 (Stub) + 5 (Full support) | Provides compatibility classes (`Http2ServerRequest`, `Http2ServerResponse`); `createServer` and `createSecureServer` are unsupported. |
-| `dns` | 1 (Bridge) | Implemented: `lookup`, `resolve`, `resolve4`, `resolve6`, plus `dns.promises` variants. |
-| `module` | 1 (Bridge) | Implements `createRequire`, `Module` basics, and builtin resolution (`require.resolve("fs")` returns builtin identifiers). |
-| `timers` | 1 (Bridge) | `setTimeout`, `clearTimeout`, `setInterval`, `clearInterval`, `setImmediate`, `clearImmediate`. |
-| `path` | 2 (Polyfill) | `path-browserify`; supports default and named ESM imports. |
-| `buffer` | 2 (Polyfill) | Polyfill via `buffer`. |
-| `url` | 2 (Polyfill) | Polyfill via `whatwg-url` and node-stdlib-browser shims. |
-| `events` | 2 (Polyfill) | Polyfill via `events`. |
-| `stream` | 2 (Polyfill) | Polyfill via `readable-stream`. `stream/web` subpath supported (Web Streams API: `ReadableStream`, `WritableStream`, `TransformStream`, etc.). |
-| `util` | 2 (Polyfill) | Polyfill via node-stdlib-browser. |
-| `assert` | 2 (Polyfill) | Polyfill via node-stdlib-browser. |
-| `querystring` | 2 (Polyfill) | Polyfill via node-stdlib-browser. |
-| `string_decoder` | 2 (Polyfill) | Polyfill via node-stdlib-browser. |
-| `zlib` | 2 (Polyfill) | Polyfill via node-stdlib-browser. |
-| `vm` | 2 (Polyfill) | Polyfill via node-stdlib-browser. |
-| `punycode` | 2 (Polyfill) | Polyfill via node-stdlib-browser. |
-| `crypto` | 3 (Stub) | Limited bridge/polyfill blend; `getRandomValues()` and `randomUUID()` use host `node:crypto` secure randomness, or throw deterministic unsupported errors if host entropy is unavailable; `subtle.*` methods throw deterministic unsupported errors. |
-| `tty` | 2 (Polyfill) | `tty-browserify`; `isatty()` returns `false`; `ReadStream`/`WriteStream` are compatibility constructors. |
-| `v8` | 3 (Stub) | Pre-registered stub with mock heap stats and JSON-based `serialize`/`deserialize`. |
-| `constants` | 2 (Polyfill) | `constants-browserify`; `os.constants` remains available via `os`. |
-| Fetch globals (`fetch`, `Headers`, `Request`, `Response`) | 1 (Bridge) | Bridged via network bridge implementation. |
-| `async_hooks` | 3 (Stub) | `AsyncLocalStorage` (with `run`, `enterWith`, `getStore`, `disable`, `exit`), `AsyncResource` (with `runInAsyncScope`, `emitDestroy`), `createHook` (returns enable/disable no-ops), `executionAsyncId`, `triggerAsyncId`. |
-| `console` | 1 (Bridge) | Circular-safe bounded formatting via bridge shim; `log`, `warn`, `error`, `info`, `debug`, `dir`, `time`/`timeEnd`/`timeLog`, `assert`, `clear`, `count`/`countReset`, `group`/`groupEnd`, `table`, `trace`. Drop-by-default; consumers use `onStdio` hook for streaming. |
-| `diagnostics_channel` | 3 (Stub) | No-op `channel()`, `tracingChannel()`, `Channel` constructor; channels always report `hasSubscribers: false`; `publish`, `subscribe`, `unsubscribe` are no-ops. Provides Fastify compatibility. |
-| Deferred modules (`net`, `tls`, `readline`, `perf_hooks`, `worker_threads`) | 4 (Deferred) | `require()` returns stubs; APIs throw deterministic unsupported errors when called. |
-| Unsupported modules (`dgram`, `cluster`, `wasi`, `inspector`, `repl`, `trace_events`, `domain`) | 5 (Unsupported) | `require()` fails immediately with deterministic unsupported-module errors. |
+| `fs` | 🟢 Bridge + 🔴 Deferred APIs | Implemented: `readFile`, `writeFile`, `appendFile`, `open`, `read`, `write`, `close`, `readdir`, `mkdir`, `rmdir`, `rm`, `unlink`, `stat`, `lstat`, `rename`, `copyFile`, `exists`, `createReadStream`, `createWriteStream`, `writev`, `access`, `realpath`, `chmod`, `chown`, `link`, `symlink`, `readlink`, `truncate`, `utimes`, `cp`, `mkdtemp`, `opendir`, `glob`, `statfs`, `readv`, `fdatasync`, `fsync`. Metadata-sensitive operations (`stat`, `exists`, `readdir` with `withFileTypes`) use metadata-native driver paths instead of content probing. `rename` delegates to driver semantics (atomic where supported; explicit limitation errors where not). Deferred: `watch`, `watchFile`. |
+| `process` | 🟢 Bridge | Env access (permission-gated), cwd/chdir, exit semantics, timers, stdio, eventing, and basic usage/system metadata APIs. |
+| `os` | 🟢 Bridge | Platform/arch/version, user/system info, and `os.constants`. |
+| `child_process` | 🟢 Bridge + ⛔ `fork` | Implemented: `spawn`, `spawnSync`, `exec`, `execSync`, `execFile`, `execFileSync`; `fork` is intentionally unsupported. |
+| `http` | 🟢 Bridge | Implemented: `request`, `get`, `createServer`; bridged request/response/server classes and constants. Includes `Agent` with connection pooling (`maxSockets`, `keepAlive`), HTTP upgrade (101 Switching Protocols) handling, and trailer headers support. |
+| `https` | 🟢 Bridge | Implemented: `request`, `get`, `createServer` with the same contract as `http`, including `Agent` pooling, upgrade handling, and trailer headers. |
+| `http2` | 🟡 Stub + ⛔ Servers | Provides compatibility classes (`Http2ServerRequest`, `Http2ServerResponse`); `createServer` and `createSecureServer` are unsupported. |
+| `dns` | 🟢 Bridge | Implemented: `lookup`, `resolve`, `resolve4`, `resolve6`, plus `dns.promises` variants. |
+| `module` | 🟢 Bridge | Implements `createRequire`, `Module` basics, and builtin resolution (`require.resolve("fs")` returns builtin identifiers). |
+| `timers` | 🟢 Bridge | `setTimeout`, `clearTimeout`, `setInterval`, `clearInterval`, `setImmediate`, `clearImmediate`. |
+| `path` | 🔵 Polyfill | `path-browserify`; supports default and named ESM imports. |
+| `buffer` | 🔵 Polyfill | Polyfill via `buffer`. |
+| `url` | 🔵 Polyfill | Polyfill via `whatwg-url` and node-stdlib-browser shims. |
+| `events` | 🔵 Polyfill | Polyfill via `events`. |
+| `stream` | 🔵 Polyfill | Polyfill via `readable-stream`. `stream/web` subpath supported (Web Streams API: `ReadableStream`, `WritableStream`, `TransformStream`, etc.). |
+| `util` | 🔵 Polyfill | Polyfill via node-stdlib-browser. |
+| `assert` | 🔵 Polyfill | Polyfill via node-stdlib-browser. |
+| `querystring` | 🔵 Polyfill | Polyfill via node-stdlib-browser. |
+| `string_decoder` | 🔵 Polyfill | Polyfill via node-stdlib-browser. |
+| `zlib` | 🔵 Polyfill | Polyfill via node-stdlib-browser. |
+| `vm` | 🔵 Polyfill | Polyfill via node-stdlib-browser. |
+| `punycode` | 🔵 Polyfill | Polyfill via node-stdlib-browser. |
+| `crypto` | 🟡 Stub | Limited bridge/polyfill blend; `getRandomValues()` and `randomUUID()` use host `node:crypto` secure randomness, or throw deterministic unsupported errors if host entropy is unavailable; `subtle.*` methods throw deterministic unsupported errors. |
+| `tty` | 🔵 Polyfill | `tty-browserify`; `isatty()` returns `false`; `ReadStream`/`WriteStream` are compatibility constructors. |
+| `v8` | 🟡 Stub | Pre-registered stub with mock heap stats and JSON-based `serialize`/`deserialize`. |
+| `constants` | 🔵 Polyfill | `constants-browserify`; `os.constants` remains available via `os`. |
+| Fetch globals (`fetch`, `Headers`, `Request`, `Response`) | 🟢 Bridge | Bridged via network bridge implementation. |
+| `async_hooks` | 🟡 Stub | `AsyncLocalStorage` (with `run`, `enterWith`, `getStore`, `disable`, `exit`), `AsyncResource` (with `runInAsyncScope`, `emitDestroy`), `createHook` (returns enable/disable no-ops), `executionAsyncId`, `triggerAsyncId`. |
+| `console` | 🟢 Bridge | Circular-safe bounded formatting via bridge shim; `log`, `warn`, `error`, `info`, `debug`, `dir`, `time`/`timeEnd`/`timeLog`, `assert`, `clear`, `count`/`countReset`, `group`/`groupEnd`, `table`, `trace`. Drop-by-default; consumers use `onStdio` hook for streaming. |
+| `diagnostics_channel` | 🟡 Stub | No-op `channel()`, `tracingChannel()`, `Channel` constructor; channels always report `hasSubscribers: false`; `publish`, `subscribe`, `unsubscribe` are no-ops. Provides Fastify compatibility. |
+| `net` | 🔴 Deferred | `require()` returns stub; APIs throw deterministic unsupported errors when called. |
+| `tls` | 🔴 Deferred | `require()` returns stub; APIs throw deterministic unsupported errors when called. |
+| `readline` | 🔴 Deferred | `require()` returns stub; APIs throw deterministic unsupported errors when called. |
+| `perf_hooks` | 🔴 Deferred | `require()` returns stub; APIs throw deterministic unsupported errors when called. |
+| `worker_threads` | 🔴 Deferred | `require()` returns stub; APIs throw deterministic unsupported errors when called. |
+| `dgram` | ⛔ Unsupported | `require()` fails immediately with deterministic unsupported-module error. |
+| `cluster` | ⛔ Unsupported | `require()` fails immediately with deterministic unsupported-module error. |
+| `wasi` | ⛔ Unsupported | `require()` fails immediately with deterministic unsupported-module error. |
+| `inspector` | ⛔ Unsupported | `require()` fails immediately with deterministic unsupported-module error. |
+| `repl` | ⛔ Unsupported | `require()` fails immediately with deterministic unsupported-module error. |
+| `trace_events` | ⛔ Unsupported | `require()` fails immediately with deterministic unsupported-module error. |
+| `domain` | ⛔ Unsupported | `require()` fails immediately with deterministic unsupported-module error. |
 
 ## Tested Packages
 
@@ -69,7 +81,7 @@ The [project-matrix test suite](https://github.com/rivet-dev/secure-exec/tree/ma
 | [next](https://npmjs.com/package/next) | Web Framework | React SSR, module resolution, build tooling |
 | [vite](https://npmjs.com/package/vite) | Build Tool | ESM, HMR server, plugin system |
 | [astro](https://npmjs.com/package/astro) | Web Framework | Island architecture, SSR, multi-framework |
-| [hono](https://npmjs.com/package/hono) | Web Framework | ESM imports, lightweight HTTP |
+| [hono](https://npmjs.com/package/hono) | ESM / Web Framework | ESM default import resolution, lightweight HTTP |
 | [axios](https://npmjs.com/package/axios) | HTTP Client | HTTP client requests via fetch adapter, JSON APIs |
 | [node-fetch](https://npmjs.com/package/node-fetch) | HTTP Client | Fetch polyfill using http module, stream piping |
 | [dotenv](https://npmjs.com/package/dotenv) | Configuration | Environment variable loading, fs reads |

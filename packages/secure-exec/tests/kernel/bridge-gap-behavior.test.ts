@@ -240,6 +240,32 @@ describe('native ESM execution via V8 module system', () => {
     expect(exitCode).toBe(0);
     expect(stdout.join('')).toContain('DYNAMIC_IMPORT_OK');
   }, 15_000);
+
+  it('dynamic import() of TLA module waits for top-level await to settle', async () => {
+    ctx = await createNodeKernel();
+    // Module with chained top-level awaits — two awaits ensure the evaluation
+    // Promise is still Pending after the first microtask batch, which exposed
+    // a bug where import() resolved before TLA finished.
+    await ctx.vfs.writeFile('/app/tla-dep.mjs', `
+      const step1 = await Promise.resolve('A');
+      const step2 = await Promise.resolve(step1 + 'B');
+      export const status = step2;
+    `);
+    await ctx.vfs.writeFile('/app/tla-main.mjs', `
+      const mod = await import('./tla-dep.mjs');
+      console.log('STATUS:' + mod.status);
+    `);
+
+    const stdout: string[] = [];
+    const proc = ctx.kernel.spawn('node', ['/app/tla-main.mjs'], {
+      onStdout: (data) => stdout.push(new TextDecoder().decode(data)),
+    });
+    const exitCode = await proc.wait();
+
+    expect(exitCode).toBe(0);
+    const output = stdout.join('');
+    expect(output).toContain('STATUS:AB');
+  }, 15_000);
 });
 
 // ---------------------------------------------------------------------------
