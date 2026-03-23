@@ -18,12 +18,10 @@ import type {
   DriverProcess,
   Permissions,
   VirtualFileSystem,
-  NetworkAdapter,
 } from '@secure-exec/core';
 import { NodeExecutionDriver } from './execution-driver.js';
 import { createNodeDriver } from './driver.js';
 import type { BindingTree } from './bindings.js';
-import { isESM } from '@secure-exec/core/internal/shared/esm-utils';
 import {
   allowAllChildProcess,
   allowAllFs,
@@ -51,13 +49,6 @@ export interface NodeRuntimeOptions {
    * Nested objects become dot-separated paths (max depth 4, max 64 leaves).
    */
   bindings?: BindingTree;
-  /**
-   * Network adapter for HTTP/fetch/DNS. When provided, sandbox processes can
-   * make network requests through the bridge. When omitted, network calls
-   * throw ENOSYS. Use createDefaultNetworkAdapter() for real network access,
-   * or provide a custom adapter for URL rewriting / mock servers.
-   */
-  networkAdapter?: NetworkAdapter;
 }
 
 /**
@@ -334,14 +325,12 @@ class NodeRuntimeDriver implements RuntimeDriver {
   private _memoryLimit: number;
   private _permissions: Partial<Permissions>;
   private _bindings?: BindingTree;
-  private _networkAdapter?: NetworkAdapter;
   private _activeDrivers = new Map<number, NodeExecutionDriver>();
 
   constructor(options?: NodeRuntimeOptions) {
     this._memoryLimit = options?.memoryLimit ?? 128;
     this._permissions = options?.permissions ?? { ...allowAllChildProcess };
     this._bindings = options?.bindings;
-    this._networkAdapter = options?.networkAdapter;
   }
 
   async init(kernel: KernelInterface): Promise<void> {
@@ -363,30 +352,18 @@ class NodeRuntimeDriver implements RuntimeDriver {
       };
     });
 
-    // Stdin plumbing — two modes:
-    // 1. Batched (non-PTY): collect chunks, closeStdin concatenates and resolves promise
-    // 2. Streaming (PTY): deliver each writeStdin chunk via _stdinRead bridge handler
-    const isPty = ctx.stdinIsTTY ?? false;
+    // Stdin buffering — writeStdin collects data, closeStdin resolves the promise
     const stdinChunks: Uint8Array[] = [];
     let stdinResolve: ((data: string | undefined) => void) | null = null;
-    // Callbacks set by _stdinRead bridge handler via onStdinReady
-    let stdinDeliverFn: ((data: string) => void) | null = null;
-    let stdinEndFn: (() => void) | null = null;
     const stdinPromise = new Promise<string | undefined>((resolve) => {
       stdinResolve = resolve;
-      if (isPty) {
-        // PTY mode: resolve immediately with no initial stdin data
-        stdinResolve = null;
-        resolve(undefined);
-      } else {
-        // Non-PTY: auto-resolve on next microtask if nobody calls writeStdin
-        queueMicrotask(() => {
-          if (stdinChunks.length === 0 && stdinResolve) {
-            stdinResolve = null;
-            resolve(undefined);
-          }
-        });
-      }
+      // Auto-resolve on next microtask if nobody calls writeStdin
+      queueMicrotask(() => {
+        if (stdinChunks.length === 0 && stdinResolve) {
+          stdinResolve = null;
+          resolve(undefined);
+        }
+      });
     });
 
     const proc: DriverProcess = {
@@ -394,23 +371,9 @@ class NodeRuntimeDriver implements RuntimeDriver {
       onStderr: null,
       onExit: null,
       writeStdin: (data: Uint8Array) => {
-        if (isPty && stdinDeliverFn) {
-          // Streaming mode: deliver data to sandbox via _stdinRead bridge handler
-          const text = new TextDecoder().decode(data);
-          stdinDeliverFn(text);
-        } else if (isPty) {
-          // Bridge handler not ready yet — buffer for flush when handler connects
-          stdinChunks.push(data);
-        } else {
-          // Non-PTY batched mode
-          stdinChunks.push(data);
-        }
+        stdinChunks.push(data);
       },
       closeStdin: () => {
-        if (isPty && stdinEndFn) {
-          stdinEndFn();
-          return;
-        }
         if (stdinResolve) {
           if (stdinChunks.length === 0) {
             // No data written — pass undefined (no stdin), not empty string
@@ -436,20 +399,8 @@ class NodeRuntimeDriver implements RuntimeDriver {
       wait: () => exitPromise,
     };
 
-    // Callback to wire up streaming stdin once _stdinRead bridge handler is ready
-    const setStdinBridge = (deliver: (data: string) => void, end: () => void) => {
-      stdinDeliverFn = deliver;
-      stdinEndFn = end;
-      // Flush any data that arrived before the bridge handler was ready
-      for (const chunk of stdinChunks) {
-        const text = new TextDecoder().decode(chunk);
-        deliver(text);
-      }
-      stdinChunks.length = 0;
-    };
-
     // Launch async — spawn() returns synchronously per RuntimeDriver contract
-    this._executeAsync(command, args, ctx, proc, resolveExit, stdinPromise, isPty ? setStdinBridge : undefined);
+    this._executeAsync(command, args, ctx, proc, resolveExit, stdinPromise);
 
     return proc;
   }
@@ -473,7 +424,6 @@ class NodeRuntimeDriver implements RuntimeDriver {
     proc: DriverProcess,
     resolveExit: (code: number) => void,
     stdinPromise: Promise<string | undefined>,
-    setStdinBridge?: (deliver: (data: string) => void, end: () => void) => void,
   ): Promise<void> {
     const kernel = this._kernel!;
 
@@ -504,7 +454,6 @@ class NodeRuntimeDriver implements RuntimeDriver {
         filesystem,
         commandExecutor,
         permissions,
-        networkAdapter: this._networkAdapter,
         processConfig: {
           cwd: ctx.cwd,
           env: ctx.env,
@@ -521,7 +470,6 @@ class NodeRuntimeDriver implements RuntimeDriver {
             kernel.ptySetDiscipline(ctx.pid, 0, {
               canonical: !mode,
               echo: !mode,
-              icrnl: !mode,
             });
           }
         : undefined;
@@ -534,16 +482,7 @@ class NodeRuntimeDriver implements RuntimeDriver {
         bindings: this._bindings,
         onPtySetRawMode,
       });
-
-      // Wire streaming stdin for PTY processes via _stdinRead bridge handler
-      if (setStdinBridge) {
-        executionDriver.onStdinReady = setStdinBridge;
-      }
-
       this._activeDrivers.set(ctx.pid, executionDriver);
-
-      // Detect ESM files and use V8 native module system
-      const useEsm = isESM(code, filePath);
 
       // Execute with stdout/stderr capture and stdin data
       const result = await executionDriver.exec(code, {
@@ -551,7 +490,6 @@ class NodeRuntimeDriver implements RuntimeDriver {
         env: ctx.env,
         cwd: ctx.cwd,
         stdin: stdinData,
-        esm: useEsm,
         onStdio: (event) => {
           const data = new TextEncoder().encode(event.message + '\n');
           if (event.channel === 'stdout') {

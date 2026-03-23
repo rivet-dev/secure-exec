@@ -224,7 +224,7 @@ function createKernelFileIO(): WasiFileIO {
       return { errno: res.errno, written: res.intResult };
     },
     fdOpen(path, dirflags, oflags, fdflags, rightsBase, rightsInheriting) {
-      const isDirectory = !!(oflags & 0x2); // OFLAG_DIRECTORY
+      const wantDirectory = !!(oflags & 0x2); // OFLAG_DIRECTORY
 
       // Permission check: isolated tier restricts reads to cwd subtree
       if (permissionTier === 'isolated' && !isPathInCwd(path)) {
@@ -237,11 +237,27 @@ function createKernelFileIO(): WasiFileIO {
         return { errno: ERRNO_EACCES, fd: -1, filetype: 0 };
       }
 
+      // Check if the path is actually a directory — some wasi-libc versions
+      // omit O_DIRECTORY in oflags when opening directories (e.g., nftw's
+      // opendir uses path_open with oflags=0). POSIX allows open(dir, O_RDONLY).
+      let isDirectory = wantDirectory;
+      if (!isDirectory) {
+        const probe = rpcCall('vfsStat', { path });
+        if (probe.errno === 0) {
+          const raw = JSON.parse(new TextDecoder().decode(probe.data)) as Record<string, unknown>;
+          if (raw.type === 'dir') isDirectory = true;
+        }
+      }
+
       // Directory opens: verify path exists as directory, return local FD
       // No kernel FD needed — directory ops use VFS RPCs, not kernel fdRead
       if (isDirectory) {
-        const statRes = rpcCall('vfsStat', { path });
-        if (statRes.errno !== 0) return { errno: 44 /* ENOENT */, fd: -1, filetype: 0 };
+        if (!wantDirectory) {
+          // Already stat'd above
+        } else {
+          const statRes = rpcCall('vfsStat', { path });
+          if (statRes.errno !== 0) return { errno: 44 /* ENOENT */, fd: -1, filetype: 0 };
+        }
 
         const localFd = fdTable.open(
           { type: 'preopen', path },
@@ -748,8 +764,10 @@ function createHostProcessImports(getMemory: () => WebAssembly.Memory | null) {
       const errno = fdTable.dup2(old_fd, new_fd);
       if (errno !== ERRNO_SUCCESS) return errno;
 
-      // Map local new_fd to the same kernel FD as old_fd
-      localToKernelFd.set(new_fd, kOldFd);
+      // Map local new_fd to kNewFd (the kernel fd it now owns after dup2).
+      // Using kNewFd (not kOldFd) preserves independent ownership: closing
+      // new_fd closes kNewFd without affecting old_fd's kOldFd.
+      localToKernelFd.set(new_fd, kNewFd);
 
       return ERRNO_SUCCESS;
     },
@@ -920,18 +938,19 @@ function createHostNetImports(getMemory: () => WebAssembly.Memory | null) {
 
     /** net_poll(fds_ptr, nfds, timeout_ms, ret_ready) -> errno */
     net_poll(fds_ptr: number, nfds: number, timeout_ms: number, ret_ready_ptr: number): number {
-      if (isNetworkBlocked()) return ERRNO_EACCES;
+      // No permission gate — poll() is a generic FD operation (pipes, files, sockets).
       const mem = getMemory();
       if (!mem) return ERRNO_EINVAL;
 
       // Read pollfd entries from WASM memory: each is 8 bytes (fd:i32, events:i16, revents:i16)
+      // Translate local FDs to kernel FDs so the driver can look up pipes/sockets
       const view = new DataView(mem.buffer);
       const fds: Array<{ fd: number; events: number }> = [];
       for (let i = 0; i < nfds; i++) {
         const base = fds_ptr + i * 8;
-        const fd = view.getInt32(base, true);
+        const localFd = view.getInt32(base, true);
         const events = view.getInt16(base + 4, true);
-        fds.push({ fd, events });
+        fds.push({ fd: localToKernelFd.get(localFd) ?? localFd, events });
       }
 
       const res = rpcCall('netPoll', { fds, timeout: timeout_ms });

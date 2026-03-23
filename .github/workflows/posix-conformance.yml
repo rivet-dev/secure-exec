@@ -1,0 +1,122 @@
+name: POSIX Conformance
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "native/wasmvm/**"
+      - "packages/wasmvm/**"
+      - "scripts/validate-posix-exclusions.ts"
+      - "scripts/generate-posix-report.ts"
+      - "scripts/import-os-test.ts"
+      - "scripts/posix-exclusion-schema.ts"
+      - ".github/workflows/posix-conformance.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "native/wasmvm/**"
+      - "packages/wasmvm/**"
+      - "scripts/validate-posix-exclusions.ts"
+      - "scripts/generate-posix-report.ts"
+      - "scripts/import-os-test.ts"
+      - "scripts/posix-exclusion-schema.ts"
+      - ".github/workflows/posix-conformance.yml"
+
+jobs:
+  posix-conformance:
+    name: POSIX Conformance (os-test)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # --- Rust / WASM build ---
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly-2026-03-01
+          targets: wasm32-wasip1
+          components: rust-src
+
+      - name: Install wasm-opt (binaryen)
+        run: sudo apt-get update && sudo apt-get install -y binaryen
+
+      - name: Cache WASM build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            native/wasmvm/target
+            native/wasmvm/vendor
+          key: wasm-${{ runner.os }}-${{ hashFiles('native/wasmvm/Cargo.lock', 'native/wasmvm/rust-toolchain.toml') }}
+
+      - name: Build WASM binaries
+        run: cd native/wasmvm && make wasm
+
+      # --- C toolchain (wasi-sdk + patched sysroot) ---
+      - name: Cache wasi-sdk
+        id: cache-wasi-sdk
+        uses: actions/cache@v4
+        with:
+          path: native/wasmvm/c/vendor/wasi-sdk
+          key: wasi-sdk-25-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Download wasi-sdk
+        if: steps.cache-wasi-sdk.outputs.cache-hit != 'true'
+        run: make -C native/wasmvm/c wasi-sdk
+
+      - name: Cache patched wasi-libc sysroot
+        id: cache-sysroot
+        uses: actions/cache@v4
+        with:
+          path: |
+            native/wasmvm/c/sysroot
+            native/wasmvm/c/vendor/wasi-libc
+          key: wasi-libc-sysroot-${{ runner.os }}-${{ hashFiles('native/wasmvm/patches/wasi-libc/*.patch', 'native/wasmvm/scripts/patch-wasi-libc.sh') }}
+
+      - name: Build patched wasi-libc sysroot
+        if: steps.cache-sysroot.outputs.cache-hit != 'true'
+        run: make -C native/wasmvm/c sysroot
+
+      # --- Build os-test (WASM + native) ---
+      - name: Build os-test binaries (WASM + native)
+        run: make -C native/wasmvm/c os-test os-test-native
+
+      # --- Node.js / TypeScript ---
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # --- Run conformance tests ---
+      - name: Run POSIX conformance tests
+        run: pnpm vitest run packages/wasmvm/test/posix-conformance.test.ts
+
+      - name: Validate exclusion list
+        run: pnpm tsx scripts/validate-posix-exclusions.ts
+
+      # --- Generate report ---
+      - name: Generate conformance report MDX
+        if: always()
+        run: pnpm tsx scripts/generate-posix-report.ts
+
+      # --- Upload artifacts ---
+      - name: Upload conformance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: posix-conformance-report
+          path: |
+            posix-conformance-report.json
+            docs/posix-conformance-report.mdx

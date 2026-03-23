@@ -62,9 +62,6 @@ impl FrameSender for WriterFrameSender {
 /// Production code uses a channel-based implementation; tests use a buffer-based one.
 pub trait ResponseReceiver: Send {
     fn recv_response(&self) -> Result<BinaryFrame, String>;
-    /// Defer a frame for later processing (used when sync_call receives
-    /// a BridgeResponse for a different call_id).
-    fn defer(&self, frame: BinaryFrame);
 }
 
 /// ResponseReceiver that reads frames from a byte buffer via ipc_binary::read_frame.
@@ -84,10 +81,6 @@ impl ReaderResponseReceiver {
 }
 
 impl ResponseReceiver for ReaderResponseReceiver {
-    fn defer(&self, _frame: BinaryFrame) {
-        // Test-only receiver — deferred frames are dropped
-    }
-
     fn recv_response(&self) -> Result<BinaryFrame, String> {
         let mut reader = self.reader.lock().unwrap();
         ipc_binary::read_frame(&mut *reader)
@@ -139,10 +132,6 @@ impl FrameSender for StubFrameSender {
 struct StubResponseReceiver;
 
 impl ResponseReceiver for StubResponseReceiver {
-    fn defer(&self, _frame: BinaryFrame) {
-        panic!("stub bridge function called during snapshot creation")
-    }
-
     fn recv_response(&self) -> Result<BinaryFrame, String> {
         panic!("stub bridge function called during snapshot creation — bridge IIFE must not call bridge functions at setup time")
     }
@@ -238,28 +227,14 @@ impl BridgeCallContext {
             return Err(format!("failed to write BridgeCall: {}", e));
         }
 
-        // Receive BridgeResponse matching our call_id.
-        // Non-matching BridgeResponses (from async bridge calls like timers)
-        // are deferred for later processing by the event loop.
+        // Receive BridgeResponse directly (no re-serialization)
         let response = {
             let rx = self.response_rx.lock().unwrap();
-            loop {
-                match rx.recv_response() {
-                    Ok(frame) => {
-                        match &frame {
-                            BinaryFrame::BridgeResponse { call_id: resp_id, .. } if *resp_id == call_id => {
-                                break frame;
-                            }
-                            _ => {
-                                // Non-matching response — defer for event loop
-                                rx.defer(frame);
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        self.pending_calls.lock().unwrap().remove(&call_id);
-                        return Err(e);
-                    }
+            match rx.recv_response() {
+                Ok(frame) => frame,
+                Err(e) => {
+                    self.pending_calls.lock().unwrap().remove(&call_id);
+                    return Err(e);
                 }
             }
         };
@@ -267,13 +242,20 @@ impl BridgeCallContext {
         // Remove from pending
         self.pending_calls.lock().unwrap().remove(&call_id);
 
-        // Extract BridgeResponse
+        // Validate and extract BridgeResponse
         match response {
             BinaryFrame::BridgeResponse {
+                call_id: resp_id,
                 status,
                 payload,
                 ..
             } => {
+                if resp_id != call_id {
+                    return Err(format!(
+                        "call_id mismatch: expected {}, got {}",
+                        call_id, resp_id
+                    ));
+                }
                 if status == 1 {
                     // Error: payload is UTF-8 error message
                     Err(String::from_utf8_lossy(&payload).to_string())
@@ -284,7 +266,7 @@ impl BridgeCallContext {
                     Ok(Some(payload))
                 }
             }
-            _ => unreachable!("loop only breaks on BridgeResponse"),
+            _ => Err("expected BridgeResponse, got different message type".into()),
         }
     }
 

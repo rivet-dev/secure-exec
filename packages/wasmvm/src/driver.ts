@@ -1045,27 +1045,48 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
           const POLLHUP = 0x2000;
           const POLLNVAL = 0x4000;
 
-          // Check each FD for readiness
+          // Check each FD for readiness (sockets via _sockets map, pipes via kernel)
           for (const entry of fds) {
             const sock = this._sockets.get(entry.fd);
-            if (!sock) {
-              revents.push(POLLNVAL);
-              ready++;
+            if (sock) {
+              let rev = 0;
+              if ((entry.events & POLLIN) && sock.readableLength > 0) {
+                rev |= POLLIN;
+              }
+              if ((entry.events & POLLOUT) && sock.writable) {
+                rev |= POLLOUT;
+              }
+              if (sock.destroyed) {
+                rev |= POLLHUP;
+              }
+              if (rev !== 0) ready++;
+              revents.push(rev);
               continue;
             }
 
-            let rev = 0;
-            if ((entry.events & POLLIN) && sock.readableLength > 0) {
-              rev |= POLLIN;
+            // Not a socket — check kernel for pipe/file FDs
+            if (kernel) {
+              try {
+                const ps = kernel.fdPoll(pid, entry.fd);
+                if (ps.invalid) {
+                  revents.push(POLLNVAL);
+                  ready++;
+                  continue;
+                }
+                let rev = 0;
+                if ((entry.events & POLLIN) && ps.readable) rev |= POLLIN;
+                if ((entry.events & POLLOUT) && ps.writable) rev |= POLLOUT;
+                if (ps.hangup) rev |= POLLHUP;
+                if (rev !== 0) ready++;
+                revents.push(rev);
+                continue;
+              } catch {
+                // Fall through to POLLNVAL
+              }
             }
-            if ((entry.events & POLLOUT) && sock.writable) {
-              rev |= POLLOUT;
-            }
-            if (sock.destroyed) {
-              rev |= POLLHUP;
-            }
-            if (rev !== 0) ready++;
-            revents.push(rev);
+
+            revents.push(POLLNVAL);
+            ready++;
           }
 
           // If no FDs ready and timeout != 0, wait for data on any socket
@@ -1100,28 +1121,36 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
               }
             });
 
-            // Re-check all FDs after wait
+            // Re-check all FDs after wait (same logic as initial check)
             if (waitResult.event !== 'timeout') {
               ready = 0;
               for (let i = 0; i < fds.length; i++) {
                 const sock = this._sockets.get(fds[i].fd);
-                if (!sock) {
+                if (sock) {
+                  let rev = 0;
+                  if ((fds[i].events & POLLIN) && sock.readableLength > 0) rev |= POLLIN;
+                  if ((fds[i].events & POLLOUT) && sock.writable) rev |= POLLOUT;
+                  if (sock.destroyed) rev |= POLLHUP;
+                  revents[i] = rev;
+                  if (rev !== 0) ready++;
+                } else if (kernel) {
+                  try {
+                    const ps = kernel.fdPoll(pid, fds[i].fd);
+                    if (ps.invalid) { revents[i] = POLLNVAL; ready++; continue; }
+                    let rev = 0;
+                    if ((fds[i].events & POLLIN) && ps.readable) rev |= POLLIN;
+                    if ((fds[i].events & POLLOUT) && ps.writable) rev |= POLLOUT;
+                    if (ps.hangup) rev |= POLLHUP;
+                    revents[i] = rev;
+                    if (rev !== 0) ready++;
+                  } catch {
+                    revents[i] = POLLNVAL;
+                    ready++;
+                  }
+                } else {
                   revents[i] = POLLNVAL;
                   ready++;
-                  continue;
                 }
-                let rev = 0;
-                if ((fds[i].events & POLLIN) && sock.readableLength > 0) {
-                  rev |= POLLIN;
-                }
-                if ((fds[i].events & POLLOUT) && sock.writable) {
-                  rev |= POLLOUT;
-                }
-                if (sock.destroyed) {
-                  rev |= POLLHUP;
-                }
-                revents[i] = rev;
-                if (rev !== 0) ready++;
               }
             }
           }

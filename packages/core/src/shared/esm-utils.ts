@@ -17,10 +17,6 @@ export function isESM(code: string, filePath?: string): boolean {
 
 /**
  * Transform dynamic import() calls to __dynamicImport() calls.
- *
- * Browser-only fallback: V8-backed execution handles import() natively via
- * HostImportModuleDynamicallyCallback (US-023). This transform is only needed
- * by the browser worker which doesn't use the V8 sidecar.
  */
 export function transformDynamicImport(code: string): string {
 	return code.replace(/(?<![a-zA-Z_$])import\s*\(/g, "__dynamicImport(");
@@ -76,9 +72,8 @@ export function wrapCJSForESMWithModulePath(
 	    const __filename = ${JSON.stringify(modulePath)};
 	    const __dirname = ${JSON.stringify(moduleDir)};
 	    const require = (name) => globalThis._requireFrom(name, __dirname);
-	    const global = globalThis;
 	    const module = { exports: {} };
-	    let exports = module.exports;
+	    const exports = module.exports;
 	    ${code}
 	    const __cjs = module.exports;
 	    export default __cjs;
@@ -88,11 +83,9 @@ export function wrapCJSForESMWithModulePath(
 }
 
 /**
- * Scan CJS code for named export patterns:
- * - `module.exports.X =`
- * - `exports.X =`
- * - `Object.defineProperty(exports, 'X', ...)`
- * - esbuild `__export(obj, { X: () => ... })` pattern
+ * Scan CJS code for `module.exports.X =`, `exports.X =`, and
+ * `Object.defineProperty(exports, 'X', ...)` patterns to discover named exports
+ * that can be re-exported from the ESM wrapper.
  */
 function extractCjsNamedExports(code: string): string[] {
 	const names = new Set<string>();
@@ -111,12 +104,6 @@ function extractCjsNamedExports(code: string): string[] {
 	}
 	for (const match of code.matchAll(/\bObject\.defineProperty\(\s*(?:module\.)?exports\s*,\s*["']([^"']+)["']/g)) {
 		add(match[1]);
-	}
-	// esbuild __export() pattern: __export(obj, { key: () => value, ... })
-	for (const block of code.matchAll(/__export\(\s*\w+\s*,\s*\{([^}]+)\}/g)) {
-		for (const entry of block[1].matchAll(/([A-Za-z_$][\w$]*)\s*:/g)) {
-			add(entry[1]);
-		}
 	}
 
 	return Array.from(names).sort();

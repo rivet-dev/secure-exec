@@ -15,6 +15,11 @@ const DEVICE_PATHS = new Set([
 	"/dev/stdout",
 	"/dev/stderr",
 	"/dev/urandom",
+	"/dev/random",
+	"/dev/tty",
+	"/dev/console",
+	"/dev/full",
+	"/dev/ptmx",
 ]);
 
 const DEVICE_INO: Record<string, number> = {
@@ -24,6 +29,11 @@ const DEVICE_INO: Record<string, number> = {
 	"/dev/stdout": 0xffff_0004,
 	"/dev/stderr": 0xffff_0005,
 	"/dev/urandom": 0xffff_0006,
+	"/dev/random": 0xffff_0007,
+	"/dev/tty": 0xffff_0008,
+	"/dev/console": 0xffff_0009,
+	"/dev/full": 0xffff_000a,
+	"/dev/ptmx": 0xffff_000b,
 };
 
 /** Device pseudo-directories that contain dynamic entries. */
@@ -62,6 +72,11 @@ const DEV_DIR_ENTRIES: VirtualDirEntry[] = [
 	{ name: "stdout", isDirectory: false },
 	{ name: "stderr", isDirectory: false },
 	{ name: "urandom", isDirectory: false },
+	{ name: "random", isDirectory: false },
+	{ name: "tty", isDirectory: false },
+	{ name: "console", isDirectory: false },
+	{ name: "full", isDirectory: false },
+	{ name: "ptmx", isDirectory: false },
 	{ name: "fd", isDirectory: true },
 ];
 
@@ -72,9 +87,9 @@ const DEV_DIR_ENTRIES: VirtualDirEntry[] = [
 export function createDeviceLayer(vfs: VirtualFileSystem): VirtualFileSystem {
 	return {
 		async readFile(path) {
-			if (path === "/dev/null") return new Uint8Array(0);
+			if (path === "/dev/null" || path === "/dev/full") return new Uint8Array(0);
 			if (path === "/dev/zero") return new Uint8Array(4096);
-			if (path === "/dev/urandom") {
+			if (path === "/dev/urandom" || path === "/dev/random") {
 				const buf = new Uint8Array(4096);
 				if (typeof globalThis.crypto?.getRandomValues === "function") {
 					globalThis.crypto.getRandomValues(buf);
@@ -85,13 +100,14 @@ export function createDeviceLayer(vfs: VirtualFileSystem): VirtualFileSystem {
 				}
 				return buf;
 			}
+			if (path === "/dev/tty" || path === "/dev/console" || path === "/dev/ptmx") return new Uint8Array(0);
 			return vfs.readFile(path);
 		},
 
 		async pread(path, offset, length) {
-			if (path === "/dev/null") return new Uint8Array(0);
+			if (path === "/dev/null" || path === "/dev/full") return new Uint8Array(0);
 			if (path === "/dev/zero") return new Uint8Array(length);
-			if (path === "/dev/urandom") {
+			if (path === "/dev/urandom" || path === "/dev/random") {
 				const buf = new Uint8Array(length);
 				if (typeof globalThis.crypto?.getRandomValues === "function") {
 					globalThis.crypto.getRandomValues(buf);
@@ -102,6 +118,7 @@ export function createDeviceLayer(vfs: VirtualFileSystem): VirtualFileSystem {
 				}
 				return buf;
 			}
+			if (path === "/dev/tty" || path === "/dev/console" || path === "/dev/ptmx") return new Uint8Array(0);
 			return vfs.pread(path, offset, length);
 		},
 
@@ -129,7 +146,12 @@ export function createDeviceLayer(vfs: VirtualFileSystem): VirtualFileSystem {
 		},
 
 		async writeFile(path, content) {
-			if (path === "/dev/null" || path === "/dev/zero" || path === "/dev/urandom") return; // discard
+			// /dev/full always returns ENOSPC on write (POSIX behavior)
+			if (path === "/dev/full") throw new KernelError("ENOSPC", "No space left on device");
+			// Discard writes to sink devices
+			if (path === "/dev/null" || path === "/dev/zero" || path === "/dev/urandom"
+				|| path === "/dev/random" || path === "/dev/tty" || path === "/dev/console"
+				|| path === "/dev/ptmx") return;
 			return vfs.writeFile(path, content);
 		},
 
@@ -228,7 +250,7 @@ export function createDeviceLayer(vfs: VirtualFileSystem): VirtualFileSystem {
 		},
 
 		async truncate(path, length) {
-			if (path === "/dev/null") return;
+			if (isDevicePath(path)) return;
 			return vfs.truncate(path, length);
 		},
 	};

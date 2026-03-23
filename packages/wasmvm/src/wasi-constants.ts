@@ -102,6 +102,7 @@ export const ERRNO_EINVAL = 28;
 export const ERRNO_EIO = 76;
 export const ERRNO_EISDIR = 31;
 export const ERRNO_ENOENT = 44;
+export const ERRNO_ENOSPC = 51;
 export const ERRNO_ENOSYS = 52;
 export const ERRNO_ENOTDIR = 54;
 export const ERRNO_ENOTEMPTY = 55;
@@ -122,6 +123,7 @@ export const ERRNO_MAP: Record<string, number> = {
 	EIO: ERRNO_EIO,
 	EISDIR: ERRNO_EISDIR,
 	ENOENT: ERRNO_ENOENT,
+	ENOSPC: ERRNO_ENOSPC,
 	ENOSYS: ERRNO_ENOSYS,
 	ENOTDIR: ERRNO_ENOTDIR,
 	ENOTEMPTY: ERRNO_ENOTEMPTY,

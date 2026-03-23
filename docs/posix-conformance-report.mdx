@@ -1,0 +1,51 @@
+---
+title: POSIX Conformance Report
+description: os-test POSIX.1-2024 conformance results for WasmVM.
+icon: "chart-bar"
+---
+
+{/* AUTO-GENERATED — do not edit. Run scripts/generate-posix-report.ts */}
+
+## Summary
+
+| Metric | Value |
+| --- | --- |
+| os-test version | 0.1.0 |
+| Total tests | 3350 |
+| Passing | 3347 (99.9%) |
+| Expected fail | 3 |
+| Skip | 0 |
+| Native parity | 98.4% |
+| Last updated | 2026-03-23 |
+
+## Per-Suite Results
+
+| Suite | Total | Pass | Fail | Skip | Pass Rate |
+| --- | --- | --- | --- | --- | --- |
+| basic | 469 | 466 | 3 | 0 | 99.4% |
+| include | 2653 | 2653 | 0 | 0 | 100.0% |
+| limits | 46 | 46 | 0 | 0 | 100.0% |
+| malloc | 3 | 3 | 0 | 0 | 100.0% |
+| namespace | 124 | 124 | 0 | 0 | 100.0% |
+| paths | 48 | 48 | 0 | 0 | 100.0% |
+| stdio | 7 | 7 | 0 | 0 | 100.0% |
+| **Total** | **3350** | **3347** | **3** | **0** | **100.0%** |
+
+## Exclusions by Category
+
+### WASM Limitations (1 entry)
+
+Features impossible in wasm32-wasip1.
+
+| Test | Reason | Issue |
+| --- | --- | --- |
+| `basic/strings/ffsll` | os-test uses long (32-bit on WASM32) to hold a 64-bit value — ffsll itself works but the test constant truncates to 0 | [#40](https://github.com/rivet-dev/secure-exec/issues/40) |
+
+### WASI Gaps (2 entries)
+
+WASI Preview 1 lacks the required syscall.
+
+| Test | Reason | Issue |
+| --- | --- | --- |
+| `basic/sys_statvfs/fstatvfs` | fstatvfs() not part of WASI — no filesystem statistics interface | [#34](https://github.com/rivet-dev/secure-exec/issues/34) |
+| `basic/sys_statvfs/statvfs` | statvfs() not part of WASI — no filesystem statistics interface | [#34](https://github.com/rivet-dev/secure-exec/issues/34) |

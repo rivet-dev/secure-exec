@@ -2,6 +2,8 @@
 
 > **This is a living document.** Update it when kernel, WasmVM, Node bridge, or Python bridge behavior changes for any POSIX-relevant feature.
 
+> **Looking for automated test results?** See the [POSIX Conformance Report](posix-conformance-report.mdx) for os-test suite results with per-suite pass rates and exclusion details.
+
 This document tracks how closely the secure-exec kernel, runtimes, and bridges conform to POSIX and Linux behavior. The goal is full POSIX compliance 1:1 — every syscall, signal, and shell behavior should match a real Linux system unless an architectural constraint makes it impossible.
 
 For command-level support (ls, grep, awk, etc.), see [WasmVM Supported Commands](wasmvm/supported-commands.md). For Node.js API compatibility (fs, http, crypto modules), see [Node.js Compatibility](nodejs-compatibility.mdx). For Python API compatibility, see [Python Compatibility](python-compatibility.mdx).

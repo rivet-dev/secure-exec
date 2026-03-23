@@ -84,6 +84,7 @@ class KernelImpl implements Kernel {
 	private cwd: string;
 	private disposed = false;
 	private pendingBinEntries: Promise<void>[] = [];
+	private posixDirsReady: Promise<void>;
 
 	constructor(options: KernelOptions) {
 		// Apply device layer over the base filesystem
@@ -119,6 +120,58 @@ class KernelImpl implements Kernel {
 				// Process may already be exited
 			}
 		};
+
+		// Create standard POSIX directory hierarchy so all programs see /tmp,
+		// /usr, /etc, etc. — matching a real Linux root filesystem layout.
+		this.posixDirsReady = this.initPosixDirs();
+	}
+
+	private async initPosixDirs(): Promise<void> {
+		const dirs = [
+			"/tmp",
+			"/bin",
+			"/lib",
+			"/sbin",
+			"/boot",
+			"/etc",
+			"/root",
+			"/run",
+			"/srv",
+			"/sys",
+			"/proc",
+			"/usr",
+			"/usr/bin",
+			"/usr/games",
+			"/usr/include",
+			"/usr/lib",
+			"/usr/libexec",
+			"/usr/man",
+			"/usr/sbin",
+			"/usr/share",
+			"/usr/share/man",
+			"/var",
+			"/var/cache",
+			"/var/empty",
+			"/var/lib",
+			"/var/lock",
+			"/var/log",
+			"/var/run",
+			"/var/spool",
+			"/var/tmp",
+		];
+		for (const dir of dirs) {
+			try {
+				await this.vfs.mkdir(dir, { recursive: true });
+			} catch {
+				// Directory may already exist
+			}
+		}
+		// Standard utility that many scripts expect
+		try {
+			await this.vfs.writeFile("/usr/bin/env", new Uint8Array(1));
+		} catch {
+			// File may already exist
+		}
 	}
 
 	// -----------------------------------------------------------------------
@@ -127,6 +180,7 @@ class KernelImpl implements Kernel {
 
 	async mount(driver: RuntimeDriver): Promise<void> {
 		this.assertNotDisposed();
+		await this.posixDirsReady;
 
 		// Track PIDs owned by this driver
 		if (!this.driverPids.has(driver.name)) {
@@ -316,28 +370,11 @@ class KernelImpl implements Kernel {
 			}
 		})();
 
-		// Start stdin pump: master write → PTY input buffer → slave read → writeStdin
-		// Bridges shell.write() data to the runtime driver's streaming stdin path
-		const stdinPumpPromise = (async () => {
-			try {
-				while (!pump.exited) {
-					const data = await this.ptyManager.read(slaveDescId, 4096);
-					if (!data || data.length === 0) break;
-					proc.writeStdin(data);
-				}
-			} catch {
-				// PTY closed — expected when shell exits
-			}
-			// Signal stdin EOF to the runtime driver
-			try { proc.closeStdin(); } catch { /* already closed */ }
-		})();
-
 		// wait() resolves after both shell exit AND pump drain
 		const waitPromise = proc.wait().then(async (exitCode) => {
 			pump.exited = true;
-			// Wait for pumps to finish delivering remaining data
+			// Wait for pump to finish delivering remaining data
 			await pumpPromise;
-			await stdinPumpPromise;
 			// Clean up controller PID's FD table (incl. PTY master)
 			this.cleanupProcessFDs(controllerPid);
 			return exitCode;
@@ -615,13 +652,10 @@ class KernelImpl implements Kernel {
 		const internal = this.spawnInternal(command, args, options, callerPid);
 		let exitCode: number | null = null;
 
-		// Forward stdout/stderr callbacks from options (replays buffered data)
-		if (options?.onStdout) {
-			internal.onStdout = options.onStdout;
-		}
-		if (options?.onStderr) {
-			internal.onStderr = options.onStderr;
-		}
+		// Note: options.onStdout/onStderr are already wired through ctx.onStdout
+		// by spawnInternal. Do NOT also set them on driverProcess.onStdout here —
+		// the driver calls both ctx.onStdout and proc.onStdout per message, so
+		// setting both to the same callback would double-deliver output.
 
 		internal.driverProcess.wait().then((code) => {
 			exitCode = code;
@@ -837,6 +871,22 @@ class KernelImpl implements Kernel {
 			fdStat: (pid, fd) => {
 				assertOwns(pid);
 				return this.getTable(pid).stat(fd);
+			},
+			fdPoll: (pid, fd) => {
+				try {
+					const table = this.getTable(pid);
+					const entry = table.get(fd);
+					if (!entry) return { readable: false, writable: false, hangup: false, invalid: true };
+					const descId = entry.description.id;
+					if (this.pipeManager.isPipe(descId)) {
+						const ps = this.pipeManager.pollState(descId);
+						return ps ? { ...ps, invalid: false } : { readable: false, writable: false, hangup: false, invalid: true };
+					}
+					// Regular files are always readable/writable
+					return { readable: true, writable: true, hangup: false, invalid: false };
+				} catch {
+					return { readable: false, writable: false, hangup: false, invalid: true };
+				}
 			},
 			fdSetCloexec: (pid, fd, value) => {
 				assertOwns(pid);

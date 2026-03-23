@@ -93,16 +93,6 @@ interface FetchOptions {
   integrity?: string;
 }
 
-interface FetchResponseBody {
-  getReader(): { read(): Promise<{ value: Uint8Array | undefined; done: boolean }>; releaseLock(): void; cancel?(): Promise<void> };
-  locked: boolean;
-  cancel(): Promise<void>;
-  pipeTo(): Promise<void>;
-  pipeThrough<T>(transform: { readable: T }): T;
-  tee(): [FetchResponseBody, FetchResponseBody];
-  [Symbol.asyncIterator]?(): AsyncIterableIterator<Uint8Array>;
-}
-
 interface FetchResponse {
   ok: boolean;
   status: number;
@@ -111,7 +101,6 @@ interface FetchResponse {
   url: string;
   redirected: boolean;
   type: string;
-  body: FetchResponseBody;
   text(): Promise<string>;
   json(): Promise<unknown>;
   arrayBuffer(): Promise<ArrayBuffer>;
@@ -140,24 +129,9 @@ export async function fetch(input: string | URL | Request, options: FetchOptions
     resolvedUrl = String(input);
   }
 
-  // Normalize headers: Headers instances and Map-like objects are not JSON-serializable.
-  // Convert to a plain Record<string, string> for the bridge.
-  let rawHeaders: Record<string, string> = {};
-  const h = options.headers;
-  if (h) {
-    if (typeof h.entries === 'function') {
-      // Headers instance, Map, or any iterable with entries()
-      for (const [k, v] of (h as any).entries()) {
-        rawHeaders[k] = v;
-      }
-    } else if (typeof h === 'object') {
-      rawHeaders = h as Record<string, string>;
-    }
-  }
-
   const optionsJson = JSON.stringify({
     method: options.method || "GET",
-    headers: rawHeaders,
+    headers: options.headers || {},
     body: options.body || null,
   });
 
@@ -174,61 +148,6 @@ export async function fetch(input: string | URL | Request, options: FetchOptions
     body?: string;
   };
 
-  // Build a ReadableStream-like body from the complete response text
-  const bodyText = response.body || "";
-  const bodyBytes = new TextEncoder().encode(bodyText);
-  let bodyRead = false;
-
-  // Minimal ReadableStream-like body that delivers the complete response as a single chunk.
-  //
-  // Key design constraints for V8 sidecar compatibility:
-  // 1. read() returns Promise.resolve() (not async function) to minimize microtask ticks
-  // 2. Implements Symbol.asyncIterator for direct consumption by the Anthropic SDK's
-  //    ReadableStreamToAsyncIterable (avoids an extra async wrapper layer)
-  // 3. The async generator uses a simple yield (not nested for-await) to avoid deep
-  //    microtask chains that can stall in V8's event loop between modules
-  const body: FetchResponseBody = {
-    getReader() {
-      let readerDone = bodyRead;
-      return {
-        read(): Promise<{ value: Uint8Array | undefined; done: boolean }> {
-          if (readerDone) return Promise.resolve({ value: undefined, done: true });
-          readerDone = true;
-          bodyRead = true;
-          return Promise.resolve({ value: bodyBytes, done: false });
-        },
-        releaseLock() {},
-        cancel() { return Promise.resolve(); },
-      };
-    },
-    // Direct async iteration — SDK's ReadableStreamToAsyncIterable returns this
-    // immediately when it detects Symbol.asyncIterator, avoiding the reader wrapper.
-    // Uses explicit next()/return() protocol instead of async generator to minimize
-    // microtask chains (async generators create extra Promise wrapping that can stall
-    // in V8 sidecar's event loop between loaded ESM modules).
-    [Symbol.asyncIterator]() {
-      let iterDone = bodyRead;
-      return {
-        next(): Promise<IteratorResult<Uint8Array>> {
-          if (iterDone) return Promise.resolve({ value: undefined as unknown as Uint8Array, done: true });
-          iterDone = true;
-          bodyRead = true;
-          return Promise.resolve({ value: bodyBytes, done: false });
-        },
-        return(): Promise<IteratorResult<Uint8Array>> {
-          iterDone = true;
-          return Promise.resolve({ value: undefined as unknown as Uint8Array, done: true });
-        },
-        [Symbol.asyncIterator]() { return this; },
-      };
-    },
-    locked: false,
-    cancel() { return Promise.resolve(); },
-    pipeTo() { return Promise.resolve(); },
-    pipeThrough<T>(transform: { readable: T }): T { return transform.readable; },
-    tee(): [FetchResponseBody, FetchResponseBody] { return [body, body]; },
-  };
-
   // Create Response-like object
   return {
     ok: response.ok,
@@ -238,16 +157,16 @@ export async function fetch(input: string | URL | Request, options: FetchOptions
     url: response.url || resolvedUrl,
     redirected: response.redirected || false,
     type: "basic",
-    body,
 
     async text(): Promise<string> {
-      return bodyText;
+      return response.body || "";
     },
     async json(): Promise<unknown> {
-      return JSON.parse(bodyText || "{}");
+      return JSON.parse(response.body || "{}");
     },
     async arrayBuffer(): Promise<ArrayBuffer> {
-      return bodyBytes.buffer.slice(bodyBytes.byteOffset, bodyBytes.byteOffset + bodyBytes.byteLength);
+      // Not fully supported - return empty buffer
+      return new ArrayBuffer(0);
     },
     async blob(): Promise<never> {
       throw new Error("Blob not supported in sandbox");

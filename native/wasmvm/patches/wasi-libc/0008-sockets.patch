@@ -65,7 +65,7 @@ Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
 
 --- /dev/null
 +++ b/libc-bottom-half/sources/host_socket.c
-@@ -0,0 +1,336 @@
+@@ -0,0 +1,407 @@
 +// Socket API via wasmVM host_net imports.
 +//
 +// Replaces wasi-libc's ENOSYS stubs with calls to our custom WASM imports:

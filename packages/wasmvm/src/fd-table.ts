@@ -9,7 +9,6 @@ import {
   FILETYPE_CHARACTER_DEVICE,
   FILETYPE_DIRECTORY,
   FILETYPE_REGULAR_FILE,
-  FDFLAG_APPEND,
   RIGHTS_STDIO,
   RIGHTS_FILE_ALL,
   RIGHTS_DIR_ALL,
@@ -55,20 +54,21 @@ export class FDTable implements WasiFDTable {
       FILETYPE_CHARACTER_DEVICE,
       RIGHTS_STDIO,
       0n,
-      FDFLAG_APPEND
+      0
     ));
     this._fds.set(2, new FDEntry(
       { type: 'stdio', name: 'stderr' },
       FILETYPE_CHARACTER_DEVICE,
       RIGHTS_STDIO,
       0n,
-      FDFLAG_APPEND
+      0
     ));
   }
 
   /**
-   * Allocate the next available file descriptor number.
-   * Reuses previously freed FDs (>= 3) before incrementing _nextFd.
+   * Allocate the lowest available file descriptor number (POSIX semantics).
+   * Reuses previously freed FDs before incrementing _nextFd.
+   * _freeFds is kept sorted descending so pop() returns the lowest.
    */
   private _allocateFd(): number {
     if (this._freeFds.length > 0) {
@@ -108,10 +108,9 @@ export class FDTable implements WasiFDTable {
     }
     entry.fileDescription.refCount--;
     this._fds.delete(fd);
-    // Reclaim non-stdio FDs for reuse
-    if (fd >= 3) {
-      this._freeFds.push(fd);
-    }
+    // Reclaim FD for reuse (sorted descending so pop gives lowest-available per POSIX)
+    this._freeFds.push(fd);
+    this._freeFds.sort((a, b) => b - a);
     return ERRNO_SUCCESS;
   }
 

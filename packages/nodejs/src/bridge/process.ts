@@ -12,8 +12,6 @@ import { URL as WhatwgURL, URLSearchParams as WhatwgURLSearchParams } from "what
 // Use buffer package for spec-compliant Buffer implementation
 import { Buffer as BufferPolyfill } from "buffer";
 import type {
-	BridgeApplyRef,
-	BridgeApplySyncRef,
 	CryptoRandomFillBridgeRef,
 	CryptoRandomUuidBridgeRef,
 	FsFacadeBridge,
@@ -58,16 +56,12 @@ declare const _log: ProcessLogBridgeRef;
 declare const _error: ProcessErrorBridgeRef;
 // Timer reference for actual delays using host's event loop
 declare const _scheduleTimer: ScheduleTimerBridgeRef | undefined;
-// Stdin streaming read — async bridge handler returning next chunk (null = EOF)
-declare const _stdinRead: BridgeApplyRef<[], string | null> | undefined;
 declare const _cryptoRandomFill: CryptoRandomFillBridgeRef | undefined;
 declare const _cryptoRandomUUID: CryptoRandomUuidBridgeRef | undefined;
 // Filesystem bridge for chdir validation
 declare const _fs: FsFacadeBridge;
 // PTY setRawMode bridge ref (optional — only present when PTY is attached)
 declare const _ptySetRawMode: PtySetRawModeBridgeRef | undefined;
-// Process exit notification — flushes pending host timers so V8 event loop drains
-declare const _notifyProcessExit: BridgeApplySyncRef<[number], void> | undefined;
 // Timer budget injected by the host when resourceBudgets.maxTimers is set
 declare const _maxTimers: number | undefined;
 
@@ -291,13 +285,12 @@ function _emit(event: string, ...args: unknown[]): boolean {
 
 // Stdio stream shape shared by stdout and stderr
 interface StdioWriteStream {
-  write(data: unknown, ...rest: unknown[]): boolean;
+  write(data: unknown): boolean;
   end(): StdioWriteStream;
   on(): StdioWriteStream;
   once(): StdioWriteStream;
   emit(): boolean;
   writable: boolean;
-  writableLength: number;
   isTTY: boolean;
   columns: number;
   rows: number;
@@ -318,13 +311,10 @@ function _getStderrIsTTY(): boolean {
 
 // Stdout stream
 const _stdout: StdioWriteStream = {
-  write(data: unknown, ...rest: unknown[]): boolean {
-    if (typeof _log !== "undefined" && data !== "" && data != null) {
+  write(data: unknown): boolean {
+    if (typeof _log !== "undefined") {
       _log.applySync(undefined, [String(data).replace(/\n$/, "")]);
     }
-    // Support write(data, callback) and write(data, encoding, callback)
-    const cb = typeof rest[rest.length - 1] === "function" ? rest[rest.length - 1] as () => void : null;
-    if (cb) cb();
     return true;
   },
   end(): StdioWriteStream {
@@ -340,7 +330,6 @@ const _stdout: StdioWriteStream = {
     return false;
   },
   writable: true,
-  writableLength: 0,
   get isTTY(): boolean { return _getStdoutIsTTY(); },
   columns: 80,
   rows: 24,
@@ -348,13 +337,10 @@ const _stdout: StdioWriteStream = {
 
 // Stderr stream
 const _stderr: StdioWriteStream = {
-  write(data: unknown, ...rest: unknown[]): boolean {
-    if (typeof _error !== "undefined" && data !== "" && data != null) {
+  write(data: unknown): boolean {
+    if (typeof _error !== "undefined") {
       _error.applySync(undefined, [String(data).replace(/\n$/, "")]);
     }
-    // Support write(data, callback) and write(data, encoding, callback)
-    const cb = typeof rest[rest.length - 1] === "function" ? rest[rest.length - 1] as () => void : null;
-    if (cb) cb();
     return true;
   },
   end(): StdioWriteStream {
@@ -370,14 +356,10 @@ const _stderr: StdioWriteStream = {
     return false;
   },
   writable: true,
-  writableLength: 0,
   get isTTY(): boolean { return _getStderrIsTTY(); },
   columns: 80,
   rows: 24,
 };
-
-// Flag to prevent duplicate stdin read loops
-let _stdinKeepaliveActive = false;
 
 // Stdin stream with data support
 // These are exposed as globals so they can be set after bridge initialization
@@ -405,81 +387,36 @@ function getStdinFlowMode(): boolean { return (globalThis as Record<string, unkn
 function setStdinFlowMode(v: boolean): void { (globalThis as Record<string, unknown>)._stdinFlowMode = v; }
 
 function _emitStdinData(): void {
-  if (getStdinEnded()) return;
+  if (getStdinEnded() || !getStdinData()) return;
 
-  // In flowing mode, emit remaining data then end
-  if (getStdinFlowMode()) {
-    const data = getStdinData();
-    if (data && getStdinPosition() < data.length) {
-      const chunk = data.slice(getStdinPosition());
-      setStdinPosition(data.length);
+  // In flowing mode, emit all remaining data
+  if (getStdinFlowMode() && getStdinPosition() < getStdinData().length) {
+    const chunk = getStdinData().slice(getStdinPosition());
+    setStdinPosition(getStdinData().length);
 
-      // Emit data event
-      const dataListeners = [...(_stdinListeners["data"] || []), ...(_stdinOnceListeners["data"] || [])];
-      _stdinOnceListeners["data"] = [];
-      for (const listener of dataListeners) {
-        listener(chunk);
-      }
+    // Emit data event
+    const dataListeners = [...(_stdinListeners["data"] || []), ...(_stdinOnceListeners["data"] || [])];
+    _stdinOnceListeners["data"] = [];
+    for (const listener of dataListeners) {
+      listener(chunk);
     }
 
-    // Non-TTY stdin: emit end after all data (or immediately if empty).
-    // TTY stdin uses the streaming _stdinRead read loop for end detection.
-    if (!_getStdinIsTTY()) {
-      setStdinEnded(true);
-      const endListeners = [...(_stdinListeners["end"] || []), ...(_stdinOnceListeners["end"] || [])];
-      _stdinOnceListeners["end"] = [];
-      for (const listener of endListeners) {
-        listener();
-      }
-      const closeListeners = [...(_stdinListeners["close"] || []), ...(_stdinOnceListeners["close"] || [])];
-      _stdinOnceListeners["close"] = [];
-      for (const listener of closeListeners) {
-        listener();
-      }
+    // Emit end after all data
+    setStdinEnded(true);
+    const endListeners = [...(_stdinListeners["end"] || []), ...(_stdinOnceListeners["end"] || [])];
+    _stdinOnceListeners["end"] = [];
+    for (const listener of endListeners) {
+      listener();
+    }
+
+    // Emit close
+    const closeListeners = [...(_stdinListeners["close"] || []), ...(_stdinOnceListeners["close"] || [])];
+    _stdinOnceListeners["close"] = [];
+    for (const listener of closeListeners) {
+      listener();
     }
   }
 }
-
-/**
- * Global dispatch handler for streaming stdin events from the host.
- * Called by the V8 sidecar when it receives a "stdin" stream event.
- * Pushes data into the stdin stream in real-time for PTY-backed processes.
- */
-const stdinDispatch = (
-  _eventType: string,
-  payload: string | null,
-): void => {
-  if (payload === null || payload === undefined) {
-    // stdin end signal
-    if (!getStdinEnded()) {
-      setStdinEnded(true);
-      const endListeners = [...(_stdinListeners["end"] || []), ...(_stdinOnceListeners["end"] || [])];
-      _stdinOnceListeners["end"] = [];
-      for (const listener of endListeners) {
-        listener();
-      }
-      const closeListeners = [...(_stdinListeners["close"] || []), ...(_stdinOnceListeners["close"] || [])];
-      _stdinOnceListeners["close"] = [];
-      for (const listener of closeListeners) {
-        listener();
-      }
-    }
-    return;
-  }
-
-  // Streaming data chunk — emit 'data' event if listeners are registered
-  const dataListeners = [...(_stdinListeners["data"] || []), ...(_stdinOnceListeners["data"] || [])];
-  _stdinOnceListeners["data"] = [];
-  if (dataListeners.length > 0) {
-    for (const listener of dataListeners) {
-      listener(payload);
-    }
-  } else {
-    // Buffer if no listeners yet — append to _stdinData for later read()
-    setStdinDataValue(getStdinData() + payload);
-  }
-};
-exposeCustomGlobal("_stdinDispatch", stdinDispatch);
 
 // Stdin stream shape
 interface StdinStream {
@@ -563,26 +500,6 @@ const _stdin: StdinStream = {
     this.paused = false;
     setStdinFlowMode(true);
     _emitStdinData();
-    // Start streaming stdin read loop via _stdinRead bridge handler
-    if (_getStdinIsTTY() && !_stdinKeepaliveActive && typeof _stdinRead !== "undefined") {
-      _stdinKeepaliveActive = true;
-      (async function readLoop() {
-        try {
-          while (true) {
-            const chunk = await _stdinRead!.apply(undefined, [], { result: { promise: true } });
-            if (chunk === null || chunk === undefined) {
-              // EOF — dispatch end signal
-              stdinDispatch("stdin", null);
-              break;
-            }
-            stdinDispatch("stdin", chunk);
-          }
-        } catch {
-          // Bridge error — session closing
-        }
-        _stdinKeepaliveActive = false;
-      })();
-    }
     return this;
   },
 
@@ -766,18 +683,6 @@ const process: Record<string, unknown> & {
       // Ignore errors in exit handlers
     }
 
-    // Clear all JS-side timers so .then() handlers skip their callbacks
-    _timers.clear();
-
-    // Flush pending host timers so the V8 event loop can drain
-    if (typeof _notifyProcessExit !== "undefined") {
-      try {
-        _notifyProcessExit.applySync(undefined, [exitCode]);
-      } catch (_e) {
-        // Best effort — exit must proceed even if bridge call fails
-      }
-    }
-
     // Throw to stop execution
     throw new ProcessExitError(exitCode);
   },
@@ -787,14 +692,7 @@ const process: Record<string, unknown> & {
   },
 
   nextTick(callback: (...args: unknown[]) => void, ...args: unknown[]): void {
-    // Route through bridge timer to avoid infinite microtask loops in V8's
-    // perform_microtask_checkpoint() — TUI render cycles (Pi) use nextTick
-    // in requestRender → doRender → requestRender loops
-    if (typeof _scheduleTimer !== "undefined") {
-      _scheduleTimer
-        .apply(undefined, [0], { result: { promise: true } })
-        .then(() => callback(...args));
-    } else if (typeof queueMicrotask === "function") {
+    if (typeof queueMicrotask === "function") {
       queueMicrotask(() => callback(...args));
     } else {
       Promise.resolve().then(() => callback(...args));
@@ -892,22 +790,9 @@ const process: Record<string, unknown> & {
       err.syscall = "kill";
       throw err;
     }
-    // Resolve signal name to number and string
+    // Resolve signal name to number (default SIGTERM)
     const sigNum = _resolveSignal(signal);
-    const sigName = typeof signal === "string" ? signal
-      : Object.entries(_signalNumbers).find(([, n]) => n === sigNum)?.[0] ?? `SIG${sigNum}`;
-
-    // Signals with no default termination action (harmless if no handler)
-    const _harmlessSignals = new Set([28 /* SIGWINCH */, 17 /* SIGCHLD */, 23 /* SIGURG */, 18 /* SIGCONT */]);
-
-    // Try dispatching to registered signal handlers first
-    const handled = _emit(sigName, sigName);
-    if (handled) return true;
-
-    // No handler — harmless signals are silently ignored (POSIX behavior)
-    if (_harmlessSignals.has(sigNum)) return true;
-
-    // No handler for fatal signal — exit with 128 + signal number (POSIX convention)
+    // Self-kill - exit with 128 + signal number (POSIX convention)
     return (process as unknown as { exit: (code: number) => never }).exit(128 + sigNum);
   },
 
@@ -1098,22 +983,13 @@ function _checkTimerBudget(): void {
   }
 }
 
-// queueMicrotask — route through bridge timer when available to prevent
-// infinite microtask loops in V8's perform_microtask_checkpoint().
-// TUI frameworks (Ink/React) schedule renders via queueMicrotask, which
-// creates unbounded microtask chains that block the V8 event loop.
+// queueMicrotask fallback
 const _queueMicrotask =
-  typeof _scheduleTimer !== "undefined"
-    ? function (fn: () => void): void {
-        _scheduleTimer
-          .apply(undefined, [0], { result: { promise: true } })
-          .then(fn);
-      }
-    : typeof queueMicrotask === "function"
-      ? queueMicrotask
-      : function (fn: () => void): void {
-          Promise.resolve().then(fn);
-        };
+  typeof queueMicrotask === "function"
+    ? queueMicrotask
+    : function (fn: () => void): void {
+        Promise.resolve().then(fn);
+      };
 
 /**
  * Timer handle that mimics Node.js Timeout (ref/unref/Symbol.toPrimitive).
@@ -1156,9 +1032,11 @@ export function setTimeout(
 
   const actualDelay = delay ?? 0;
 
-  // Route ALL timers through bridge when available (including delay=0) to
-  // avoid infinite microtask loops in V8's perform_microtask_checkpoint()
-  if (typeof _scheduleTimer !== "undefined") {
+  // Use host timer for actual delays if available and delay > 0
+  if (typeof _scheduleTimer !== "undefined" && actualDelay > 0) {
+    // _scheduleTimer.apply() returns a Promise that resolves after the delay
+    // Using { result: { promise: true } } tells the V8 runtime to wait for the
+    // host Promise to resolve before resolving the apply() Promise
     _scheduleTimer
       .apply(undefined, [actualDelay], { result: { promise: true } })
       .then(() => {
@@ -1172,7 +1050,7 @@ export function setTimeout(
         }
       });
   } else {
-    // Use microtask only when host timer bridge is unavailable
+    // Use microtask for zero delay or when host timer is unavailable
     _queueMicrotask(() => {
       if (_timers.has(id)) {
         _timers.delete(id);
@@ -1213,8 +1091,8 @@ export function setInterval(
   const scheduleNext = () => {
     if (!_intervals.has(id)) return; // Interval was cleared
 
-    if (typeof _scheduleTimer !== "undefined") {
-      // Route through bridge timer to avoid microtask loops
+    if (typeof _scheduleTimer !== "undefined" && actualDelay > 0) {
+      // Use host timer for actual delays
       _scheduleTimer
         .apply(undefined, [actualDelay], { result: { promise: true } })
         .then(() => {
@@ -1229,7 +1107,7 @@ export function setInterval(
           }
         });
     } else {
-      // Use microtask only when host timer bridge is unavailable
+      // Use microtask for zero delay or when host timer unavailable
       _queueMicrotask(() => {
         if (_intervals.has(id)) {
           try {
@@ -1365,9 +1243,10 @@ export function setupGlobals(): void {
   g.setImmediate = setImmediate;
   g.clearImmediate = clearImmediate;
 
-  // queueMicrotask — always override to route through bridge timer when
-  // available, preventing infinite microtask loops from TUI render cycles
-  g.queueMicrotask = _queueMicrotask;
+  // queueMicrotask
+  if (typeof g.queueMicrotask === "undefined") {
+    g.queueMicrotask = _queueMicrotask;
+  }
 
   // URL
   if (typeof g.URL === "undefined") {
@@ -1416,68 +1295,5 @@ export function setupGlobals(): void {
     if (typeof cryptoObj.randomUUID === "undefined") {
       cryptoObj.randomUUID = cryptoPolyfill.randomUUID;
     }
-  }
-
-  // Intl.Segmenter — V8 sidecar's native ICU Segmenter crashes (SIGSEGV in
-  // JSSegments::Create) when called after loading large module graphs. Polyfill
-  // with a JS implementation that covers grapheme/word/sentence granularity.
-  if (typeof Intl !== "undefined") {
-    const IntlObj = Intl as Record<string, unknown>;
-    function SegmenterPolyfill(
-      this: { _gran: string },
-      _locale?: string,
-      options?: { granularity?: string },
-    ): void {
-      this._gran = (options && options.granularity) || "grapheme";
-    }
-    SegmenterPolyfill.prototype.segment = function (
-      this: { _gran: string },
-      input: unknown,
-    ) {
-      const str = String(input);
-      const gran = this._gran;
-      const result: Array<Record<string, unknown>> = [];
-      if (gran === "grapheme") {
-        let idx = 0;
-        for (const ch of str) {
-          result.push({ segment: ch, index: idx, input: str });
-          idx += ch.length;
-        }
-      } else if (gran === "word") {
-        const re = /[\w]+|[^\w]+/g;
-        let m;
-        while ((m = re.exec(str)) !== null) {
-          result.push({
-            segment: m[0],
-            index: m.index,
-            input: str,
-            isWordLike: /[a-zA-Z0-9]/.test(m[0]),
-          });
-        }
-      } else {
-        result.push({ segment: str, index: 0, input: str });
-      }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const res = result as any;
-      res.containing = (idx: number) =>
-        result.find(
-          (s) =>
-            idx >= (s.index as number) &&
-            idx < (s.index as number) + (s.segment as string).length,
-        );
-      res[Symbol.iterator] = function* () {
-        yield* result;
-      };
-      return res;
-    };
-    SegmenterPolyfill.prototype.resolvedOptions = function (this: {
-      _gran: string;
-    }) {
-      return { locale: "en", granularity: this._gran };
-    };
-    SegmenterPolyfill.supportedLocalesOf = function () {
-      return ["en"];
-    };
-    IntlObj.Segmenter = SegmenterPolyfill;
   }
 }

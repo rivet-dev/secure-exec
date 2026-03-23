@@ -82,8 +82,6 @@ export interface ExecOptions {
 	timingMitigation?: TimingMitigation;
 	/** Optional streaming hook for console output events */
 	onStdio?: StdioHook;
-	/** Use V8 native ESM module mode instead of CJS script mode */
-	esm?: boolean;
 }
 
 export interface ExecResult extends ExecutionStatus {}

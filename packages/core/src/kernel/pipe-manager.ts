@@ -168,6 +168,29 @@ export class PipeManager {
 		return this.descToPipe.has(descriptionId);
 	}
 
+	/** Query poll state for a pipe end (used by poll/select syscalls). */
+	pollState(descriptionId: number): { readable: boolean; writable: boolean; hangup: boolean } | null {
+		const ref = this.descToPipe.get(descriptionId);
+		if (!ref) return null;
+		const state = this.pipes.get(ref.pipeId);
+		if (!state) return null;
+
+		if (ref.end === "read") {
+			const hasData = state.buffer.length > 0;
+			return {
+				readable: hasData || state.closed.write,
+				writable: false,
+				hangup: state.closed.write,
+			};
+		} else {
+			return {
+				readable: false,
+				writable: !state.closed.read && this.bufferSize(state) < MAX_PIPE_BUFFER_BYTES,
+				hangup: state.closed.read,
+			};
+		}
+	}
+
 	/** Get the pipe ID for a description, or undefined if not a pipe */
 	pipeIdFor(descriptionId: number): number | undefined {
 		return this.descToPipe.get(descriptionId)?.pipeId;

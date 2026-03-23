@@ -87,7 +87,7 @@ WASM_OUTPUTS := $(addprefix $(BUILD_DIR)/,$(PROG_NAMES))
 # Native output targets
 NATIVE_OUTPUTS := $(addprefix $(NATIVE_DIR)/,$(PROG_NAMES))
 
-.PHONY: all wasi-sdk programs sysroot install native clean wasm-opt-check
+.PHONY: all wasi-sdk programs sysroot install native clean wasm-opt-check os-test os-test-native
 
 all: programs
 
@@ -173,6 +173,104 @@ fetch-libs: libs/sqlite3/sqlite3.c libs/zlib/zutil.c libs/minizip/ioapi.c libs/c
 
 clean-libs:
 	rm -rf $(LIBS_DIR) $(LIBS_CACHE)
+
+# --- os-test POSIX conformance suite (downloaded at build time) ---
+# ISC-licensed test suite from the Sortix project (https://sortix.org/os-test/)
+
+OS_TEST_VERSION := main
+OS_TEST_URL     := https://gitlab.com/sortix/os-test/-/archive/$(OS_TEST_VERSION)/os-test-$(OS_TEST_VERSION).tar.gz
+OS_TEST_DIR     := os-test
+
+.PHONY: fetch-os-test clean-os-test
+
+fetch-os-test: $(OS_TEST_DIR)/include
+$(OS_TEST_DIR)/include:
+	@echo "Fetching os-test $(OS_TEST_VERSION)..."
+	@mkdir -p $(LIBS_CACHE)
+	@curl -fSL "$(OS_TEST_URL)" -o "$(LIBS_CACHE)/os-test.tar.gz"
+	@mkdir -p $(OS_TEST_DIR)
+	@tar -xzf "$(LIBS_CACHE)/os-test.tar.gz" --strip-components=1 -C $(OS_TEST_DIR)
+	@echo "os-test $(OS_TEST_VERSION) extracted to $(OS_TEST_DIR)/"
+	@echo "  include/ : $$(find $(OS_TEST_DIR)/include -name '*.h' 2>/dev/null | wc -l) headers"
+	@echo "  src/     : $$(find $(OS_TEST_DIR)/src -name '*.c' 2>/dev/null | wc -l) test programs"
+
+clean-os-test:
+	rm -rf $(OS_TEST_DIR) $(LIBS_CACHE)/os-test.tar.gz
+
+# --- os-test POSIX conformance build targets ---
+# Compile every os-test C file to WASM and native binaries.
+# Individual compile failures are expected (missing headers, unsupported features)
+# and do not abort the build.
+
+OS_TEST_BUILD        := $(BUILD_DIR)/os-test
+OS_TEST_NATIVE_BUILD := $(NATIVE_DIR)/os-test
+OS_TEST_WASM_CFLAGS  := --target=wasm32-wasip1 --sysroot=$(SYSROOT) -O0 \
+                         -D_GNU_SOURCE -D_BSD_SOURCE -D_ALL_SOURCE -D_DEFAULT_SOURCE
+OS_TEST_WASM_LDFLAGS := -lc-printscan-long-double
+# Stub main() for namespace/ tests (compile-only header conformance checks)
+OS_TEST_NS_MAIN := os-test-overrides/namespace_main.c
+OS_TEST_NATIVE_CFLAGS := -O0 -g \
+                          -D_GNU_SOURCE -D_BSD_SOURCE -D_ALL_SOURCE -D_DEFAULT_SOURCE
+OS_TEST_NATIVE_LDFLAGS := -lm
+ifeq ($(UNAME_S),Linux)
+  OS_TEST_NATIVE_LDFLAGS += -lpthread -lrt
+endif
+ifeq ($(UNAME_S),Darwin)
+  OS_TEST_NATIVE_LDFLAGS += -lpthread
+endif
+
+.PHONY: os-test os-test-native
+
+os-test: wasi-sdk fetch-os-test
+	@total=0; pass=0; fail=0; \
+	for src in $$(find $(OS_TEST_DIR) -name '*.c' -not -path '*/.expect/*' -not -path '*/misc/*' | sort); do \
+		rel=$${src#$(OS_TEST_DIR)/}; \
+		name=$${rel%.c}; \
+		out=$(OS_TEST_BUILD)/$$name; \
+		mkdir -p "$$(dirname "$$out")"; \
+		total=$$((total + 1)); \
+		extras=""; \
+		case "$$rel" in namespace/*) extras="$(OS_TEST_NS_MAIN)";; esac; \
+		if $(CC) $(OS_TEST_WASM_CFLAGS) -o "$$out" "$$src" $$extras $(OS_TEST_WASM_LDFLAGS) 2>/dev/null; then \
+			pass=$$((pass + 1)); \
+		else \
+			echo "COMPILE FAILED: $$name"; \
+			rm -f "$$out"; \
+			fail=$$((fail + 1)); \
+		fi; \
+	done; \
+	echo ""; \
+	echo "=== os-test WASM Build Report ==="; \
+	echo "Total:    $$total"; \
+	echo "Compiled: $$pass"; \
+	echo "Failed:   $$fail"; \
+	echo "Output:   $(OS_TEST_BUILD)/"; \
+	echo "=== Build complete ==="; \
+	if [ $$fail -gt 0 ]; then echo "ERROR: $$fail tests failed to compile" >&2; exit 1; fi
+
+os-test-native: fetch-os-test
+	@total=0; pass=0; fail=0; \
+	for src in $$(find $(OS_TEST_DIR) -name '*.c' -not -path '*/.expect/*' -not -path '*/misc/*' | sort); do \
+		rel=$${src#$(OS_TEST_DIR)/}; \
+		out=$(OS_TEST_NATIVE_BUILD)/$${rel%.c}; \
+		mkdir -p "$$(dirname "$$out")"; \
+		total=$$((total + 1)); \
+		extras=""; \
+		case "$$rel" in namespace/*) extras="$(OS_TEST_NS_MAIN)";; esac; \
+		if $(NATIVE_CC) $(OS_TEST_NATIVE_CFLAGS) -o "$$out" "$$src" $$extras $(OS_TEST_NATIVE_LDFLAGS) 2>/dev/null; then \
+			pass=$$((pass + 1)); \
+		else \
+			rm -f "$$out"; \
+			fail=$$((fail + 1)); \
+		fi; \
+	done; \
+	echo ""; \
+	echo "=== os-test Native Build Report ==="; \
+	echo "Total:    $$total"; \
+	echo "Compiled: $$pass"; \
+	echo "Failed:   $$fail"; \
+	echo "Output:   $(OS_TEST_NATIVE_BUILD)/"; \
+	echo "=== Build complete ==="
 
 # --- Patched sysroot (delegates to patch-wasi-libc.sh) ---
 

@@ -528,7 +528,8 @@ pub fn resolve_pending_promise(
         resolver.resolve(scope, undef.into());
     }
 
-    // Microtask checkpoint is the caller's responsibility (explicit policy).
+    // Flush microtasks after resolution
+    scope.perform_microtask_checkpoint();
 
     Ok(())
 }

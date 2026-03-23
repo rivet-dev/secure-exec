@@ -3,22 +3,18 @@
 /// Dispatch a stream event into V8 by calling the registered callback function.
 ///
 /// Stream events are sent by the host when async operations (child processes,
-/// HTTP servers, stdin) produce data. The event_type determines which V8
-/// dispatch function is called:
-/// - "child_stdout", "child_stderr", "child_exit", "childProcess" → _childProcessDispatch
-/// - "http_request", "httpServerRequest", "httpServerUpgrade", etc. → _httpServerDispatch
-/// - "stdin" → _stdinDispatch
-/// - "netSocket" → _netSocketDispatch
+/// HTTP servers) produce data. The event_type determines which V8 dispatch
+/// function is called:
+/// - "child_stdout", "child_stderr", "child_exit" → _childProcessDispatch
+/// - "http_request" → _httpServerDispatch
 pub fn dispatch_stream_event(scope: &mut v8::HandleScope, event_type: &str, payload: &[u8]) {
     // Look up the dispatch function on the global object
     let context = scope.get_current_context();
     let global = context.global(scope);
 
     let dispatch_name = match event_type {
-        "child_stdout" | "child_stderr" | "child_exit" | "childProcess" => "_childProcessDispatch",
-        "http_request" | "httpServerRequest" | "httpServerUpgrade" | "upgradeSocketData" | "upgradeSocketEnd" => "_httpServerDispatch",
-        "stdin" => "_stdinDispatch",
-        "netSocket" => "_netSocketDispatch",
+        "child_stdout" | "child_stderr" | "child_exit" => "_childProcessDispatch",
+        "http_request" => "_httpServerDispatch",
         _ => return, // Unknown event type — ignore
     };
 

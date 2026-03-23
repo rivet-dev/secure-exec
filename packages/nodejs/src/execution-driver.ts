@@ -56,7 +56,6 @@ import {
 	buildUpgradeSocketBridgeHandlers,
 	buildModuleResolutionBridgeHandlers,
 	buildPtyBridgeHandlers,
-	type PtyBridgeDeps,
 	createProcessConfigForExecution,
 	resolveHttpServerResponse,
 } from "./bridge-handlers.js";
@@ -174,7 +173,7 @@ if (typeof TextEncoder === 'undefined') {
 if (typeof TextDecoder === 'undefined') {
   globalThis.TextDecoder = class TextDecoder {
     constructor() {}
-    decode(buf) { if (!buf) return ''; const u8 = buf instanceof Uint8Array ? (buf.byteOffset !== 0 || buf.byteLength !== buf.buffer.byteLength ? new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength) : buf) : new Uint8Array(buf.buffer || buf); let s = ''; for (let i = 0; i < u8.length;) { const b = u8[i++]; if (b < 128) s += String.fromCharCode(b); else if (b < 224) s += String.fromCharCode(((b&31)<<6)|(u8[i++]&63)); else if (b < 240) { const b2 = u8[i++]; s += String.fromCharCode(((b&15)<<12)|((b2&63)<<6)|(u8[i++]&63)); } else { const b2 = u8[i++], b3 = u8[i++], cp = ((b&7)<<18)|((b2&63)<<12)|((b3&63)<<6)|(u8[i++]&63); if (cp>0xFFFF) { const s2 = cp-0x10000; s += String.fromCharCode(0xD800+(s2>>10), 0xDC00+(s2&0x3FF)); } else s += String.fromCharCode(cp); } } return s; }
+    decode(buf) { if (!buf) return ''; const u8 = new Uint8Array(buf.buffer || buf); let s = ''; for (let i = 0; i < u8.length;) { const b = u8[i++]; if (b < 128) s += String.fromCharCode(b); else if (b < 224) s += String.fromCharCode(((b&31)<<6)|(u8[i++]&63)); else if (b < 240) { const b2 = u8[i++]; s += String.fromCharCode(((b&15)<<12)|((b2&63)<<6)|(u8[i++]&63)); } else { const b2 = u8[i++], b3 = u8[i++], cp = ((b&7)<<18)|((b2&63)<<12)|((b3&63)<<6)|(u8[i++]&63); if (cp>0xFFFF) { const s2 = cp-0x10000; s += String.fromCharCode(0xD800+(s2>>10), 0xDC00+(s2&0x3FF)); } else s += String.fromCharCode(cp); } } return s; }
     get encoding() { return 'utf-8'; }
   };
 }
@@ -298,10 +297,6 @@ export class NodeExecutionDriver implements RuntimeDriver {
 	private flattenedBindings: FlattenedBinding[] | null = null;
 	// Unwrapped filesystem for path translation (toHostPath/toSandboxPath)
 	private rawFilesystem: VirtualFileSystem | undefined;
-	/** Callback invoked when V8 session is ready — used for streaming stdin */
-	onStreamReady?: (sendStreamEvent: (eventType: string, payload: Uint8Array) => void) => void;
-	/** Callback invoked when PTY stdin bridge handler is ready — delivers data to pending _stdinRead */
-	onStdinReady?: (deliver: (data: string) => void, end: () => void) => void;
 
 	constructor(options: NodeExecutionDriverOptions) {
 		this.memoryLimit = options.memoryLimit ?? 128;
@@ -392,7 +387,7 @@ export class NodeExecutionDriver implements RuntimeDriver {
 
 	async exec(code: string, options?: ExecOptions): Promise<ExecResult> {
 		const result = await this.executeInternal({
-			mode: options?.esm ? "run" : "exec",
+			mode: "exec",
 			code,
 			filePath: options?.filePath,
 			env: options?.env,
@@ -451,20 +446,6 @@ export class NodeExecutionDriver implements RuntimeDriver {
 				}
 			};
 
-			// Notify kernel-runtime that streaming is ready (for PTY stdin)
-			this.onStreamReady?.(sendStreamEvent);
-
-			// Build PTY bridge handlers ONCE — shared between dispatch and main handlers
-			const ptyDeps: PtyBridgeDeps = { onPtySetRawMode: s.onPtySetRawMode, stdinIsTTY: s.processConfig.stdinIsTTY };
-			const ptyHandlers = buildPtyBridgeHandlers(ptyDeps);
-			if (ptyDeps.onStdinData) this.onStdinReady?.(ptyDeps.onStdinData, ptyDeps.onStdinEnd!);
-
-			const timerResult = buildTimerBridgeHandlers({
-				budgetState: s.budgetState,
-				maxBridgeCalls: s.maxBridgeCalls,
-				activeHostTimers: s.activeHostTimers,
-			});
-
 			const netSocketResult = buildNetworkSocketBridgeHandlers({
 				dispatch: (socketId, event, data) => {
 					const payload = JSON.stringify({ socketId, event, data });
@@ -480,9 +461,7 @@ export class NodeExecutionDriver implements RuntimeDriver {
 					maxOutputBytes: s.maxOutputBytes,
 				}),
 				...buildModuleLoadingBridgeHandlers({
-					// Module resolution uses the raw (unwrapped) filesystem — bypasses
-					// user-level permissions since it's an internal V8 operation
-					filesystem: this.rawFilesystem ?? s.filesystem,
+					filesystem: s.filesystem,
 					resolutionCache: s.resolutionCache,
 					sandboxToHostPath: (p) => {
 						const rfs = this.rawFilesystem as any;
@@ -507,13 +486,20 @@ export class NodeExecutionDriver implements RuntimeDriver {
 							return typeof fs.toSandboxPath === "function" ? fs.toSandboxPath(p) : p;
 						},
 					}),
-					...ptyHandlers,
+					...buildPtyBridgeHandlers({
+						onPtySetRawMode: s.onPtySetRawMode,
+						stdinIsTTY: s.processConfig.stdinIsTTY,
+					}),
 					// Custom bindings dispatched through _loadPolyfill
 					...(this.flattenedBindings ? Object.fromEntries(
 						this.flattenedBindings.map(b => [b.key, b.handler])
 					) : {}),
 				}),
-				...timerResult.handlers,
+				...buildTimerBridgeHandlers({
+					budgetState: s.budgetState,
+					maxBridgeCalls: s.maxBridgeCalls,
+					activeHostTimers: s.activeHostTimers,
+				}),
 				...buildFsBridgeHandlers({
 					filesystem: s.filesystem,
 					budgetState: s.budgetState,
@@ -555,7 +541,10 @@ export class NodeExecutionDriver implements RuntimeDriver {
 						return typeof rfs?.toSandboxPath === "function" ? rfs.toSandboxPath(p) : p;
 					},
 				}),
-				...ptyHandlers,
+				...buildPtyBridgeHandlers({
+					onPtySetRawMode: s.onPtySetRawMode,
+					stdinIsTTY: s.processConfig.stdinIsTTY,
+				}),
 			};
 
 			// Merge custom bindings into bridge handlers
@@ -564,12 +553,6 @@ export class NodeExecutionDriver implements RuntimeDriver {
 					bridgeHandlers[binding.key] = binding.handler;
 				}
 			}
-
-			// Process exit notification — flushes pending timers and stdin so V8 event loop drains
-			bridgeHandlers[HOST_BRIDGE_GLOBAL_KEYS.notifyProcessExit] = () => {
-				timerResult.flushPendingTimers();
-				ptyDeps.onStdinEnd?.();
-			};
 
 			// Build process/os config for V8 execution
 			const execProcessConfig = createProcessConfigForExecution(
@@ -776,19 +759,6 @@ function buildPostRestoreScript(
 	parts.push(getIsolateRuntimeSource("setupFsFacade"));
 	parts.push(getIsolateRuntimeSource("setupDynamicImport"));
 
-	// Node.js CJS compat: `global` is an alias for `globalThis`
-	parts.push(`if(typeof global==='undefined')globalThis.global=globalThis;`);
-
-	// AbortSignal EventTarget compat: V8's AbortSignal may lack addEventListener/removeEventListener.
-	// Provide no-op stubs so callers don't throw, but don't create persistent listener
-	// references that would prevent the V8 session from exiting.
-	parts.push(`(function(){` +
-		`if(typeof AbortSignal!=='undefined'&&!AbortSignal.prototype.addEventListener){` +
-		`AbortSignal.prototype.addEventListener=function(){};` +
-		`AbortSignal.prototype.removeEventListener=function(){};` +
-		`AbortSignal.prototype.dispatchEvent=function(){return true;};` +
-		`}})();`);
-
 	// Inject bridge setup config
 	parts.push(`globalThis.__runtimeBridgeSetupConfig = ${JSON.stringify({
 		initialCwd: bridgeConfig.initialCwd,
@@ -826,27 +796,39 @@ function buildPostRestoreScript(
 		parts.push(getIsolateRuntimeSource("applyTimingMitigationOff"));
 	}
 
-	// Apply execution overrides (env, cwd, stdin) for both exec and run modes
-	if (processConfig.env) {
-		parts.push(`globalThis.__runtimeProcessEnvOverride = ${JSON.stringify(processConfig.env)};`);
-		parts.push(getIsolateRuntimeSource("overrideProcessEnv"));
-	}
-	if (processConfig.cwd) {
-		parts.push(`globalThis.__runtimeProcessCwdOverride = ${JSON.stringify(processConfig.cwd)};`);
-		parts.push(getIsolateRuntimeSource("overrideProcessCwd"));
-	}
-	if (bridgeConfig.stdin !== undefined) {
-		parts.push(`globalThis.__runtimeStdinData = ${JSON.stringify(bridgeConfig.stdin)};`);
-		parts.push(getIsolateRuntimeSource("setStdinData"));
-	}
-	// Set CommonJS globals (needed in both modes for require() compatibility)
-	parts.push(getIsolateRuntimeSource("initCommonjsModuleGlobals"));
-	if (filePath) {
-		const dirname = filePath.includes("/")
-			? filePath.substring(0, filePath.lastIndexOf("/")) || "/"
-			: "/";
-		parts.push(`globalThis.__runtimeCommonJsFileConfig = ${JSON.stringify({ filePath, dirname })};`);
-		parts.push(getIsolateRuntimeSource("setCommonjsFileGlobals"));
+	// Apply execution overrides (env, cwd, stdin) for exec mode
+	if (mode === "exec") {
+		if (processConfig.env) {
+			parts.push(`globalThis.__runtimeProcessEnvOverride = ${JSON.stringify(processConfig.env)};`);
+			parts.push(getIsolateRuntimeSource("overrideProcessEnv"));
+		}
+		if (processConfig.cwd) {
+			parts.push(`globalThis.__runtimeProcessCwdOverride = ${JSON.stringify(processConfig.cwd)};`);
+			parts.push(getIsolateRuntimeSource("overrideProcessCwd"));
+		}
+		if (bridgeConfig.stdin !== undefined) {
+			parts.push(`globalThis.__runtimeStdinData = ${JSON.stringify(bridgeConfig.stdin)};`);
+			parts.push(getIsolateRuntimeSource("setStdinData"));
+		}
+		// Set CommonJS globals
+		parts.push(getIsolateRuntimeSource("initCommonjsModuleGlobals"));
+		if (filePath) {
+			const dirname = filePath.includes("/")
+				? filePath.substring(0, filePath.lastIndexOf("/")) || "/"
+				: "/";
+			parts.push(`globalThis.__runtimeCommonJsFileConfig = ${JSON.stringify({ filePath, dirname })};`);
+			parts.push(getIsolateRuntimeSource("setCommonjsFileGlobals"));
+		}
+	} else {
+		// run mode — still need CommonJS module globals
+		parts.push(getIsolateRuntimeSource("initCommonjsModuleGlobals"));
+		if (filePath) {
+			const dirname = filePath.includes("/")
+				? filePath.substring(0, filePath.lastIndexOf("/")) || "/"
+				: "/";
+			parts.push(`globalThis.__runtimeCommonJsFileConfig = ${JSON.stringify({ filePath, dirname })};`);
+			parts.push(getIsolateRuntimeSource("setCommonjsFileGlobals"));
+		}
 	}
 
 	// Apply custom global exposure policy

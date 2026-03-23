@@ -1,8 +1,3 @@
-// Browser-only fallback: V8-backed execution handles import() natively via
-// HostImportModuleDynamicallyCallback (US-023). This shim is only exercised
-// by the browser worker which doesn't use the V8 sidecar. The global is still
-// installed in V8 snapshots but never called since transformDynamicImport is
-// no longer applied to V8-loaded code (US-025).
 import { isObjectLike } from "../common/global-access";
 import { getRuntimeExposeCustomGlobal } from "../common/global-exposure";
 

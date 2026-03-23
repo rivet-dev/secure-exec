@@ -83,36 +83,6 @@ const STATIC_BUILTIN_WRAPPER_SOURCES: Readonly<Record<string, string>> = {
 		"globalThis.process || {}",
 		BUILTIN_NAMED_EXPORTS.process,
 	),
-	"stream/promises": buildWrapperSource(
-		"(function(){var s=require('stream');if(s.promises)return s.promises;" +
-		"function promisePipeline(){var args=[].slice.call(arguments);return new Promise(function(ok,fail){args.push(function(e){e?fail(e):ok()});s.pipeline.apply(null,args)})}" +
-		"function promiseFinished(stream,opts){return new Promise(function(ok,fail){s.finished(stream,opts||{},function(e){e?fail(e):ok()})})}" +
-		"return{pipeline:promisePipeline,finished:promiseFinished}})()",
-		BUILTIN_NAMED_EXPORTS["stream/promises"],
-	),
-	url: (() => {
-		// Custom url wrapper with Node.js-compatible fileURLToPath/pathToFileURL.
-		// The node-stdlib-browser url polyfill's fileURLToPath rejects valid file:// URLs,
-		// so we provide correct implementations alongside the standard URL/URLSearchParams.
-		const binding = "(function(){" +
-			"var u=globalThis.URL?{URL:globalThis.URL,URLSearchParams:globalThis.URLSearchParams}:{};" +
-			"u.fileURLToPath=function(input){" +
-			"var s=typeof input==='string'?input:input&&input.href||String(input);" +
-			"if(s.startsWith('file:///'))return decodeURIComponent(s.slice(7));" +
-			"if(s.startsWith('file://'))return decodeURIComponent(s.slice(7));" +
-			"if(s.startsWith('/'))return s;" +
-			"throw new TypeError('The URL must be of scheme file');};" +
-			"u.pathToFileURL=function(p){return new URL('file://'+encodeURI(p));};" +
-			"u.format=function(u,o){if(typeof u==='string')return u;if(u instanceof URL)return u.toString();return '';};" +
-			"u.parse=function(s){try{var p=new URL(s);return{protocol:p.protocol,hostname:p.hostname,port:p.port,pathname:p.pathname,search:p.search,hash:p.hash,href:p.href};}catch{return null;}};" +
-			"u.resolve=function(from,to){return new URL(to,from).toString();};" +
-			"u.domainToASCII=function(d){return d;};" +
-			"u.domainToUnicode=function(d){return d;};" +
-			"u.Url=function(){};" +
-			"u.resolveObject=function(){return{};};" +
-			"return u;})()";
-		return buildWrapperSource(binding, BUILTIN_NAMED_EXPORTS.url);
-	})(),
 	v8: buildWrapperSource("globalThis._moduleCache?.v8 || {}", []),
 };
 

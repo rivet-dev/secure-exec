@@ -120,14 +120,13 @@ export async function createV8Runtime(
 
 	child.on("exit", (code, signal) => {
 		processAlive = false;
-		const stderrSuffix = stderrBuf ? `\nstderr: ${stderrBuf}` : "";
 		if (code !== 0 && code !== null) {
 			exitError = new Error(
-				`V8 runtime process exited with code ${code}${stderrSuffix}`,
+				`V8 runtime process exited with code ${code}`,
 			);
 		} else if (signal) {
 			exitError = new Error(
-				`V8 runtime process killed by signal ${signal}${stderrSuffix}`,
+				`V8 runtime process killed by signal ${signal}`,
 			);
 		}
 
@@ -185,9 +184,8 @@ export async function createV8Runtime(
 			// Reject all pending executions — the Rust process may have
 			// deadlocked without exiting, so we can't rely on the 'exit'
 			// event alone.
-			const stderrInfo = stderrBuf ? `\nstderr: ${stderrBuf}` : "";
 			rejectPendingSessions(
-				new Error(`IPC connection closed${stderrInfo}`),
+				new Error("IPC connection closed"),
 			);
 		},
 		onError: (err) => {

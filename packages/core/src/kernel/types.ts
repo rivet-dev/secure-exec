@@ -257,6 +257,8 @@ export interface KernelInterface {
 	fdDup(pid: number, fd: number): number;
 	fdDup2(pid: number, oldFd: number, newFd: number): void;
 	fdStat(pid: number, fd: number): FDStat;
+	/** Query poll state for a file descriptor (pipe, PTY, or regular file). */
+	fdPoll(pid: number, fd: number): { readable: boolean; writable: boolean; hangup: boolean; invalid: boolean };
 	fdSetCloexec(pid: number, fd: number, value: boolean): void;
 	fdGetCloexec(pid: number, fd: number): boolean;
 	fcntl(pid: number, fd: number, cmd: number, arg?: number): number;
@@ -302,7 +304,7 @@ export interface KernelInterface {
 	ptySetDiscipline(
 		pid: number,
 		fd: number,
-		config: { canonical?: boolean; echo?: boolean; isig?: boolean; icrnl?: boolean },
+		config: { canonical?: boolean; echo?: boolean; isig?: boolean },
 	): void;
 	/** Set the foreground process group for signal delivery on the PTY. */
 	ptySetForegroundPgid(pid: number, fd: number, pgid: number): void;
@@ -461,6 +463,7 @@ export type KernelErrorCode =
 	| "EISDIR"
 	| "EMFILE"
 	| "ENOENT"
+	| "ENOSPC"
 	| "ENOSYS"
 	| "ENOTEMPTY"
 	| "ENOTDIR"

@@ -210,10 +210,11 @@ else
     exit 1
 fi
 
-# Remove wasip2 send.o/recv.o stubs that conflict with host_socket.o
-# (our socket patch provides full send/recv via host_net imports)
-"$WASI_AR" d "$SYSROOT_LIB/libc.a" send.o recv.o 2>/dev/null || true
-echo "Removed conflicting send.o/recv.o from libc.a"
+# Remove musl object files that conflict with host_socket.o
+# (our socket patch provides poll/select via host_net imports, replacing musl's
+#  poll_oneoff-based implementations which don't check actual FD state)
+"$WASI_AR" d "$SYSROOT_LIB/libc.a" send.o recv.o select.o poll.o 2>/dev/null || true
+echo "Removed conflicting send.o/recv.o/select.o/poll.o from libc.a"
 
 # wasi-libc builds under wasm32-wasi, but clang --target=wasm32-wasip1 expects
 # wasm32-wasip1 subdirectories. Create symlinks so both targets work.
@@ -223,5 +224,63 @@ for subdir in include lib; do
         echo "Symlink: $subdir/wasm32-wasip1 -> wasm32-wasi"
     fi
 done
+
+# === Install sysroot overrides ===
+# Override files in patches/wasi-libc-overrides/ fix broken libc behavior
+# (fcntl, strfmon, open_wmemstream, swprintf, inet_ntop, pthread_attr, pthread_mutex, pthread_key, fmtmsg).
+# realloc is handled by 0009-realloc-glibc-semantics.patch directly.
+# Overrides are compiled and added to libc.a so ALL WASM programs get the fixes.
+OVERRIDES_DIR="$WASMCORE_DIR/patches/wasi-libc-overrides"
+OVERRIDE_CFLAGS="--target=wasm32-wasip1 --sysroot=$SYSROOT_DIR -O2 -D_GNU_SOURCE"
+
+# Extra flags for overrides that need musl internal headers (struct __pthread, etc.)
+MUSL_INTERNAL_DIR="$VENDOR_DIR/wasi-libc/libc-top-half/musl/src/internal"
+MUSL_ARCH_DIR="$VENDOR_DIR/wasi-libc/libc-top-half/musl/arch/wasm32"
+OVERRIDE_INTERNAL_CFLAGS="-I$MUSL_INTERNAL_DIR -I$MUSL_ARCH_DIR"
+
+if [ -d "$OVERRIDES_DIR" ] && ls "$OVERRIDES_DIR"/*.c >/dev/null 2>&1; then
+    echo ""
+    echo "=== Installing sysroot overrides ==="
+
+    # Helper: extract .o member name from llvm-nm --print-file-name output.
+    # Format: "/path/to/libc.a:member.o: 00000000 T symbol"
+    extract_obj() {
+        sed 's/.*:\([^:]*\.o\):.*/\1/'
+    }
+
+    # Remove original .o files for symbols we're replacing outright.
+    # These functions live in their own .o files (one function per file in musl).
+    # Note: strfmon.o contains both strfmon and strfmon_l — only need to remove once.
+    # pthread_mutex: all 5 functions (lock, trylock, timedlock, unlock, consistent)
+    # are in a single mutex.o — remove it so our override replaces them all.
+    # pthread_key: create, delete, and tsd_run_dtors are in a single .o — remove
+    # via __pthread_key_create to replace the whole TSD compilation unit.
+    for sym in fcntl strfmon open_wmemstream swprintf inet_ntop __pthread_mutex_lock pthread_attr_setguardsize pthread_mutexattr_setrobust __pthread_key_create fmtmsg; do
+        OBJ_LINE=$("$WASI_NM" --print-file-name "$SYSROOT_LIB/libc.a" 2>/dev/null | { grep " [TW] ${sym}\$" || true; } | head -1)
+        if [ -n "$OBJ_LINE" ]; then
+            OBJ=$(echo "$OBJ_LINE" | extract_obj)
+            if [ -n "$OBJ" ]; then
+                echo "  Removing original $OBJ (provides $sym)"
+                "$WASI_AR" d "$SYSROOT_LIB/libc.a" "$OBJ" 2>/dev/null || true
+            fi
+        fi
+    done
+
+    # Compile each override and add to libc.a
+    for src in "$OVERRIDES_DIR"/*.c; do
+        name="$(basename "${src%.c}")"
+        EXTRA_FLAGS=""
+        # pthread_key needs musl internal headers for struct __pthread
+        case "$name" in
+            pthread_key) EXTRA_FLAGS="$OVERRIDE_INTERNAL_CFLAGS" ;;
+        esac
+        echo "  Compiling override: $name"
+        "$WASI_CC" $OVERRIDE_CFLAGS $EXTRA_FLAGS -c "$src" -o "$SYSROOT_LIB/override_${name}.o"
+        "$WASI_AR" r "$SYSROOT_LIB/libc.a" "$SYSROOT_LIB/override_${name}.o"
+        rm -f "$SYSROOT_LIB/override_${name}.o"
+    done
+
+    echo "Sysroot overrides installed"
+fi
 
 echo "Patched sysroot installed to: $SYSROOT_DIR"

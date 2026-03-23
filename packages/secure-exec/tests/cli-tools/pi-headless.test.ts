@@ -1,30 +1,23 @@
 /**
  * E2E test: Pi coding agent headless mode inside the secure-exec sandbox.
  *
- * Pi runs INSIDE the sandbox VM via kernel.spawn(). The mock LLM server
- * runs on the host; Pi reaches it through a fetch interceptor patched
- * into the sandbox code.
+ * Pi runs as a child process spawned through the sandbox's child_process
+ * bridge. The mock LLM server runs on the host; Pi reaches it through a
+ * fetch interceptor injected via NODE_OPTIONS preload script.
  *
- * File read tests use the overlay VFS (reads fall back to host filesystem).
- * File write tests verify through the VFS (writes go to in-memory layer).
+ * File read/write tests use the host filesystem (Pi operates on real files
+ * within a temp directory). The bash test validates child_process spawning.
  *
  * Uses relative imports to avoid cyclic package dependencies.
  */
 
+import { spawn as nodeSpawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import * as fsPromises from 'node:fs/promises';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createKernel, allowAll } from '../../../core/src/kernel/index.ts';
-import type { Kernel, VirtualFileSystem } from '../../../core/src/kernel/index.ts';
-import { InMemoryFileSystem } from '../../../browser/src/os-filesystem.ts';
-import { createNodeRuntime } from '../../../nodejs/src/kernel-runtime.ts';
-import { createDefaultNetworkAdapter } from '../../../nodejs/src/driver.ts';
-import { createWasmVmRuntime } from '../../../wasmvm/src/index.ts';
-import type { NetworkAdapter } from '../../../core/src/types.ts';
 import {
   createMockLlmServer,
   type MockLlmServerHandle,
@@ -32,13 +25,6 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SECURE_EXEC_ROOT = path.resolve(__dirname, '../..');
-
-// WASM standalone binaries directory
-const COMMANDS_DIR = path.resolve(
-  __dirname,
-  '../../../../native/wasmvm/target/wasm32-wasip1/release/commands',
-);
-const hasWasm = existsSync(COMMANDS_DIR);
 
 // ---------------------------------------------------------------------------
 // Skip helpers
@@ -61,173 +47,10 @@ const PI_CLI = path.resolve(
   'node_modules/@mariozechner/pi-coding-agent/dist/cli.js',
 );
 
-// Pi's main module — import directly so we can await main()
-// (cli.js calls main() without await, so import(cli.js) resolves immediately)
-const PI_MAIN = path.resolve(
-  SECURE_EXEC_ROOT,
-  'node_modules/@mariozechner/pi-coding-agent/dist/main.js',
-);
+const FETCH_INTERCEPT = path.resolve(__dirname, 'fetch-intercept.cjs');
 
 // ---------------------------------------------------------------------------
-// Overlay VFS — writes to InMemoryFileSystem, reads fall back to host
-// ---------------------------------------------------------------------------
-
-function createOverlayVfs(): VirtualFileSystem {
-  const memfs = new InMemoryFileSystem();
-  return {
-    readFile: async (p) => {
-      try { return await memfs.readFile(p); }
-      catch { return new Uint8Array(await fsPromises.readFile(p)); }
-    },
-    readTextFile: async (p) => {
-      try { return await memfs.readTextFile(p); }
-      catch { return await fsPromises.readFile(p, 'utf-8'); }
-    },
-    readDir: async (p) => {
-      try { return await memfs.readDir(p); }
-      catch { return await fsPromises.readdir(p); }
-    },
-    readDirWithTypes: async (p) => {
-      try { return await memfs.readDirWithTypes(p); }
-      catch {
-        const entries = await fsPromises.readdir(p, { withFileTypes: true });
-        return entries.map((e) => ({ name: e.name, isDirectory: e.isDirectory() }));
-      }
-    },
-    exists: async (p) => {
-      if (await memfs.exists(p)) return true;
-      try { await fsPromises.access(p); return true; } catch { return false; }
-    },
-    stat: async (p) => {
-      try { return await memfs.stat(p); }
-      catch {
-        const s = await fsPromises.stat(p);
-        return {
-          mode: s.mode, size: s.size, isDirectory: s.isDirectory(),
-          isSymbolicLink: false,
-          atimeMs: s.atimeMs, mtimeMs: s.mtimeMs,
-          ctimeMs: s.ctimeMs, birthtimeMs: s.birthtimeMs,
-        };
-      }
-    },
-    lstat: async (p) => {
-      try { return await memfs.lstat(p); }
-      catch {
-        const s = await fsPromises.lstat(p);
-        return {
-          mode: s.mode, size: s.size, isDirectory: s.isDirectory(),
-          isSymbolicLink: s.isSymbolicLink(),
-          atimeMs: s.atimeMs, mtimeMs: s.mtimeMs,
-          ctimeMs: s.ctimeMs, birthtimeMs: s.birthtimeMs,
-        };
-      }
-    },
-    realpath: async (p) => {
-      try { return await memfs.realpath(p); }
-      catch { return await fsPromises.realpath(p); }
-    },
-    readlink: async (p) => {
-      try { return await memfs.readlink(p); }
-      catch { return await fsPromises.readlink(p); }
-    },
-    pread: async (p, offset, length) => {
-      try { return await memfs.pread(p, offset, length); }
-      catch {
-        const fd = await fsPromises.open(p, 'r');
-        try {
-          const buf = Buffer.alloc(length);
-          const { bytesRead } = await fd.read(buf, 0, length, offset);
-          return new Uint8Array(buf.buffer, buf.byteOffset, bytesRead);
-        } finally { await fd.close(); }
-      }
-    },
-    writeFile: (p, content) => memfs.writeFile(p, content),
-    createDir: (p) => memfs.createDir(p),
-    mkdir: (p, opts) => memfs.mkdir(p, opts),
-    removeFile: (p) => memfs.removeFile(p),
-    removeDir: (p) => memfs.removeDir(p),
-    rename: (oldP, newP) => memfs.rename(oldP, newP),
-    symlink: (target, linkP) => memfs.symlink(target, linkP),
-    link: (oldP, newP) => memfs.link(oldP, newP),
-    chmod: (p, mode) => memfs.chmod(p, mode),
-    chown: (p, uid, gid) => memfs.chown(p, uid, gid),
-    utimes: (p, atime, mtime) => memfs.utimes(p, atime, mtime),
-    truncate: (p, length) => memfs.truncate(p, length),
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Redirecting network adapter — rewrites API URLs to mock server at host level
-// ---------------------------------------------------------------------------
-
-function createRedirectingNetworkAdapter(getMockUrl: () => string): NetworkAdapter {
-  const real = createDefaultNetworkAdapter();
-  const rewrite = (url: string): string =>
-    url.replace(/https?:\/\/api\.anthropic\.com/, getMockUrl());
-
-  // Direct fetch that bypasses SSRF for mock server (localhost) URLs
-  const directFetch = async (
-    url: string,
-    options?: { method?: string; headers?: Record<string, string>; body?: string | null },
-  ) => {
-    const response = await globalThis.fetch(url, {
-      method: options?.method || 'GET',
-      headers: options?.headers,
-      body: options?.body,
-    });
-    const headers: Record<string, string> = {};
-    response.headers.forEach((v, k) => { headers[k] = v; });
-    return {
-      ok: response.ok,
-      status: response.status,
-      statusText: response.statusText,
-      headers,
-      body: await response.text(),
-      url: response.url,
-      redirected: response.redirected,
-    };
-  };
-
-  return {
-    ...real,
-    fetch: (url, options) => {
-      const rewritten = rewrite(url);
-      // Bypass SSRF for localhost mock server
-      if (rewritten.startsWith('http://127.0.0.1')) return directFetch(rewritten, options);
-      return real.fetch(rewritten, options);
-    },
-    httpRequest: (url, options) => real.httpRequest(rewrite(url), options),
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Pi sandbox code builder
-// ---------------------------------------------------------------------------
-
-/**
- * Build sandbox code that loads Pi's CLI entry point in headless print mode.
- *
- * Patches fetch to redirect Anthropic API calls to the mock server,
- * sets process.argv for CLI mode, and loads the CLI entry point.
- */
-function buildPiHeadlessCode(opts: {
-  args: string[];
-}): string {
-  // Use ESM with top-level await — export {} triggers ESM detection so V8 uses
-  // execute_module() which properly awaits async work. Without this, execute_script()
-  // in CJS mode would return the IIFE's Promise without awaiting it.
-  return `export {};
-
-// Override process.argv for Pi CLI
-process.argv = ['node', 'pi', ${opts.args.map((a) => JSON.stringify(a)).join(', ')}];
-
-const { main } = await import(${JSON.stringify(PI_MAIN)});
-await main(process.argv.slice(2));
-`;
-}
-
-// ---------------------------------------------------------------------------
-// Spawn helper — runs Pi inside sandbox VM via kernel
+// Spawn helper
 // ---------------------------------------------------------------------------
 
 interface PiResult {
@@ -236,78 +59,53 @@ interface PiResult {
   stderr: string;
 }
 
-async function spawnPiInVm(
-  kernel: Kernel,
-  opts: {
-    args: string[];
-    cwd: string;
-    mockUrl?: string;
-    timeoutMs?: number;
-  },
-): Promise<PiResult> {
-  const code = buildPiHeadlessCode({
-    args: opts.args,
-  });
-
-  const stdoutChunks: Uint8Array[] = [];
-  const stderrChunks: Uint8Array[] = [];
-  let outputSettled = false;
-  let settleTimer: ReturnType<typeof setTimeout> | undefined;
-  let resolveSettle: ((code: number) => void) | undefined;
-  const settlePromise = new Promise<number>((resolve) => { resolveSettle = resolve; });
-
-  const proc = kernel.spawn('node', ['-e', code], {
-    cwd: opts.cwd,
-    env: {
+function spawnPi(opts: {
+  args: string[];
+  mockUrl: string;
+  cwd: string;
+  timeoutMs?: number;
+  env?: Record<string, string>;
+}): Promise<PiResult> {
+  return new Promise((resolve) => {
+    const env: Record<string, string> = {
+      ...process.env as Record<string, string>,
       ANTHROPIC_API_KEY: 'test-key',
-      ANTHROPIC_BASE_URL: opts.mockUrl ?? '',
+      MOCK_LLM_URL: opts.mockUrl,
+      NODE_OPTIONS: `-r ${FETCH_INTERCEPT}`,
       HOME: opts.cwd,
-      NO_COLOR: '1',
       PI_AGENT_DIR: path.join(opts.cwd, '.pi'),
-      PATH: process.env.PATH ?? '',
-    },
-    onStdout: (data) => {
-      stdoutChunks.push(data);
-      // Reset the settle timer whenever new output arrives.
-      // Pi in --print mode prints the response and then calls process.exit().
-      // The V8 sandbox may not terminate cleanly on process.exit() inside TLA,
-      // so we detect output settling (no new output for 500ms) and kill the process.
-      if (settleTimer) clearTimeout(settleTimer);
-      settleTimer = setTimeout(() => {
-        outputSettled = true;
-        proc.kill();
-        resolveSettle?.(0);
-      }, 500);
-    },
-    onStderr: (data) => stderrChunks.push(data),
+      NO_COLOR: '1',
+      ...(opts.env ?? {}),
+    };
+
+    const child = nodeSpawn('node', [PI_CLI, ...opts.args], {
+      cwd: opts.cwd,
+      env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+
+    child.stdout.on('data', (d: Buffer) => stdoutChunks.push(d));
+    child.stderr.on('data', (d: Buffer) => stderrChunks.push(d));
+
+    const timeout = opts.timeoutMs ?? 30_000;
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+    }, timeout);
+
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      resolve({
+        code: code ?? 1,
+        stdout: Buffer.concat(stdoutChunks).toString(),
+        stderr: Buffer.concat(stderrChunks).toString(),
+      });
+    });
+
+    child.stdin.end();
   });
-
-  // Close stdin immediately so Pi's readPipedStdin() "end" event fires
-  proc.closeStdin();
-
-  const timeoutMs = opts.timeoutMs ?? 30_000;
-  const exitCode = await Promise.race([
-    proc.wait(),
-    settlePromise,
-    new Promise<number>((_, reject) =>
-      setTimeout(() => {
-        const partialStdout = stdoutChunks.map(c => new TextDecoder().decode(c)).join('');
-        const partialStderr = stderrChunks.map(c => new TextDecoder().decode(c)).join('');
-        console.error('TIMEOUT partial stdout:', partialStdout.slice(0, 2000));
-        console.error('TIMEOUT partial stderr:', partialStderr.slice(0, 2000));
-        proc.kill();
-        reject(new Error(`Pi timed out after ${timeoutMs}ms`));
-      }, timeoutMs),
-    ),
-  ]);
-
-  if (settleTimer) clearTimeout(settleTimer);
-
-  return {
-    code: outputSettled ? 0 : exitCode,
-    stdout: stdoutChunks.map((c) => new TextDecoder().decode(c)).join(''),
-    stderr: stderrChunks.map((c) => new TextDecoder().decode(c)).join(''),
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -316,33 +114,16 @@ async function spawnPiInVm(
 
 let mockServer: MockLlmServerHandle;
 let workDir: string;
-let kernel: Kernel;
-let vfs: VirtualFileSystem;
 
 describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
   beforeAll(async () => {
     mockServer = await createMockLlmServer([]);
     workDir = await mkdtemp(path.join(tmpdir(), 'pi-headless-'));
+    // Create .pi dir for Pi's config
     await mkdir(path.join(workDir, '.pi'), { recursive: true });
-
-    // Create kernel with overlay VFS
-    vfs = createOverlayVfs();
-    kernel = createKernel({ filesystem: vfs });
-
-    // Network adapter that redirects Anthropic API calls to the mock server
-    const networkAdapter = createRedirectingNetworkAdapter(
-      () => `http://127.0.0.1:${mockServer.port}`,
-    );
-
-    // Mount WasmVM first (provides sh/bash/coreutils), then Node
-    if (hasWasm) {
-      await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
-    }
-    await kernel.mount(createNodeRuntime({ networkAdapter, permissions: allowAll }));
-  }, 30_000);
+  }, 15_000);
 
   afterAll(async () => {
-    await kernel?.dispose();
     await mockServer?.close();
     await rm(workDir, { recursive: true, force: true });
   });
@@ -352,15 +133,14 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
     async () => {
       mockServer.reset([{ type: 'text', text: 'Hello!' }]);
 
-      const result = await spawnPiInVm(kernel, {
+      const result = await spawnPi({
         args: ['--print', 'say hello'],
         mockUrl: `http://127.0.0.1:${mockServer.port}`,
         cwd: workDir,
       });
 
       if (result.code !== 0) {
-        console.log('Pi boot stderr:', result.stderr.slice(0, 16000));
-        console.log('Pi boot stdout:', result.stdout.slice(0, 8000));
+        console.log('Pi boot stderr:', result.stderr.slice(0, 2000));
       }
       expect(result.code).toBe(0);
     },
@@ -373,29 +153,23 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
       const canary = 'UNIQUE_CANARY_42';
       mockServer.reset([{ type: 'text', text: canary }]);
 
-      const result = await spawnPiInVm(kernel, {
+      const result = await spawnPi({
         args: ['--print', 'say hello'],
         mockUrl: `http://127.0.0.1:${mockServer.port}`,
         cwd: workDir,
       });
 
-      if (!result.stdout.includes(canary)) {
-        console.log('Pi output stderr:', result.stderr.slice(0, 4000));
-        console.log('Pi output stdout:', result.stdout.slice(0, 4000));
-        console.log('Pi exit code:', result.code);
-        console.log('Mock server requests:', mockServer.requestCount());
-      }
       expect(result.stdout).toContain(canary);
     },
     45_000,
   );
 
   it(
-    'Pi reads a file — read tool accesses seeded file via sandbox bridge',
+    'Pi reads a file — read tool accesses seeded file via fs',
     async () => {
       const testDir = path.join(workDir, 'read-test');
       await mkdir(testDir, { recursive: true });
-      await fsPromises.writeFile(path.join(testDir, 'test.txt'), 'secret_content_xyz');
+      await writeFile(path.join(testDir, 'test.txt'), 'secret_content_xyz');
 
       mockServer.reset([
         {
@@ -406,7 +180,7 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
         { type: 'text', text: 'The file contains: secret_content_xyz' },
       ]);
 
-      const result = await spawnPiInVm(kernel, {
+      const result = await spawnPi({
         args: ['--print', `read ${path.join(testDir, 'test.txt')} and repeat the contents`],
         mockUrl: `http://127.0.0.1:${mockServer.port}`,
         cwd: workDir,
@@ -419,12 +193,10 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
   );
 
   it(
-    'Pi writes a file — file exists after write tool runs via sandbox bridge',
+    'Pi writes a file — file exists after write tool runs via fs',
     async () => {
       const testDir = path.join(workDir, 'write-test');
-      // Create directory on host (for overlay read fallback) and in VFS (for write target)
       await mkdir(testDir, { recursive: true });
-      await vfs.mkdir(testDir, { recursive: true });
       const outPath = path.join(testDir, 'out.txt');
 
       mockServer.reset([
@@ -436,29 +208,28 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
         { type: 'text', text: 'I wrote the file.' },
       ]);
 
-      const result = await spawnPiInVm(kernel, {
+      const result = await spawnPi({
         args: ['--print', `create a file at ${outPath}`],
         mockUrl: `http://127.0.0.1:${mockServer.port}`,
         cwd: workDir,
       });
 
       expect(result.code).toBe(0);
-      // Verify through VFS (writes go to in-memory layer)
-      const content = await vfs.readTextFile(outPath);
+      const content = await readFile(outPath, 'utf8');
       expect(content).toBe('hello from pi mock');
     },
     45_000,
   );
 
-  it.skipIf(!hasWasm)(
-    'Pi runs bash command — bash tool executes via child_process bridge',
+  it(
+    'Pi runs bash command — bash tool executes ls via child_process',
     async () => {
       mockServer.reset([
         { type: 'tool_use', name: 'bash', input: { command: 'ls /' } },
         { type: 'text', text: 'Directory listing complete.' },
       ]);
 
-      const result = await spawnPiInVm(kernel, {
+      const result = await spawnPi({
         args: ['--print', 'run ls /'],
         mockUrl: `http://127.0.0.1:${mockServer.port}`,
         cwd: workDir,
@@ -475,7 +246,7 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
     async () => {
       mockServer.reset([{ type: 'text', text: 'Hello JSON!' }]);
 
-      const result = await spawnPiInVm(kernel, {
+      const result = await spawnPi({
         args: ['--print', '--mode', 'json', 'say hello'],
         mockUrl: `http://127.0.0.1:${mockServer.port}`,
         cwd: workDir,

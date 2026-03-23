@@ -1,0 +1,207 @@
+{
+  "project": "SecureExec",
+  "branchName": "ralph/posix-conformance-tests",
+  "description": "Integrate the os-test POSIX.1-2024 conformance suite into WasmVM — vendor upstream tests, compile to WASM + native, run through the kernel with an opt-out exclusion list, gate CI on no-regressions, and auto-generate a publishable conformance report.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Add fetch-os-test Makefile target and vendor os-test source",
+      "description": "As a developer, I want os-test source vendored into native/wasmvm/c/os-test/ so that POSIX conformance tests are available for compilation.",
+      "acceptanceCriteria": [
+        "fetch-os-test target added to native/wasmvm/c/Makefile that downloads os-test from https://sortix.org/os-test/release/os-test-0.1.0.tar.gz",
+        "Downloaded archive cached in native/wasmvm/c/.cache/ (consistent with existing fetch-libs pattern)",
+        "Extracted source placed in native/wasmvm/c/os-test/ with include/ and src/ subdirectories",
+        "os-test/ directory contains ISC LICENSE file from upstream",
+        "native/wasmvm/c/os-test/ added to .gitignore if not already vendored (follow spec decision on vendoring vs fetching)",
+        "make fetch-os-test succeeds and populates the directory",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": "Step 1 from the spec. The spec says to vendor (commit) the source directly for reviewability and no network dependency at test time. However, check the C Library Vendoring Policy in CLAUDE.md — os-test is a test suite not a C library, so vendoring may be acceptable. If vendoring, commit the source; if fetching, add to .gitignore and fetch-libs."
+    },
+    {
+      "id": "US-002",
+      "title": "Add os-test WASM and native Makefile build targets",
+      "description": "As a developer, I want Makefile targets that compile every os-test C program to both wasm32-wasip1 and native binaries.",
+      "acceptanceCriteria": [
+        "os-test target added to Makefile that compiles all C files in os-test/src/ to WASM binaries in build/os-test/",
+        "os-test-native target added that compiles all C files to native binaries in build/native/os-test/",
+        "Build mirrors source directory structure (e.g., os-test/src/io/close_basic.c → build/os-test/io/close_basic)",
+        "OS_TEST_CFLAGS includes -I os-test/include for os-test headers",
+        "Individual compile failures do not abort the full build (|| true or similar)",
+        "Build report prints count of compiled tests",
+        "make os-test and make os-test-native succeed (with expected compile failures for WASM-incompatible tests)",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": "Step 2 from the spec. Follow the Makefile patterns shown in the spec's Build Integration section. Some tests won't compile for wasm32-wasip1 due to missing headers — that's expected and tracked via compile-error exclusions."
+    },
+    {
+      "id": "US-003",
+      "title": "Create posix-exclusions.json schema and initial empty file",
+      "description": "As a developer, I want a structured exclusion list file so the test runner knows which tests to skip or expect to fail.",
+      "acceptanceCriteria": [
+        "packages/wasmvm/test/posix-exclusions.json created with the schema from the spec",
+        "File includes osTestVersion, sourceCommit, lastUpdated, and empty exclusions object",
+        "Schema supports skip and fail status values",
+        "Schema supports category field with values: wasm-limitation, wasi-gap, implementation-gap, patched-sysroot, compile-error, timeout",
+        "Schema supports glob field for bulk exclusions by prefix pattern",
+        "Schema supports optional issue field for fail exclusions",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": "Step 3 prerequisite. Just the empty file with metadata — actual exclusion entries populated in US-005 and US-006 after the initial triage run."
+    },
+    {
+      "id": "US-004",
+      "title": "Create posix-conformance.test.ts test runner",
+      "description": "As a developer, I want a Vitest test driver that discovers all os-test binaries, checks them against the exclusion list, and runs them both natively and in WASM.",
+      "acceptanceCriteria": [
+        "packages/wasmvm/test/posix-conformance.test.ts created",
+        "Runner discovers all compiled os-test WASM binaries via directory traversal",
+        "Exclusion list loaded from posix-exclusions.json and glob patterns expanded via minimatch",
+        "Tests grouped by suite (top-level directory: io, malloc, signal, etc.)",
+        "Tests not in exclusion list: must exit 0 and match native output parity",
+        "Tests excluded as skip: shown as it.skip with reason",
+        "Tests excluded as fail: executed and must still fail — errors if test unexpectedly passes",
+        "Each test has 30s timeout",
+        "Tests skip gracefully if WASM binaries are not built (skipUnlessWasmBuilt pattern)",
+        "Runner prints conformance summary after execution (suite/total/pass/fail/skip/rate)",
+        "Summary written to posix-conformance-report.json for CI artifact upload",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": "Step 3 from the spec. Core test runner implementation. Follow the code structure from the spec's Test Runner section. Add minimatch as a devDependency if not already present."
+    },
+    {
+      "id": "US-005",
+      "title": "Initial triage — populate exclusions for compile-error and wasm-limitation tests",
+      "description": "As a developer, I want the exclusion list populated with all tests that cannot compile or are structurally impossible in WASM so the remaining tests form a valid must-pass set.",
+      "acceptanceCriteria": [
+        "All tests that fail to compile for wasm32-wasip1 added to exclusions with status skip and category compile-error",
+        "All tests requiring fork, exec, pthreads, mmap, real async signals, setuid/setgid added with status skip and category wasm-limitation",
+        "All tests requiring raw sockets, epoll/poll/select, shared memory, ptrace added with status skip and category wasi-gap",
+        "All tests that hang or timeout added with status skip and category timeout",
+        "Every exclusion entry has a specific, non-empty reason",
+        "Bulk glob patterns used where entire suites are excluded (e.g., signal/*)",
+        "osTestVersion and sourceCommit fields updated in posix-exclusions.json",
+        "Tests pass (all non-excluded tests exit 0)",
+        "Typecheck passes"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": "Step 3 triage phase 1. Run 'make os-test os-test-native' then the test suite. Classify every failure. Focus on skip exclusions first (things that CAN'T work). Remaining failures become US-006."
+    },
+    {
+      "id": "US-006",
+      "title": "Classify implementation-gap failures with tracking issues",
+      "description": "As a developer, I want remaining test failures classified as implementation gaps with linked tracking issues so we can systematically fix them.",
+      "acceptanceCriteria": [
+        "All remaining failing tests (not covered by US-005 skip exclusions) added to exclusions with status fail and category implementation-gap or patched-sysroot",
+        "Every fail exclusion has an issue field linking to a GitHub issue on rivet-dev/secure-exec",
+        "GitHub issues created for each distinct implementation gap (group related tests into single issues where appropriate)",
+        "Every exclusion has a specific reason explaining what's wrong (not just 'fails')",
+        "Full test suite passes (all non-excluded tests exit 0, all fail-excluded tests still fail)",
+        "Typecheck passes"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": "Step 3 triage phase 2. These are things we SHOULD support but don't yet. Each needs a tracking issue. Group related failures (e.g., all dup2 issues into one issue)."
+    },
+    {
+      "id": "US-007",
+      "title": "Create validate-posix-exclusions.ts validation script",
+      "description": "As a developer, I want a script that audits the exclusion list for integrity so stale or invalid entries are caught.",
+      "acceptanceCriteria": [
+        "scripts/validate-posix-exclusions.ts created",
+        "Validates every exclusion key matches at least one compiled test binary (or valid glob)",
+        "Validates every entry has a non-empty reason string",
+        "Validates every fail entry has a non-empty issue URL",
+        "Validates every entry has a valid category from the fixed set",
+        "Detects ambiguous glob overlap (test matched by multiple patterns)",
+        "Reports orphaned test binaries not in exclusion list and not in test results",
+        "Exits non-zero on any validation failure",
+        "pnpm tsx scripts/validate-posix-exclusions.ts passes",
+        "Typecheck passes"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": "Step 4 prerequisite. The 6 checks listed in the spec's Exclusion List Validation section."
+    },
+    {
+      "id": "US-008",
+      "title": "Add posix-conformance.yml CI workflow",
+      "description": "As a developer, I want POSIX conformance tests running in CI with a no-regressions gate so new failures block merges.",
+      "acceptanceCriteria": [
+        ".github/workflows/posix-conformance.yml created",
+        "Workflow builds WASM binaries (make wasm), os-test binaries (make os-test os-test-native)",
+        "Runs posix-conformance.test.ts via vitest",
+        "Runs validate-posix-exclusions.ts",
+        "Non-excluded test failures block the workflow (exit non-zero)",
+        "Unexpectedly passing fail-excluded tests block the workflow",
+        "Conformance report JSON uploaded as CI artifact",
+        "Typecheck passes"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": "Step 4 from the spec. Follow the CI workflow YAML from the spec. Report generation (US-009) wired in separately."
+    },
+    {
+      "id": "US-009",
+      "title": "Create generate-posix-report.ts report generation script",
+      "description": "As a developer, I want a script that generates a publishable MDX conformance report from test results and exclusion data.",
+      "acceptanceCriteria": [
+        "scripts/generate-posix-report.ts created",
+        "Reads posix-conformance-report.json (test results) and posix-exclusions.json",
+        "Generates docs/posix-conformance-report.mdx with auto-generated header comment",
+        "Report includes summary table (os-test version, total tests, passing, excluded, native parity, last updated)",
+        "Report includes per-suite results table (suite/total/pass/fail/skip/rate)",
+        "Report includes exclusions grouped by category with reasons and issue links",
+        "Generated MDX has correct frontmatter (title, description, icon)",
+        "pnpm tsx scripts/generate-posix-report.ts succeeds and produces valid MDX",
+        "Typecheck passes"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": "Step 5 from the spec. Follow the Generated Page Structure from the spec. Wire into CI workflow after this story is complete."
+    },
+    {
+      "id": "US-010",
+      "title": "Add conformance report to docs navigation and cross-link",
+      "description": "As a developer, I want the conformance report discoverable in the docs site under the Experimental section.",
+      "acceptanceCriteria": [
+        "posix-conformance-report added to Experimental section in docs/docs.json, adjacent to existing WasmVM docs",
+        "Callout added at top of docs/posix-compatibility.md linking to the conformance report",
+        "Report generation step added to posix-conformance.yml CI workflow (after test run)",
+        "Generated report MDX uploaded as CI artifact alongside JSON",
+        "Typecheck passes"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": "Step 5 finalization. Keep docs navigation order matching the spec: wasmvm/overview, wasmvm/supported-commands, posix-compatibility, posix-conformance-report."
+    },
+    {
+      "id": "US-011",
+      "title": "Create import-os-test.ts upstream update script",
+      "description": "As a developer, I want a script to pull new os-test releases so updating the vendored source is a repeatable process.",
+      "acceptanceCriteria": [
+        "scripts/import-os-test.ts created",
+        "Accepts --version flag to specify os-test release version",
+        "Downloads specified release from sortix.org",
+        "Replaces vendored source in native/wasmvm/c/os-test/",
+        "Prints diff summary of added/removed/changed test files",
+        "Reminds developer to rebuild, re-run tests, and update exclusion list metadata",
+        "pnpm tsx scripts/import-os-test.ts --version 0.1.0 succeeds",
+        "Typecheck passes"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": "Supports the Updating Upstream Tests workflow from the spec. This is a developer convenience script, not a CI requirement."
+    }
+  ]
+}

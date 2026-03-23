@@ -23,8 +23,6 @@ export interface LineDisciplineConfig {
 	echo: boolean;
 	/** Enable signal generation from control chars (^C, ^Z, ^\). */
 	isig: boolean;
-	/** Convert CR (0x0d) to NL (0x0a) on input. */
-	icrnl: boolean;
 }
 
 export interface PtyEnd {
@@ -299,7 +297,6 @@ export class PtyManager {
 		if (config.canonical !== undefined) state.termios.icanon = config.canonical;
 		if (config.echo !== undefined) state.termios.echo = config.echo;
 		if (config.isig !== undefined) state.termios.isig = config.isig;
-		if (config.icrnl !== undefined) state.termios.icrnl = config.icrnl;
 	}
 
 	/** Set the foreground process group for signal delivery on this PTY. */
