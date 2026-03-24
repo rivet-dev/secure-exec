@@ -256,6 +256,7 @@ export interface KernelInterface {
 	fdPwrite(pid: number, fd: number, data: Uint8Array, offset: bigint): Promise<number>;
 	fdDup(pid: number, fd: number): number;
 	fdDup2(pid: number, oldFd: number, newFd: number): void;
+	fdDupMin(pid: number, fd: number, minFd: number): number;
 	fdStat(pid: number, fd: number): FDStat;
 	/** Query poll state for a file descriptor (pipe, PTY, or regular file). */
 	fdPoll(pid: number, fd: number): { readable: boolean; writable: boolean; hangup: boolean; invalid: boolean };

@@ -36,7 +36,7 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 	private symlinks = new Map<string, string>();
 	private modes = new Map<string, number>();
 	private owners = new Map<string, { uid: number; gid: number }>();
-	private timestamps = new Map<string, { atimeMs: number; mtimeMs: number; ctimeMs: number; birthtimeMs: number }>();
+	private timestamps = new Map<string, { atimeMs: number; mtimeMs: number }>();
 	private hardLinks = new Map<string, string>(); // newPath → originalPath
 
 	private listDirEntries(
@@ -99,42 +99,27 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 	async writeFile(path: string, content: string | Uint8Array): Promise<void> {
 		const normalized = normalizePath(path);
 		await this.mkdir(dirname(normalized));
-		const isNew = !this.files.has(normalized);
 		const data =
 			typeof content === "string" ? new TextEncoder().encode(content) : content;
 		this.files.set(normalized, data);
-		if (isNew) {
-			this.touchCreate(normalized);
-		} else {
-			this.touchModify(normalized);
-		}
 	}
 
-	async createDir(path: string, mode?: number): Promise<void> {
+	async createDir(path: string): Promise<void> {
 		const normalized = normalizePath(path);
 		const parent = dirname(normalized);
 		if (!this.dirs.has(parent)) {
 			throw new Error(`ENOENT: no such file or directory, mkdir '${normalized}'`);
 		}
 		this.dirs.add(normalized);
-		this.touchCreate(normalized);
-		if (mode !== undefined) {
-			this.modes.set(normalized, S_IFDIR | (mode & 0o7777));
-		}
 	}
 
-	async mkdir(path: string, options?: { recursive?: boolean; mode?: number }): Promise<void> {
+	async mkdir(path: string, _options?: { recursive?: boolean }): Promise<void> {
 		const parts = splitPath(path);
-		const mode = options?.mode;
 		let current = "";
 		for (const part of parts) {
 			current += `/${part}`;
 			if (!this.dirs.has(current)) {
 				this.dirs.add(current);
-				this.touchCreate(current);
-				if (mode !== undefined) {
-					this.modes.set(current, S_IFDIR | (mode & 0o7777));
-				}
 			}
 		}
 	}
@@ -149,37 +134,6 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 		throw new Error(`ELOOP: too many levels of symbolic links, stat '${normalized}'`);
 	}
 
-	// Record creation timestamp for a path (called on first creation)
-	private touchCreate(normalized: string): void {
-		if (!this.timestamps.has(normalized)) {
-			const now = Date.now();
-			this.timestamps.set(normalized, { atimeMs: now, mtimeMs: now, ctimeMs: now, birthtimeMs: now });
-		}
-	}
-
-	// Update mtime and ctime (data modification)
-	private touchModify(normalized: string): void {
-		const now = Date.now();
-		const ts = this.timestamps.get(normalized);
-		if (ts) {
-			ts.mtimeMs = now;
-			ts.ctimeMs = now;
-		} else {
-			this.timestamps.set(normalized, { atimeMs: now, mtimeMs: now, ctimeMs: now, birthtimeMs: now });
-		}
-	}
-
-	// Update ctime only (metadata change: chmod, chown)
-	private touchCtime(normalized: string): void {
-		const now = Date.now();
-		const ts = this.timestamps.get(normalized);
-		if (ts) {
-			ts.ctimeMs = now;
-		} else {
-			this.timestamps.set(normalized, { atimeMs: now, mtimeMs: now, ctimeMs: now, birthtimeMs: now });
-		}
-	}
-
 	private statEntry(normalized: string): VirtualStat {
 		const now = Date.now();
 		const ts = this.timestamps.get(normalized);
@@ -187,8 +141,6 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 		const customMode = this.modes.get(normalized);
 		const atimeMs = ts?.atimeMs ?? now;
 		const mtimeMs = ts?.mtimeMs ?? now;
-		const ctimeMs = ts?.ctimeMs ?? now;
-		const birthtimeMs = ts?.birthtimeMs ?? now;
 
 		const file = this.files.get(normalized);
 		if (file) {
@@ -199,8 +151,8 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 				isSymbolicLink: false,
 				atimeMs,
 				mtimeMs,
-				ctimeMs,
-				birthtimeMs,
+				ctimeMs: now,
+				birthtimeMs: now,
 				ino: 0,
 				nlink: 1,
 				uid: owner?.uid ?? 0,
@@ -215,8 +167,8 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 				isSymbolicLink: false,
 				atimeMs,
 				mtimeMs,
-				ctimeMs,
-				birthtimeMs,
+				ctimeMs: now,
+				birthtimeMs: now,
 				ino: 0,
 				nlink: 2,
 				uid: owner?.uid ?? 0,
@@ -352,7 +304,6 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 		}
 		await this.mkdir(dirname(normalized));
 		this.symlinks.set(normalized, target);
-		this.touchCreate(normalized);
 	}
 
 	async readlink(path: string): Promise<string> {
@@ -400,8 +351,6 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 		await this.mkdir(dirname(newNormalized));
 		this.files.set(newNormalized, file);
 		this.hardLinks.set(newNormalized, oldNormalized);
-		this.touchCreate(newNormalized);
-		this.touchCtime(oldNormalized);
 	}
 
 	async chmod(path: string, mode: number): Promise<void> {
@@ -413,7 +362,6 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 		const existing = this.modes.get(resolved);
 		const typeBits = existing ? (existing & 0o170000) : (this.files.has(resolved) ? S_IFREG : S_IFDIR);
 		this.modes.set(resolved, typeBits | (mode & 0o7777));
-		this.touchCtime(resolved);
 	}
 
 	async chown(path: string, uid: number, gid: number): Promise<void> {
@@ -423,7 +371,6 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 			throw new Error(`ENOENT: no such file or directory, chown '${normalized}'`);
 		}
 		this.owners.set(resolved, { uid, gid });
-		this.touchCtime(resolved);
 	}
 
 	async utimes(path: string, atime: number, mtime: number): Promise<void> {
@@ -432,14 +379,7 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 		if (!this.files.has(resolved) && !this.dirs.has(resolved)) {
 			throw new Error(`ENOENT: no such file or directory, utimes '${normalized}'`);
 		}
-		const now = Date.now();
-		const existing = this.timestamps.get(resolved);
-		this.timestamps.set(resolved, {
-			atimeMs: atime * 1000,
-			mtimeMs: mtime * 1000,
-			ctimeMs: now,
-			birthtimeMs: existing?.birthtimeMs ?? now,
-		});
+		this.timestamps.set(resolved, { atimeMs: atime * 1000, mtimeMs: mtime * 1000 });
 	}
 
 	async realpath(path: string): Promise<string> {
@@ -470,7 +410,6 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 		} else {
 			this.files.set(resolved, file.slice(0, length));
 		}
-		this.touchModify(resolved);
 	}
 }
 

@@ -48,7 +48,7 @@ interface Report {
   fail: number;
   skip: number;
   passRate: string;
-  nativeParity: number;
+  nativeVerified: number;
   suites: Record<string, SuiteStats>;
 }
 
@@ -97,9 +97,10 @@ line('{/* AUTO-GENERATED — do not edit. Run scripts/generate-posix-report.ts *
 line();
 
 // Summary table
-const mustPass = report.total - report.skip - report.fail;
-const nativeParityPct = mustPass > 0 ? ((report.nativeParity / mustPass) * 100).toFixed(1) : '0';
-const nativeParityLabel = `${report.nativeParity} of ${mustPass} passing tests verified against native (${nativeParityPct}%)`;
+// nativeVerified = passing tests where a native binary was available and output was compared.
+// Denominator is report.pass (all passing tests), not total, to show "what % of passes had native verification".
+const nativeVerifiedPct = report.pass > 0 ? ((report.nativeVerified / report.pass) * 100).toFixed(1) : '0';
+const nativeVerifiedLabel = `${report.nativeVerified} of ${report.pass} passing tests verified against native output (${nativeVerifiedPct}%)`;
 const lastUpdated = report.timestamp ? report.timestamp.split('T')[0] : exclusionsData.lastUpdated;
 
 line('## Summary');
@@ -111,7 +112,7 @@ line(`| Total tests | ${report.total} |`);
 line(`| Passing | ${report.pass} (${report.passRate}) |`);
 line(`| Expected fail | ${report.fail} |`);
 line(`| Skip | ${report.skip} |`);
-line(`| Native parity | ${nativeParityLabel} |`);
+line(`| Native verified | ${nativeVerifiedLabel} |`);
 line(`| Last updated | ${lastUpdated} |`);
 line();
 
@@ -129,7 +130,8 @@ for (const [suite, stats] of sortedSuites) {
 }
 
 // Totals row
-const totalRate = mustPass > 0 ? `${((report.pass / mustPass) * 100).toFixed(1)}%` : '—';
+const runTotal = report.total - report.skip - report.fail;
+const totalRate = runTotal > 0 ? `${((report.pass / runTotal) * 100).toFixed(1)}%` : '—';
 line(`| **Total** | **${report.total}** | **${report.pass}** | **${report.fail}** | **${report.skip}** | **${totalRate}** |`);
 line();
 

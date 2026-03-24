@@ -1451,10 +1451,9 @@ export function buildFsBridgeHandlers(deps: FsBridgeDeps): BridgeHandlers {
 		return json;
 	};
 
-	handlers[K.fsMkdir] = async (path: unknown, _recursive: unknown, mode: unknown) => {
+	handlers[K.fsMkdir] = async (path: unknown) => {
 		checkBridgeBudget(deps);
-		const modeNum = mode !== undefined && mode !== null ? Number(mode) : undefined;
-		await mkdir(fs, String(path), modeNum);
+		await mkdir(fs, String(path));
 	};
 
 	handlers[K.fsRmdir] = async (path: unknown) => {
@@ -1471,8 +1470,7 @@ export function buildFsBridgeHandlers(deps: FsBridgeDeps): BridgeHandlers {
 		checkBridgeBudget(deps);
 		const s = await fs.stat(String(path));
 		return JSON.stringify({ mode: s.mode, size: s.size, isDirectory: s.isDirectory,
-			atimeMs: s.atimeMs, mtimeMs: s.mtimeMs, ctimeMs: s.ctimeMs, birthtimeMs: s.birthtimeMs,
-			uid: s.uid, gid: s.gid, nlink: s.nlink, ino: s.ino });
+			atimeMs: s.atimeMs, mtimeMs: s.mtimeMs, ctimeMs: s.ctimeMs, birthtimeMs: s.birthtimeMs });
 	};
 
 	handlers[K.fsUnlink] = async (path: unknown) => {
@@ -1515,8 +1513,7 @@ export function buildFsBridgeHandlers(deps: FsBridgeDeps): BridgeHandlers {
 		const s = await fs.lstat(String(path));
 		return JSON.stringify({ mode: s.mode, size: s.size, isDirectory: s.isDirectory,
 			isSymbolicLink: s.isSymbolicLink, atimeMs: s.atimeMs, mtimeMs: s.mtimeMs,
-			ctimeMs: s.ctimeMs, birthtimeMs: s.birthtimeMs,
-			uid: s.uid, gid: s.gid, nlink: s.nlink, ino: s.ino });
+			ctimeMs: s.ctimeMs, birthtimeMs: s.birthtimeMs });
 	};
 
 	handlers[K.fsTruncate] = async (path: unknown, length: unknown) => {

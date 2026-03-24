@@ -37,7 +37,7 @@ const DEVICE_INO: Record<string, number> = {
 };
 
 /** Device pseudo-directories that contain dynamic entries. */
-const DEVICE_DIRS = new Set(["/dev/fd", "/dev/pts"]);
+const DEVICE_DIRS = new Set(["/dev/fd", "/dev/pts", "/dev/shm"]);
 
 function isDevicePath(path: string): boolean {
 	return DEVICE_PATHS.has(path) || path.startsWith("/dev/fd/") || path.startsWith("/dev/pts/");
@@ -78,6 +78,8 @@ const DEV_DIR_ENTRIES: VirtualDirEntry[] = [
 	{ name: "full", isDirectory: false },
 	{ name: "ptmx", isDirectory: false },
 	{ name: "fd", isDirectory: true },
+	{ name: "pts", isDirectory: true },
+	{ name: "shm", isDirectory: true },
 ];
 
 /**

@@ -81,7 +81,8 @@ The kernel (`packages/kernel/`) is the foundational POSIX layer. All runtimes mo
 | O_CLOEXEC | Implemented | Recognized at open time; sets `cloexec` flag on FD entry |
 | O_NONBLOCK | **Missing** | All reads/writes are blocking or Promise-based |
 | File locking (flock) | Implemented | Advisory flock with LOCK_SH, LOCK_EX, LOCK_UN, LOCK_NB |
-| select / poll / epoll | Not possible | JavaScript async model; all I/O is Promise-based |
+| select / poll | Implemented | Supports pipe FDs and socket FDs; not permission-gated (see Known Deviations below) |
+| epoll | **Missing** | No epoll_create/epoll_ctl/epoll_wait |
 
 ### TTY / PTY
 
@@ -308,6 +309,17 @@ The Python bridge (`packages/python/`) runs Python via Pyodide (CPython compiled
 
 ---
 
+## Known Deviations
+
+These behaviors intentionally differ from a real Linux system, with rationale:
+
+| Deviation | Rationale | Impact |
+|-----------|-----------|--------|
+| poll/select are not permission-gated | `poll()` and `select()` are generic FD readiness operations that work on pipes, files, and sockets — not exclusively network I/O. Gating them behind network permissions would break legitimate non-network use (e.g., polling a pipe for data). | Unprivileged WASM code can probe socket readiness state (whether data is available) without network permissions, though it cannot read, write, or create sockets without them. |
+| pthread_mutex_timedlock returns ETIMEDOUT immediately | In single-threaded WASM (`wasm32-wasip1`), there is no second thread that could unlock the mutex while the caller waits. Blocking until the absolute timeout would hang the process with no possibility of progress. The implementation returns ETIMEDOUT immediately when a held NORMAL/ERRORCHECK mutex is re-locked with a timeout. | Programs relying on timedlock to synchronize with another thread will see ETIMEDOUT instead of eventually acquiring the lock. This only affects single-threaded WASM; the behavior is correct for the threading model. |
+
+---
+
 ## Architecturally Impossible
 
 These gaps cannot be fixed without fundamental changes to the execution model:
@@ -317,7 +329,7 @@ These gaps cannot be fixed without fundamental changes to the execution model:
 | fork() | WASM can't copy linear memory; browser has no process fork | spawn() only |
 | Async signal delivery to WASM | JavaScript has no preemptive interruption | worker.terminate() = SIGKILL |
 | Signal handlers in user code | Untrusted code can't register handlers | Kernel owns lifecycle |
-| Non-blocking I/O (select/poll/epoll) | JavaScript async model | Promise-based I/O |
+| epoll | No epoll infrastructure in kernel; poll/select are implemented | Use poll() or select() |
 | pthreads in WASM | wasm32-wasip1 doesn't support threads | One Worker per process |
 | Network sockets in WASM | WASI Preview 1 has no socket API | HTTP via `host_net` import module (curl, wget, git) and Node bridge |
 | mmap / shared memory | WASM memory separate from host FS | read/write only |

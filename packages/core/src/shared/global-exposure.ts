@@ -119,11 +119,6 @@ export const NODE_CUSTOM_GLOBAL_INVENTORY: readonly CustomGlobalInventoryEntry[]
 		rationale: "Runtime-owned process-exit control-path error class.",
 	},
 	{
-		name: "__secureExecFireExit",
-		classification: "hardened",
-		rationale: "Runtime-owned exit event dispatch for normal completion.",
-	},
-	{
 		name: "_log",
 		classification: "hardened",
 		rationale: "Host console capture reference consumed by sandbox console shim.",

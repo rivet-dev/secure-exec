@@ -41,6 +41,7 @@ function createMockKernel(): KernelInterface {
     fdPwrite: vi.fn(),
     fdDup: vi.fn(),
     fdDup2: vi.fn(),
+    fdDupMin: vi.fn(),
     fdStat: vi.fn(),
     spawn: vi.fn(),
     waitpid: vi.fn(),

@@ -237,7 +237,9 @@ function writeConformanceReport(results: TestResult[]): void {
     ? ((pass / (total - skip)) * 100).toFixed(1)
     : '0.0';
 
-  const nativeParityCount = results.filter(
+  // Count passing tests that had a native binary available for output comparison.
+  // These tests were verified to produce the same stdout as the native binary.
+  const nativeVerifiedCount = results.filter(
     (r) => r.status === 'pass' && r.nativeExitCode !== undefined,
   ).length;
 
@@ -249,7 +251,7 @@ function writeConformanceReport(results: TestResult[]): void {
     fail,
     skip,
     passRate: `${passRate}%`,
-    nativeParity: nativeParityCount,
+    nativeVerified: nativeVerifiedCount,
     suites,
     tests: results,
   };

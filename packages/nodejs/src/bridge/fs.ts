@@ -796,98 +796,6 @@ function createFsError(
   return err;
 }
 
-// Node.js ERR_* validation helpers — match internal/errors.js format
-
-function describeType(value: unknown): string {
-  if (value === null) return "null";
-  if (value === undefined) return "undefined";
-  if (typeof value === "function") {
-    return `function ${(value as Function).name || ""}`;
-  }
-  if (Array.isArray(value)) return "an instance of Array";
-  if (typeof value === "object") {
-    const name = (value as object).constructor?.name;
-    return name && name !== "Object" ? `an instance of ${name}` : "an instance of Object";
-  }
-  // Primitives: include the value in parentheses (matches Node.js format)
-  if (typeof value === "boolean") return `type boolean (${value})`;
-  if (typeof value === "number") return `type number (${value})`;
-  if (typeof value === "string") {
-    const display = value.length > 28 ? `${value.slice(0, 25)}...` : value;
-    return `type string ('${display}')`;
-  }
-  if (typeof value === "symbol") return `type symbol (${String(value)})`;
-  if (typeof value === "bigint") return `type bigint (${value}n)`;
-  return `type ${typeof value}`;
-}
-
-function createErrInvalidArgType(
-  name: string,
-  expected: string,
-  actual: unknown
-): TypeError & { code: string } {
-  const msg = `The "${name}" argument must be ${expected}. Received ${describeType(actual)}`;
-  const err = new TypeError(msg) as TypeError & { code: string };
-  err.code = "ERR_INVALID_ARG_TYPE";
-  return err;
-}
-
-function createErrInvalidArgValue(
-  name: string,
-  value: unknown,
-  reason?: string
-): TypeError & { code: string } {
-  const inspected = typeof value === "string" ? `'${value}'` : String(value);
-  const msg = reason
-    ? `The ${name} argument ${reason}. Received ${inspected}`
-    : `The argument '${name}' is invalid. Received ${inspected}`;
-  const err = new TypeError(msg) as TypeError & { code: string };
-  err.code = "ERR_INVALID_ARG_VALUE";
-  return err;
-}
-
-function createErrOutOfRange(
-  name: string,
-  range: string,
-  actual: unknown
-): RangeError & { code: string } {
-  const msg = `The value of "${name}" is out of range. It must be ${range}. Received ${actual}`;
-  const err = new RangeError(msg) as RangeError & { code: string };
-  err.code = "ERR_OUT_OF_RANGE";
-  return err;
-}
-
-// Validate path argument — matches Node.js internal validatePath
-function validatePath(value: unknown, name = "path"): void {
-  if (typeof value !== "string" && !Buffer.isBuffer(value) && !(value instanceof URL)) {
-    throw createErrInvalidArgType(name, "of type string or an instance of Buffer or URL", value);
-  }
-  if (typeof value === "string" && value.indexOf("\u0000") !== -1) {
-    throw createErrInvalidArgValue(name, value, "must be a string without null bytes");
-  }
-}
-
-// Validate callback argument — matches Node.js internal validateFunction
-function validateCallback(cb: unknown): void {
-  if (typeof cb !== "function") {
-    throw createErrInvalidArgType("cb", "of type function", cb);
-  }
-}
-
-// Validate integer argument (fd, uid, gid, etc.)
-function validateInt32(value: unknown, name: string): void {
-  if (typeof value !== "number") {
-    throw createErrInvalidArgType(name, "of type number", value);
-  }
-}
-
-// Validate encoding argument
-function validateEncoding(encoding: unknown): void {
-  if (encoding !== null && encoding !== undefined && typeof encoding !== "string") {
-    throw createErrInvalidArgType("encoding", "of type string", encoding);
-  }
-}
-
 /** Wrap a bridge call with ENOENT/EACCES error re-creation. */
 function bridgeCall<T>(fn: () => T, syscall: string, path?: string): T {
   try {
@@ -1052,140 +960,6 @@ function toPathString(path: PathLike): string {
 // Note: Path normalization is handled by VirtualFileSystem, not here.
 // The VFS expects /data/* paths for Directory access, so we pass paths through unchanged.
 
-// FSWatcher stub — returned by fs.watch(), emits no events
-class FSWatcher {
-  private _listeners = new Map<string | symbol, Array<(...args: unknown[]) => void>>();
-  private _closed = false;
-  filename: string;
-
-  constructor(filename: string) {
-    this.filename = filename;
-  }
-
-  close(): void {
-    this._closed = true;
-    this.emit("close");
-  }
-
-  ref(): this { return this; }
-  unref(): this { return this; }
-
-  on(event: string | symbol, listener: (...args: unknown[]) => void): this {
-    const listeners = this._listeners.get(event) || [];
-    listeners.push(listener);
-    this._listeners.set(event, listeners);
-    return this;
-  }
-
-  addListener(event: string | symbol, listener: (...args: unknown[]) => void): this {
-    return this.on(event, listener);
-  }
-
-  once(event: string | symbol, listener: (...args: unknown[]) => void): this {
-    const wrapper = (...args: unknown[]) => {
-      this.removeListener(event, wrapper);
-      listener(...args);
-    };
-    return this.on(event, wrapper);
-  }
-
-  removeListener(event: string | symbol, listener: (...args: unknown[]) => void): this {
-    const listeners = this._listeners.get(event);
-    if (listeners) {
-      const idx = listeners.indexOf(listener);
-      if (idx !== -1) listeners.splice(idx, 1);
-    }
-    return this;
-  }
-
-  off(event: string | symbol, listener: (...args: unknown[]) => void): this {
-    return this.removeListener(event, listener);
-  }
-
-  removeAllListeners(event?: string | symbol): this {
-    if (event !== undefined) this._listeners.delete(event); else this._listeners.clear();
-    return this;
-  }
-
-  emit(event: string | symbol, ...args: unknown[]): boolean {
-    const listeners = this._listeners.get(event);
-    if (listeners && listeners.length > 0) { listeners.slice().forEach(l => l(...args)); return true; }
-    return false;
-  }
-
-  listeners(event: string | symbol): Function[] { return [...(this._listeners.get(event) || [])]; }
-  listenerCount(event: string | symbol): number { return (this._listeners.get(event) || []).length; }
-  eventNames(): (string | symbol)[] { return [...this._listeners.keys()]; }
-  getMaxListeners(): number { return 10; }
-  setMaxListeners(_n: number): this { return this; }
-
-  [Symbol.asyncDispose](): Promise<void> { this.close(); return Promise.resolve(); }
-}
-
-// StatWatcher stub — returned by fs.watchFile()
-class StatWatcher {
-  private _listeners = new Map<string | symbol, Array<(...args: unknown[]) => void>>();
-  filename: string;
-
-  constructor(filename: string) {
-    this.filename = filename;
-  }
-
-  start(): void { /* no-op */ }
-  stop(): void { this.emit("stop"); }
-  ref(): this { return this; }
-  unref(): this { return this; }
-
-  on(event: string | symbol, listener: (...args: unknown[]) => void): this {
-    const listeners = this._listeners.get(event) || [];
-    listeners.push(listener);
-    this._listeners.set(event, listeners);
-    return this;
-  }
-
-  addListener(event: string | symbol, listener: (...args: unknown[]) => void): this {
-    return this.on(event, listener);
-  }
-
-  once(event: string | symbol, listener: (...args: unknown[]) => void): this {
-    const wrapper = (...args: unknown[]) => {
-      this.removeListener(event, wrapper);
-      listener(...args);
-    };
-    return this.on(event, wrapper);
-  }
-
-  removeListener(event: string | symbol, listener: (...args: unknown[]) => void): this {
-    const listeners = this._listeners.get(event);
-    if (listeners) {
-      const idx = listeners.indexOf(listener);
-      if (idx !== -1) listeners.splice(idx, 1);
-    }
-    return this;
-  }
-
-  off(event: string | symbol, listener: (...args: unknown[]) => void): this {
-    return this.removeListener(event, listener);
-  }
-
-  removeAllListeners(event?: string | symbol): this {
-    if (event !== undefined) this._listeners.delete(event); else this._listeners.clear();
-    return this;
-  }
-
-  emit(event: string | symbol, ...args: unknown[]): boolean {
-    const listeners = this._listeners.get(event);
-    if (listeners && listeners.length > 0) { listeners.slice().forEach(l => l(...args)); return true; }
-    return false;
-  }
-
-  listeners(event: string | symbol): Function[] { return [...(this._listeners.get(event) || [])]; }
-  listenerCount(event: string | symbol): number { return (this._listeners.get(event) || []).length; }
-  eventNames(): (string | symbol)[] { return [...this._listeners.keys()]; }
-  getMaxListeners(): number { return 10; }
-  setMaxListeners(_n: number): this { return this; }
-}
-
 // The fs module implementation
 const fs = {
   // Constants
@@ -1248,7 +1022,6 @@ const fs = {
   // Sync methods
 
   readFileSync(path: PathOrFileDescriptor, options?: ReadFileOptions): string | Buffer {
-    if (typeof path !== "number") validatePath(path, "path");
     const rawPath = typeof path === "number" ? fdTable.get(path)?.path : toPathString(path);
     if (!rawPath) throw createFsError("EBADF", "EBADF: bad file descriptor", "read");
     const pathStr = rawPath;
@@ -1299,7 +1072,6 @@ const fs = {
     data: string | NodeJS.ArrayBufferView,
     _options?: WriteFileOptions
   ): void {
-    if (typeof file !== "number") validatePath(file, "file");
     const rawPath = typeof file === "number" ? fdTable.get(file)?.path : toPathString(file);
     if (!rawPath) throw createFsError("EBADF", "EBADF: bad file descriptor", "write");
     const pathStr = rawPath;
@@ -1324,7 +1096,6 @@ const fs = {
     data: string | Uint8Array,
     options?: WriteFileOptions
   ): void {
-    if (typeof path !== "number") validatePath(path, "file");
     const existing = fs.existsSync(path as PathLike)
       ? (fs.readFileSync(path, "utf8") as string)
       : "";
@@ -1333,7 +1104,6 @@ const fs = {
   },
 
   readdirSync(path: PathLike, options?: nodeFs.ObjectEncodingOptions & { withFileTypes?: boolean; recursive?: boolean }): string[] | Dirent[] {
-    validatePath(path, "path");
     const rawPath = toPathString(path);
     const pathStr = rawPath;
     let entriesJson: string;
@@ -1363,29 +1133,19 @@ const fs = {
   },
 
   mkdirSync(path: PathLike, options?: MakeDirectoryOptions | Mode): string | undefined {
-    validatePath(path, "path");
     const rawPath = toPathString(path);
     const pathStr = rawPath;
-    let recursive = false;
-    let mode = 0o777;
-    if (typeof options === "object" && options !== null) {
-      recursive = options.recursive ?? false;
-      if (options.mode !== undefined) mode = typeof options.mode === "string" ? parseInt(options.mode, 8) : Number(options.mode);
-    } else if (options !== undefined && options !== null) {
-      mode = typeof options === "string" ? parseInt(options as string, 8) : Number(options);
-    }
-    _fs.mkdir.applySyncPromise(undefined, [pathStr, recursive, mode]);
+    const recursive = typeof options === "object" ? options?.recursive ?? false : false;
+    _fs.mkdir.applySyncPromise(undefined, [pathStr, recursive]);
     return recursive ? rawPath : undefined;
   },
 
   rmdirSync(path: PathLike, _options?: RmDirOptions): void {
-    validatePath(path, "path");
     const pathStr = toPathString(path);
     _fs.rmdir.applySyncPromise(undefined, [pathStr]);
   },
 
   rmSync(path: PathLike, options?: { force?: boolean; recursive?: boolean }): void {
-    validatePath(path, "path");
     const pathStr = toPathString(path);
     const opts = options || {};
     try {
@@ -1424,7 +1184,6 @@ const fs = {
   },
 
   statSync(path: PathLike, _options?: nodeFs.StatSyncOptions): Stats {
-    validatePath(path, "path");
     const rawPath = toPathString(path);
     const pathStr = rawPath;
     let statJson: string;
@@ -1455,16 +1214,11 @@ const fs = {
       mtimeMs?: number;
       ctimeMs?: number;
       birthtimeMs?: number;
-      uid?: number;
-      gid?: number;
-      nlink?: number;
-      ino?: number;
     };
     return new Stats(stat);
   },
 
   lstatSync(path: PathLike, _options?: nodeFs.StatSyncOptions): Stats {
-    validatePath(path, "path");
     const pathStr = toPathString(path);
     const statJson = bridgeCall(() => _fs.lstat.applySyncPromise(undefined, [pathStr]), "lstat", pathStr);
     const stat = JSON.parse(statJson) as {
@@ -1476,39 +1230,29 @@ const fs = {
       mtimeMs?: number;
       ctimeMs?: number;
       birthtimeMs?: number;
-      uid?: number;
-      gid?: number;
-      nlink?: number;
-      ino?: number;
     };
     return new Stats(stat);
   },
 
   unlinkSync(path: PathLike): void {
-    validatePath(path, "path");
     const pathStr = toPathString(path);
     _fs.unlink.applySyncPromise(undefined, [pathStr]);
   },
 
   renameSync(oldPath: PathLike, newPath: PathLike): void {
-    validatePath(oldPath, "oldPath");
-    validatePath(newPath, "newPath");
     const oldPathStr = toPathString(oldPath);
     const newPathStr = toPathString(newPath);
     _fs.rename.applySyncPromise(undefined, [oldPathStr, newPathStr]);
   },
 
   copyFileSync(src: PathLike, dest: PathLike, _mode?: number): void {
-    validatePath(src, "src");
-    validatePath(dest, "dest");
+    // readFileSync and writeFileSync already normalize paths
     const content = fs.readFileSync(src);
     fs.writeFileSync(dest, content as Buffer);
   },
 
   // Recursive copy
   cpSync(src: PathLike, dest: PathLike, options?: { recursive?: boolean; force?: boolean; errorOnExist?: boolean }): void {
-    validatePath(src, "src");
-    validatePath(dest, "dest");
     const srcPath = toPathString(src);
     const destPath = toPathString(dest);
     const opts = options || {};
@@ -1556,9 +1300,6 @@ const fs = {
 
   // Temp directory creation
   mkdtempSync(prefix: string, _options?: nodeFs.EncodingOption): string {
-    if (typeof prefix !== "string") {
-      throw createErrInvalidArgType("prefix", "of type string", prefix);
-    }
     const suffix = Math.random().toString(36).slice(2, 8);
     const dirPath = prefix + suffix;
     fs.mkdirSync(dirPath, { recursive: true });
@@ -1567,7 +1308,6 @@ const fs = {
 
   // Directory handle (sync)
   opendirSync(path: PathLike, _options?: nodeFs.OpenDirOptions): Dir {
-    validatePath(path, "path");
     const pathStr = toPathString(path);
     // Verify directory exists
     const stat = fs.statSync(pathStr);
@@ -1585,7 +1325,6 @@ const fs = {
   // File descriptor methods
 
   openSync(path: PathLike, flags: OpenMode, _mode?: Mode | null): number {
-    validatePath(path, "path");
     // Enforce bridge-side FD limit
     if (fdTable.size >= MAX_BRIDGE_FDS) {
       throw createFsError("EMFILE", "EMFILE: too many open files, open '" + toPathString(path) + "'", "open", toPathString(path));
@@ -1621,7 +1360,6 @@ const fs = {
   },
 
   closeSync(fd: number): void {
-    validateInt32(fd, "fd");
     if (!fdTable.has(fd)) {
       throw createFsError("EBADF", "EBADF: bad file descriptor, close", "close");
     }
@@ -1729,7 +1467,6 @@ const fs = {
   },
 
   fstatSync(fd: number): Stats {
-    validateInt32(fd, "fd");
     const entry = fdTable.get(fd);
     if (!entry) {
       throw createFsError("EBADF", "EBADF: bad file descriptor, fstat", "fstat");
@@ -1738,7 +1475,6 @@ const fs = {
   },
 
   ftruncateSync(fd: number, len?: number): void {
-    validateInt32(fd, "fd");
     const entry = fdTable.get(fd);
     if (!entry) {
       throw createFsError(
@@ -1762,14 +1498,12 @@ const fs = {
 
   // fsync / fdatasync — no-op for in-memory VFS (nothing to flush to disk)
   fsyncSync(fd: number): void {
-    validateInt32(fd, "fd");
     if (!fdTable.has(fd)) {
       throw createFsError("EBADF", "EBADF: bad file descriptor, fsync", "fsync");
     }
   },
 
   fdatasyncSync(fd: number): void {
-    validateInt32(fd, "fd");
     if (!fdTable.has(fd)) {
       throw createFsError("EBADF", "EBADF: bad file descriptor, fdatasync", "fdatasync");
     }
@@ -1803,7 +1537,6 @@ const fs = {
 
   // statfs — return synthetic filesystem stats for the in-memory VFS
   statfsSync(path: PathLike, _options?: nodeFs.StatFsOptions): nodeFs.StatsFs {
-    validatePath(path, "path");
     const pathStr = toPathString(path);
     // Verify path exists
     if (!fs.existsSync(pathStr)) {
@@ -1838,82 +1571,39 @@ const fs = {
 
   // Metadata and link sync methods — delegate to VFS via host refs
   chmodSync(path: PathLike, mode: Mode): void {
-    validatePath(path, "path");
     const pathStr = toPathString(path);
     const modeNum = typeof mode === "string" ? parseInt(mode, 8) : mode;
     bridgeCall(() => _fs.chmod.applySyncPromise(undefined, [pathStr, modeNum]), "chmod", pathStr);
   },
 
-  fchmodSync(fd: number, mode: Mode): void {
-    validateInt32(fd, "fd");
-    const entry = fdTable.get(fd);
-    if (!entry) {
-      throw createFsError("EBADF", "EBADF: bad file descriptor, fchmod", "fchmod");
-    }
-    const modeNum = typeof mode === "string" ? parseInt(mode, 8) : mode;
-    bridgeCall(() => _fs.chmod.applySyncPromise(undefined, [entry.path, modeNum]), "fchmod", entry.path);
-  },
-
-  lchmodSync(path: PathLike, mode: Mode): void {
-    // lchmod changes mode of symlink itself — VFS chmod follows symlinks,
-    // but for compatibility just delegate to chmodSync (matches Linux behavior where lchmod is no-op)
-    fs.chmodSync(path, mode);
-  },
-
-  fchownSync(fd: number, uid: number, gid: number): void {
-    validateInt32(fd, "fd");
-    const entry = fdTable.get(fd);
-    if (!entry) {
-      throw createFsError("EBADF", "EBADF: bad file descriptor, fchown", "fchown");
-    }
-    validateInt32(uid, "uid");
-    validateInt32(gid, "gid");
-    bridgeCall(() => _fs.chown.applySyncPromise(undefined, [entry.path, uid, gid]), "fchown", entry.path);
-  },
-
-  lchownSync(path: PathLike, uid: number, gid: number): void {
-    // lchown changes owner of symlink itself — delegate to chownSync for compatibility
-    fs.chownSync(path, uid, gid);
-  },
-
   chownSync(path: PathLike, uid: number, gid: number): void {
-    validatePath(path, "path");
-    validateInt32(uid, "uid");
-    validateInt32(gid, "gid");
     const pathStr = toPathString(path);
     bridgeCall(() => _fs.chown.applySyncPromise(undefined, [pathStr, uid, gid]), "chown", pathStr);
   },
 
   linkSync(existingPath: PathLike, newPath: PathLike): void {
-    validatePath(existingPath, "existingPath");
-    validatePath(newPath, "newPath");
     const existingStr = toPathString(existingPath);
     const newStr = toPathString(newPath);
     bridgeCall(() => _fs.link.applySyncPromise(undefined, [existingStr, newStr]), "link", newStr);
   },
 
   symlinkSync(target: PathLike, path: PathLike, _type?: string | null): void {
-    validatePath(target, "target");
-    validatePath(path, "path");
     const targetStr = toPathString(target);
     const pathStr = toPathString(path);
     bridgeCall(() => _fs.symlink.applySyncPromise(undefined, [targetStr, pathStr]), "symlink", pathStr);
   },
 
   readlinkSync(path: PathLike, _options?: nodeFs.EncodingOption): string {
-    validatePath(path, "path");
     const pathStr = toPathString(path);
     return bridgeCall(() => _fs.readlink.applySyncPromise(undefined, [pathStr]), "readlink", pathStr);
   },
 
   truncateSync(path: PathLike, len?: number | null): void {
-    validatePath(path, "path");
     const pathStr = toPathString(path);
     bridgeCall(() => _fs.truncate.applySyncPromise(undefined, [pathStr, len ?? 0]), "truncate", pathStr);
   },
 
   utimesSync(path: PathLike, atime: string | number | Date, mtime: string | number | Date): void {
-    validatePath(path, "path");
     const pathStr = toPathString(path);
     const atimeNum = typeof atime === "number" ? atime : new Date(atime).getTime() / 1000;
     const mtimeNum = typeof mtime === "number" ? mtime : new Date(mtime).getTime() / 1000;
@@ -1951,10 +1641,6 @@ const fs = {
       callback = options;
       options = undefined;
     }
-    if (typeof path !== "number") validatePath(path, "path");
-    if (callback && typeof callback !== "function") {
-      throw createErrInvalidArgType("cb", "of type function", callback);
-    }
     if (callback) {
       try {
         callback(null, fs.readFileSync(path, options));
@@ -1975,10 +1661,6 @@ const fs = {
     if (typeof options === "function") {
       callback = options;
       options = undefined;
-    }
-    if (typeof path !== "number") validatePath(path, "file");
-    if (callback && typeof callback !== "function") {
-      throw createErrInvalidArgType("cb", "of type function", callback);
     }
     if (callback) {
       try {
@@ -2004,7 +1686,6 @@ const fs = {
       callback = options;
       options = undefined;
     }
-    if (typeof path !== "number") validatePath(path, "file");
     if (callback) {
       try {
         fs.appendFileSync(path, data, options);
@@ -2028,7 +1709,6 @@ const fs = {
       callback = options;
       options = undefined;
     }
-    validatePath(path, "path");
     if (callback) {
       try {
         callback(null, fs.readdirSync(path, options));
@@ -2051,7 +1731,6 @@ const fs = {
       callback = options;
       options = undefined;
     }
-    validatePath(path, "path");
     if (callback) {
       try {
         fs.mkdirSync(path, options);
@@ -2066,7 +1745,6 @@ const fs = {
   },
 
   rmdir(path: string, callback?: NodeCallback<void>): Promise<void> | void {
-    validatePath(path, "path");
     if (callback) {
       // Defer callback to next tick to allow event loop to process stream events
       const cb = callback;
@@ -2087,7 +1765,6 @@ const fs = {
     options?: { force?: boolean; recursive?: boolean } | NodeCallback<void>,
     callback?: NodeCallback<void>
   ): Promise<void> | void {
-    validatePath(path, "path");
     let opts: { force?: boolean; recursive?: boolean } = {};
     let cb: NodeCallback<void> | undefined;
 
@@ -2154,7 +1831,6 @@ const fs = {
   },
 
   stat(path: string, callback?: NodeCallback<Stats>): Promise<Stats> | void {
-    validatePath(path, "path");
     if (callback) {
       // Defer callback to next tick to allow event loop to process stream events
       const cb = callback;
@@ -2170,7 +1846,6 @@ const fs = {
   },
 
   lstat(path: string, callback?: NodeCallback<Stats>): Promise<Stats> | void {
-    validatePath(path, "path");
     if (callback) {
       // Defer callback to next tick to allow event loop to process stream events
       const cb = callback;
@@ -2186,7 +1861,6 @@ const fs = {
   },
 
   unlink(path: string, callback?: NodeCallback<void>): Promise<void> | void {
-    validatePath(path, "path");
     if (callback) {
       // Defer callback to next tick to allow event loop to process stream events
       const cb = callback;
@@ -2206,8 +1880,6 @@ const fs = {
     newPath: string,
     callback?: NodeCallback<void>
   ): Promise<void> | void {
-    validatePath(oldPath, "oldPath");
-    validatePath(newPath, "newPath");
     if (callback) {
       // Defer callback to next tick to allow event loop to process stream events
       const cb = callback;
@@ -2227,8 +1899,6 @@ const fs = {
     dest: string,
     callback?: NodeCallback<void>
   ): Promise<void> | void {
-    validatePath(src, "src");
-    validatePath(dest, "dest");
     if (callback) {
       try {
         fs.copyFileSync(src, dest);
@@ -2247,8 +1917,6 @@ const fs = {
     options?: { recursive?: boolean; force?: boolean; errorOnExist?: boolean } | NodeCallback<void>,
     callback?: NodeCallback<void>
   ): Promise<void> | void {
-    validatePath(src, "src");
-    validatePath(dest, "dest");
     if (typeof options === "function") {
       callback = options;
       options = undefined;
@@ -2274,9 +1942,6 @@ const fs = {
       callback = options;
       options = undefined;
     }
-    if (typeof prefix !== "string") {
-      throw createErrInvalidArgType("prefix", "of type string", prefix);
-    }
     if (callback) {
       try {
         callback(null, fs.mkdtempSync(prefix, options as nodeFs.EncodingOption));
@@ -2297,7 +1962,6 @@ const fs = {
       callback = options;
       options = undefined;
     }
-    validatePath(path, "path");
     if (callback) {
       try {
         callback(null, fs.opendirSync(path, options as nodeFs.OpenDirOptions));
@@ -2319,7 +1983,6 @@ const fs = {
       callback = mode;
       mode = undefined;
     }
-    validatePath(path, "path");
     if (callback) {
       // Defer callback to next tick to allow event loop to process stream events
       const cb = callback;
@@ -2335,7 +1998,6 @@ const fs = {
   },
 
   close(fd: number, callback?: NodeCallback<void>): Promise<void> | void {
-    validateInt32(fd, "fd");
     if (callback) {
       // Defer callback to next tick to allow event loop to process stream events
       const cb = callback;
@@ -2455,7 +2117,6 @@ const fs = {
   },
 
   fstat(fd: number, callback?: NodeCallback<Stats>): Promise<Stats> | void {
-    validateInt32(fd, "fd");
     if (callback) {
       try {
         callback(null, fs.fstatSync(fd));
@@ -2469,7 +2130,6 @@ const fs = {
 
   // fsync / fdatasync async callback forms
   fsync(fd: number, callback?: NodeCallback<void>): Promise<void> | void {
-    validateInt32(fd, "fd");
     if (callback) {
       try {
         fs.fsyncSync(fd);
@@ -2483,7 +2143,6 @@ const fs = {
   },
 
   fdatasync(fd: number, callback?: NodeCallback<void>): Promise<void> | void {
-    validateInt32(fd, "fd");
     if (callback) {
       try {
         fs.fdatasyncSync(fd);
@@ -2557,66 +2216,9 @@ const fs = {
     }
   },
 
-  // FileHandle for fs.promises.open()
-  FileHandle: class FileHandle {
-    fd: number;
-    constructor(fd: number) { this.fd = fd; }
-    async read(bufferOrOpts?: Uint8Array | { buffer?: Uint8Array; offset?: number; length?: number; position?: number | null }, offset?: number, length?: number, position?: number | null) {
-      let buffer: Uint8Array;
-      let off: number, len: number, pos: number | null;
-      if (bufferOrOpts && !(bufferOrOpts instanceof Uint8Array) && typeof bufferOrOpts === "object" && !ArrayBuffer.isView(bufferOrOpts)) {
-        buffer = bufferOrOpts.buffer ?? Buffer.alloc(16384);
-        off = bufferOrOpts.offset ?? 0;
-        len = bufferOrOpts.length ?? buffer.byteLength - off;
-        pos = bufferOrOpts.position ?? null;
-      } else {
-        buffer = (bufferOrOpts as Uint8Array) ?? Buffer.alloc(16384);
-        off = offset ?? 0;
-        len = length ?? buffer.byteLength - off;
-        pos = position ?? null;
-      }
-      const bytesRead = fs.readSync(this.fd, buffer, off, len, pos);
-      return { bytesRead, buffer };
-    }
-    async write(data: string | Uint8Array, offsetOrPos?: number, lengthOrEnc?: number | string, position?: number | null) {
-      if (typeof data === "string") {
-        const buf = Buffer.from(data, typeof lengthOrEnc === "string" ? lengthOrEnc as BufferEncoding : "utf8");
-        const written = fs.writeSync(this.fd, buf, 0, buf.length, typeof offsetOrPos === "number" ? offsetOrPos : null);
-        return { bytesWritten: written, buffer: buf };
-      }
-      const off = offsetOrPos ?? 0;
-      const len = typeof lengthOrEnc === "number" ? lengthOrEnc : data.byteLength - off;
-      const written = fs.writeSync(this.fd, data, off, len, position ?? null);
-      return { bytesWritten: written, buffer: data };
-    }
-    async readFile(options?: ReadFileOptions) {
-      return fs.readFileSync(this.fd, options);
-    }
-    async writeFile(data: string | Uint8Array, options?: WriteFileOptions) {
-      // Truncate and write from start for fd-based writeFile
-      fs.truncateSync(this.fd as unknown as string, 0);
-      const buf = typeof data === "string" ? Buffer.from(data) : data;
-      fs.writeSync(this.fd, buf, 0, buf.length, 0);
-    }
-    async appendFile(data: string | Uint8Array) {
-      const buf = typeof data === "string" ? Buffer.from(data) : data;
-      fs.writeSync(this.fd, buf, 0, buf.length, null);
-    }
-    async stat() { return fs.fstatSync(this.fd); }
-    async chmod(mode: Mode) { fs.fchmodSync(this.fd, mode); }
-    async truncate(len?: number) { fs.truncateSync(this.fd as unknown as string, len); }
-    async close() { fs.closeSync(this.fd); }
-    async [Symbol.asyncDispose]() { try { fs.closeSync(this.fd); } catch { /* ignore */ } }
-  },
-
   // fs.promises API
   // Note: Using async functions to properly catch sync errors and return rejected promises
   promises: {
-    get constants() { return fs.constants; },
-    async open(path: string, flags?: string | number, mode?: Mode) {
-      const fd = fs.openSync(path, (flags ?? "r") as string, mode);
-      return new fs.FileHandle(fd);
-    },
     async readFile(path: string, options?: ReadFileOptions) {
       return fs.readFileSync(path, options);
     },
@@ -2665,8 +2267,15 @@ const fs = {
     async glob(pattern: string | string[], _options?: nodeFs.GlobOptionsWithFileTypes) {
       return fs.globSync(pattern, _options);
     },
-    async access(path: string, mode?: number) {
-      fs.accessSync(path, mode);
+    async access(path: string) {
+      if (!fs.existsSync(path)) {
+        throw createFsError(
+          "ENOENT",
+          `ENOENT: no such file or directory, access '${path}'`,
+          "access",
+          path
+        );
+      }
     },
     async rm(path: string, options?: { force?: boolean; recursive?: boolean }) {
       return fs.rmSync(path, options);
@@ -2674,14 +2283,8 @@ const fs = {
     async chmod(path: string, mode: Mode): Promise<void> {
       return fs.chmodSync(path, mode);
     },
-    async lchmod(path: string, mode: Mode): Promise<void> {
-      return fs.lchmodSync(path, mode);
-    },
     async chown(path: string, uid: number, gid: number): Promise<void> {
       return fs.chownSync(path, uid, gid);
-    },
-    async lchown(path: string, uid: number, gid: number): Promise<void> {
-      return fs.lchownSync(path, uid, gid);
     },
     async link(existingPath: string, newPath: string): Promise<void> {
       return fs.linkSync(existingPath, newPath);
@@ -2698,36 +2301,12 @@ const fs = {
     async utimes(path: string, atime: string | number | Date, mtime: string | number | Date): Promise<void> {
       return fs.utimesSync(path, atime, mtime);
     },
-    watch(filename: string, _options?: unknown): AsyncIterable<{ eventType: string; filename: string | null }> & { close(): void } {
-      let closed = false;
-      let resolve: (() => void) | null = null;
-      const iter = {
-        close() { closed = true; if (resolve) resolve(); },
-        [Symbol.asyncIterator]() {
-          return {
-            next(): Promise<IteratorResult<{ eventType: string; filename: string | null }>> {
-              if (closed) return Promise.resolve({ done: true, value: undefined } as IteratorResult<{ eventType: string; filename: string | null }>);
-              // Wait until close() is called to avoid hanging
-              return new Promise<IteratorResult<{ eventType: string; filename: string | null }>>(r => {
-                resolve = () => r({ done: true, value: undefined } as IteratorResult<{ eventType: string; filename: string | null }>);
-              });
-            },
-            return(): Promise<IteratorResult<{ eventType: string; filename: string | null }>> {
-              closed = true;
-              if (resolve) resolve();
-              return Promise.resolve({ done: true, value: undefined } as IteratorResult<{ eventType: string; filename: string | null }>);
-            },
-          };
-        },
-      };
-      return iter;
-    },
   },
 
   // Compatibility methods
 
-  accessSync(path: string, mode?: number): void {
-    validatePath(path, "path");
+  accessSync(path: string): void {
+    // existsSync already normalizes the path
     if (!fs.existsSync(path)) {
       throw createFsError(
         "ENOENT",
@@ -2735,22 +2314,6 @@ const fs = {
         "access",
         path
       );
-    }
-    // Check permission bits if mode specified (F_OK=0 is just existence check)
-    const checkMode = mode ?? 0;
-    if (checkMode !== 0) {
-      const stats = fs.statSync(path);
-      const perms = stats.mode & 0o777;
-      // Check owner permissions (high bits) — sandbox runs as uid 0 (root)
-      if ((checkMode & fs.constants.R_OK) && !(perms & 0o400)) {
-        throw createFsError("EACCES", `EACCES: permission denied, access '${path}'`, "access", path);
-      }
-      if ((checkMode & fs.constants.W_OK) && !(perms & 0o200)) {
-        throw createFsError("EACCES", `EACCES: permission denied, access '${path}'`, "access", path);
-      }
-      if ((checkMode & fs.constants.X_OK) && !(perms & 0o100)) {
-        throw createFsError("EACCES", `EACCES: permission denied, access '${path}'`, "access", path);
-      }
     }
   },
 
@@ -2763,16 +2326,15 @@ const fs = {
       callback = mode;
       mode = undefined;
     }
-    validatePath(path, "path");
     if (callback) {
       try {
-        fs.accessSync(path, mode as number | undefined);
+        fs.accessSync(path);
         callback(null);
       } catch (e) {
         callback(e as Error);
       }
     } else {
-      return fs.promises.access(path, mode as number | undefined);
+      return fs.promises.access(path);
     }
   },
 
@@ -2885,25 +2447,20 @@ const fs = {
     return new WriteStream(pathStr, opts) as unknown as nodeFs.WriteStream;
   },
 
-  // fs.watch/watchFile stubs — return closeable watcher objects (no events emitted)
-  watch(filename: PathLike, ...args: unknown[]): FSWatcher {
-    return new FSWatcher(toPathString(filename));
+  // Unsupported fs APIs — watch requires kernel-level inotify, use polling instead
+  watch(..._args: unknown[]): never {
+    throw new Error("fs.watch is not supported in sandbox — use polling");
   },
 
-  watchFile(filename: PathLike, ...args: unknown[]): StatWatcher {
-    const watcher = new StatWatcher(toPathString(filename));
-    // Extract listener from args (watchFile(path, [options], listener))
-    const listener = typeof args[0] === "function" ? args[0] : typeof args[1] === "function" ? args[1] : null;
-    if (listener) watcher.on("change", listener as (...a: unknown[]) => void);
-    return watcher;
+  watchFile(..._args: unknown[]): never {
+    throw new Error("fs.watchFile is not supported in sandbox — use polling");
   },
 
-  unwatchFile(filename: PathLike, _listener?: Function): void {
-    // No-op — watcher was a stub, nothing to clean up
+  unwatchFile(..._args: unknown[]): never {
+    throw new Error("fs.unwatchFile is not supported in sandbox — use polling");
   },
 
   chmod(path: PathLike, mode: Mode, callback?: NodeCallback<void>): Promise<void> | void {
-    validatePath(path, "path");
     if (callback) {
       try {
         fs.chmodSync(path, mode);
@@ -2916,37 +2473,7 @@ const fs = {
     }
   },
 
-  fchmod(fd: number, mode: Mode, callback?: NodeCallback<void>): Promise<void> | void {
-    if (callback) {
-      try {
-        fs.fchmodSync(fd, mode);
-        callback(null);
-      } catch (e) {
-        callback(e as Error);
-      }
-    } else {
-      return Promise.resolve(fs.fchmodSync(fd, mode));
-    }
-  },
-
-  lchmod(path: PathLike, mode: Mode, callback?: NodeCallback<void>): Promise<void> | void {
-    validatePath(path, "path");
-    if (callback) {
-      try {
-        fs.lchmodSync(path, mode);
-        callback(null);
-      } catch (e) {
-        callback(e as Error);
-      }
-    } else {
-      return Promise.resolve(fs.lchmodSync(path, mode));
-    }
-  },
-
   chown(path: PathLike, uid: number, gid: number, callback?: NodeCallback<void>): Promise<void> | void {
-    validatePath(path, "path");
-    validateInt32(uid, "uid");
-    validateInt32(gid, "gid");
     if (callback) {
       try {
         fs.chownSync(path, uid, gid);
@@ -2959,36 +2486,7 @@ const fs = {
     }
   },
 
-  fchown(fd: number, uid: number, gid: number, callback?: NodeCallback<void>): Promise<void> | void {
-    if (callback) {
-      try {
-        fs.fchownSync(fd, uid, gid);
-        callback(null);
-      } catch (e) {
-        callback(e as Error);
-      }
-    } else {
-      return Promise.resolve(fs.fchownSync(fd, uid, gid));
-    }
-  },
-
-  lchown(path: PathLike, uid: number, gid: number, callback?: NodeCallback<void>): Promise<void> | void {
-    validatePath(path, "path");
-    if (callback) {
-      try {
-        fs.lchownSync(path, uid, gid);
-        callback(null);
-      } catch (e) {
-        callback(e as Error);
-      }
-    } else {
-      return Promise.resolve(fs.lchownSync(path, uid, gid));
-    }
-  },
-
   link(existingPath: PathLike, newPath: PathLike, callback?: NodeCallback<void>): Promise<void> | void {
-    validatePath(existingPath, "existingPath");
-    validatePath(newPath, "newPath");
     if (callback) {
       try {
         fs.linkSync(existingPath, newPath);
@@ -3002,8 +2500,6 @@ const fs = {
   },
 
   symlink(target: PathLike, path: PathLike, typeOrCb?: string | null | NodeCallback<void>, callback?: NodeCallback<void>): Promise<void> | void {
-    validatePath(target, "target");
-    validatePath(path, "path");
     if (typeof typeOrCb === "function") {
       callback = typeOrCb;
     }
@@ -3020,7 +2516,6 @@ const fs = {
   },
 
   readlink(path: PathLike, optionsOrCb?: nodeFs.EncodingOption | NodeCallback<string>, callback?: NodeCallback<string>): Promise<string> | void {
-    validatePath(path, "path");
     if (typeof optionsOrCb === "function") {
       callback = optionsOrCb;
     }
@@ -3036,7 +2531,6 @@ const fs = {
   },
 
   truncate(path: PathLike, lenOrCb?: number | null | NodeCallback<void>, callback?: NodeCallback<void>): Promise<void> | void {
-    validatePath(path, "path");
     if (typeof lenOrCb === "function") {
       callback = lenOrCb;
       lenOrCb = 0;
@@ -3054,7 +2548,6 @@ const fs = {
   },
 
   utimes(path: PathLike, atime: string | number | Date, mtime: string | number | Date, callback?: NodeCallback<void>): Promise<void> | void {
-    validatePath(path, "path");
     if (callback) {
       try {
         fs.utimesSync(path, atime, mtime);
@@ -3071,13 +2564,6 @@ const fs = {
 // Wire late-bound glob helpers to the fs object
 _globReadDir = (dir: string) => fs.readdirSync(dir) as string[];
 _globStat = (path: string) => fs.statSync(path);
-
-// Expose class constructors on fs module (used by tests: fs.FSWatcher, fs.StatWatcher)
-Object.defineProperties(fs, {
-  FSWatcher: { value: FSWatcher, writable: true, configurable: true },
-  StatWatcher: { value: StatWatcher, writable: true, configurable: true },
-  Stats: { value: Stats, writable: true, configurable: true },
-});
 
 // Export the fs module
 export default fs;

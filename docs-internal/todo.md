@@ -71,11 +71,6 @@ docs-internal/specs/cli-tool-e2e.md
 
 ## Priority 1: Compatibility and API Coverage
 
-- [ ] Add option to disable Node.js stdlib in NodeRuntime.
-  - Allow creating a NodeRuntime with no built-in module bridges (fs, path, http, etc.) — useful for pure computation sandboxes or custom-only bindings.
-  - Affects isolate snapshotting: the snapshot currently bakes in all bridge stubs and polyfills. A stdlib-free mode needs either a separate snapshot without bridge globals, or lazy initialization that skips bridge setup at restore time.
-  - Files: `packages/secure-exec/src/node/execution-driver.ts`, `packages/core/isolate-runtime/`, `native/v8-runtime/src/session.rs`
-
 - [ ] Fix `v8.serialize` and `v8.deserialize` to use V8 structured serialization semantics.
   - The current JSON-based behavior is observably wrong for `Map`, `Set`, `RegExp`, circular references, and other structured-clone cases.
   - Files: `packages/secure-exec/isolate-runtime/src/inject/bridge-initial-globals.ts`

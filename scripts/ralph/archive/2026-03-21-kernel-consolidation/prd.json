@@ -1,161 +1,207 @@
 {
   "project": "SecureExec",
-  "branchName": "ralph/nodejs-conformance-tests",
-  "description": "Node.js Conformance Test Suite Integration - Vendor the upstream Node.js test/parallel/ suite, run all tests through secure-exec with an opt-out exclusion list, and auto-generate a conformance report MDX page.",
+  "branchName": "ralph/posix-conformance-tests",
+  "description": "Integrate the os-test POSIX.1-2024 conformance suite into WasmVM — vendor upstream tests, compile to WASM + native, run through the kernel with an opt-out exclusion list, gate CI on no-regressions, and auto-generate a publishable conformance report.",
   "userStories": [
     {
       "id": "US-001",
-      "title": "Bootstrap conformance test directory structure and exclusions schema",
-      "description": "As a developer, I want the conformance test directory structure and exclusion list format established so that subsequent stories can build on it.",
+      "title": "Add fetch-os-test Makefile target and vendor os-test source",
+      "description": "As a developer, I want os-test source vendored into native/wasmvm/c/os-test/ so that POSIX conformance tests are available for compilation.",
       "acceptanceCriteria": [
-        "Directory created: packages/secure-exec/tests/node-conformance/",
-        "Empty exclusions.json created with nodeVersion, sourceCommit, lastUpdated, and empty exclusions object",
-        "exclusions.json matches the schema: each entry has status (skip|fail), reason (non-empty string), category (from fixed set), optional glob boolean, optional issue URL",
+        "fetch-os-test target added to native/wasmvm/c/Makefile that downloads os-test from https://sortix.org/os-test/release/os-test-0.1.0.tar.gz",
+        "Downloaded archive cached in native/wasmvm/c/.cache/ (consistent with existing fetch-libs pattern)",
+        "Extracted source placed in native/wasmvm/c/os-test/ with include/ and src/ subdirectories",
+        "os-test/ directory contains ISC LICENSE file from upstream",
+        "native/wasmvm/c/os-test/ added to .gitignore if not already vendored (follow spec decision on vendoring vs fetching)",
+        "make fetch-os-test succeeds and populates the directory",
         "Typecheck passes"
       ],
       "priority": 1,
       "passes": false,
-      "notes": "Pure scaffolding. No test execution yet."
+      "notes": "Step 1 from the spec. The spec says to vendor (commit) the source directly for reviewability and no network dependency at test time. However, check the C Library Vendoring Policy in CLAUDE.md — os-test is a test suite not a C library, so vendoring may be acceptable. If vendoring, commit the source; if fetching, add to .gitignore and fetch-libs."
     },
     {
       "id": "US-002",
-      "title": "Implement common/ compatibility shim (core helpers)",
-      "description": "As a developer, I want a secure-exec-compatible reimplementation of Node's test/common module so upstream tests can require('../common').",
+      "title": "Add os-test WASM and native Makefile build targets",
+      "description": "As a developer, I want Makefile targets that compile every os-test C program to both wasm32-wasip1 and native binaries.",
       "acceptanceCriteria": [
-        "common/index.js created with: mustCall, mustNotCall, mustSucceed, expectsError, expectWarning, skip, platformTimeout, hasIntl, hasCrypto, isWindows, isLinux, isMacOS",
-        "common/tmpdir.js created with VFS-backed tmpDir and refresh() function",
-        "common/fixtures.js created with path() and readSync() helpers pointing to VFS fixtures",
-        "Platform booleans reflect sandbox environment (isLinux=true, isWindows=false, isMacOS=false)",
-        "hasCrypto and hasIntl report based on what secure-exec actually supports",
+        "os-test target added to Makefile that compiles all C files in os-test/src/ to WASM binaries in build/os-test/",
+        "os-test-native target added that compiles all C files to native binaries in build/native/os-test/",
+        "Build mirrors source directory structure (e.g., os-test/src/io/close_basic.c → build/os-test/io/close_basic)",
+        "OS_TEST_CFLAGS includes -I os-test/include for os-test headers",
+        "Individual compile failures do not abort the full build (|| true or similar)",
+        "Build report prints count of compiled tests",
+        "make os-test and make os-test-native succeed (with expected compile failures for WASM-incompatible tests)",
         "Typecheck passes"
       ],
       "priority": 2,
       "passes": false,
-      "notes": "Highest-effort piece. Once common/ is solid, adding test files is mechanical. Keep it minimal - only implement helpers that upstream parallel tests actually use."
+      "notes": "Step 2 from the spec. Follow the Makefile patterns shown in the spec's Build Integration section. Some tests won't compile for wasm32-wasip1 due to missing headers — that's expected and tracked via compile-error exclusions."
     },
     {
       "id": "US-003",
-      "title": "Implement import-tests.ts script",
-      "description": "As a developer, I want a script to pull test files from an upstream Node.js release so we can vendor the full test suite.",
+      "title": "Create posix-exclusions.json schema and initial empty file",
+      "description": "As a developer, I want a structured exclusion list file so the test runner knows which tests to skip or expect to fail.",
       "acceptanceCriteria": [
-        "scripts/import-tests.ts created in node-conformance directory",
-        "Script accepts --node-version flag (e.g. 22.14.0)",
-        "Downloads Node.js source tarball from official release URL",
-        "Copies entire test/parallel/ directory into parallel/",
-        "Copies required test/fixtures/ files into fixtures/",
-        "Updates nodeVersion and sourceCommit in exclusions.json",
-        "Script is runnable via: pnpm tsx packages/secure-exec/tests/node-conformance/scripts/import-tests.ts --node-version 22.14.0",
+        "packages/wasmvm/test/posix-exclusions.json created with the schema from the spec",
+        "File includes osTestVersion, sourceCommit, lastUpdated, and empty exclusions object",
+        "Schema supports skip and fail status values",
+        "Schema supports category field with values: wasm-limitation, wasi-gap, implementation-gap, patched-sysroot, compile-error, timeout",
+        "Schema supports glob field for bulk exclusions by prefix pattern",
+        "Schema supports optional issue field for fail exclusions",
         "Typecheck passes"
       ],
       "priority": 3,
       "passes": false,
-      "notes": "No filtering step - all tests land. The runner will surface failures for triage."
+      "notes": "Step 3 prerequisite. Just the empty file with metadata — actual exclusion entries populated in US-005 and US-006 after the initial triage run."
     },
     {
       "id": "US-004",
-      "title": "Implement conformance test runner (runner.test.ts)",
-      "description": "As a developer, I want a Vitest test driver that discovers all vendored test files, checks each against the exclusion list, and runs everything not excluded.",
+      "title": "Create posix-conformance.test.ts test runner",
+      "description": "As a developer, I want a Vitest test driver that discovers all os-test binaries, checks them against the exclusion list, and runs them both natively and in WASM.",
       "acceptanceCriteria": [
-        "runner.test.ts created in node-conformance directory",
-        "Discovers all test-*.js files in parallel/ directory",
-        "Resolves exclusions including glob pattern expansion via minimatch",
-        "Tests not in exclusion list MUST pass (exit code 0)",
-        "Tests excluded as skip are registered with it.skip and show reason",
-        "Tests excluded as fail are executed - if they pass, runner errors telling developer to remove exclusion",
-        "Each test runs via runtime.exec() with VFS pre-populated (common/, fixtures/, test file)",
-        "Working directory set to /test/parallel/ so require('../common') resolves",
-        "Tests grouped by module name for readable output (e.g. node/buffer, node/path)",
-        "30 second timeout per test",
+        "packages/wasmvm/test/posix-conformance.test.ts created",
+        "Runner discovers all compiled os-test WASM binaries via directory traversal",
+        "Exclusion list loaded from posix-exclusions.json and glob patterns expanded via minimatch",
+        "Tests grouped by suite (top-level directory: io, malloc, signal, etc.)",
+        "Tests not in exclusion list: must exit 0 and match native output parity",
+        "Tests excluded as skip: shown as it.skip with reason",
+        "Tests excluded as fail: executed and must still fail — errors if test unexpectedly passes",
+        "Each test has 30s timeout",
+        "Tests skip gracefully if WASM binaries are not built (skipUnlessWasmBuilt pattern)",
+        "Runner prints conformance summary after execution (suite/total/pass/fail/skip/rate)",
+        "Summary written to posix-conformance-report.json for CI artifact upload",
+        "Tests pass",
         "Typecheck passes"
       ],
       "priority": 4,
       "passes": false,
-      "notes": "Core of the conformance suite. Depends on US-001 (schema), US-002 (common shim), US-003 (vendored tests)."
+      "notes": "Step 3 from the spec. Core test runner implementation. Follow the code structure from the spec's Test Runner section. Add minimatch as a devDependency if not already present."
     },
     {
       "id": "US-005",
-      "title": "Initial triage - bulk exclusions for unsupported modules",
-      "description": "As a developer, I want glob-based exclusions for all Tier 4/5 unsupported modules so the first test run is meaningful.",
+      "title": "Initial triage — populate exclusions for compile-error and wasm-limitation tests",
+      "description": "As a developer, I want the exclusion list populated with all tests that cannot compile or are structurally impossible in WASM so the remaining tests form a valid must-pass set.",
       "acceptanceCriteria": [
-        "Glob exclusions added for: cluster, dgram, worker_threads, inspector, repl, v8, vm (as module), tls, net server tests, http2",
-        "Each glob exclusion has status=skip, documented reason referencing the tier, and category=unsupported-module",
-        "Individual skip exclusions added for: native addon tests, tests requiring V8 flags (--expose-internals, --expose-gc), platform-specific tests",
-        "Individual fail exclusions added for known implementation gaps with tracking issue URLs",
-        "All non-excluded tests pass when runner executes",
+        "All tests that fail to compile for wasm32-wasip1 added to exclusions with status skip and category compile-error",
+        "All tests requiring fork, exec, pthreads, mmap, real async signals, setuid/setgid added with status skip and category wasm-limitation",
+        "All tests requiring raw sockets, epoll/poll/select, shared memory, ptrace added with status skip and category wasi-gap",
+        "All tests that hang or timeout added with status skip and category timeout",
+        "Every exclusion entry has a specific, non-empty reason",
+        "Bulk glob patterns used where entire suites are excluded (e.g., signal/*)",
+        "osTestVersion and sourceCommit fields updated in posix-exclusions.json",
+        "Tests pass (all non-excluded tests exit 0)",
         "Typecheck passes"
       ],
       "priority": 5,
       "passes": false,
-      "notes": "This is the big triage step. Run the suite, classify every failure. Target: all non-excluded tests passing, exclusion list fully documented."
+      "notes": "Step 3 triage phase 1. Run 'make os-test os-test-native' then the test suite. Classify every failure. Focus on skip exclusions first (things that CAN'T work). Remaining failures become US-006."
     },
     {
       "id": "US-006",
-      "title": "Implement validate-exclusions.ts script",
-      "description": "As a developer, I want a script that audits the exclusion list for integrity so stale or invalid entries are caught.",
+      "title": "Classify implementation-gap failures with tracking issues",
+      "description": "As a developer, I want remaining test failures classified as implementation gaps with linked tracking issues so we can systematically fix them.",
       "acceptanceCriteria": [
-        "scripts/validate-exclusions.ts created in node-conformance directory",
-        "Checks every exclusion key matches at least one file in parallel/ (or valid glob matching files)",
-        "Checks every entry has non-empty reason string",
-        "Checks every fail entry has non-empty issue URL",
-        "Checks every entry has valid category from the fixed set (unsupported-module, unsupported-api, implementation-gap, security-constraint, requires-v8-flags, native-addon, platform-specific, test-infra)",
-        "Reports glob patterns that match zero files",
-        "Script exits non-zero if any check fails",
+        "All remaining failing tests (not covered by US-005 skip exclusions) added to exclusions with status fail and category implementation-gap or patched-sysroot",
+        "Every fail exclusion has an issue field linking to a GitHub issue on rivet-dev/secure-exec",
+        "GitHub issues created for each distinct implementation gap (group related tests into single issues where appropriate)",
+        "Every exclusion has a specific reason explaining what's wrong (not just 'fails')",
+        "Full test suite passes (all non-excluded tests exit 0, all fail-excluded tests still fail)",
         "Typecheck passes"
       ],
       "priority": 6,
       "passes": false,
-      "notes": "Runs alongside conformance tests in CI."
+      "notes": "Step 3 triage phase 2. These are things we SHOULD support but don't yet. Each needs a tracking issue. Group related failures (e.g., all dup2 issues into one issue)."
     },
     {
       "id": "US-007",
-      "title": "Implement conformance report generator",
-      "description": "As a developer, I want a script that converts test results into a publishable MDX conformance report page.",
+      "title": "Create validate-posix-exclusions.ts validation script",
+      "description": "As a developer, I want a script that audits the exclusion list for integrity so stale or invalid entries are caught.",
       "acceptanceCriteria": [
-        "scripts/generate-report.ts created in node-conformance directory",
-        "Reads conformance-report.json (test results) and exclusions.json",
-        "Generates docs/conformance-report.mdx with auto-generated header comment",
-        "Report includes: summary table (Node version, total tests, passing count/percent, excluded fail/skip counts, last updated date)",
-        "Report includes: per-module breakdown table (module, total, pass, fail, skip, pass rate)",
-        "Report includes: exclusions grouped by category with reasons visible",
-        "Implementation gaps section shows tracking issue links",
-        "Generated MDX has proper frontmatter (title, description, icon)",
+        "scripts/validate-posix-exclusions.ts created",
+        "Validates every exclusion key matches at least one compiled test binary (or valid glob)",
+        "Validates every entry has a non-empty reason string",
+        "Validates every fail entry has a non-empty issue URL",
+        "Validates every entry has a valid category from the fixed set",
+        "Detects ambiguous glob overlap (test matched by multiple patterns)",
+        "Reports orphaned test binaries not in exclusion list and not in test results",
+        "Exits non-zero on any validation failure",
+        "pnpm tsx scripts/validate-posix-exclusions.ts passes",
         "Typecheck passes"
       ],
       "priority": 7,
       "passes": false,
-      "notes": "Depends on US-004 (runner producing conformance-report.json)."
+      "notes": "Step 4 prerequisite. The 6 checks listed in the spec's Exclusion List Validation section."
     },
     {
       "id": "US-008",
-      "title": "Add conformance report to docs navigation and link from compatibility page",
-      "description": "As a developer, I want the conformance report linked from docs navigation and the Node.js compatibility page.",
+      "title": "Add posix-conformance.yml CI workflow",
+      "description": "As a developer, I want POSIX conformance tests running in CI with a no-regressions gate so new failures block merges.",
       "acceptanceCriteria": [
-        "conformance-report added to Reference group in docs/docs.json, adjacent to nodejs-compatibility",
-        "Info callout added at top of docs/nodejs-compatibility.mdx linking to /conformance-report",
-        "Callout text: 'See the Node.js Conformance Report for per-module pass rates from the upstream Node.js test suite.'",
+        ".github/workflows/posix-conformance.yml created",
+        "Workflow builds WASM binaries (make wasm), os-test binaries (make os-test os-test-native)",
+        "Runs posix-conformance.test.ts via vitest",
+        "Runs validate-posix-exclusions.ts",
+        "Non-excluded test failures block the workflow (exit non-zero)",
+        "Unexpectedly passing fail-excluded tests block the workflow",
+        "Conformance report JSON uploaded as CI artifact",
         "Typecheck passes"
       ],
       "priority": 8,
       "passes": false,
-      "notes": "Small docs wiring change. Depends on US-007 (report page exists)."
+      "notes": "Step 4 from the spec. Follow the CI workflow YAML from the spec. Report generation (US-009) wired in separately."
     },
     {
       "id": "US-009",
-      "title": "Add CI workflow for conformance tests and report generation",
-      "description": "As a developer, I want conformance tests running in a dedicated CI job that also generates and uploads the report.",
+      "title": "Create generate-posix-report.ts report generation script",
+      "description": "As a developer, I want a script that generates a publishable MDX conformance report from test results and exclusion data.",
       "acceptanceCriteria": [
-        ".github/workflows/conformance.yml created",
-        "Job runs on ubuntu-latest with Node 22 and pnpm",
-        "Job runs: pnpm install, pnpm build, vitest run on runner.test.ts",
-        "Job runs validate-exclusions.ts and fails if exclusions are invalid",
-        "Job runs generate-report.ts to produce docs/conformance-report.mdx",
-        "Job uploads conformance-report.json and docs/conformance-report.mdx as artifacts",
-        "Conformance tests run in a separate job from the main test suite",
+        "scripts/generate-posix-report.ts created",
+        "Reads posix-conformance-report.json (test results) and posix-exclusions.json",
+        "Generates docs/posix-conformance-report.mdx with auto-generated header comment",
+        "Report includes summary table (os-test version, total tests, passing, excluded, native parity, last updated)",
+        "Report includes per-suite results table (suite/total/pass/fail/skip/rate)",
+        "Report includes exclusions grouped by category with reasons and issue links",
+        "Generated MDX has correct frontmatter (title, description, icon)",
+        "pnpm tsx scripts/generate-posix-report.ts succeeds and produces valid MDX",
         "Typecheck passes"
       ],
       "priority": 9,
       "passes": false,
-      "notes": "Final integration step. Depends on US-004 (runner), US-006 (validator), US-007 (report generator)."
+      "notes": "Step 5 from the spec. Follow the Generated Page Structure from the spec. Wire into CI workflow after this story is complete."
+    },
+    {
+      "id": "US-010",
+      "title": "Add conformance report to docs navigation and cross-link",
+      "description": "As a developer, I want the conformance report discoverable in the docs site under the Experimental section.",
+      "acceptanceCriteria": [
+        "posix-conformance-report added to Experimental section in docs/docs.json, adjacent to existing WasmVM docs",
+        "Callout added at top of docs/posix-compatibility.md linking to the conformance report",
+        "Report generation step added to posix-conformance.yml CI workflow (after test run)",
+        "Generated report MDX uploaded as CI artifact alongside JSON",
+        "Typecheck passes"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": "Step 5 finalization. Keep docs navigation order matching the spec: wasmvm/overview, wasmvm/supported-commands, posix-compatibility, posix-conformance-report."
+    },
+    {
+      "id": "US-011",
+      "title": "Create import-os-test.ts upstream update script",
+      "description": "As a developer, I want a script to pull new os-test releases so updating the vendored source is a repeatable process.",
+      "acceptanceCriteria": [
+        "scripts/import-os-test.ts created",
+        "Accepts --version flag to specify os-test release version",
+        "Downloads specified release from sortix.org",
+        "Replaces vendored source in native/wasmvm/c/os-test/",
+        "Prints diff summary of added/removed/changed test files",
+        "Reminds developer to rebuild, re-run tests, and update exclusion list metadata",
+        "pnpm tsx scripts/import-os-test.ts --version 0.1.0 succeeds",
+        "Typecheck passes"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": "Supports the Updating Upstream Tests workflow from the spec. This is a developer convenience script, not a CI requirement."
     }
   ]
 }

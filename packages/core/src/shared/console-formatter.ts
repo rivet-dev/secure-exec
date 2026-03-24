@@ -187,123 +187,15 @@ export function getConsoleSetupCode(
       const safeStringifyConsoleValue = ${safeStringifyConsoleValue.toString()};
       const formatConsoleArgs = ${formatConsoleArgs.toString()};
 
-      // Console class constructor — wrapped in IIFE to avoid polluting user scope
-      (function() {
-      function Console(stdout, stderr) {
-        if (!(this instanceof Console)) {
-          return new Console(stdout, stderr);
-        }
-        // When stdout/stderr are provided, use their write method directly.
-        // When null (global console), lazily route through process.stdout/stderr
-        // so user-space overrides of process.stdout.write are honoured.
-        const out = stdout && typeof stdout.write === 'function'
-          ? (msg) => stdout.write(msg + '\\n')
-          : (msg) => {
-              if (typeof process !== 'undefined' && process.stdout && process.stdout.write) {
-                process.stdout.write(msg + '\\n');
-              } else {
-                _log(msg);
-              }
-            };
-        const err = stderr && typeof stderr.write === 'function'
-          ? (msg) => stderr.write(msg + '\\n')
-          : (msg) => {
-              if (typeof process !== 'undefined' && process.stderr && process.stderr.write) {
-                process.stderr.write(msg + '\\n');
-              } else if (typeof _error !== 'undefined') {
-                _error(msg);
-              } else {
-                out(msg);
-              }
-            };
-
-        const counters = new Map();
-        const timers = new Map();
-        let groupDepth = 0;
-        const indent = () => '  '.repeat(groupDepth);
-
-        // Non-constructible method factory
-        const method = (name, fn) => {
-          Object.defineProperty(fn, 'name', { value: name, configurable: true });
-          return fn;
-        };
-
-        this.log = method('log', (...args) => out(indent() + formatConsoleArgs(args, __consoleBudget)));
-        this.debug = method('debug', (...args) => this.log(...args));
-        this.info = method('info', (...args) => this.log(...args));
-        this.dirxml = method('dirxml', (...args) => this.log(...args));
-        this.error = method('error', (...args) => err(indent() + formatConsoleArgs(args, __consoleBudget)));
-        this.warn = method('warn', (...args) => this.error(...args));
-        this.dir = method('dir', (...args) => out(indent() + formatConsoleArgs(args, __consoleBudget)));
-        this.table = method('table', (...args) => out(indent() + formatConsoleArgs(args, __consoleBudget)));
-        this.trace = method('trace', (...args) => {
-          err(indent() + 'Trace: ' + formatConsoleArgs(args, __consoleBudget));
-        });
-        this.assert = method('assert', (condition, ...args) => {
-          if (!condition) {
-            const msg = args.length > 0 ? formatConsoleArgs(args, __consoleBudget) : 'Assertion failed';
-            err(indent() + 'Assertion failed: ' + msg);
-          }
-        });
-        this.clear = method('clear', () => {
-          if (typeof process !== 'undefined' && process.stdout && process.stdout.isTTY &&
-              (typeof process.env === 'undefined' || process.env.TERM !== 'dumb')) {
-            // Write ANSI escape directly — no trailing newline (matches Node.js)
-            if (stdout && typeof stdout.write === 'function') {
-              stdout.write('\\u001b[1;1H\\u001b[0J');
-            } else if (typeof process !== 'undefined' && process.stdout) {
-              process.stdout.write('\\u001b[1;1H\\u001b[0J');
-            }
-          }
-        });
-        this.count = method('count', (label) => {
-          const key = label === undefined ? 'default' : ('' + label);
-          const count = (counters.get(key) || 0) + 1;
-          counters.set(key, count);
-          out(key + ': ' + count);
-        });
-        this.countReset = method('countReset', (label) => {
-          const key = label === undefined ? 'default' : ('' + label);
-          counters.delete(key);
-        });
-        this.time = method('time', (label) => {
-          const key = label === undefined ? 'default' : String(label);
-          timers.set(key, Date.now());
-        });
-        this.timeEnd = method('timeEnd', (label) => {
-          const key = label === undefined ? 'default' : String(label);
-          const start = timers.get(key);
-          if (start === undefined) {
-            err('Warning: No such label \\'' + key + '\\' for console.timeEnd()');
-            return;
-          }
-          timers.delete(key);
-          out(key + ': ' + (Date.now() - start) + 'ms');
-        });
-        this.timeLog = method('timeLog', (label, ...args) => {
-          const key = label === undefined ? 'default' : String(label);
-          const start = timers.get(key);
-          if (start === undefined) {
-            err('Warning: No such label \\'' + key + '\\' for console.timeLog()');
-            return;
-          }
-          const extra = args.length > 0 ? ' ' + formatConsoleArgs(args, __consoleBudget) : '';
-          out(key + ': ' + (Date.now() - start) + 'ms' + extra);
-        });
-        this.group = method('group', (...args) => {
-          if (args.length > 0) out(indent() + formatConsoleArgs(args, __consoleBudget));
-          groupDepth++;
-        });
-        this.groupCollapsed = method('groupCollapsed', (...args) => this.group(...args));
-        this.groupEnd = method('groupEnd', () => {
-          if (groupDepth > 0) groupDepth--;
-        });
-      }
-
-      // Create the global console as an instance of Console
-      const _console = new Console(null, null);
-      _console.Console = Console;
-      globalThis.console = _console;
-      })();
+      globalThis.console = {
+        log: (...args) => _log(formatConsoleArgs(args, __consoleBudget)),
+        error: (...args) => _error(formatConsoleArgs(args, __consoleBudget)),
+        warn: (...args) => _error(formatConsoleArgs(args, __consoleBudget)),
+        info: (...args) => _log(formatConsoleArgs(args, __consoleBudget)),
+        debug: (...args) => _log(formatConsoleArgs(args, __consoleBudget)),
+        trace: (...args) => _error(formatConsoleArgs(args, __consoleBudget)),
+        dir: (...args) => _log(formatConsoleArgs(args, __consoleBudget)),
+        table: (...args) => _log(formatConsoleArgs(args, __consoleBudget)),
+      };
     `;
 }

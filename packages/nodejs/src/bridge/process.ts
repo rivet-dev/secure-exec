@@ -172,169 +172,9 @@ if (typeof bufferProto.utf8Slice !== "function") {
   }
 }
 
-// Patch Buffer.isEncoding to recognize 'base64url' (buffer@6 polyfill omits it)
-const _origIsEncoding = BufferPolyfill.isEncoding.bind(BufferPolyfill) as (enc: string) => boolean;
-(BufferPolyfill as unknown as { isEncoding: (enc: unknown) => boolean }).isEncoding = function isEncoding(encoding: unknown): boolean {
-  if (typeof encoding === "string" && encoding.toLowerCase() === "base64url") return true;
-  return _origIsEncoding(encoding as string);
-};
-
-// Add ERR_* error codes to buffer polyfill errors (buffer@6 throws without .code)
-function addBufferErrorCode(e: unknown): void {
-  const err = e as Error & { code?: string };
-  if (err.code) return;
-  if (err instanceof RangeError) {
-    err.code = "ERR_OUT_OF_RANGE";
-  } else if (err instanceof TypeError) {
-    err.code =
-      ((err.message || "").indexOf("Unknown encoding") !== -1)
-        ? "ERR_UNKNOWN_ENCODING"
-        : "ERR_INVALID_ARG_TYPE";
-  }
-}
-
-function describeBufferType(v: unknown): string {
-  if (v === null) return "null";
-  if (v === undefined) return "undefined";
-  if (typeof v === "function") return `function ${(v as { name?: string }).name || ""}`;
-  if (Array.isArray(v)) return "an instance of Array";
-  if (typeof v === "object") {
-    const n = (v as object).constructor?.name;
-    return n && n !== "Object" ? `an instance of ${n}` : "an instance of Object";
-  }
-  if (typeof v === "boolean") return `type boolean (${v})`;
-  if (typeof v === "number") return `type number (${v})`;
-  if (typeof v === "string") {
-    const d = v.length > 28 ? v.slice(0, 25) + "..." : v;
-    return `type string ('${d}')`;
-  }
-  if (typeof v === "symbol") return `type symbol (${String(v)})`;
-  if (typeof v === "bigint") return `type bigint (${v}n)`;
-  return `type ${typeof v}`;
-}
-
-function bufTypeErr(code: string, msg: string): TypeError & { code: string } {
-  const e = new TypeError(msg) as TypeError & { code: string };
-  e.code = code;
-  return e;
-}
-
-// Wrap buffer prototype and static methods with catch-and-code
-{
-  const bProto = BufferPolyfill.prototype as Record<string, unknown>;
-  const bStatic = BufferPolyfill as unknown as Record<string, unknown>;
-
-  function wrapBufMethod(obj: Record<string, unknown>, name: string): void {
-    const orig = obj[name];
-    if (typeof orig !== "function") return;
-    obj[name] = function (this: unknown, ...args: unknown[]) {
-      try { return (orig as Function).apply(this, args); }
-      catch (e) { addBufferErrorCode(e); throw e; }
-    };
-  }
-
-  // Prototype read/write methods
-  const protoMethods = [
-    "readInt8", "readUInt8", "readInt16LE", "readInt16BE", "readUInt16LE", "readUInt16BE",
-    "readInt32LE", "readInt32BE", "readUInt32LE", "readUInt32BE",
-    "readFloatLE", "readFloatBE", "readDoubleLE", "readDoubleBE",
-    "readBigInt64LE", "readBigInt64BE", "readBigUInt64LE", "readBigUInt64BE",
-    "readIntLE", "readIntBE", "readUIntLE", "readUIntBE",
-    "writeInt8", "writeUInt8", "writeInt16LE", "writeInt16BE", "writeUInt16LE", "writeUInt16BE",
-    "writeInt32LE", "writeInt32BE", "writeUInt32LE", "writeUInt32BE",
-    "writeFloatLE", "writeFloatBE", "writeDoubleLE", "writeDoubleBE",
-    "writeBigInt64LE", "writeBigInt64BE", "writeBigUInt64LE", "writeBigUInt64BE",
-    "writeIntLE", "writeIntBE", "writeUIntLE", "writeUIntBE",
-    "fill", "copy", "indexOf", "lastIndexOf", "includes", "equals",
-    "swap16", "swap32", "swap64", "write", "toString", "slice", "subarray",
-  ];
-  for (const m of protoMethods) wrapBufMethod(bProto, m);
-
-  // Static methods: byteLength gets simple catch-and-code
-  wrapBufMethod(bStatic, "byteLength");
-
-  // Pre-validation: alloc/allocUnsafe/allocUnsafeSlow — polyfill misses NaN and some type checks
-  for (const method of ["alloc", "allocUnsafe", "allocUnsafeSlow"]) {
-    const origFn = bStatic[method] as Function | undefined;
-    if (typeof origFn !== "function") continue;
-    bStatic[method] = function (size: unknown, ...rest: unknown[]) {
-      if (typeof size !== "number") {
-        throw bufTypeErr("ERR_INVALID_ARG_TYPE",
-          `The "size" argument must be of type number. Received ${describeBufferType(size)}`);
-      }
-      if (size < 0 || Number.isNaN(size)) {
-        const err = new RangeError(
-          `The value of "size" is out of range. It must be >= 0 && <= ${BUFFER_MAX_LENGTH}. Received ${size}`,
-        ) as RangeError & { code: string };
-        err.code = "ERR_OUT_OF_RANGE";
-        throw err;
-      }
-      try { return (origFn as Function).call(BufferPolyfill, size, ...rest); }
-      catch (e) { addBufferErrorCode(e); throw e; }
-    };
-  }
-
-  // Pre-validation: Buffer.from — add .code to type errors
-  const origFrom = bStatic.from as Function;
-  if (typeof origFrom === "function") {
-    bStatic.from = function from(value: unknown, ...rest: unknown[]) {
-      try { return origFrom.call(BufferPolyfill, value, ...rest); }
-      catch (e) { addBufferErrorCode(e); throw e; }
-    };
-  }
-
-  // Pre-validation: Buffer.concat
-  const origConcat = BufferPolyfill.concat;
-  bStatic.concat = function concat(list: unknown[], length?: number) {
-    if (!Array.isArray(list)) {
-      throw bufTypeErr("ERR_INVALID_ARG_TYPE",
-        `The "list" argument must be an instance of Array. Received ${describeBufferType(list)}`);
-    }
-    for (let i = 0; i < list.length; i++) {
-      if (!(list[i] instanceof BufferPolyfill) && !(list[i] instanceof Uint8Array)) {
-        throw bufTypeErr("ERR_INVALID_ARG_TYPE",
-          `The "list[${i}]" argument must be an instance of Buffer or Uint8Array. Received ${describeBufferType(list[i])}`);
-      }
-    }
-    try { return origConcat.call(BufferPolyfill, list as Buffer[], length); }
-    catch (e) { addBufferErrorCode(e); throw e; }
-  };
-
-  // Pre-validation: Buffer.compare (static)
-  const origStaticCmp = (BufferPolyfill as unknown as { compare?: Function }).compare;
-  if (typeof origStaticCmp === "function") {
-    bStatic.compare = function compare(buf1: unknown, buf2: unknown) {
-      if (!(buf1 instanceof BufferPolyfill) && !(buf1 instanceof Uint8Array)) {
-        throw bufTypeErr("ERR_INVALID_ARG_TYPE",
-          `The "buf1" argument must be an instance of Buffer or Uint8Array. Received ${describeBufferType(buf1)}`);
-      }
-      if (!(buf2 instanceof BufferPolyfill) && !(buf2 instanceof Uint8Array)) {
-        throw bufTypeErr("ERR_INVALID_ARG_TYPE",
-          `The "buf2" argument must be an instance of Buffer or Uint8Array. Received ${describeBufferType(buf2)}`);
-      }
-      try { return origStaticCmp.call(BufferPolyfill, buf1, buf2); }
-      catch (e) { addBufferErrorCode(e); throw e; }
-    };
-  }
-
-  // Pre-validation: buf.compare (prototype)
-  const origProtoCmp = bProto.compare;
-  if (typeof origProtoCmp === "function") {
-    bProto.compare = function compare(this: unknown, target: unknown, ...rest: unknown[]) {
-      if (!(target instanceof BufferPolyfill) && !(target instanceof Uint8Array)) {
-        throw bufTypeErr("ERR_INVALID_ARG_TYPE",
-          `The "target" argument must be an instance of Buffer or Uint8Array. Received ${describeBufferType(target)}`);
-      }
-      try { return (origProtoCmp as Function).call(this, target, ...rest); }
-      catch (e) { addBufferErrorCode(e); throw e; }
-    };
-  }
-}
-
 // Exit code tracking
 let _exitCode = 0;
 let _exited = false;
-let _emittingExit = false;
 
 /**
  * Thrown by `process.exit()` to unwind the sandbox call stack. The host
@@ -342,7 +182,6 @@ let _emittingExit = false;
  */
 export class ProcessExitError extends Error {
   code: number;
-  _isProcessExit = true;
   constructor(code: number) {
     super("process.exit(" + code + ")");
     this.name = "ProcessExitError";
@@ -352,31 +191,6 @@ export class ProcessExitError extends Error {
 
 // Make available globally
 exposeCustomGlobal("ProcessExitError", ProcessExitError);
-
-/**
- * Fire process 'exit' event for normal completion (no explicit process.exit()).
- * Called by the runtime after user code and the event loop finish.
- * Returns the final exit code (may differ from 0 if process.exitCode was set).
- */
-function __secureExecFireExit(): number {
-  if (_exited) return _exitCode;
-  _exited = true;
-  _emittingExit = true;
-  try {
-    _emit("exit", _exitCode);
-  } catch (e) {
-    // If an exit handler called process.exit(N), propagate the ProcessExitError
-    throw e;
-  } finally {
-    _emittingExit = false;
-  }
-  // Communicate non-zero exitCode to the runtime via ProcessExitError
-  if (_exitCode !== 0) {
-    throw new ProcessExitError(_exitCode);
-  }
-  return 0;
-}
-exposeCustomGlobal("__secureExecFireExit", __secureExecFireExit);
 
 // Signal name → number mapping (POSIX standard)
 const _signalNumbers: Record<string, number> = {
@@ -477,8 +291,7 @@ interface StdioWriteStream {
   once(): StdioWriteStream;
   emit(): boolean;
   writable: boolean;
-  writableLength: number;
-  isTTY: boolean; // get/set — tests may override
+  isTTY: boolean;
   columns: number;
   rows: number;
 }
@@ -496,8 +309,7 @@ function _getStderrIsTTY(): boolean {
   return (typeof __runtimeTtyConfig !== "undefined" && __runtimeTtyConfig.stderrIsTTY) || false;
 }
 
-// Stdout stream — isTTY is a get/set so tests can override it
-let _stdoutIsTTYOverride: boolean | undefined;
+// Stdout stream
 const _stdout: StdioWriteStream = {
   write(data: unknown): boolean {
     if (typeof _log !== "undefined") {
@@ -518,15 +330,12 @@ const _stdout: StdioWriteStream = {
     return false;
   },
   writable: true,
-  writableLength: 0,
-  get isTTY(): boolean { return _stdoutIsTTYOverride ?? _getStdoutIsTTY(); },
-  set isTTY(v: boolean) { _stdoutIsTTYOverride = v; },
+  get isTTY(): boolean { return _getStdoutIsTTY(); },
   columns: 80,
   rows: 24,
 };
 
-// Stderr stream — isTTY is a get/set so tests can override it
-let _stderrIsTTYOverride: boolean | undefined;
+// Stderr stream
 const _stderr: StdioWriteStream = {
   write(data: unknown): boolean {
     if (typeof _error !== "undefined") {
@@ -547,9 +356,7 @@ const _stderr: StdioWriteStream = {
     return false;
   },
   writable: true,
-  writableLength: 0,
-  get isTTY(): boolean { return _stderrIsTTYOverride ?? _getStderrIsTTY(); },
-  set isTTY(v: boolean) { _stderrIsTTYOverride = v; },
+  get isTTY(): boolean { return _getStderrIsTTY(); },
   columns: 80,
   rows: 24,
 };
@@ -724,19 +531,6 @@ const _stdin: StdinStream = {
 
 // hrtime function with bigint method
 function hrtime(prev?: [number, number]): [number, number] {
-  if (prev !== undefined) {
-    if (!Array.isArray(prev)) {
-      const err = new TypeError(`The "time" argument must be an instance of Array. Received type ${prev === null ? "null" : typeof prev}${prev !== null && typeof prev !== "object" ? ` (${prev})` : ""}`) as Error & { code: string };
-      err.code = "ERR_INVALID_ARG_TYPE";
-      throw err;
-    }
-    if (prev.length !== 2) {
-      const err = new RangeError(`The value of "time" is out of range. It must be 2. Received ${prev.length}`) as Error & { code: string };
-      err.code = "ERR_OUT_OF_RANGE";
-      throw err;
-    }
-  }
-
   const now = getNowMs();
   const seconds = Math.floor(now / 1000);
   const nanoseconds = Math.floor((now % 1000) * 1e6);
@@ -802,13 +596,7 @@ const process: Record<string, unknown> & {
   argv: config.argv,
   argv0: config.argv[0] || "node",
   title: "node",
-  // Proxy that coerces assigned values to strings (matches Node.js behavior)
-  env: new Proxy(config.env, {
-    set(target, prop, value) {
-      target[prop as string] = String(value);
-      return true;
-    },
-  }),
+  env: config.env,
 
   // Config stubs
   config: {
@@ -888,35 +676,15 @@ const process: Record<string, unknown> & {
     _exitCode = exitCode;
     _exited = true;
 
-    // Fire exit event (guard prevents re-entrant emission from exit handlers)
-    if (!_emittingExit) {
-      _emittingExit = true;
-      try {
-        _emit("exit", exitCode);
-      } catch (e) {
-        // If exit handler called process.exit(N), propagate the new exit code
-        if (e instanceof ProcessExitError) {
-          _exitCode = e.code;
-        }
-        // Non-ProcessExitError exceptions in exit handlers are discarded (Node.js behavior)
-      }
-      _emittingExit = false;
+    // Fire exit event
+    try {
+      _emit("exit", exitCode);
+    } catch (_e) {
+      // Ignore errors in exit handlers
     }
 
-    // Clear all JS-side timers so .then() handlers skip their callbacks
-    _timers.clear();
-
-    // Flush pending host timers so the V8 event loop can drain
-    if (typeof _notifyProcessExit !== "undefined") {
-      try {
-        _notifyProcessExit.applySync(undefined, [_exitCode]);
-      } catch (_e) {
-        // Best effort — exit must proceed even if bridge call fails
-      }
-    }
-
-    // Throw to stop execution (use _exitCode which may have been updated by exit handler)
-    throw new ProcessExitError(_exitCode);
+    // Throw to stop execution
+    throw new ProcessExitError(exitCode);
   },
 
   abort(): never {
@@ -978,46 +746,19 @@ const process: Record<string, unknown> & {
   },
 
   cpuUsage(prev?: NodeJS.CpuUsage): NodeJS.CpuUsage {
-    if (prev !== undefined) {
-      if (typeof prev !== "object" || prev === null) {
-        const err = new TypeError(`The "prevValue" argument must be of type object. Received ${prev === null ? "null" : typeof prev}`) as Error & { code: string };
-        err.code = "ERR_INVALID_ARG_TYPE";
-        throw err;
-      }
-      if (typeof prev.user !== "number") {
-        const err = new TypeError(`The "prevValue.user" property must be of type number. Received type ${typeof prev.user}`) as Error & { code: string };
-        err.code = "ERR_INVALID_ARG_TYPE";
-        throw err;
-      }
-      if (typeof prev.system !== "number") {
-        const err = new TypeError(`The "prevValue.system" property must be of type number. Received type ${typeof prev.system}`) as Error & { code: string };
-        err.code = "ERR_INVALID_ARG_TYPE";
-        throw err;
-      }
-      if (prev.user < 0) {
-        const err = new Error(`The value of "prevValue.user" is out of range. It must be >= 0. Received ${prev.user}`) as Error & { code: string };
-        err.code = "ERR_INVALID_ARG_VALUE";
-        throw err;
-      }
-      if (prev.system < 0) {
-        const err = new Error(`The value of "prevValue.system" is out of range. It must be >= 0. Received ${prev.system}`) as Error & { code: string };
-        err.code = "ERR_INVALID_ARG_VALUE";
-        throw err;
-      }
-    }
-    // Use elapsed time to produce increasing values
-    const elapsed = getNowMs() - _processStartTime;
-    const user = Math.floor(elapsed * 1000); // microseconds
-    const system = Math.floor(elapsed * 500);
+    const usage = {
+      user: 1000000,
+      system: 500000,
+    };
 
     if (prev) {
       return {
-        user: Math.max(0, user - prev.user),
-        system: Math.max(0, system - prev.system),
+        user: usage.user - prev.user,
+        system: usage.system - prev.system,
       };
     }
 
-    return { user, system };
+    return usage;
   },
 
   resourceUsage(): NodeJS.ResourceUsage {
@@ -1153,20 +894,10 @@ const process: Record<string, unknown> & {
   // Module info (will be set by createRequire)
   mainModule: undefined,
 
-  // Emit a warning event matching Node.js behavior
-  emitWarning(warning: string | Error, typeOrOptions?: string | { type?: string; code?: string; detail?: string }, code?: string): void {
-    let w: Error;
-    if (typeof warning === "string") {
-      w = new Error(warning);
-      const type = typeof typeOrOptions === "string" ? typeOrOptions : typeOrOptions?.type;
-      w.name = type || "Warning";
-      const wCode = (typeof typeOrOptions === "object" ? typeOrOptions?.code : code);
-      if (wCode) (w as Error & { code?: string }).code = wCode;
-    } else {
-      w = warning;
-      if (!w.name || w.name === "Error") w.name = "Warning";
-    }
-    _emit("warning", w);
+  // No-op methods for compatibility
+  emitWarning(warning: string | Error): void {
+    const msg = typeof warning === "string" ? warning : warning.message;
+    _emit("warning", { message: msg, name: "Warning" });
   },
 
   binding(_name: string): never {
@@ -1268,15 +999,9 @@ const _queueMicrotask =
 class TimerHandle {
   _id: number;
   _destroyed: boolean;
-  _callback: ((...args: unknown[]) => void) | null;
-  _delay: number;
-  _args: unknown[];
-  constructor(id: number, callback?: (...args: unknown[]) => void, delay?: number, args?: unknown[]) {
+  constructor(id: number) {
     this._id = id;
     this._destroyed = false;
-    this._callback = callback ?? null;
-    this._delay = delay ?? 0;
-    this._args = args ?? [];
   }
   ref(): this {
     return this;
@@ -1288,33 +1013,6 @@ class TimerHandle {
     return true;
   }
   refresh(): this {
-    // Re-schedule the timer with the same callback, delay, and args
-    if (this._callback && _timers.has(this._id)) {
-      _timers.delete(this._id);
-      const newId = ++_timerId;
-      this._id = newId;
-      _timers.set(newId, this);
-      const cb = this._callback;
-      const args = this._args;
-      const actualDelay = this._delay;
-      if (typeof _scheduleTimer !== "undefined" && actualDelay > 0) {
-        _scheduleTimer
-          .apply(undefined, [actualDelay], { result: { promise: true } })
-          .then(() => {
-            if (_timers.has(newId)) {
-              _timers.delete(newId);
-              try { cb(...args); } catch (_e) { /* ignore */ }
-            }
-          });
-      } else {
-        _queueMicrotask(() => {
-          if (_timers.has(newId)) {
-            _timers.delete(newId);
-            try { cb(...args); } catch (_e) { /* ignore */ }
-          }
-        });
-      }
-    }
     return this;
   }
   [Symbol.toPrimitive](): number {
@@ -1327,14 +1025,9 @@ export function setTimeout(
   delay?: number,
   ...args: unknown[]
 ): TimerHandle {
-  if (typeof callback !== "function") {
-    const err = new TypeError(`The "callback" argument must be of type function. Received ${callback === null ? "null" : typeof callback}`) as Error & { code: string };
-    err.code = "ERR_INVALID_CALLBACK";
-    throw err;
-  }
   _checkTimerBudget();
   const id = ++_timerId;
-  const handle = new TimerHandle(id, callback, delay ?? 0, args);
+  const handle = new TimerHandle(id);
   _timers.set(id, handle);
 
   const actualDelay = delay ?? 0;
@@ -1378,9 +1071,7 @@ export function clearTimeout(timer: TimerHandle | number | undefined): void {
     timer && typeof timer === "object" && timer._id !== undefined
       ? timer._id
       : (timer as number);
-  // Check both maps — clearTimeout can clear intervals per HTML spec
   _timers.delete(id);
-  _intervals.delete(id);
 }
 
 export function setInterval(
@@ -1388,11 +1079,6 @@ export function setInterval(
   delay?: number,
   ...args: unknown[]
 ): TimerHandle {
-  if (typeof callback !== "function") {
-    const err = new TypeError(`The "callback" argument must be of type function. Received ${callback === null ? "null" : typeof callback}`) as Error & { code: string };
-    err.code = "ERR_INVALID_CALLBACK";
-    throw err;
-  }
   _checkTimerBudget();
   const id = ++_timerId;
   const handle = new TimerHandle(id);
@@ -1447,20 +1133,13 @@ export function clearInterval(timer: TimerHandle | number | undefined): void {
     timer && typeof timer === "object" && timer._id !== undefined
       ? timer._id
       : (timer as number);
-  // Check both maps — clearInterval can clear timeouts per HTML spec
   _intervals.delete(id);
-  _timers.delete(id);
 }
 
 export function setImmediate(
   callback: (...args: unknown[]) => void,
   ...args: unknown[]
 ): TimerHandle {
-  if (typeof callback !== "function") {
-    const err = new TypeError(`The "callback" argument must be of type function. Received ${callback === null ? "null" : typeof callback}`) as Error & { code: string };
-    err.code = "ERR_INVALID_CALLBACK";
-    throw err;
-  }
   return setTimeout(callback, 0, ...args);
 }
 
@@ -1587,36 +1266,9 @@ export function setupGlobals(): void {
     g.TextDecoder = TextDecoder;
   }
 
-  // Buffer — wrap constructor to add ERR_* codes to constructor-path errors
+  // Buffer
   if (typeof g.Buffer === "undefined") {
-    const OrigBuf = Buffer;
-    const BufWrap = function Buffer(this: unknown, ...args: unknown[]) {
-      // Pre-validate size for numeric args (polyfill misses NaN)
-      if (typeof args[0] === "number" && (args[0] < 0 || Number.isNaN(args[0]))) {
-        const err = new RangeError(
-          `The value of "size" is out of range. It must be >= 0 && <= ${BUFFER_MAX_LENGTH}. Received ${args[0]}`,
-        ) as RangeError & { code: string };
-        err.code = "ERR_OUT_OF_RANGE";
-        throw err;
-      }
-      try {
-        if (this instanceof BufWrap) return (OrigBuf as unknown as Function).call(this, ...args);
-        return (OrigBuf as unknown as Function)(...args);
-      } catch (e) { addBufferErrorCode(e); throw e; }
-    } as unknown as typeof OrigBuf;
-    BufWrap.prototype = OrigBuf.prototype;
-    (BufWrap.prototype as { constructor: unknown }).constructor = BufWrap;
-    // Inherit static methods from Uint8Array (Buffer.of, Buffer.from via Uint8Array chain)
-    try { Object.setPrototypeOf(BufWrap, Object.getPrototypeOf(OrigBuf)); } catch { /* fallback */ }
-    for (const k of Object.getOwnPropertyNames(OrigBuf)) {
-      if (k !== "prototype" && k !== "length" && k !== "name" && k !== "arguments" && k !== "caller") {
-        try {
-          const desc = Object.getOwnPropertyDescriptor(OrigBuf, k);
-          if (desc) Object.defineProperty(BufWrap, k, desc);
-        } catch { /* skip non-configurable */ }
-      }
-    }
-    g.Buffer = BufWrap;
+    g.Buffer = Buffer;
   }
   const globalBuffer = g.Buffer as Record<string, unknown>;
   if (typeof globalBuffer.kMaxLength !== "number") {

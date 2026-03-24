@@ -484,7 +484,7 @@ fn session_thread(
                         } else {
                             Some(file_path.as_str())
                         };
-                        let (mut code, exports, mut error) = if mode == 0 {
+                        let (code, exports, error) = if mode == 0 {
                             let scope = &mut v8::HandleScope::new(iso);
                             let ctx = v8::Local::new(scope, &exec_context);
                             let scope = &mut v8::ContextScope::new(scope, ctx);
@@ -524,85 +524,6 @@ fn session_thread(
                         } else {
                             false
                         };
-
-                        // Final microtask drain: after the event loop exits (all bridge
-                        // promises resolved), there may be pending V8 microtasks from
-                        // nested async generator yield chains (e.g. Anthropic SDK's SSE
-                        // parser). These chains don't create bridge calls so pending.len()
-                        // reaches 0 while V8 still has queued PromiseReactionJobs.
-                        // Run repeated checkpoints until no new pending bridge calls are
-                        // created and all microtasks are fully drained.
-                        if !terminated {
-                            loop {
-                                let scope = &mut v8::HandleScope::new(iso);
-                                let ctx = v8::Local::new(scope, &exec_context);
-                                let scope = &mut v8::ContextScope::new(scope, ctx);
-                                scope.perform_microtask_checkpoint();
-
-                                // If microtask processing created new async bridge calls,
-                                // run the event loop again to handle them
-                                if pending.len() > 0 {
-                                    if !run_event_loop(
-                                        scope,
-                                        &rx,
-                                        &pending,
-                                        maybe_abort_rx.as_ref(),
-                                        Some(&deferred_queue),
-                                    ) {
-                                        terminated = true;
-                                        break;
-                                    }
-                                } else {
-                                    break;
-                                }
-                            }
-                        }
-
-                        // Fire process 'exit' event after event loop drains
-                        // (only on normal completion — process.exit() already fires it)
-                        if error.is_none() && !terminated {
-                            let scope = &mut v8::HandleScope::new(iso);
-                            let ctx = v8::Local::new(scope, &exec_context);
-                            let scope = &mut v8::ContextScope::new(scope, ctx);
-                            let tc = &mut v8::TryCatch::new(scope);
-                            let src = v8::String::new(
-                                tc,
-                                "(function(){return typeof __secureExecFireExit==='function'?__secureExecFireExit():0})()",
-                            );
-                            if let Some(source) = src {
-                                if let Some(script) = v8::Script::compile(tc, source, None) {
-                                    match script.run(tc) {
-                                        Some(val) => {
-                                            // Normal return — check if exitCode was set
-                                            if val.is_number() {
-                                                let ec = val.int32_value(tc).unwrap_or(0);
-                                                if ec != 0 {
-                                                    code = ec;
-                                                }
-                                            }
-                                        }
-                                        None => {
-                                            // Exception thrown (e.g. exit handler called process.exit)
-                                            if let Some(exception) = tc.exception() {
-                                                if let Some(exit_code) = execution::extract_process_exit_code(tc, exception) {
-                                                    code = exit_code;
-                                                    // ProcessExitError is expected — don't set error
-                                                } else {
-                                                    let err_info = execution::extract_error_info(tc, exception);
-                                                    code = 1;
-                                                    error = Some(err_info);
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Clear module resolve state after event loop completes
-                        execution::MODULE_RESOLVE_STATE.with(|cell| {
-                            *cell.borrow_mut() = None;
-                        });
 
                         // Check if timeout fired
                         let timed_out = timeout_guard.as_ref().is_some_and(|g| g.timed_out());

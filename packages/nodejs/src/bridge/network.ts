@@ -753,23 +753,6 @@ export class ClientRequest {
   aborted = false;
 
   constructor(options: nodeHttp.RequestOptions, callback?: (res: IncomingMessage) => void) {
-    // Validate hostname/host type — Node.js requires string, undefined, or null
-    validateHostname(options.hostname, "hostname");
-    validateHostname(options.host, "host");
-
-    // Validate insecureHTTPParser type
-    if (options.insecureHTTPParser !== undefined && typeof options.insecureHTTPParser !== "boolean") {
-      throw httpErrInvalidArgType("options.insecureHTTPParser", "of type boolean", options.insecureHTTPParser);
-    }
-
-    // Validate headers.host is not an array
-    if (options.headers) {
-      const hostHeader = (options.headers as Record<string, unknown>).host;
-      if (Array.isArray(hostHeader)) {
-        throw httpErrInvalidArgType("options.headers.host", "of type string", hostHeader);
-      }
-    }
-
     this._options = options;
     this._callback = callback;
 
@@ -936,10 +919,6 @@ export class ClientRequest {
 
   setSocketKeepAlive(): this {
     return this;
-  }
-
-  _implicitHeader(): void {
-    // ClientRequest._implicitHeader sends the request headers — stub for compatibility
   }
 
   flushHeaders(): void {
@@ -1375,11 +1354,6 @@ class ServerResponseBridge {
     write: () => true,
   } as Record<string, unknown>;
   connection = this.socket;
-
-  // _implicitHeader for ServerResponse — sends headers
-  _implicitHeader(): void {
-    this.writeHead(this.statusCode);
-  }
 
   // Node.js http.ServerResponse socket/stream compatibility stubs
   assignSocket(): void { /* no-op */ }
@@ -1879,188 +1853,6 @@ ServerResponseCallable.prototype = Object.create(ServerResponseBridge.prototype,
   constructor: { value: ServerResponseCallable, writable: true, configurable: true },
 });
 
-// Error helpers for HTTP module (matches Node.js internal/errors.js)
-function httpDescribeType(value: unknown): string {
-  if (value === null) return "null";
-  if (value === undefined) return "undefined";
-  if (typeof value === "function") return `function ${(value as Function).name || ""}`;
-  if (Array.isArray(value)) return "an instance of Array";
-  if (typeof value === "object") {
-    const name = (value as object).constructor?.name;
-    return name && name !== "Object" ? `an instance of ${name}` : "an instance of Object";
-  }
-  if (typeof value === "boolean") return `type boolean (${value})`;
-  if (typeof value === "number") return `type number (${value})`;
-  if (typeof value === "string") {
-    const display = value.length > 28 ? `${value.slice(0, 25)}...` : value;
-    return `type string ('${display}')`;
-  }
-  return `type ${typeof value}`;
-}
-
-function httpErrInvalidArgType(name: string, expected: string, actual: unknown): TypeError & { code: string } {
-  const msg = `The "${name}" ${name.includes('.') ? 'property' : 'argument'} must be ${expected}. Received ${httpDescribeType(actual)}`;
-  const err = new TypeError(msg) as TypeError & { code: string };
-  err.code = "ERR_INVALID_ARG_TYPE";
-  return err;
-}
-
-// Validate hostname/host options — Node.js only allows string, undefined, or null
-function validateHostname(value: unknown, name: string): void {
-  if (value !== undefined && value !== null && typeof value !== "string") {
-    throw httpErrInvalidArgType(`options.${name}`, "of type string or one of undefined or null", value);
-  }
-}
-
-// HTTP token regex (RFC 7230 section 3.2.6)
-const HTTP_TOKEN_RE = /^[\^_`a-zA-Z\-0-9!#$%&'*+.|~]+$/;
-// Header value must not contain non-visible ASCII characters (except SP, HTAB)
-const HEADER_CHAR_RE = /[^\t\x20-\x7e\x80-\xff]/;
-
-// OutgoingMessage base class — matches Node.js http.OutgoingMessage
-class OutgoingMessage {
-  _header: string | null = null;
-  _headers: Record<string, string> = {};
-  _headerNames: Record<string, string> = {};
-  _hasBody = true;
-  _trailer = "";
-  _contentLength: number | null = null;
-  _removedConnection = false;
-  _removedContLen = false;
-  _removedTE = false;
-  headersSent = false;
-  sendDate = true;
-  finished = false;
-  destroyed = false;
-  socket: unknown = null;
-  _writableState = { length: 0, ended: false, finished: false };
-
-  _implicitHeader(): void {
-    const err = new Error("The _implicitHeader() method is not implemented") as Error & { code: string };
-    err.code = "ERR_METHOD_NOT_IMPLEMENTED";
-    throw err;
-  }
-
-  setHeader(name: unknown, value: unknown): this {
-    if (this._header) {
-      const err = new Error("Cannot set headers after they are sent to the client") as Error & { code: string };
-      err.code = "ERR_HTTP_HEADERS_SENT";
-      throw err;
-    }
-    // Node.js validates name is a string and a valid HTTP token before checking value
-    if (typeof name !== "string" || !HTTP_TOKEN_RE.test(name)) {
-      const nameStr = String(name);
-      const err = new TypeError(`Header name must be a valid HTTP token ["${nameStr}"]`) as TypeError & { code: string };
-      err.code = "ERR_INVALID_HTTP_TOKEN";
-      throw err;
-    }
-    if (value === undefined || value === null) {
-      const err = new TypeError(`Invalid value "${value}" for header "${name}"`) as TypeError & { code: string };
-      err.code = "ERR_HTTP_INVALID_HEADER_VALUE";
-      throw err;
-    }
-    const valueStr = String(value);
-    if (HEADER_CHAR_RE.test(valueStr)) {
-      const err = new TypeError(`Invalid character in header content ["${name}"]`) as TypeError & { code: string };
-      err.code = "ERR_INVALID_CHAR";
-      throw err;
-    }
-    const key = (name as string).toLowerCase();
-    this._headers[key] = valueStr;
-    this._headerNames[key] = name as string;
-    return this;
-  }
-
-  getHeader(name: string): string | undefined {
-    return this._headers[name.toLowerCase()];
-  }
-
-  hasHeader(name: string): boolean {
-    return name.toLowerCase() in this._headers;
-  }
-
-  removeHeader(name: string): void {
-    const key = name.toLowerCase();
-    delete this._headers[key];
-    delete this._headerNames[key];
-  }
-
-  getHeaderNames(): string[] {
-    return Object.keys(this._headers);
-  }
-
-  getHeaders(): Record<string, string> {
-    return { ...this._headers };
-  }
-
-  write(chunk: unknown, _encoding?: string, _cb?: () => void): boolean {
-    if (!this._header) {
-      this._implicitHeader();
-    }
-    if (this._hasBody) {
-      if (chunk === null) {
-        const err = new TypeError("May not write null values to stream") as TypeError & { code: string };
-        err.code = "ERR_STREAM_NULL_VALUES";
-        throw err;
-      }
-      if (typeof chunk !== "string" && !(chunk instanceof Uint8Array)) {
-        const err = new TypeError(
-          `The "chunk" argument must be of type string or an instance of Buffer or Uint8Array. Received ${httpDescribeType(chunk)}`
-        ) as TypeError & { code: string };
-        err.code = "ERR_INVALID_ARG_TYPE";
-        throw err;
-      }
-    }
-    return true;
-  }
-
-  end(_chunk?: unknown, _encoding?: string, _cb?: () => void): this {
-    this.finished = true;
-    return this;
-  }
-
-  addTrailers(headers: unknown): void {
-    if (typeof headers !== "object" || headers === null) {
-      throw new TypeError("Cannot read properties of undefined (reading 'Symbol(Symbol.iterator)')");
-    }
-    const entries = Object.entries(headers as Record<string, string>);
-    for (const [name, value] of entries) {
-      const nameStr = String(name);
-      if (!HTTP_TOKEN_RE.test(nameStr)) {
-        const err = new TypeError(`Trailer name must be a valid HTTP token ["${nameStr}"]`) as TypeError & { code: string };
-        err.code = "ERR_INVALID_HTTP_TOKEN";
-        throw err;
-      }
-      const valueStr = String(value);
-      if (HEADER_CHAR_RE.test(valueStr)) {
-        const err = new TypeError(`Invalid character in trailer content ["${nameStr}"]`) as TypeError & { code: string };
-        err.code = "ERR_INVALID_CHAR";
-        throw err;
-      }
-    }
-  }
-
-  flushHeaders(): void {
-    if (!this._header) {
-      this._implicitHeader();
-    }
-  }
-
-  destroy(_err?: Error): this {
-    this.destroyed = true;
-    return this;
-  }
-
-  on(): this { return this; }
-  once(): this { return this; }
-  off(): this { return this; }
-  removeListener(): this { return this; }
-  emit(): boolean { return false; }
-  cork(): void {}
-  uncork(): void {}
-  setTimeout(): this { return this; }
-}
-
 // Create HTTP module
 function createHttpModule(protocol: string): Record<string, unknown> {
   const defaultProtocol = protocol === "https" ? "https:" : "http:";
@@ -2141,7 +1933,6 @@ function createHttpModule(protocol: string): Record<string, unknown> {
 
     Agent,
     globalAgent: moduleAgent,
-    OutgoingMessage: OutgoingMessage as unknown,
     Server: Server as unknown as typeof nodeHttp.Server,
     ServerResponse: ServerResponseCallable as unknown as typeof nodeHttp.ServerResponse,
     IncomingMessage: IncomingMessage as unknown as typeof nodeHttp.IncomingMessage,

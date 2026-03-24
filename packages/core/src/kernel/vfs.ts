@@ -35,8 +35,8 @@ export interface VirtualFileSystem {
 	readDir(path: string): Promise<string[]>;
 	readDirWithTypes(path: string): Promise<VirtualDirEntry[]>;
 	writeFile(path: string, content: string | Uint8Array): Promise<void>;
-	createDir(path: string, mode?: number): Promise<void>;
-	mkdir(path: string, options?: { recursive?: boolean; mode?: number }): Promise<void>;
+	createDir(path: string): Promise<void>;
+	mkdir(path: string, options?: { recursive?: boolean }): Promise<void>;
 	exists(path: string): Promise<boolean>;
 	stat(path: string): Promise<VirtualStat>;
 	removeFile(path: string): Promise<void>;

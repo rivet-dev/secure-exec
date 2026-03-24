@@ -122,6 +122,34 @@ export class FDTable implements WasiFDTable {
   }
 
   /**
+   * Duplicate a file descriptor to lowest available fd >= minFd (F_DUPFD).
+   * Returns the new fd number, or -1 if the source fd is invalid.
+   */
+  dupMinFd(fd: number, minFd: number): number {
+    const entry = this._fds.get(fd);
+    if (!entry) return -1;
+
+    entry.fileDescription.refCount++;
+    let newFd = minFd;
+    while (this._fds.has(newFd)) newFd++;
+
+    this._fds.set(newFd, new FDEntry(
+      entry.resource,
+      entry.filetype,
+      entry.rightsBase,
+      entry.rightsInheriting,
+      entry.fdflags,
+      entry.path ?? undefined,
+      entry.fileDescription,
+    ));
+
+    if (newFd >= this._nextFd) {
+      this._nextFd = newFd + 1;
+    }
+    return newFd;
+  }
+
+  /**
    * Duplicate a file descriptor, returning a new fd pointing to the same resource.
    *
    * Returns the new fd number, or -1 if the source fd is invalid.

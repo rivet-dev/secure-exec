@@ -176,7 +176,7 @@ export class PipeManager {
 		if (!state) return null;
 
 		if (ref.end === "read") {
-			const hasData = state.buffer.length > 0;
+			const hasData = this.bufferSize(state) > 0;
 			return {
 				readable: hasData || state.closed.write,
 				writable: false,

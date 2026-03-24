@@ -59,9 +59,18 @@ int __pthread_key_create(pthread_key_t *k, void (*dtor)(void *))
 
 int __pthread_key_delete(pthread_key_t k)
 {
-	pthread_t self = __pthread_self();
+	/* POSIX: return EINVAL for out-of-range or unallocated keys */
+	if (k >= PTHREAD_KEYS_MAX)
+		return EINVAL;
 
 	pthread_rwlock_wrlock(&key_lock);
+
+	if (!keys[k]) {
+		pthread_rwlock_unlock(&key_lock);
+		return EINVAL;
+	}
+
+	pthread_t self = __pthread_self();
 
 	/* Single-threaded WASM: only one thread exists, clear its TSD directly.
 	 * Upstream musl walks td->next in a circular list, but

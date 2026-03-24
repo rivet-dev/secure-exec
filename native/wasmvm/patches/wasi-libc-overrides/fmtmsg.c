@@ -6,6 +6,11 @@
  * formatted messages to stderr (MM_PRINT) per POSIX.1-2024.
  *
  * Format: "label: severity: text\nTO FIX: action tag\n"
+ *
+ * Classification flags (MM_HARD/SOFT/FIRM, MM_APPL/UTIL/OPSYS,
+ * MM_RECOVER/MM_NRECOV) are accepted per POSIX. MM_PRINT and
+ * MM_CONSOLE control output destination; the remaining flags are
+ * classification metadata that does not alter the output format.
  */
 
 #include <fmtmsg.h>
@@ -19,6 +24,10 @@ int fmtmsg(long classification, const char *label, int severity,
     int print = (classification & MM_PRINT);
     int console = (classification & MM_CONSOLE);
 
+    /* Validate classification: at most one recoverability flag */
+    if ((classification & MM_RECOVER) && (classification & MM_NRECOV))
+        return MM_NOTOK;
+
     /* Determine severity string */
     const char *sev;
     switch (severity) {
@@ -29,26 +38,40 @@ int fmtmsg(long classification, const char *label, int severity,
     default:         sev = "UNKNOWN"; break;
     }
 
-    /* Build message per POSIX format */
-    char buf[1024];
+    /* Calculate buffer size proportional to inputs */
+    size_t need = 64; /* overhead for "label: severity: text\nTO FIX: action tag\n" framing */
+    if (label && label != MM_NULLLBL)
+        need += strlen(label);
+    need += strlen(sev);
+    if (text && text != MM_NULLTXT)
+        need += strlen(text);
+    if (action && action != MM_NULLACT)
+        need += strlen(action);
+    if (tag && tag != MM_NULLTAG)
+        need += strlen(tag);
+
+    char *buf = (char *)malloc(need);
+    if (!buf)
+        return MM_NOTOK;
+
     int len = 0;
 
     /* Line 1: label: severity: text */
     if (label && label != MM_NULLLBL)
-        len += snprintf(buf + len, sizeof(buf) - len, "%s: ", label);
-    len += snprintf(buf + len, sizeof(buf) - len, "%s: ", sev);
+        len += snprintf(buf + len, need - len, "%s: ", label);
+    len += snprintf(buf + len, need - len, "%s: ", sev);
     if (text && text != MM_NULLTXT)
-        len += snprintf(buf + len, sizeof(buf) - len, "%s", text);
-    len += snprintf(buf + len, sizeof(buf) - len, "\n");
+        len += snprintf(buf + len, need - len, "%s", text);
+    len += snprintf(buf + len, need - len, "\n");
 
     /* Line 2: TO FIX: action tag */
     if ((action && action != MM_NULLACT) || (tag && tag != MM_NULLTAG)) {
-        len += snprintf(buf + len, sizeof(buf) - len, "TO FIX: ");
+        len += snprintf(buf + len, need - len, "TO FIX: ");
         if (action && action != MM_NULLACT)
-            len += snprintf(buf + len, sizeof(buf) - len, "%s", action);
+            len += snprintf(buf + len, need - len, "%s", action);
         if (tag && tag != MM_NULLTAG)
-            len += snprintf(buf + len, sizeof(buf) - len, " %s", tag);
-        len += snprintf(buf + len, sizeof(buf) - len, "\n");
+            len += snprintf(buf + len, need - len, " %s", tag);
+        len += snprintf(buf + len, need - len, "\n");
     }
 
     int result = MM_OK;
@@ -68,5 +91,6 @@ int fmtmsg(long classification, const char *label, int severity,
         }
     }
 
+    free(buf);
     return result;
 }

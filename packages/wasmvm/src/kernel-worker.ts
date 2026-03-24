@@ -729,6 +729,28 @@ function createHostProcessImports(getMemory: () => WebAssembly.Memory | null) {
       return ERRNO_SUCCESS;
     },
 
+    /**
+     * fd_dup_min(fd, min_fd, ret_new_fd) -> errno
+     * F_DUPFD semantics: duplicate fd to lowest available FD >= min_fd.
+     */
+    fd_dup_min(fd: number, min_fd: number, ret_new_fd_ptr: number): number {
+      if (isSpawnBlocked()) return ERRNO_EACCES;
+      const mem = getMemory();
+      if (!mem) return ERRNO_EINVAL;
+
+      const kFd = localToKernelFd.get(fd) ?? fd;
+      const res = rpcCall('fdDupMin', { fd: kFd, minFd: min_fd });
+      if (res.errno !== 0) return res.errno;
+
+      const newKernelFd = res.intResult;
+      const newLocalFd = fdTable.dupMinFd(fd, min_fd);
+      if (newLocalFd < 0) return ERRNO_EBADF;
+      localToKernelFd.set(newLocalFd, newKernelFd);
+
+      new DataView(mem.buffer).setUint32(ret_new_fd_ptr, newLocalFd, true);
+      return ERRNO_SUCCESS;
+    },
+
     /** proc_getpid(ret_pid) -> errno */
     proc_getpid(ret_pid_ptr: number): number {
       const mem = getMemory();

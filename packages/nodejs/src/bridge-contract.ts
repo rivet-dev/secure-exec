@@ -215,7 +215,7 @@ export type FsWriteFileBinaryBridgeRef = BridgeApplySyncPromiseRef<
 	void
 >;
 export type FsReadDirBridgeRef = BridgeApplySyncPromiseRef<[string], string>;
-export type FsMkdirBridgeRef = BridgeApplySyncPromiseRef<[string, boolean, number], void>;
+export type FsMkdirBridgeRef = BridgeApplySyncPromiseRef<[string, boolean], void>;
 export type FsRmdirBridgeRef = BridgeApplySyncPromiseRef<[string], void>;
 export type FsExistsBridgeRef = BridgeApplySyncPromiseRef<[string], boolean>;
 export type FsStatBridgeRef = BridgeApplySyncPromiseRef<[string], string>;

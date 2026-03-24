@@ -51,7 +51,7 @@ export async function readDirWithTypes(
 /**
  * Create a directory (recursively creates parent directories)
  */
-export async function mkdir(fs: VirtualFileSystem, path: string, mode?: number): Promise<void> {
+export async function mkdir(fs: VirtualFileSystem, path: string): Promise<void> {
 	const normalizedPath = path.startsWith("/") ? path : `/${path}`;
 	const parts = normalizedPath.split("/").filter(Boolean);
 
@@ -59,7 +59,7 @@ export async function mkdir(fs: VirtualFileSystem, path: string, mode?: number):
 	for (const part of parts) {
 		currentPath += `/${part}`;
 		try {
-			await fs.createDir(currentPath, mode);
+			await fs.createDir(currentPath);
 		} catch {
 			// Directory might already exist, ignore error
 		}

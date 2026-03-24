@@ -93,15 +93,6 @@
 - read `docs-internal/arch/overview.md` for the component map (NodeRuntime, RuntimeDriver, NodeDriver, NodeExecutionDriver, ModuleAccessFileSystem, Permissions)
 - keep it up to date when adding, removing, or significantly changing components
 
-## Code Transformation Policy
-
-- NEVER use regex-based source code transformation for JavaScript/TypeScript (e.g., converting ESM to CJS, rewriting imports, extracting exports)
-- regex transformers break on multi-line syntax, code inside strings/comments/template literals, and edge cases like `import X, { a } from 'Y'` — these bugs are subtle and hard to catch
-- instead, use proper tooling: `es-module-lexer` / `cjs-module-lexer` (the same WASM-based lexers Node.js uses), or run the transformation inside the V8 isolate where the JS engine handles parsing correctly
-- if a source transformation is needed at the bridge/host level, prefer a battle-tested library over hand-rolled regex
-- the V8 runtime already has dual-mode execution (`execute_script` for CJS, `execute_module` for ESM) — lean on V8's native module system rather than pre-transforming source on the host side
-- existing regex-based transforms (e.g., `convertEsmToCjs`, `transformDynamicImport`, `isESM`) are known technical debt and should be replaced
-
 ## Contracts (CRITICAL)
 
 - `.agent/contracts/` contains behavioral contracts — these are the authoritative source of truth for runtime, bridge, permissions, stdlib, and governance requirements
@@ -181,12 +172,6 @@ Follow the style in `packages/secure-exec/src/index.ts`.
 - `docs-internal/todo.md` is the active backlog — keep it up to date when completing tasks
 - when adding new work, add it to todo.md
 - when completing work, mark items done in todo.md
-
-## Ralph (Autonomous Agent)
-
-- Ralph's working directory is `scripts/ralph/` — this contains `prd.json`, `progress.txt`, `ralph.sh`, `CLAUDE.md`, and the `archive/` folder
-- do NOT create a `.ralph/` directory at the repo root; `scripts/ralph/` is the canonical location
-- when creating or converting PRDs for Ralph, write to `scripts/ralph/prd.json`
 
 ## Skills
 

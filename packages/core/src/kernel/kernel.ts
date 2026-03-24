@@ -139,6 +139,10 @@ class KernelImpl implements Kernel {
 			"/srv",
 			"/sys",
 			"/proc",
+			"/opt",
+			"/mnt",
+			"/media",
+			"/home",
 			"/usr",
 			"/usr/bin",
 			"/usr/games",
@@ -867,6 +871,10 @@ class KernelImpl implements Kernel {
 			fdDup2: (pid, oldFd, newFd) => {
 				assertOwns(pid);
 				this.getTable(pid).dup2(oldFd, newFd);
+			},
+			fdDupMin: (pid, fd, minFd) => {
+				assertOwns(pid);
+				return this.getTable(pid).dupMinFd(fd, minFd);
 			},
 			fdStat: (pid, fd) => {
 				assertOwns(pid);
