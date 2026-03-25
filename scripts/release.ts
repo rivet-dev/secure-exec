@@ -214,6 +214,13 @@ async function main() {
     run(`git push origin v${version}`);
   }
 
+  // Update release branch for latest (non-RC) releases
+  if (tag === "latest") {
+    console.log(`\n\x1b[1mUpdating release branch to v${version}...\x1b[0m`);
+    run(`git push origin HEAD:refs/heads/release --force`);
+    console.log(`  release branch now points to v${version}`);
+  }
+
   // Trigger CI release workflow
   console.log(`\n\x1b[1mTriggering CI release workflow...\x1b[0m`);
   run(`gh workflow run release.yml -f version=${version} -f npm-tag=${tag}`, { stdio: "inherit" });
