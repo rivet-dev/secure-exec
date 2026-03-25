@@ -28,8 +28,8 @@
 __attribute__((import_module("host_process"), import_name("fd_dup_min")))
 int __host_fd_dup_min(int fd, int min_fd, int *ret_new_fd);
 
-/* Per-fd cloexec tracking (up to 256 FDs) */
-#define MAX_FDS 256
+/* Per-fd cloexec tracking (up to 1024 FDs, matching common ulimit default) */
+#define MAX_FDS 1024
 static unsigned char _fd_cloexec[MAX_FDS];
 
 int fcntl(int fd, int cmd, ...) {

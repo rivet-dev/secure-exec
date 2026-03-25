@@ -109,6 +109,7 @@ export interface WasiVFS {
   rmdir(path: string): void;
   rename(oldPath: string, newPath: string): void;
   symlink(target: string, linkPath: string): void;
+  link(oldPath: string, newPath: string): void;
   readlink(path: string): string;
   chmod(path: string, mode: number): void;
   getIno(path: string, followSymlinks?: boolean): number | null;

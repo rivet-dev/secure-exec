@@ -152,6 +152,62 @@ describe("FileLockManager", () => {
 		expect(mgr.hasLock(1)).toBe(true);
 		expect(mgr.hasLock(2)).toBe(true);
 	});
+
+	it("blocking flock waits for lock release", async () => {
+		const mgr = new FileLockManager();
+		mgr.flock("/tmp/test", 1, LOCK_EX);
+
+		// Blocking flock returns a promise
+		const promise = mgr.flock("/tmp/test", 2, LOCK_EX);
+		expect(promise).toBeInstanceOf(Promise);
+
+		// Lock not yet acquired
+		expect(mgr.hasLock(2)).toBe(false);
+
+		// Release first lock — should wake the waiter
+		mgr.flock("/tmp/test", 1, LOCK_UN);
+
+		await promise;
+		expect(mgr.hasLock(2)).toBe(true);
+	});
+
+	it("blocking shared flock waits for exclusive release", async () => {
+		const mgr = new FileLockManager();
+		mgr.flock("/tmp/test", 1, LOCK_EX);
+
+		const promise = mgr.flock("/tmp/test", 2, LOCK_SH);
+		expect(promise).toBeInstanceOf(Promise);
+
+		mgr.flock("/tmp/test", 1, LOCK_UN);
+		await promise;
+		expect(mgr.hasLock(2)).toBe(true);
+	});
+
+	it("multiple blocked waiters are woken in order", async () => {
+		const mgr = new FileLockManager();
+		mgr.flock("/tmp/test", 1, LOCK_EX);
+
+		const order: number[] = [];
+		const p2 = Promise.resolve(mgr.flock("/tmp/test", 2, LOCK_SH)).then(() => order.push(2));
+		const p3 = Promise.resolve(mgr.flock("/tmp/test", 3, LOCK_SH)).then(() => order.push(3));
+
+		mgr.flock("/tmp/test", 1, LOCK_UN);
+		await Promise.all([p2, p3]);
+		// Both shared waiters woken
+		expect(mgr.hasLock(2)).toBe(true);
+		expect(mgr.hasLock(3)).toBe(true);
+	});
+
+	it("releaseByDescription wakes blocked waiters", async () => {
+		const mgr = new FileLockManager();
+		mgr.flock("/tmp/test", 1, LOCK_EX);
+
+		const promise = mgr.flock("/tmp/test", 2, LOCK_EX);
+		mgr.releaseByDescription(1);
+
+		await promise;
+		expect(mgr.hasLock(2)).toBe(true);
+	});
 });
 
 describe("kernel flock integration", () => {

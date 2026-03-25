@@ -916,7 +916,7 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
           break;
         }
         case 'vfsUnlink': {
-          await kernel.vfs.removeFile(scopedProcPath(pid, msg.args.path as string));
+          await kernel.unlinkFile(scopedProcPath(pid, msg.args.path as string));
           break;
         }
         case 'vfsRmdir': {
@@ -934,6 +934,13 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
           await kernel.vfs.symlink(
             msg.args.target as string,
             scopedProcPath(pid, msg.args.linkPath as string),
+          );
+          break;
+        }
+        case 'vfsLink': {
+          await kernel.vfs.link(
+            scopedProcPath(pid, msg.args.oldPath as string),
+            scopedProcPath(pid, msg.args.newPath as string),
           );
           break;
         }

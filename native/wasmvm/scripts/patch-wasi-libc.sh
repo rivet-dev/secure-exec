@@ -226,7 +226,8 @@ done
 
 # === Install sysroot overrides ===
 # Override files in patches/wasi-libc-overrides/ fix broken libc behavior
-# (fcntl, strfmon, open_wmemstream, swprintf, inet_ntop, pthread_attr, pthread_mutex, pthread_key, fmtmsg).
+# (fcntl, strfmon, open_wmemstream, swprintf, inet_ntop, pthread_attr, pthread_mutex, pthread_key, fmtmsg,
+# pthread_cond, pthread_rwlock, pthread_barrier, pthread_once, __tz).
 # realloc is handled by 0009-realloc-glibc-semantics.patch directly.
 # Overrides are compiled and added to libc.a so ALL WASM programs get the fixes.
 OVERRIDES_DIR="$WASMCORE_DIR/patches/wasi-libc-overrides"
@@ -254,7 +255,11 @@ if [ -d "$OVERRIDES_DIR" ] && ls "$OVERRIDES_DIR"/*.c >/dev/null 2>&1; then
     # are in a single mutex.o — remove it so our override replaces them all.
     # pthread_key: create, delete, and tsd_run_dtors are in a single .o — remove
     # via __pthread_key_create to replace the whole TSD compilation unit.
-    for sym in fcntl strfmon open_wmemstream swprintf inet_ntop __pthread_mutex_lock pthread_attr_setguardsize pthread_mutexattr_setrobust __pthread_key_create fmtmsg; do
+    # pthread_cond: all condvar functions in a single condvar.o
+    # pthread_rwlock: all rwlock functions in a single rwlock.o
+    # pthread_barrier: all barrier functions in a single barrier.o
+    # pthread_once: lives in stub-pthreads-good.o alongside __acquire_ptc etc.
+    for sym in fcntl strfmon open_wmemstream swprintf inet_ntop __pthread_mutex_lock pthread_attr_setguardsize pthread_mutexattr_setrobust __pthread_key_create fmtmsg pthread_cond_init pthread_cond_destroy __pthread_cond_timedwait __pthread_rwlock_rdlock pthread_rwlock_init pthread_rwlock_destroy pthread_barrier_init pthread_barrier_destroy pthread_once __secs_to_zone __tm_to_tzname; do
         OBJ_LINE=$("$WASI_NM" --print-file-name "$SYSROOT_LIB/libc.a" 2>/dev/null | { grep " [TW] ${sym}\$" || true; } | head -1)
         if [ -n "$OBJ_LINE" ]; then
             OBJ=$(echo "$OBJ_LINE" | extract_obj)

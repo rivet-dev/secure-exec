@@ -82,6 +82,8 @@ class KernelImpl implements Kernel {
 		return 0;
 	});
 	private fileLockManager = new FileLockManager();
+	/** Paths unlinked while FDs are still open — data persists until last close. */
+	private deferredUnlinks = new Set<string>();
 	private commandRegistry = new CommandRegistry();
 	readonly socketTable: SocketTable;
 	readonly timerTable: TimerTable;
@@ -838,6 +840,7 @@ class KernelImpl implements Kernel {
 					if (isPipe) this.pipeManager.close(descId);
 					if (isPty) this.ptyManager.close(descId);
 					this.fileLockManager.releaseByDescription(descId);
+					this.cleanupDeferredUnlink(entry.description.path);
 				}
 			},
 			fdSeek: async (pid, fd, offset, whence) => {
@@ -925,6 +928,7 @@ class KernelImpl implements Kernel {
 						if (this.ptyManager.isPty(targetDescId)) this.ptyManager.close(targetDescId);
 						this.fileLockManager.releaseByDescription(targetDescId);
 					}
+					this.cleanupDeferredUnlink(targetDesc.path);
 				}
 			},
 			fdDupMin: (pid, fd, minFd) => {
@@ -1007,6 +1011,18 @@ class KernelImpl implements Kernel {
 				const entry = table.get(fd);
 				if (!entry) throw new KernelError("EBADF", `bad file descriptor ${fd}`);
 				await this.fileLockManager.flock(entry.description.path, entry.description.id, operation);
+			},
+			unlinkFile: async (path) => {
+				if (!this.hasOpenDescriptionForPath(path)) {
+					await this.vfs.removeFile(path);
+					return;
+				}
+
+				const hiddenPath = `/.deleted/${Date.now()}-${Math.random().toString(36).slice(2)}`;
+				await this.vfs.mkdir("/.deleted", { recursive: true });
+				await this.vfs.rename(path, hiddenPath);
+				this.deferredUnlinks.add(hiddenPath);
+				this.updateDescriptionPaths(path, hiddenPath);
 			},
 
 			// Process operations
@@ -1335,6 +1351,7 @@ class KernelImpl implements Kernel {
 			if (this.pipeManager.isPipe(descId)) this.pipeManager.close(descId);
 			if (this.ptyManager.isPty(descId)) this.ptyManager.close(descId);
 			this.fileLockManager.releaseByDescription(descId);
+			this.cleanupDeferredUnlink(existing.description.path);
 		}
 		childTable.openWith(entry.description, entry.filetype, targetFd);
 	}
@@ -1407,6 +1424,7 @@ class KernelImpl implements Kernel {
 		for (const description of descriptions.values()) {
 			if (description.refCount <= 0) {
 				this.releaseDescriptionInode(description);
+				this.cleanupDeferredUnlink(description.path);
 			}
 		}
 
@@ -1520,6 +1538,36 @@ class KernelImpl implements Kernel {
 			return this.rawInMemoryFs.statByInode(description.inode);
 		}
 		return this.vfs.stat(description.path);
+	}
+
+	private hasOpenDescriptionForPath(path: string): boolean {
+		for (const table of this.fdTableManager.allTables()) {
+			for (const entry of table) {
+				if (entry.description.path === path && entry.description.refCount > 0) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	private updateDescriptionPaths(oldPath: string, newPath: string): void {
+		const seen = new Set<number>();
+		for (const table of this.fdTableManager.allTables()) {
+			for (const entry of table) {
+				if (entry.description.path === oldPath && !seen.has(entry.description.id)) {
+					entry.description.path = newPath;
+					seen.add(entry.description.id);
+				}
+			}
+		}
+	}
+
+	private cleanupDeferredUnlink(path: string): void {
+		if (!this.deferredUnlinks.has(path)) return;
+		if (this.hasOpenDescriptionForPath(path)) return;
+		this.deferredUnlinks.delete(path);
+		this.vfs.removeFile(path).catch(() => {});
 	}
 
 	private getTable(pid: number): ProcessFDTable {

@@ -7,7 +7,6 @@
  */
 
 import { KernelError } from "./types.js";
-import { WaitQueue } from "./wait.js";
 
 // flock operation flags (POSIX)
 export const LOCK_SH = 1;
@@ -15,16 +14,25 @@ export const LOCK_EX = 2;
 export const LOCK_UN = 8;
 export const LOCK_NB = 4;
 
-const FLOCK_WAIT_TIMEOUT_MS = 30_000;
+/** Max time a blocking flock waits before ETIMEDOUT (30s). */
+const FLOCK_TIMEOUT_MS = 30_000;
 
 interface LockEntry {
 	descriptionId: number;
 	type: "sh" | "ex";
 }
 
+interface Waiter {
+	descId: number;
+	op: number;
+	resolve: () => void;
+	reject: (err: Error) => void;
+	timer: ReturnType<typeof setTimeout>;
+}
+
 interface PathLockState {
 	holders: LockEntry[];
-	waiters: WaitQueue;
+	waiters: Waiter[];
 }
 
 export class FileLockManager {
@@ -49,25 +57,30 @@ export class FileLockManager {
 			return;
 		}
 
-		while (true) {
-			const state = this.getOrCreate(path);
-			if (this.tryAcquire(path, state, descId, op)) {
-				return;
-			}
-
-			if (nonBlocking) {
-				throw new KernelError("EAGAIN", "resource temporarily unavailable");
-			}
-
-			// Bound each wait so callers can re-check lock state without hanging forever.
-			const handle = state.waiters.enqueue(FLOCK_WAIT_TIMEOUT_MS);
-			try {
-				await handle.wait();
-			} finally {
-				state.waiters.remove(handle);
-				this.cleanupState(path, state);
-			}
+		const state = this.getOrCreate(path);
+		if (this.tryAcquire(state, descId, op)) {
+			this.descToPath.set(descId, path);
+			return;
 		}
+
+		if (nonBlocking) {
+			throw new KernelError("EAGAIN", "resource temporarily unavailable");
+		}
+
+		return new Promise<void>((resolve, reject) => {
+			const waiter: Waiter = {
+				descId,
+				op,
+				resolve,
+				reject,
+				timer: setTimeout(() => {
+					const idx = state.waiters.indexOf(waiter);
+					if (idx >= 0) state.waiters.splice(idx, 1);
+					reject(new KernelError("ETIMEDOUT", "flock timed out"));
+				}, FLOCK_TIMEOUT_MS),
+			};
+			state.waiters.push(waiter);
+		});
 	}
 
 	/** Release the lock held by a specific description on a path. */
@@ -79,9 +92,63 @@ export class FileLockManager {
 		if (idx >= 0) {
 			state.holders.splice(idx, 1);
 			this.descToPath.delete(descId);
-			state.waiters.wakeOne();
 		}
-		this.cleanupState(path, state);
+
+		this.processWaiters(path, state);
+
+		if (state.holders.length === 0 && state.waiters.length === 0) {
+			this.locks.delete(path);
+		}
+	}
+
+	/** Try to grant queued locks after a release. */
+	private processWaiters(path: string, state: PathLockState): void {
+		let i = 0;
+		while (i < state.waiters.length) {
+			const waiter = state.waiters[i];
+			if (!this.tryAcquire(state, waiter.descId, waiter.op)) {
+				i++;
+				continue;
+			}
+
+			state.waiters.splice(i, 1);
+			this.descToPath.set(waiter.descId, path);
+			clearTimeout(waiter.timer);
+			waiter.resolve();
+		}
+	}
+
+	/** Try to acquire the lock without blocking. Returns true on success. */
+	private tryAcquire(state: PathLockState, descId: number, op: number): boolean {
+		const existingIdx = state.holders.findIndex(h => h.descriptionId === descId);
+
+		if (op === LOCK_SH) {
+			const conflict = state.holders.some(
+				h => h.type === "ex" && h.descriptionId !== descId,
+			);
+			if (conflict) return false;
+
+			if (existingIdx >= 0) {
+				state.holders[existingIdx].type = "sh";
+			} else {
+				state.holders.push({ descriptionId: descId, type: "sh" });
+			}
+			return true;
+		}
+
+		if (op === LOCK_EX) {
+			const conflict = state.holders.some(h => h.descriptionId !== descId);
+			if (conflict) return false;
+
+			if (existingIdx >= 0) {
+				state.holders[existingIdx].type = "ex";
+			} else {
+				state.holders.push({ descriptionId: descId, type: "ex" });
+			}
+			return true;
+		}
+
+		throw new KernelError("EINVAL", `unsupported flock operation ${op}`);
 	}
 
 	/** Release all locks held by a specific description (called on FD close when refCount drops to 0). */
@@ -99,53 +166,9 @@ export class FileLockManager {
 	private getOrCreate(path: string): PathLockState {
 		let state = this.locks.get(path);
 		if (!state) {
-			state = { holders: [], waiters: new WaitQueue() };
+			state = { holders: [], waiters: [] };
 			this.locks.set(path, state);
 		}
 		return state;
-	}
-
-	private tryAcquire(path: string, state: PathLockState, descId: number, op: number): boolean {
-		const existingIdx = state.holders.findIndex(h => h.descriptionId === descId);
-
-		if (op === LOCK_SH) {
-			const conflict = state.holders.some(
-				h => h.type === "ex" && h.descriptionId !== descId,
-			);
-			if (conflict) {
-				return false;
-			}
-
-			if (existingIdx >= 0) {
-				state.holders[existingIdx].type = "sh";
-			} else {
-				state.holders.push({ descriptionId: descId, type: "sh" });
-				this.descToPath.set(descId, path);
-			}
-			return true;
-		}
-
-		if (op === LOCK_EX) {
-			const conflict = state.holders.some(h => h.descriptionId !== descId);
-			if (conflict) {
-				return false;
-			}
-
-			if (existingIdx >= 0) {
-				state.holders[existingIdx].type = "ex";
-			} else {
-				state.holders.push({ descriptionId: descId, type: "ex" });
-				this.descToPath.set(descId, path);
-			}
-			return true;
-		}
-
-		throw new KernelError("EINVAL", `unsupported flock operation ${op}`);
-	}
-
-	private cleanupState(path: string, state: PathLockState): void {
-		if (state.holders.length === 0 && state.waiters.pending === 0) {
-			this.locks.delete(path);
-		}
 	}
 }

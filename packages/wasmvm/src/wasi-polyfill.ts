@@ -1483,10 +1483,27 @@ export class WasiPolyfill {
 
   /**
    * Create a hard link.
-   * Not supported in our VFS -- return ENOSYS.
+   * Create a hard link.
    */
-  path_link(_old_fd: number, _old_flags: number, _old_path_ptr: number, _old_path_len: number, _new_fd: number, _new_path_ptr: number, _new_path_len: number): number {
-    return ERRNO_ENOSYS;
+  path_link(old_fd: number, _old_flags: number, old_path_ptr: number, old_path_len: number, new_fd: number, new_path_ptr: number, new_path_len: number): number {
+    const oldDirEntry = this.fdTable.get(old_fd);
+    if (!oldDirEntry) return ERRNO_EBADF;
+    if (!(oldDirEntry.rightsBase & RIGHT_PATH_LINK_SOURCE)) return ERRNO_EBADF;
+
+    const newDirEntry = this.fdTable.get(new_fd);
+    if (!newDirEntry) return ERRNO_EBADF;
+    if (!(newDirEntry.rightsBase & RIGHT_PATH_LINK_TARGET)) return ERRNO_EBADF;
+
+    const oldPath = this._resolveWasiPath(old_fd, old_path_ptr, old_path_len);
+    const newPath = this._resolveWasiPath(new_fd, new_path_ptr, new_path_len);
+    if (!oldPath || !newPath) return ERRNO_EBADF;
+
+    try {
+      this.vfs.link(oldPath, newPath);
+    } catch (e) {
+      return vfsErrorToErrno(e);
+    }
+    return ERRNO_SUCCESS;
   }
 
   // --- Socket stubs (US-009) -- all return ENOSYS ---

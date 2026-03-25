@@ -21,7 +21,7 @@ import {
 } from "./types.js";
 
 /** Maximum open FDs per process before allocations are rejected (EMFILE). */
-export const MAX_FDS_PER_PROCESS = 256;
+export const MAX_FDS_PER_PROCESS = 1024;
 
 /** Allocator function that creates a FileDescription with a unique ID. */
 export type DescriptionAllocator = (path: string, flags: number) => FileDescription;
@@ -326,6 +326,11 @@ export class FDTableManager {
 	/** Number of active FD tables. */
 	get size(): number {
 		return this.tables.size;
+	}
+
+	/** Iterate all FD tables (for scanning open descriptions). */
+	*allTables(): IterableIterator<ProcessFDTable> {
+		yield* this.tables.values();
 	}
 
 	/** Remove and close all FDs for a process. */

@@ -380,6 +380,8 @@ function createKernelVfs(): WasiVFS {
   const inoToPath = new Map<number, string>();
   const inoCache = new Map<number, WasiInode>();
   const populatedDirs = new Set<number>();
+  // Map VFS inodes to kernel inodes for hard link detection
+  const vfsInoToKernelIno = new Map<number, number>();
 
   function resolveIno(path: string, followSymlinks = true): number | null {
     if (permissionTier === 'isolated' && !isPathInCwd(path)) return null;
@@ -394,9 +396,24 @@ function createKernelVfs(): WasiVFS {
     const res = rpcCall(rpcName, { path });
     if (res.errno !== 0) return null;
 
-    // RPC response fields: { type, mode, uid, gid, nlink, size, atime, mtime, ctime }
+    // RPC response fields: { ino, type, mode, uid, gid, nlink, size, atime, mtime, ctime }
     const raw = JSON.parse(decoder.decode(res.data)) as Record<string, unknown>;
-    const ino = nextIno++;
+
+    // Use VFS inode for hard link detection — paths sharing a VFS ino get the same kernel ino
+    const vfsIno = raw.ino as number | undefined;
+    let ino: number;
+    if (vfsIno && vfsIno > 0) {
+      const existing = vfsInoToKernelIno.get(vfsIno);
+      if (existing !== undefined) {
+        ino = existing;
+      } else {
+        ino = nextIno++;
+        vfsInoToKernelIno.set(vfsIno, ino);
+      }
+    } else {
+      ino = nextIno++;
+    }
+
     pathToIno.set(path, ino);
     inoToPath.set(ino, path);
 
@@ -438,6 +455,18 @@ function createKernelVfs(): WasiVFS {
 
     const names = JSON.parse(decoder.decode(res.data)) as string[];
     for (const name of names) {
+      // POSIX . and .. → map to current/parent dir ino directly
+      if (name === '.') {
+        node.entries!.set('.', ino);
+        continue;
+      }
+      if (name === '..') {
+        const parentPath = path === '/' ? '/' : path.slice(0, path.lastIndexOf('/')) || '/';
+        const parentIno = pathToIno.get(parentPath) ?? resolveIno(parentPath);
+        if (parentIno !== null) node.entries!.set('..', parentIno);
+        continue;
+      }
+
       const childPath = path === '/' ? '/' + name : path + '/' + name;
       const childIno = resolveIno(childPath);
       if (childIno !== null) {
@@ -456,6 +485,9 @@ function createKernelVfs(): WasiVFS {
       if (isWriteBlocked()) throw new VfsError('EACCES', path);
       const res = rpcCall('vfsMkdir', { path });
       if (res.errno !== 0) throw new VfsError('EACCES', path);
+      // Invalidate parent dir — its nlink increases with new subdir
+      const parent = path.replace(/\/[^/]+$/, '') || '/';
+      pathToIno.delete(parent);
     },
     mkdirp(path: string): void {
       if (isWriteBlocked()) throw new VfsError('EACCES', path);
@@ -509,6 +541,13 @@ function createKernelVfs(): WasiVFS {
     },
     unlink(path: string): void {
       if (isWriteBlocked()) throw new VfsError('EACCES', path);
+      // Invalidate before unlink — hard link siblings need nlink refresh
+      const ino = pathToIno.get(path);
+      if (ino !== undefined) {
+        for (const [p, i] of pathToIno) {
+          if (i === ino) pathToIno.delete(p);
+        }
+      }
       const res = rpcCall('vfsUnlink', { path });
       if (res.errno !== 0) throw new VfsError('ENOENT', path);
     },
@@ -516,6 +555,10 @@ function createKernelVfs(): WasiVFS {
       if (isWriteBlocked()) throw new VfsError('EACCES', path);
       const res = rpcCall('vfsRmdir', { path });
       if (res.errno !== 0) throw new VfsError('ENOENT', path);
+      // Invalidate removed dir and parent (parent nlink changes)
+      pathToIno.delete(path);
+      const parent = path.replace(/\/[^/]+$/, '') || '/';
+      pathToIno.delete(parent);
     },
     rename(oldPath: string, newPath: string): void {
       if (isWriteBlocked()) throw new VfsError('EACCES', oldPath);
@@ -526,6 +569,14 @@ function createKernelVfs(): WasiVFS {
       if (isWriteBlocked()) throw new VfsError('EACCES', linkPath);
       const res = rpcCall('vfsSymlink', { target, linkPath });
       if (res.errno !== 0) throw new VfsError('EEXIST', linkPath);
+    },
+    link(oldPath: string, newPath: string): void {
+      if (isWriteBlocked()) throw new VfsError('EACCES', newPath);
+      const res = rpcCall('vfsLink', { oldPath, newPath });
+      if (res.errno !== 0) throw new VfsError('EEXIST', newPath);
+      // Invalidate cached inodes — nlink changed for both paths
+      pathToIno.delete(oldPath);
+      pathToIno.delete(newPath);
     },
     readlink(path: string): string {
       if (permissionTier === 'isolated' && !isPathInCwd(path)) {

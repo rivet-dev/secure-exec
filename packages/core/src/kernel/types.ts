@@ -276,6 +276,8 @@ export interface KernelInterface {
 	// Advisory file locking
 	/** Apply or remove an advisory lock on the file referenced by fd. */
 	flock(pid: number, fd: number, operation: number): Promise<void>;
+	/** Unlink a file while preserving open-FD access until the last close. */
+	unlinkFile(path: string): Promise<void>;
 
 	// Process operations
 	spawn(

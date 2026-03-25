@@ -9,7 +9,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createWasmVmRuntime } from '../src/driver.ts';
-import { createKernel } from '@secure-exec/core';
+import { createKernel, InMemoryFileSystem } from '@secure-exec/core';
 import type { Kernel } from '@secure-exec/core';
 import { existsSync } from 'node:fs';
 import { writeFile as fsWriteFile, readFile as fsReadFile, mkdtemp, rm, mkdir as fsMkdir } from 'node:fs/promises';
@@ -106,7 +106,7 @@ class SimpleVFS {
   }
   async readDir(path: string): Promise<string[]> {
     const prefix = path === '/' ? '/' : path + '/';
-    const entries: string[] = [];
+    const entries: string[] = ['.', '..'];
     for (const p of [...this.files.keys(), ...this.dirs]) {
       if (p !== path && p.startsWith(prefix)) {
         const rest = p.slice(prefix.length);
@@ -118,7 +118,7 @@ class SimpleVFS {
   async readDirWithTypes(path: string) {
     return (await this.readDir(path)).map((name) => ({
       name,
-      isDirectory: this.dirs.has(path === '/' ? `/${name}` : `${path}/${name}`),
+      isDirectory: name === '.' || name === '..' || this.dirs.has(path === '/' ? `/${name}` : `${path}/${name}`),
     }));
   }
   async writeFile(path: string, content: string | Uint8Array): Promise<void> {
@@ -155,12 +155,25 @@ class SimpleVFS {
     };
   }
   async chmod() {}
+  async truncate(path: string, length: number) {
+    const data = this.files.get(path);
+    if (!data) throw new Error(`ENOENT: ${path}`);
+    if (length >= data.byteLength) {
+      const padded = new Uint8Array(length);
+      padded.set(data);
+      this.files.set(path, padded);
+    } else {
+      this.files.set(path, data.slice(0, length));
+    }
+  }
   async rename(from: string, to: string) {
     const data = this.files.get(from);
     if (data) { this.files.set(to, data); this.files.delete(from); }
   }
   async unlink(path: string) { this.files.delete(path); this.symlinks.delete(path); }
+  async removeFile(path: string) { this.files.delete(path); this.symlinks.delete(path); }
   async rmdir(path: string) { this.dirs.delete(path); }
+  async removeDir(path: string) { this.dirs.delete(path); }
   async symlink(target: string, linkPath: string) {
     this.symlinks.set(linkPath, target);
     const parts = linkPath.split('/').filter(Boolean);
@@ -905,5 +918,221 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
     expect(normalizeStderr(wasm.stderr)).toBe(normalizeStderr(native.stderr));
     expect(wasm.stdout).toContain('host: localhost');
     expect(wasm.stdout).toContain('ip: 127.0.0.1');
+  });
+
+  // --- O_EXCL and O_TRUNC (US-050) ---
+
+  it('open_excl_test: O_CREAT|O_EXCL atomic creation matches native', async () => {
+    const native = await runNative('open_excl_test');
+
+    const stdoutChunks: Uint8Array[] = [];
+    const stderrChunks: Uint8Array[] = [];
+    const proc = kernel.spawn('open_excl_test', [], {
+      onStdout: (d) => stdoutChunks.push(d),
+      onStderr: (d) => stderrChunks.push(d),
+    });
+    proc.closeStdin();
+    const exitCode = await proc.wait();
+    const stdout = Buffer.concat(stdoutChunks).toString();
+    const stderr = Buffer.concat(stderrChunks).toString();
+
+    expect(exitCode).toBe(native.exitCode);
+    expect(stdout).toBe(native.stdout);
+    expect(normalizeStderr(stderr)).toBe(normalizeStderr(native.stderr));
+  });
+
+  it('readdir_dots_test: readdir includes . and .. entries', async () => {
+    const native = await runNative('readdir_dots_test');
+
+    const stdoutChunks: Uint8Array[] = [];
+    const stderrChunks: Uint8Array[] = [];
+    const proc = kernel.spawn('readdir_dots_test', [], {
+      onStdout: (d) => stdoutChunks.push(d),
+      onStderr: (d) => stderrChunks.push(d),
+    });
+    proc.closeStdin();
+    const exitCode = await proc.wait();
+    const stdout = Buffer.concat(stdoutChunks).toString();
+    const stderr = Buffer.concat(stderrChunks).toString();
+
+    expect(exitCode).toBe(native.exitCode);
+    expect(stdout).toBe(native.stdout);
+    expect(normalizeStderr(stderr)).toBe(normalizeStderr(native.stderr));
+  });
+
+  it('unlink_open_test: deferred unlink preserves data for open FDs', async () => {
+    const native = await runNative('unlink_open_test');
+
+    const stdoutChunks: Uint8Array[] = [];
+    const stderrChunks: Uint8Array[] = [];
+    const proc = kernel.spawn('unlink_open_test', [], {
+      onStdout: (d) => stdoutChunks.push(d),
+      onStderr: (d) => stderrChunks.push(d),
+    });
+    proc.closeStdin();
+    const exitCode = await proc.wait();
+    const stdout = Buffer.concat(stdoutChunks).toString();
+    const stderr = Buffer.concat(stderrChunks).toString();
+
+    expect(exitCode).toBe(native.exitCode);
+    expect(stdout).toBe(native.stdout);
+    expect(normalizeStderr(stderr)).toBe(normalizeStderr(native.stderr));
+  });
+
+  it('open_trunc_test: O_TRUNC truncates file on open matches native', async () => {
+    const native = await runNative('open_trunc_test');
+
+    const stdoutChunks: Uint8Array[] = [];
+    const stderrChunks: Uint8Array[] = [];
+    const proc = kernel.spawn('open_trunc_test', [], {
+      onStdout: (d) => stdoutChunks.push(d),
+      onStderr: (d) => stderrChunks.push(d),
+    });
+    proc.closeStdin();
+    const exitCode = await proc.wait();
+    const stdout = Buffer.concat(stdoutChunks).toString();
+    const stderr = Buffer.concat(stderrChunks).toString();
+
+    expect(exitCode).toBe(native.exitCode);
+    expect(stdout).toBe(native.stdout);
+    expect(normalizeStderr(stderr)).toBe(normalizeStderr(native.stderr));
+  });
+
+  it('inode_nlink_test: inode allocation and hard link nlink tracking', async () => {
+    const native = await runNative('inode_nlink_test');
+
+    // Use InMemoryFileSystem (not SimpleVFS) — this test needs link() support
+    const realVfs = new InMemoryFileSystem();
+    const realKernel = createKernel({ filesystem: realVfs });
+    await realKernel.mount(createWasmVmRuntime({ commandDirs: [C_BUILD_DIR, COMMANDS_DIR] }));
+
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    const proc = realKernel.spawn('inode_nlink_test', [], {
+      onStdout: (d) => stdoutChunks.push(d),
+      onStderr: (d) => stderrChunks.push(d),
+    });
+    proc.closeStdin();
+    const exitCode = await proc.wait();
+    const stdout = Buffer.concat(stdoutChunks).toString();
+    const stderr = Buffer.concat(stderrChunks).toString();
+
+    await realKernel.dispose();
+
+    // Both native and WASM must pass all checks (exit 0)
+    expect(native.exitCode).toBe(0);
+    expect(exitCode).toBe(0);
+
+    // Verify same number of PASS lines (don't compare inode values since they differ)
+    const nativePassCount = (native.stdout.match(/^PASS:/gm) || []).length;
+    const wasmPassCount = (stdout.match(/^PASS:/gm) || []).length;
+    expect(wasmPassCount).toBe(nativePassCount);
+    expect(normalizeStderr(stderr)).toBe(normalizeStderr(native.stderr));
+  });
+
+  it('fcntl_high_fd_test: fcntl works for FDs beyond 256', async () => {
+    const native = await runNative('fcntl_high_fd_test');
+
+    // Use InMemoryFileSystem — this test needs high FD support
+    const realVfs = new InMemoryFileSystem();
+    const realKernel = createKernel({ filesystem: realVfs });
+    await realKernel.mount(createWasmVmRuntime({ commandDirs: [C_BUILD_DIR, COMMANDS_DIR] }));
+
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    const proc = realKernel.spawn('fcntl_high_fd_test', [], {
+      onStdout: (d) => stdoutChunks.push(d),
+      onStderr: (d) => stderrChunks.push(d),
+    });
+    proc.closeStdin();
+    const exitCode = await proc.wait();
+    const stdout = Buffer.concat(stdoutChunks).toString();
+    const stderr = Buffer.concat(stderrChunks).toString();
+
+    await realKernel.dispose();
+
+    expect(native.exitCode).toBe(0);
+    expect(exitCode).toBe(0);
+
+    const nativePassCount = (native.stdout.match(/^PASS:/gm) || []).length;
+    const wasmPassCount = (stdout.match(/^PASS:/gm) || []).length;
+    expect(wasmPassCount).toBe(nativePassCount);
+    expect(normalizeStderr(stderr)).toBe(normalizeStderr(native.stderr));
+  });
+
+  it('pthread_sync_test: cond, once, rwlock, barrier primitives work', async () => {
+    const native = await runNative('pthread_sync_test');
+
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    const proc = kernel.spawn('pthread_sync_test', [], {
+      onStdout: (d) => stdoutChunks.push(d),
+      onStderr: (d) => stderrChunks.push(d),
+    });
+    proc.closeStdin();
+    const exitCode = await proc.wait();
+    const stdout = Buffer.concat(stdoutChunks).toString();
+    const stderr = Buffer.concat(stderrChunks).toString();
+
+    expect(native.exitCode).toBe(0);
+    expect(exitCode).toBe(0);
+
+    // Verify same number of PASS lines (errno values may differ between platforms)
+    const nativePassCount = (native.stdout.match(/^PASS:/gm) || []).length;
+    const wasmPassCount = (stdout.match(/^PASS:/gm) || []).length;
+    expect(wasmPassCount).toBe(nativePassCount);
+    expect(normalizeStderr(stderr)).toBe(normalizeStderr(native.stderr));
+  });
+
+  // --- Timezone support (US-060) ---
+
+  it('tz_test: POSIX TZ strings set correct localtime offset', async () => {
+    const native = await runNative('tz_test');
+
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    const proc = kernel.spawn('tz_test', [], {
+      onStdout: (d) => stdoutChunks.push(d),
+      onStderr: (d) => stderrChunks.push(d),
+    });
+    proc.closeStdin();
+    const exitCode = await proc.wait();
+    const stdout = Buffer.concat(stdoutChunks).toString();
+    const stderr = Buffer.concat(stderrChunks).toString();
+
+    expect(native.exitCode).toBe(0);
+    expect(exitCode).toBe(0);
+
+    // Verify same number of PASS lines (both should pass all 6 checks)
+    const nativePassCount = (native.stdout.match(/^PASS:/gm) || []).length;
+    const wasmPassCount = (stdout.match(/^PASS:/gm) || []).length;
+    expect(wasmPassCount).toBe(nativePassCount);
+    expect(normalizeStderr(stderr)).toBe(normalizeStderr(native.stderr));
+  });
+
+  // --- /proc/self entries (US-059) ---
+
+  it('proc_test: /proc/self/exe and /proc/self/cwd are readable', async () => {
+    const native = await runNative('proc_test');
+
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    const proc = kernel.spawn('proc_test', [], {
+      onStdout: (d) => stdoutChunks.push(d),
+      onStderr: (d) => stderrChunks.push(d),
+    });
+    proc.closeStdin();
+    const exitCode = await proc.wait();
+    const stdout = Buffer.concat(stdoutChunks).toString();
+    const stderr = Buffer.concat(stderrChunks).toString();
+
+    expect(native.exitCode).toBe(0);
+    expect(exitCode).toBe(0);
+
+    // Verify same number of PASS lines (paths differ between native and WASM)
+    const nativePassCount = (native.stdout.match(/^PASS:/gm) || []).length;
+    const wasmPassCount = (stdout.match(/^PASS:/gm) || []).length;
+    expect(wasmPassCount).toBe(nativePassCount);
+    expect(normalizeStderr(stderr)).toBe(normalizeStderr(native.stderr));
   });
 });
