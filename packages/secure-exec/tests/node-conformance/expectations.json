@@ -1,7 +1,7 @@
 {
   "nodeVersion": "22.14.0",
   "sourceCommit": "v22.14.0",
-  "lastUpdated": "2026-03-24",
+  "lastUpdated": "2026-03-25",
   "expectations": {
     "test-cluster-*.js": {
       "reason": "cluster module is Tier 5 (Unsupported) — require(cluster) throws by design",
@@ -1917,12 +1917,12 @@
       "expected": "fail"
     },
     "test-crypto-key-objects.js": {
-      "reason": "fs.readFileSync encoding argument handled as path component — test reads fixture PEM keys which fail to load",
+      "reason": "fs.readFileSync() still folds the encoding argument into the VFS path for PEM fixtures, so the test tries to open '/test/fixtures/rsa_public.pem/ascii'",
       "category": "implementation-gap",
       "expected": "fail"
     },
     "test-crypto-padding.js": {
-      "reason": "createCipheriv/createDecipheriv do not throw expected exceptions for invalid padding options",
+      "reason": "OpenSSL cipher errors still miss Node's `reason` field snapshot shape, so invalid-padding assertions on `ERR_OSSL_WRONG_FINAL_BLOCK_LENGTH` fail",
       "category": "implementation-gap",
       "expected": "fail"
     },
@@ -1932,17 +1932,17 @@
       "expected": "fail"
     },
     "test-crypto-private-decrypt-gh32240.js": {
-      "reason": "Sandbox KeyObject.export() does not honor encrypted PEM export options yet, so the encrypted-key failure path is not exercised faithfully",
+      "reason": "encrypted private-key decrypt path does not throw the expected failure, so the test hits `Missing expected exception`",
       "category": "implementation-gap",
       "expected": "fail"
     },
     "test-crypto-psychic-signatures.js": {
-      "reason": "ECDSA key import fails with unsupported key format — bridge cannot decode the specific ECDSA public key encoding used in test",
+      "reason": "ECDSA psychic-signature fixture parsing still crashes with `TypeError: Cannot read properties of null (reading '2')`",
       "category": "implementation-gap",
       "expected": "fail"
     },
     "test-crypto-rsa-dsa.js": {
-      "reason": "fs.readFileSync encoding argument handled as path component — test reads fixture PEM/cert files which fail to load",
+      "reason": "crypto cert fixtures are incomplete in the conformance VFS, so the test fails opening `/test/fixtures/rsa_cert.crt`",
       "category": "implementation-gap",
       "expected": "fail"
     },
@@ -1952,7 +1952,7 @@
       "expected": "fail"
     },
     "test-crypto-sign-verify.js": {
-      "reason": "fs.readFileSync encoding argument handled as path component — test reads fixture PEM/cert files which fail to load",
+      "reason": "crypto cert fixtures are incomplete in the conformance VFS, so the test fails opening `/test/fixtures/rsa_cert.crt`",
       "category": "implementation-gap",
       "expected": "fail"
     },
@@ -3251,7 +3251,7 @@
       "expected": "fail"
     },
     "test-webcrypto-sign-verify-eddsa.js": {
-      "reason": "WebCrypto subtle.importKey() not implemented — crypto.subtle API methods return undefined",
+      "reason": "EdDSA WebCrypto path still fails runtime assertions during sign/verify coverage (`AssertionError2: false == true`)",
       "category": "implementation-gap",
       "expected": "fail"
     },
@@ -3606,57 +3606,57 @@
       "expected": "fail"
     },
     "test-crypto-async-sign-verify.js": {
-      "reason": "uses crypto/webcrypto APIs not fully bridged in sandbox",
+      "reason": "crypto fixture set is incomplete in the conformance VFS, so async sign/verify fails opening `/test/fixtures/rsa_public.pem`",
       "category": "implementation-gap",
       "expected": "fail"
     },
     "test-crypto-certificate.js": {
-      "reason": "tests Node.js-specific error codes (ERR_*) — sandbox polyfills throw plain errors",
+      "reason": "crypto certificate fixtures are incomplete in the conformance VFS, so the test fails opening `/test/fixtures/rsa_spkac.spkac`",
       "category": "implementation-gap",
       "expected": "fail"
     },
     "test-crypto-classes.js": {
-      "reason": "uses crypto/webcrypto APIs not fully bridged in sandbox",
+      "reason": "constructor/factory parity is incomplete for crypto classes, so `createX()` instances fail `instanceof crypto.X` assertions",
       "category": "implementation-gap",
       "expected": "fail"
     },
     "test-crypto-dh-group-setters.js": {
-      "reason": "uses crypto/webcrypto APIs not fully bridged in sandbox",
+      "reason": "ECDH instances still expose `setPrivateKey()` where Node expects `undefined`, so the group-setter surface mismatches Node",
       "category": "implementation-gap",
       "expected": "fail"
     },
     "test-crypto-getcipherinfo.js": {
-      "reason": "tests Node.js-specific error codes (ERR_*) — sandbox polyfills throw plain errors",
+      "reason": "`crypto.getCipherInfo()` is still missing from the sandbox crypto surface",
       "category": "implementation-gap",
       "expected": "fail"
     },
     "test-crypto-hash.js": {
-      "reason": "tests Node.js-specific error codes (ERR_*) — sandbox polyfills throw plain errors",
+      "reason": "hash parity still breaks Node's identity-sensitive output assertions (`Values identical but not reference-equal`) in the vendored hash suite",
       "category": "implementation-gap",
       "expected": "fail"
     },
     "test-crypto-hkdf.js": {
-      "reason": "tests Node.js-specific error codes (ERR_*) — sandbox polyfills throw plain errors",
+      "reason": "`crypto.hkdf()` is still missing from the sandbox crypto surface, so the test gets `hkdf is not a function`",
       "category": "implementation-gap",
       "expected": "fail"
     },
     "test-crypto-hmac.js": {
-      "reason": "tests Node.js-specific error codes (ERR_*) — sandbox polyfills throw plain errors",
+      "reason": "`crypto.Hmac` constructor parity is incomplete, so calling it without `new` does not return a fresh Hmac instance like Node",
       "category": "implementation-gap",
       "expected": "fail"
     },
     "test-crypto-oneshot-hash.js": {
-      "reason": "tests Node.js-specific error codes (ERR_*) — sandbox polyfills throw plain errors",
+      "reason": "one-shot hash argument validation still misses Node's `ERR_INVALID_ARG_TYPE` error shape",
       "category": "implementation-gap",
       "expected": "fail"
     },
     "test-crypto-randomuuid.js": {
-      "reason": "tests Node.js-specific error codes (ERR_*) — sandbox polyfills throw plain errors",
+      "reason": "`require('crypto').randomUUID` is still missing from the module overlay, so the test gets `TypeError: randomUUID is not a function`",
       "category": "implementation-gap",
       "expected": "fail"
     },
     "test-crypto-webcrypto-aes-decrypt-tag-too-small.js": {
-      "reason": "crypto polyfill behavior gap",
+      "reason": "AES-GCM decrypt rejects undersized tags with `TypeError: Invalid authentication tag length: 0` instead of Node's `OperationError`",
       "category": "implementation-gap",
       "expected": "fail"
     },
@@ -5699,32 +5699,32 @@
       "expected": "fail"
     },
     "test-webcrypto-constructors.js": {
-      "reason": "crypto.subtle (WebCrypto) API not fully implemented in sandbox",
+      "reason": "WebCrypto constructors still throw the wrong error shape (`TypeError` with missing `ERR_ILLEGAL_CONSTRUCTOR` metadata)",
       "category": "implementation-gap",
       "expected": "fail"
     },
     "test-webcrypto-derivebits-hkdf.js": {
-      "reason": "crypto.subtle (WebCrypto) API not fully implemented in sandbox",
+      "reason": "HKDF deriveBits/deriveKey parity is still broken, and the vendored test aborts with `Deriving bits failed`",
       "category": "implementation-gap",
       "expected": "fail"
     },
     "test-webcrypto-digest.js": {
-      "reason": "uses crypto/webcrypto APIs not fully bridged in sandbox",
+      "reason": "WebCrypto digest argument validation still misses Node's `ERR_INVALID_ARG_TYPE` error metadata",
       "category": "implementation-gap",
       "expected": "fail"
     },
     "test-webcrypto-export-import-cfrg.js": {
-      "reason": "uses crypto/webcrypto APIs not fully bridged in sandbox",
+      "reason": "WebCrypto import/export fixture set is incomplete in the conformance VFS, so the test fails opening `/test/fixtures/rsa_public_2048.pem`",
       "category": "implementation-gap",
       "expected": "fail"
     },
     "test-webcrypto-export-import-ec.js": {
-      "reason": "uses crypto/webcrypto APIs not fully bridged in sandbox",
+      "reason": "WebCrypto import/export fixture set is incomplete in the conformance VFS, so the test fails opening `/test/fixtures/rsa_public_2048.pem`",
       "category": "implementation-gap",
       "expected": "fail"
     },
     "test-webcrypto-export-import-rsa.js": {
-      "reason": "uses crypto/webcrypto APIs not fully bridged in sandbox",
+      "reason": "WebCrypto import/export fixture set is incomplete in the conformance VFS, so the test fails opening `/test/fixtures/ec_p256_public.pem`",
       "category": "implementation-gap",
       "expected": "fail"
     },

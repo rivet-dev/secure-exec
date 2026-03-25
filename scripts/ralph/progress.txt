@@ -5,6 +5,7 @@
 - `CryptoKey` is bridged from both `process.ts` and `require-setup.ts`; keep their `instanceof` semantics aligned (for example via shared `Symbol.hasInstance` behavior) or `KeyObject.toCryptoKey()` conformance breaks even when key data is correct
 - When the session cipher bridge is unavailable, crypto constructor-time validation still has to happen eagerly through the one-shot host bridge; otherwise Node conformance misses `createCipheriv()`/`createDecipheriv()` throw-on-construction cases
 - `bridge-initial-globals.ts` intentionally removes `SharedArrayBuffer`; when vendored conformance files hard-require it, classify the expectation as a `security-constraint` instead of treating the failure as a crypto implementation bug
+- When a crypto/node-conformance expectation reason looks stale, temporarily remove just that entry and rerun the exact vendored file filter; the runner prints the real sandbox stderr, which is often a missing fixture or error-shape mismatch rather than the older bridge-gap guess
 - Conformance tests live in packages/secure-exec/tests/node-conformance/ — vendored Node.js v22.14.0 test/parallel/
 - Runner is packages/secure-exec/tests/node-conformance/runner.test.ts — run with: pnpm vitest run packages/secure-exec/tests/node-conformance/runner.test.ts
 - Expectations are in packages/secure-exec/tests/node-conformance/expectations.json — each entry has expected (pass/fail/skip), reason, category
@@ -82,5 +83,14 @@
 - **Learnings for future iterations:**
   - Cipher constructor assertions in Node’s vendored tests still need eager host validation even when the real streaming session bridge is unavailable; a validate-only call through the one-shot bridge keeps those semantics aligned without buffering ciphertext early.
   - CCM support needs buffered AAD/authTagLength handling in the isolate wrapper plus AEAD-aware auth-tag serialization on the host; fixing only one side leaves `getAuthTag()` and stream-mode CCM tests broken.
-  - `SharedArrayBuffer` is removed by design in the sandbox bootstrap, so conformance failures that stem from that global disappearing should be tracked as `security-constraint` expectations rather than crypto bridge regressions.
+- `SharedArrayBuffer` is removed by design in the sandbox bootstrap, so conformance failures that stem from that global disappearing should be tracked as `security-constraint` expectations rather than crypto bridge regressions.
+---
+## [2026-03-25 04:10 PDT] - US-007
+- Audited the remaining crypto and webcrypto conformance expectations, replaced stale placeholder reasons with specific reproducible failure causes, and kept the vacuous-skip / requires-v8-flags classifications aligned with the current runner behavior.
+- Regenerated the node conformance JSON/docs outputs after the expectation cleanup and marked the crypto cleanup story complete in the PRD.
+- Files changed: `packages/secure-exec/tests/node-conformance/expectations.json`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Several remaining crypto failures are currently fixture-VFS gaps (`/test/fixtures/*.pem`, `.crt`, `.spkac`), so expectation reasons should name the missing fixture path instead of blaming a generic bridge gap.
+  - The vendored runner is the quickest way to verify expectation accuracy: removing one entry and rerunning the exact file gives a concrete stderr snippet that can be copied into the reason.
+  - Module-overlay drift still shows up in conformance as missing APIs like `require('crypto').randomUUID` and `crypto.hkdf`, even when related globals or bridge handlers exist elsewhere.
 ---
