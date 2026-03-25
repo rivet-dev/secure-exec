@@ -1333,6 +1333,28 @@
               return Object.assign({}, algorithm);
             }
 
+            function createCompatibleCryptoKey(keyData) {
+              var key;
+              if (
+                globalThis.CryptoKey &&
+                globalThis.CryptoKey.prototype &&
+                globalThis.CryptoKey.prototype !== SandboxCryptoKey.prototype
+              ) {
+                key = Object.create(globalThis.CryptoKey.prototype);
+                key.type = keyData.type;
+                key.extractable = keyData.extractable;
+                key.algorithm = keyData.algorithm;
+                key.usages = keyData.usages;
+                key._keyData = keyData;
+                key._pem = keyData._pem;
+                key._jwk = keyData._jwk;
+                key._raw = keyData._raw;
+                key._sourceKeyObjectData = keyData._sourceKeyObjectData;
+                return key;
+              }
+              return new SandboxCryptoKey(keyData);
+            }
+
             function buildCryptoKeyFromKeyObject(keyObject, algorithm, extractable, usages) {
               var algo = normalizeAlgorithmInput(algorithm);
               var name = algo.name;
@@ -1346,7 +1368,7 @@
                   if (usages.some(function(usage) { return usage !== 'deriveBits' && usage !== 'deriveKey'; })) {
                     throw new SyntaxError('Unsupported key usage for a PBKDF2 key');
                   }
-                  return new SandboxCryptoKey({
+                  return createCompatibleCryptoKey({
                     type: 'secret',
                     extractable: extractable,
                     algorithm: { name: name },
@@ -1365,7 +1387,7 @@
                   if (!usages.length) {
                     throw new SyntaxError('Usages cannot be empty when importing a secret key.');
                   }
-                  return new SandboxCryptoKey({
+                  return createCompatibleCryptoKey({
                     type: 'secret',
                     extractable: extractable,
                     algorithm: {
@@ -1381,7 +1403,7 @@
                     },
                   });
                 }
-                return new SandboxCryptoKey({
+                return createCompatibleCryptoKey({
                   type: 'secret',
                   extractable: extractable,
                   algorithm: {
@@ -1428,7 +1450,7 @@
                 normalizedAlgo.hash = { name: normalizedAlgo.hash };
               }
 
-              return new SandboxCryptoKey({
+              return createCompatibleCryptoKey({
                 type: keyObject.type,
                 extractable: extractable,
                 algorithm: normalizedAlgo,
@@ -1668,8 +1690,32 @@
               configurable: true,
             });
 
+            Object.defineProperty(SandboxCryptoKey, Symbol.hasInstance, {
+              value: function(candidate) {
+                return !!(
+                  candidate &&
+                  typeof candidate === 'object' &&
+                  (
+                    candidate._keyData ||
+                    candidate[Symbol.toStringTag] === 'CryptoKey'
+                  )
+                );
+              },
+              configurable: true,
+            });
+
+            if (
+              globalThis.CryptoKey &&
+              globalThis.CryptoKey.prototype &&
+              globalThis.CryptoKey.prototype !== SandboxCryptoKey.prototype
+            ) {
+              Object.setPrototypeOf(SandboxCryptoKey.prototype, globalThis.CryptoKey.prototype);
+            }
+
             if (typeof globalThis.CryptoKey === 'undefined') {
               __requireExposeCustomGlobal('CryptoKey', SandboxCryptoKey);
+            } else if (globalThis.CryptoKey !== SandboxCryptoKey) {
+              globalThis.CryptoKey = SandboxCryptoKey;
             }
 
             function toBase64(data) {

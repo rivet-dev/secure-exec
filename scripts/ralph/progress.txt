@@ -2,6 +2,7 @@
 - Dispatch-multiplexed bridge globals must preserve `undefined` positional args plus host error `name`/`code`; raw `JSON.stringify(args)` and message-only errors break Node conformance in subtle ways
 - For stateful Node crypto APIs that browserify only partially emulates, bridge the real host objects by session id and forward methods instead of trying to recreate DH/ECDH state inside the isolate
 - Global WebCrypto is split across `packages/nodejs/src/bridge/process.ts` and `packages/core/isolate-runtime/src/inject/require-setup.ts`; keep `globalThis.crypto` and `require('crypto').webcrypto` aliased to the same object or conformance diverges
+- `CryptoKey` is bridged from both `process.ts` and `require-setup.ts`; keep their `instanceof` semantics aligned (for example via shared `Symbol.hasInstance` behavior) or `KeyObject.toCryptoKey()` conformance breaks even when key data is correct
 - Conformance tests live in packages/secure-exec/tests/node-conformance/ — vendored Node.js v22.14.0 test/parallel/
 - Runner is packages/secure-exec/tests/node-conformance/runner.test.ts — run with: pnpm vitest run packages/secure-exec/tests/node-conformance/runner.test.ts
 - Expectations are in packages/secure-exec/tests/node-conformance/expectations.json — each entry has expected (pass/fail/skip), reason, category
@@ -61,4 +62,14 @@
   - WebCrypto conformance splits between the always-present global bridge (`process.ts`) and the `require('crypto')` overlay (`require-setup.ts`); fixing only one side leaves the other test family broken.
   - The conformance runner treats newly passing expected-fails as hard failures, so expectation cleanup is part of the implementation, not a follow-up task.
   - `getRandomValues` needs both Node-style detached-receiver validation and DOMException-shaped argument errors; plain object methods or generic `TypeError`s are not enough.
+---
+
+## [2026-03-25 03:43 PDT] - US-005
+- Implemented host-backed WebCrypto sign/verify, ECDH deriveBits/deriveKey, and AES-KW wrapKey/unwrapKey paths in the crypto bridge, including algorithm normalization for ECDH public keys and label/context-like binary inputs.
+- Aligned `CryptoKey` interoperability across the global bridge and `require('crypto')` overlay so `KeyObject.toCryptoKey()` produces keys that satisfy `instanceof CryptoKey` and round-trip through `KeyObject.from()`, then updated crypto conformance expectations/report outputs.
+- Files changed: `packages/nodejs/src/bridge-handlers.ts`, `packages/nodejs/src/bridge/process.ts`, `packages/core/isolate-runtime/src/inject/require-setup.ts`, `packages/core/src/generated/isolate-runtime.ts`, `packages/secure-exec/tests/test-suite/node/crypto.ts`, `packages/secure-exec/tests/node-conformance/expectations.json`, `packages/secure-exec/tests/node-conformance/conformance-report.json`, `docs/nodejs-conformance-report.mdx`, `scripts/ralph/prd.json`
+- **Learnings for future iterations:**
+  - `KeyObject.toCryptoKey()` conformance can fail on constructor identity alone; matching serialized key data is not sufficient if the global and module `CryptoKey` classes diverge.
+  - When a crypto conformance test starts running instead of self-skipping, convert stale `vacuous-skip` expectations to a specific `implementation-gap` or `unsupported-module` reason immediately so the filtered suite stays actionable.
+  - For WebCrypto derivation algorithms, normalize nested key references and binary algorithm fields before bridge dispatch or host Node crypto receives shape-mismatched payloads.
 ---

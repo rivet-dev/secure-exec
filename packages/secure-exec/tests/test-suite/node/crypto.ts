@@ -1438,6 +1438,107 @@ export function runNodeCryptoSuite(context: NodeSuiteContext): void {
 		expect(exports.privType).toBe("private");
 	});
 
+	it("subtle.sign/verify RSA-PSS roundtrip", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			(async () => {
+				const crypto = require('crypto');
+				const keyPair = await crypto.subtle.generateKey(
+					{
+						name: 'RSA-PSS',
+						modulusLength: 2048,
+						publicExponent: new Uint8Array([1, 0, 1]),
+						hash: 'SHA-256',
+					},
+					true,
+					['sign', 'verify']
+				);
+				const data = new TextEncoder().encode('RSA-PSS signing test');
+				const signature = await crypto.subtle.sign(
+					{ name: 'RSA-PSS', saltLength: 32 }, keyPair.privateKey, data
+				);
+				const valid = await crypto.subtle.verify(
+					{ name: 'RSA-PSS', saltLength: 32 }, keyPair.publicKey, signature, data
+				);
+				module.exports = { valid, sigLen: signature.byteLength };
+			})();
+		`);
+		expect(result.code).toBe(0);
+		expect((result.exports as any).valid).toBe(true);
+		expect((result.exports as any).sigLen).toBe(256);
+	});
+
+	it("subtle.sign/verify ECDSA roundtrip", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			(async () => {
+				const crypto = require('crypto');
+				const keyPair = await crypto.subtle.generateKey(
+					{ name: 'ECDSA', namedCurve: 'P-256' },
+					true,
+					['sign', 'verify']
+				);
+				const data = new TextEncoder().encode('ECDSA signing test');
+				const signature = await crypto.subtle.sign(
+					{ name: 'ECDSA', hash: 'SHA-256' }, keyPair.privateKey, data
+				);
+				const valid = await crypto.subtle.verify(
+					{ name: 'ECDSA', hash: 'SHA-256' }, keyPair.publicKey, signature, data
+				);
+				module.exports = { valid, sigLen: signature.byteLength > 0 };
+			})();
+		`);
+		expect(result.code).toBe(0);
+		expect((result.exports as any).valid).toBe(true);
+		expect((result.exports as any).sigLen).toBe(true);
+	});
+
+	it("subtle.sign/verify Ed25519 roundtrip", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			(async () => {
+				const crypto = require('crypto');
+				const keyPair = await crypto.subtle.generateKey(
+					{ name: 'Ed25519' },
+					true,
+					['sign', 'verify']
+				);
+				const data = new TextEncoder().encode('Ed25519 signing test');
+				const signature = await crypto.subtle.sign(
+					{ name: 'Ed25519' }, keyPair.privateKey, data
+				);
+				const valid = await crypto.subtle.verify(
+					{ name: 'Ed25519' }, keyPair.publicKey, signature, data
+				);
+				module.exports = { valid, sigLen: signature.byteLength };
+			})();
+		`);
+		expect(result.code).toBe(0);
+		expect((result.exports as any).valid).toBe(true);
+		expect((result.exports as any).sigLen).toBe(64);
+	});
+
+	it("KeyObject.toCryptoKey returns the global CryptoKey type", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			(() => {
+				const { createSecretKey, randomBytes, KeyObject } = require('crypto');
+				const keyObject = createSecretKey(randomBytes(16));
+				const cryptoKey = keyObject.toCryptoKey('AES-GCM', true, ['encrypt', 'decrypt']);
+				const roundTrip = KeyObject.from(cryptoKey);
+				module.exports = {
+					instanceofGlobal: cryptoKey instanceof CryptoKey,
+					type: cryptoKey.type,
+					match: keyObject.equals(roundTrip),
+				};
+			})();
+		`);
+		expect(result.code).toBe(0);
+		expect((result.exports as any).instanceofGlobal).toBe(true);
+		expect((result.exports as any).type).toBe("secret");
+		expect((result.exports as any).match).toBe(true);
+	});
+
 	it("subtle.importKey raw + exportKey raw roundtrip", async () => {
 		const runtime = await context.createRuntime();
 		const result = await runtime.run(`
@@ -1648,6 +1749,115 @@ export function runNodeCryptoSuite(context: NodeSuiteContext): void {
 		const exports = result.exports as any;
 		expect(exports.match).toBe(true);
 		expect(exports.keyType).toBe("secret");
+	});
+
+	it("subtle.deriveBits ECDH matches on both sides", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			(async () => {
+				const crypto = require('crypto');
+				const [alice, bob] = await Promise.all([
+					crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits', 'deriveKey']),
+					crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits', 'deriveKey']),
+				]);
+				const [secret1, secret2] = await Promise.all([
+					crypto.subtle.deriveBits({ name: 'ECDH', public: bob.publicKey }, alice.privateKey, 128),
+					crypto.subtle.deriveBits({ name: 'ECDH', public: alice.publicKey }, bob.privateKey, 128),
+				]);
+				module.exports = {
+					match: Buffer.from(secret1).equals(Buffer.from(secret2)),
+					len: secret1.byteLength,
+				};
+			})();
+		`);
+		expect(result.code).toBe(0);
+		expect((result.exports as any).match).toBe(true);
+		expect((result.exports as any).len).toBe(16);
+	});
+
+	it("subtle.deriveKey ECDH produces matching HMAC keys", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			(async () => {
+				const crypto = require('crypto');
+				const [alice, bob] = await Promise.all([
+					crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey']),
+					crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey']),
+				]);
+				const [key1, key2] = await Promise.all([
+					crypto.subtle.deriveKey(
+						{ name: 'ECDH', public: bob.publicKey },
+						alice.privateKey,
+						{ name: 'HMAC', hash: 'SHA-256', length: 256 },
+						true,
+						['sign', 'verify']
+					),
+					crypto.subtle.deriveKey(
+						{ name: 'ECDH', public: alice.publicKey },
+						bob.privateKey,
+						{ name: 'HMAC', hash: 'SHA-256', length: 256 },
+						true,
+						['sign', 'verify']
+					),
+				]);
+				const [raw1, raw2] = await Promise.all([
+					crypto.subtle.exportKey('raw', key1),
+					crypto.subtle.exportKey('raw', key2),
+				]);
+				module.exports = {
+					match: Buffer.from(raw1).equals(Buffer.from(raw2)),
+					type: key1.type,
+				};
+			})();
+		`);
+		expect(result.code).toBe(0);
+		expect((result.exports as any).match).toBe(true);
+		expect((result.exports as any).type).toBe("secret");
+	});
+
+	it("subtle.wrapKey/unwrapKey AES-KW roundtrip", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			(async () => {
+				const crypto = require('crypto');
+				const wrappingKey = await crypto.subtle.generateKey(
+					{ name: 'AES-KW', length: 256 },
+					true,
+					['wrapKey', 'unwrapKey']
+				);
+				const keyToWrap = await crypto.subtle.generateKey(
+					{ name: 'AES-GCM', length: 256 },
+					true,
+					['encrypt', 'decrypt']
+				);
+				const wrapped = await crypto.subtle.wrapKey(
+					'raw',
+					keyToWrap,
+					wrappingKey,
+					{ name: 'AES-KW' }
+				);
+				const unwrapped = await crypto.subtle.unwrapKey(
+					'raw',
+					wrapped,
+					wrappingKey,
+					{ name: 'AES-KW' },
+					{ name: 'AES-GCM', length: 256 },
+					true,
+					['encrypt', 'decrypt']
+				);
+				const [raw1, raw2] = await Promise.all([
+					crypto.subtle.exportKey('raw', keyToWrap),
+					crypto.subtle.exportKey('raw', unwrapped),
+				]);
+				module.exports = {
+					match: Buffer.from(raw1).equals(Buffer.from(raw2)),
+					wrappedLen: wrapped.byteLength > 0,
+				};
+			})();
+		`);
+		expect(result.code).toBe(0);
+		expect((result.exports as any).match).toBe(true);
+		expect((result.exports as any).wrappedLen).toBe(true);
 	});
 
 	it("Diffie-Hellman group exchange preserves Buffer and encoded secret outputs", async () => {

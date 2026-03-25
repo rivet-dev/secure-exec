@@ -6643,9 +6643,9 @@
       "category": "vacuous-skip"
     },
     "test-crypto-no-algorithm.js": {
-      "expected": "pass",
-      "reason": "vacuous pass — test self-skips via common.skip() because common.hasCrypto is false",
-      "category": "vacuous-skip"
+      "expected": "fail",
+      "reason": "require('node:assert/strict') alias is not wired in the sandbox stdlib loader yet",
+      "category": "implementation-gap"
     },
     "test-crypto-op-during-process-exit.js": {
       "expected": "pass",
@@ -6671,6 +6671,11 @@
       "expected": "pass",
       "reason": "vacuous pass — test self-skips via common.skip() because common.hasCrypto is false",
       "category": "vacuous-skip"
+    },
+    "test-crypto-worker-thread.js": {
+      "expected": "fail",
+      "reason": "requires worker_threads module which is Tier 4 (Deferred)",
+      "category": "unsupported-module"
     },
     "test-dsa-fips-invalid-key.js": {
       "expected": "fail",

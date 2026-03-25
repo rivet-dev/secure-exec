@@ -1265,6 +1265,9 @@ function normalizeBridgeAlgorithm(algorithm: unknown): Record<string, unknown> {
 	const additionalData = normalized.additionalData;
 	const salt = normalized.salt;
 	const info = normalized.info;
+	const context = normalized.context;
+	const label = normalized.label;
+	const publicKey = normalized.public;
 
 	if (hash) {
 		normalized.hash = normalizeAlgorithm(hash);
@@ -1289,6 +1292,19 @@ function normalizeBridgeAlgorithm(algorithm: unknown): Record<string, unknown> {
 	}
 	if (info) {
 		normalized.info = toBase64(info as BufferSource);
+	}
+	if (context) {
+		normalized.context = toBase64(context as BufferSource);
+	}
+	if (label) {
+		normalized.label = toBase64(label as BufferSource);
+	}
+	if (
+		publicKey &&
+		typeof publicKey === "object" &&
+		"_keyData" in (publicKey as Record<string, unknown>)
+	) {
+		normalized.public = (publicKey as SandboxCryptoKey)._keyData;
 	}
 
 	return normalized;
@@ -1329,7 +1345,54 @@ Object.defineProperty(SandboxCryptoKey.prototype, Symbol.toStringTag, {
 	configurable: true,
 });
 
+Object.defineProperty(SandboxCryptoKey, Symbol.hasInstance, {
+	value(candidate: unknown) {
+		return Boolean(
+			candidate &&
+				typeof candidate === "object" &&
+				(
+					(candidate as { [kCryptoKeyToken]?: boolean })[kCryptoKeyToken] === true ||
+					(
+						"_keyData" in (candidate as Record<string, unknown>) &&
+						(candidate as { [Symbol.toStringTag]?: string })[Symbol.toStringTag] === "CryptoKey"
+					)
+				),
+		);
+	},
+	configurable: true,
+});
+
 function createCryptoKey(keyData: SandboxCryptoKeyData): SandboxCryptoKey {
+	const globalCryptoKey = globalThis.CryptoKey as
+		| ({ prototype?: object } & (new (...args: any[]) => CryptoKey))
+		| undefined;
+	if (
+		typeof globalCryptoKey === "function" &&
+		globalCryptoKey.prototype &&
+		globalCryptoKey.prototype !== SandboxCryptoKey.prototype
+	) {
+		const key = Object.create(globalCryptoKey.prototype) as SandboxCryptoKey & {
+			type: SandboxCryptoKey["type"];
+			extractable: SandboxCryptoKey["extractable"];
+			algorithm: SandboxCryptoKey["algorithm"];
+			usages: SandboxCryptoKey["usages"];
+			_keyData: SandboxCryptoKey["_keyData"];
+			_pem: SandboxCryptoKey["_pem"];
+			_jwk: SandboxCryptoKey["_jwk"];
+			_raw: SandboxCryptoKey["_raw"];
+			_sourceKeyObjectData: SandboxCryptoKey["_sourceKeyObjectData"];
+		};
+		key.type = keyData.type;
+		key.extractable = keyData.extractable;
+		key.algorithm = keyData.algorithm;
+		key.usages = keyData.usages;
+		key._keyData = keyData;
+		key._pem = keyData._pem;
+		key._jwk = keyData._jwk;
+		key._raw = keyData._raw;
+		key._sourceKeyObjectData = keyData._sourceKeyObjectData;
+		return key;
+	}
 	return new SandboxCryptoKey(keyData, kCryptoKeyToken);
 }
 
@@ -1539,6 +1602,56 @@ class SandboxSubtleCrypto {
 					algorithm: normalizeBridgeAlgorithm(algorithm),
 					baseKey: baseKey._keyData,
 					derivedKeyAlgorithm: normalizeBridgeAlgorithm(derivedKeyAlgorithm),
+					extractable,
+					usages: Array.from(keyUsages),
+				}),
+			) as { key: SandboxCryptoKeyData };
+			return createCryptoKey(result.key);
+		});
+	}
+
+	wrapKey(
+		format: string,
+		key: SandboxCryptoKey,
+		wrappingKey: SandboxCryptoKey,
+		wrapAlgorithm: unknown,
+	): Promise<ArrayBuffer> {
+		assertSubtleReceiver(this);
+
+		return Promise.resolve().then(() => {
+			const result = JSON.parse(
+				subtleCall({
+					op: "wrapKey",
+					format,
+					key: key._keyData,
+					wrappingKey: wrappingKey._keyData,
+					wrapAlgorithm: normalizeBridgeAlgorithm(wrapAlgorithm),
+				}),
+			) as { data: string };
+			return toArrayBuffer(result.data);
+		});
+	}
+
+	unwrapKey(
+		format: string,
+		wrappedKey: BufferSource,
+		unwrappingKey: SandboxCryptoKey,
+		unwrapAlgorithm: unknown,
+		unwrappedKeyAlgorithm: unknown,
+		extractable: boolean,
+		keyUsages: Iterable<string>,
+	): Promise<SandboxCryptoKey> {
+		assertSubtleReceiver(this);
+
+		return Promise.resolve().then(() => {
+			const result = JSON.parse(
+				subtleCall({
+					op: "unwrapKey",
+					format,
+					wrappedKey: toBase64(wrappedKey),
+					unwrappingKey: unwrappingKey._keyData,
+					unwrapAlgorithm: normalizeBridgeAlgorithm(unwrapAlgorithm),
+					unwrappedKeyAlgorithm: normalizeBridgeAlgorithm(unwrappedKeyAlgorithm),
 					extractable,
 					usages: Array.from(keyUsages),
 				}),

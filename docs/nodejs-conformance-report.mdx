@@ -12,24 +12,24 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 | Node.js version | 22.14.0 |
 | Source | v22.14.0 (test/parallel/) |
 | Total tests | 3532 |
-| Passing (genuine) | 741 (21.0%) |
-| Passing (vacuous self-skip) | 34 |
-| Passing (total) | 775 (21.9%) |
-| Expected fail | 2686 |
+| Passing (genuine) | 740 (21.0%) |
+| Passing (vacuous self-skip) | 33 |
+| Passing (total) | 773 (21.9%) |
+| Expected fail | 2688 |
 | Skip | 71 |
-| Last updated | 2026-03-25 |
+| Last updated | 2026-03-26 |
 
 ## Failure Categories
 
 | Category | Tests |
 | --- | --- |
-| implementation-gap | 1385 |
-| unsupported-module | 737 |
+| implementation-gap | 1386 |
+| unsupported-module | 738 |
 | requires-v8-flags | 239 |
 | requires-exec-path | 200 |
 | unsupported-api | 124 |
 | test-infra | 68 |
-| vacuous-skip | 34 |
+| vacuous-skip | 33 |
 | native-addon | 3 |
 | security-constraint | 1 |
 
@@ -70,7 +70,7 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 | constants | 1 | 0 | 1 | 0 | 0.0% |
 | corepack | 1 | 0 | 1 | 0 | 0.0% |
 | coverage | 1 | 0 | 1 | 0 | 0.0% |
-| crypto | 99 | 50 (13 vacuous) | 49 | 0 | 50.5% |
+| crypto | 99 | 48 (12 vacuous) | 51 | 0 | 48.5% |
 | cwd | 3 | 0 | 3 | 0 | 0.0% |
 | data | 1 | 0 | 1 | 0 | 0.0% |
 | datetime | 1 | 0 | 1 | 0 | 0.0% |
@@ -245,11 +245,11 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 | wrap | 4 | 0 | 4 | 0 | 0.0% |
 | x509 | 1 | 0 | 1 | 0 | 0.0% |
 | zlib | 53 | 17 | 33 | 3 | 34.0% |
-| **Total** | **3532** | **775** | **2686** | **71** | **22.4%** |
+| **Total** | **3532** | **773** | **2688** | **71** | **22.3%** |
 
 ## Expectations Detail
 
-### implementation-gap (704 entries)
+### implementation-gap (705 entries)
 
 **Glob patterns:**
 
@@ -260,9 +260,9 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 - `test-https-*.js` — https depends on tls — most tests fail on missing TLS fixture files or crypto API gaps
 - `test-http2-*.js` — http2 module bridged via kernel — most tests fail on API gaps, missing fixtures, or protocol handling
 
-*698 individual tests — see expectations.json for full list.*
+*699 individual tests — see expectations.json for full list.*
 
-### unsupported-module (190 entries)
+### unsupported-module (191 entries)
 
 **Glob patterns:**
 
@@ -278,7 +278,7 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 - `test-debugger-*.js` — debugger protocol requires inspector which is Tier 5 (Unsupported)
 - `test-quic-*.js` — QUIC protocol depends on tls which is Tier 4 (Deferred)
 
-<Accordion title="179 individual tests">
+<Accordion title="180 individual tests">
 
 | Test | Reason |
 | --- | --- |
@@ -458,6 +458,7 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 | `test-util-text-decoder.js` | requires node:test module which is not available in sandbox |
 | `test-warn-stream-wrap.js` | require('_stream_wrap') module not registered in sandbox — _stream_wrap is an internal Node.js alias not exposed through readable-stream polyfill |
 | `test-vm-timeout.js` | hangs — vm.runInNewContext with timeout blocks waiting for vm module (not available) |
+| `test-crypto-worker-thread.js` | requires worker_threads module which is Tier 4 (Deferred) |
 | `test-assert-fail-deprecation.js` | requires 'test' module (node:test) which is not available in sandbox |
 | `test-buffer-resizable.js` | requires 'test' module (node:test) which is not available in sandbox |
 | `test-stream-consumers.js` | stream/consumers submodule not available in stream polyfill |
@@ -800,9 +801,9 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 
 </Accordion>
 
-### vacuous-skip (34 entries)
+### vacuous-skip (33 entries)
 
-<Accordion title="34 individual tests">
+<Accordion title="33 individual tests">
 
 | Test | Reason |
 | --- | --- |
@@ -813,7 +814,6 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 | `test-crypto-keygen-empty-passphrase-no-error.js` | vacuous pass — test self-skips via common.skip() because common.hasCrypto is false |
 | `test-crypto-keygen-missing-oid.js` | vacuous pass — test self-skips via common.skip() because common.hasCrypto is false |
 | `test-crypto-keygen-promisify.js` | vacuous pass — test self-skips via common.skip() because common.hasCrypto is false |
-| `test-crypto-no-algorithm.js` | vacuous pass — test self-skips via common.skip() because common.hasCrypto is false |
 | `test-crypto-op-during-process-exit.js` | vacuous pass — test self-skips via common.skip() because common.hasCrypto is false |
 | `test-crypto-padding-aes256.js` | vacuous pass — test self-skips via common.skip() because common.hasCrypto is false |
 | `test-crypto-publicDecrypt-fails-first-time.js` | vacuous pass — test self-skips via common.skip() because common.hasCrypto is false |

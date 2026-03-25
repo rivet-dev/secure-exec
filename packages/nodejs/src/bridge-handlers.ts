@@ -38,6 +38,8 @@ import {
 	privateEncrypt,
 	publicDecrypt,
 	timingSafeEqual,
+	constants as cryptoConstants,
+	KeyObject,
 	type Cipher,
 	type Decipher,
 } from "node:crypto";
@@ -413,6 +415,194 @@ function normalizeBridgeAlgorithm(algorithm: unknown): string | null {
 	}
 
 	return String(algorithm);
+}
+
+interface BridgeCryptoKeyData {
+	type: "public" | "private" | "secret";
+	extractable: boolean;
+	algorithm: Record<string, unknown>;
+	usages: string[];
+	_pem?: string;
+	_jwk?: Record<string, unknown>;
+	_raw?: string;
+	_sourceKeyObjectData?: Record<string, unknown>;
+}
+
+function decodeBridgeBuffer(data: unknown): Buffer {
+	return Buffer.from(String(data), "base64");
+}
+
+function sanitizeJsonValue(value: unknown): unknown {
+	if (typeof value === "bigint") {
+		return Number(value);
+	}
+	if (Array.isArray(value)) {
+		return value.map((entry) => sanitizeJsonValue(entry));
+	}
+	if (!value || typeof value !== "object") {
+		return value;
+	}
+	return Object.fromEntries(
+		Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
+			key,
+			sanitizeJsonValue(entry),
+		]),
+	);
+}
+
+function serializeCryptoKeyDataFromKeyObject(
+	keyObject: KeyObject,
+	type: "public" | "private" | "secret",
+	algorithm: Record<string, unknown>,
+	extractable: boolean,
+	usages: string[],
+): BridgeCryptoKeyData {
+	if (type === "secret") {
+		return {
+			type,
+			algorithm,
+			extractable,
+			usages,
+			_raw: keyObject.export().toString("base64"),
+			_sourceKeyObjectData: {
+				type: "secret",
+				raw: keyObject.export().toString("base64"),
+			},
+		};
+	}
+
+	return {
+		type,
+		algorithm,
+		extractable,
+		usages,
+		_pem:
+			type === "private"
+				? (keyObject.export({ type: "pkcs8", format: "pem" }) as string)
+				: (keyObject.export({ type: "spki", format: "pem" }) as string),
+		_sourceKeyObjectData: {
+			type,
+			pem:
+				type === "private"
+					? (keyObject.export({ type: "pkcs8", format: "pem" }) as string)
+					: (keyObject.export({ type: "spki", format: "pem" }) as string),
+			asymmetricKeyType: keyObject.asymmetricKeyType,
+			asymmetricKeyDetails: sanitizeJsonValue(keyObject.asymmetricKeyDetails),
+		},
+	};
+}
+
+function deserializeCryptoKeyObject(key: BridgeCryptoKeyData): KeyObject {
+	if (key.type === "secret") {
+		return createSecretKey(decodeBridgeBuffer(key._raw));
+	}
+
+	return key.type === "private"
+		? createPrivateKey(key._pem ?? "")
+		: createPublicKey(key._pem ?? "");
+}
+
+function normalizeHmacLength(hashName: string, explicitLength?: unknown): number {
+	if (typeof explicitLength === "number") {
+		return explicitLength;
+	}
+
+	switch (hashName) {
+		case "SHA-1":
+		case "SHA-256":
+			return 512;
+		case "SHA-384":
+		case "SHA-512":
+			return 1024;
+		default:
+			return 512;
+	}
+}
+
+function sliceDerivedBits(secret: Buffer, length: unknown): Buffer {
+	if (length === undefined || length === null) {
+		return Buffer.from(secret);
+	}
+
+	const requestedBits = Number(length);
+	const maxBits = secret.byteLength * 8;
+	if (requestedBits > maxBits) {
+		throw new Error("derived bit length is too small");
+	}
+
+	const requestedBytes = Math.ceil(requestedBits / 8);
+	const derived = Buffer.from(secret.subarray(0, requestedBytes));
+	const remainder = requestedBits % 8;
+	if (remainder !== 0 && derived.length > 0) {
+		derived[derived.length - 1] &= 0xff << (8 - remainder);
+	}
+	return derived;
+}
+
+function deriveSecretKeyData(
+	derivedKeyAlgorithm: Record<string, unknown> | string,
+	extractable: boolean,
+	usages: string[],
+	secret: Buffer,
+): BridgeCryptoKeyData {
+	const normalizedAlgorithm =
+		typeof derivedKeyAlgorithm === "string"
+			? { name: derivedKeyAlgorithm }
+			: derivedKeyAlgorithm;
+	const algorithmName = String(normalizedAlgorithm.name ?? "");
+	if (algorithmName === "HMAC") {
+		const hashName =
+			typeof normalizedAlgorithm.hash === "string"
+				? normalizedAlgorithm.hash
+				: String((normalizedAlgorithm.hash as { name?: string } | undefined)?.name ?? "");
+		const lengthBits = normalizeHmacLength(hashName, normalizedAlgorithm.length);
+		const keyBytes = Buffer.from(secret.subarray(0, Math.ceil(lengthBits / 8)));
+		return serializeCryptoKeyDataFromKeyObject(
+			createSecretKey(keyBytes),
+			"secret",
+			{
+				name: "HMAC",
+				hash: { name: hashName },
+				length: lengthBits,
+			},
+			extractable,
+			usages,
+		);
+	}
+
+	const lengthBits = Number(normalizedAlgorithm.length ?? secret.byteLength * 8);
+	const keyBytes = Buffer.from(secret.subarray(0, Math.ceil(lengthBits / 8)));
+	return serializeCryptoKeyDataFromKeyObject(
+		createSecretKey(keyBytes),
+		"secret",
+		{
+			...normalizedAlgorithm,
+			length: lengthBits,
+		},
+		extractable,
+		usages,
+	);
+}
+
+function resolveDerivedKeyLengthBits(
+	derivedKeyAlgorithm: Record<string, unknown> | string,
+	fallbackBits: number,
+): number {
+	const normalizedAlgorithm =
+		typeof derivedKeyAlgorithm === "string"
+			? { name: derivedKeyAlgorithm }
+			: derivedKeyAlgorithm;
+	if (typeof normalizedAlgorithm.length === "number") {
+		return normalizedAlgorithm.length;
+	}
+	if (normalizedAlgorithm.name === "HMAC") {
+		const hashName =
+			typeof normalizedAlgorithm.hash === "string"
+				? normalizedAlgorithm.hash
+				: String((normalizedAlgorithm.hash as { name?: string } | undefined)?.name ?? "");
+		return normalizeHmacLength(hashName);
+	}
+	return fallbackBits;
 }
 
 /**
@@ -838,18 +1028,19 @@ export function buildCryptoBridgeHandlers(): CryptoBridgeResult {
 				if (
 					algoName === "AES-GCM" ||
 					algoName === "AES-CBC" ||
-					algoName === "AES-CTR"
+					algoName === "AES-CTR" ||
+					algoName === "AES-KW"
 				) {
 					const keyBytes = Buffer.allocUnsafe(req.algorithm.length / 8);
 					randomFillSync(keyBytes);
 					return JSON.stringify({
-						key: {
-							type: "secret",
-							algorithm: req.algorithm,
-							extractable: req.extractable,
-							usages: req.usages,
-							_raw: keyBytes.toString("base64"),
-						},
+						key: serializeCryptoKeyDataFromKeyObject(
+							createSecretKey(keyBytes),
+							"secret",
+							req.algorithm,
+							req.extractable,
+							req.usages,
+						),
 					});
 				}
 				if (algoName === "HMAC") {
@@ -857,25 +1048,21 @@ export function buildCryptoBridgeHandlers(): CryptoBridgeResult {
 						typeof req.algorithm.hash === "string"
 							? req.algorithm.hash
 							: req.algorithm.hash.name;
-					const hashLens: Record<string, number> = {
-						"SHA-1": 20,
-						"SHA-256": 32,
-						"SHA-384": 48,
-						"SHA-512": 64,
-					};
-					const len = req.algorithm.length
-						? req.algorithm.length / 8
-						: hashLens[hashName] || 32;
+					const len = normalizeHmacLength(hashName, req.algorithm.length) / 8;
 					const keyBytes = Buffer.allocUnsafe(len);
 					randomFillSync(keyBytes);
 					return JSON.stringify({
-						key: {
-							type: "secret",
-							algorithm: req.algorithm,
-							extractable: req.extractable,
-							usages: req.usages,
-							_raw: keyBytes.toString("base64"),
-						},
+						key: serializeCryptoKeyDataFromKeyObject(
+							createSecretKey(keyBytes),
+							"secret",
+							{
+								...req.algorithm,
+								hash: { name: hashName },
+								length: len * 8,
+							},
+							req.extractable,
+							req.usages,
+						),
 					});
 				}
 				if (
@@ -906,25 +1093,93 @@ export function buildCryptoBridgeHandlers(): CryptoBridgeResult {
 							format: "pem" as const,
 						},
 					});
+					const publicKeyObject = createPublicKey(publicKey);
+					const privateKeyObject = createPrivateKey(privateKey);
 					return JSON.stringify({
-						publicKey: {
-							type: "public",
-							algorithm: req.algorithm,
-							extractable: req.extractable,
-							usages: req.usages.filter((u: string) =>
+						publicKey: serializeCryptoKeyDataFromKeyObject(
+							publicKeyObject,
+							"public",
+							req.algorithm,
+							req.extractable,
+							req.usages.filter((u: string) =>
 								["verify", "encrypt", "wrapKey"].includes(u),
 							),
-							_pem: publicKey,
-						},
-						privateKey: {
-							type: "private",
-							algorithm: req.algorithm,
-							extractable: req.extractable,
-							usages: req.usages.filter((u: string) =>
+						),
+						privateKey: serializeCryptoKeyDataFromKeyObject(
+							privateKeyObject,
+							"private",
+							req.algorithm,
+							req.extractable,
+							req.usages.filter((u: string) =>
 								["sign", "decrypt", "unwrapKey"].includes(u),
 							),
-							_pem: privateKey,
-						},
+						),
+					});
+				}
+				if (algoName === "ECDSA" || algoName === "ECDH") {
+					const { publicKey, privateKey } = generateKeyPairSync("ec", {
+						namedCurve: String(req.algorithm.namedCurve),
+						publicKeyEncoding: { type: "spki", format: "pem" },
+						privateKeyEncoding: { type: "pkcs8", format: "pem" },
+					});
+					return JSON.stringify({
+						publicKey: serializeCryptoKeyDataFromKeyObject(
+							createPublicKey(publicKey),
+							"public",
+							{ ...req.algorithm, name: algoName },
+							req.extractable,
+							req.usages.filter((u: string) =>
+								algoName === "ECDSA"
+									? ["verify"].includes(u)
+									: ["deriveBits", "deriveKey"].includes(u),
+							),
+						),
+						privateKey: serializeCryptoKeyDataFromKeyObject(
+							createPrivateKey(privateKey),
+							"private",
+							{ ...req.algorithm, name: algoName },
+							req.extractable,
+							req.usages.filter((u: string) =>
+								algoName === "ECDSA"
+									? ["sign"].includes(u)
+									: ["deriveBits", "deriveKey"].includes(u),
+							),
+						),
+					});
+				}
+				if (["Ed25519", "Ed448", "X25519", "X448"].includes(algoName)) {
+					const keyPair =
+						algoName === "Ed25519"
+							? generateKeyPairSync("ed25519")
+							: algoName === "Ed448"
+								? generateKeyPairSync("ed448")
+								: algoName === "X25519"
+									? generateKeyPairSync("x25519")
+									: generateKeyPairSync("x448");
+					const { publicKey, privateKey } = keyPair;
+					return JSON.stringify({
+						publicKey: serializeCryptoKeyDataFromKeyObject(
+							publicKey,
+							"public",
+							{ name: algoName },
+							req.extractable,
+							req.usages.filter((u: string) =>
+								algoName.startsWith("Ed")
+									? ["verify"].includes(u)
+									: ["deriveBits", "deriveKey"].includes(u),
+							),
+						),
+						privateKey: serializeCryptoKeyDataFromKeyObject(
+							privateKey,
+							"private",
+							{ name: algoName },
+							req.extractable,
+							req.usages.filter((u: string) =>
+								algoName.startsWith("Ed")
+									? ["sign"].includes(u)
+									: ["deriveBits", "deriveKey"].includes(u),
+							),
+						),
 					});
 				}
 				throw new Error(`Unsupported key algorithm: ${algoName}`);
@@ -933,13 +1188,22 @@ export function buildCryptoBridgeHandlers(): CryptoBridgeResult {
 				const { format, keyData, algorithm, extractable, usages } = req;
 				if (format === "raw") {
 					return JSON.stringify({
-						key: {
-							type: "secret",
-							algorithm,
+						key: serializeCryptoKeyDataFromKeyObject(
+							createSecretKey(Buffer.from(keyData, "base64")),
+							"secret",
+							algorithm.name === "HMAC" && !algorithm.length
+								? {
+										...algorithm,
+										hash:
+											typeof algorithm.hash === "string"
+												? { name: algorithm.hash }
+												: algorithm.hash,
+										length: Buffer.from(keyData, "base64").byteLength * 8,
+								  }
+								: algorithm,
 							extractable,
 							usages,
-							_raw: keyData,
-						},
+						),
 					});
 				}
 				if (format === "jwk") {
@@ -948,13 +1212,13 @@ export function buildCryptoBridgeHandlers(): CryptoBridgeResult {
 					if (jwk.kty === "oct") {
 						const raw = Buffer.from(jwk.k, "base64url");
 						return JSON.stringify({
-							key: {
-								type: "secret",
+							key: serializeCryptoKeyDataFromKeyObject(
+								createSecretKey(raw),
+								"secret",
 								algorithm,
 								extractable,
 								usages,
-								_raw: raw.toString("base64"),
-							},
+							),
 						});
 					}
 					if (jwk.d) {
@@ -964,13 +1228,25 @@ export function buildCryptoBridgeHandlers(): CryptoBridgeResult {
 							format: "pem",
 						}) as string;
 						return JSON.stringify({
-							key: { type: "private", algorithm, extractable, usages, _pem: pem },
+							key: serializeCryptoKeyDataFromKeyObject(
+								createPrivateKey(pem),
+								"private",
+								algorithm,
+								extractable,
+								usages,
+							),
 						});
 					}
 					const keyObj = createPublicKey({ key: jwk, format: "jwk" });
 					const pem = keyObj.export({ type: "spki", format: "pem" }) as string;
 					return JSON.stringify({
-						key: { type: "public", algorithm, extractable, usages, _pem: pem },
+						key: serializeCryptoKeyDataFromKeyObject(
+							createPublicKey(pem),
+							"public",
+							algorithm,
+							extractable,
+							usages,
+						),
 					});
 				}
 				if (format === "pkcs8") {
@@ -985,7 +1261,13 @@ export function buildCryptoBridgeHandlers(): CryptoBridgeResult {
 						format: "pem",
 					}) as string;
 					return JSON.stringify({
-						key: { type: "private", algorithm, extractable, usages, _pem: pem },
+						key: serializeCryptoKeyDataFromKeyObject(
+							createPrivateKey(pem),
+							"private",
+							algorithm,
+							extractable,
+							usages,
+						),
 					});
 				}
 				if (format === "spki") {
@@ -997,7 +1279,13 @@ export function buildCryptoBridgeHandlers(): CryptoBridgeResult {
 					});
 					const pem = keyObj.export({ type: "spki", format: "pem" }) as string;
 					return JSON.stringify({
-						key: { type: "public", algorithm, extractable, usages, _pem: pem },
+						key: serializeCryptoKeyDataFromKeyObject(
+							createPublicKey(pem),
+							"public",
+							algorithm,
+							extractable,
+							usages,
+						),
 					});
 				}
 				throw new Error(`Unsupported import format: ${format}`);
@@ -1144,12 +1432,12 @@ export function buildCryptoBridgeHandlers(): CryptoBridgeResult {
 				throw new Error(`Unsupported decrypt algorithm: ${algoName}`);
 			}
 			case "sign": {
-				const { key, data } = req;
+				const { key, data, algorithm } = req;
 				const dataBytes = Buffer.from(data, "base64");
 				const algoName = key.algorithm.name;
 				if (algoName === "HMAC") {
 					const rawKey = Buffer.from(key._raw, "base64");
-					const hashAlgo = normalizeHash(key.algorithm.hash);
+					const hashAlgo = normalizeHash(algorithm.hash ?? key.algorithm.hash);
 					return JSON.stringify({
 						data: createHmac(hashAlgo, rawKey)
 							.update(dataBytes)
@@ -1163,16 +1451,44 @@ export function buildCryptoBridgeHandlers(): CryptoBridgeResult {
 						data: sign(hashAlgo, dataBytes, pkey).toString("base64"),
 					});
 				}
+				if (algoName === "RSA-PSS") {
+					const hashAlgo = normalizeHash(key.algorithm.hash);
+					return JSON.stringify({
+						data: sign(hashAlgo, dataBytes, {
+							key: createPrivateKey(key._pem),
+							padding: cryptoConstants.RSA_PKCS1_PSS_PADDING,
+							saltLength: algorithm.saltLength,
+						}).toString("base64"),
+					});
+				}
+				if (algoName === "ECDSA") {
+					const hashAlgo = normalizeHash(algorithm.hash ?? key.algorithm.hash);
+					return JSON.stringify({
+						data: sign(hashAlgo, dataBytes, createPrivateKey(key._pem)).toString("base64"),
+					});
+				}
+				if (algoName === "Ed25519" || algoName === "Ed448") {
+					if (
+						algoName === "Ed448" &&
+						algorithm.context &&
+						Buffer.from(algorithm.context, "base64").byteLength > 0
+					) {
+						throw new Error("Non zero-length context is not yet supported");
+					}
+					return JSON.stringify({
+						data: sign(null, dataBytes, createPrivateKey(key._pem)).toString("base64"),
+					});
+				}
 				throw new Error(`Unsupported sign algorithm: ${algoName}`);
 			}
 			case "verify": {
-				const { key, signature, data } = req;
+				const { key, signature, data, algorithm } = req;
 				const dataBytes = Buffer.from(data, "base64");
 				const sigBytes = Buffer.from(signature, "base64");
 				const algoName = key.algorithm.name;
 				if (algoName === "HMAC") {
 					const rawKey = Buffer.from(key._raw, "base64");
-					const hashAlgo = normalizeHash(key.algorithm.hash);
+					const hashAlgo = normalizeHash(algorithm.hash ?? key.algorithm.hash);
 					const expected = createHmac(hashAlgo, rawKey)
 						.update(dataBytes)
 						.digest();
@@ -1189,14 +1505,42 @@ export function buildCryptoBridgeHandlers(): CryptoBridgeResult {
 						result: verify(hashAlgo, dataBytes, pkey, sigBytes),
 					});
 				}
+				if (algoName === "RSA-PSS") {
+					const hashAlgo = normalizeHash(key.algorithm.hash);
+					return JSON.stringify({
+						result: verify(hashAlgo, dataBytes, {
+							key: createPublicKey(key._pem),
+							padding: cryptoConstants.RSA_PKCS1_PSS_PADDING,
+							saltLength: algorithm.saltLength,
+						}, sigBytes),
+					});
+				}
+				if (algoName === "ECDSA") {
+					const hashAlgo = normalizeHash(algorithm.hash ?? key.algorithm.hash);
+					return JSON.stringify({
+						result: verify(hashAlgo, dataBytes, createPublicKey(key._pem), sigBytes),
+					});
+				}
+				if (algoName === "Ed25519" || algoName === "Ed448") {
+					if (
+						algoName === "Ed448" &&
+						algorithm.context &&
+						Buffer.from(algorithm.context, "base64").byteLength > 0
+					) {
+						throw new Error("Non zero-length context is not yet supported");
+					}
+					return JSON.stringify({
+						result: verify(null, dataBytes, createPublicKey(key._pem), sigBytes),
+					});
+				}
 				throw new Error(`Unsupported verify algorithm: ${algoName}`);
 			}
 			case "deriveBits": {
 				const { algorithm, baseKey, length } = req;
 				const algoName = algorithm.name;
-				const bitLength = length;
-				const byteLength = bitLength / 8;
 				if (algoName === "PBKDF2") {
+					const bitLength = Number(length);
+					const byteLength = bitLength / 8;
 					const password = Buffer.from(baseKey._raw, "base64");
 					const salt = Buffer.from(algorithm.salt, "base64");
 					const hash = normalizeHash(algorithm.hash);
@@ -1210,6 +1554,8 @@ export function buildCryptoBridgeHandlers(): CryptoBridgeResult {
 					return JSON.stringify({ data: derived.toString("base64") });
 				}
 				if (algoName === "HKDF") {
+					const bitLength = Number(length);
+					const byteLength = bitLength / 8;
 					const ikm = Buffer.from(baseKey._raw, "base64");
 					const salt = Buffer.from(algorithm.salt, "base64");
 					const info = Buffer.from(algorithm.info, "base64");
@@ -1218,15 +1564,27 @@ export function buildCryptoBridgeHandlers(): CryptoBridgeResult {
 						hkdfSync(hash, ikm, salt, info, byteLength),
 					);
 					return JSON.stringify({ data: derived.toString("base64") });
+				}
+				if (algoName === "ECDH" || algoName === "X25519" || algoName === "X448") {
+					const secret = diffieHellman({
+						privateKey: deserializeCryptoKeyObject(baseKey),
+						publicKey: deserializeCryptoKeyObject(algorithm.public),
+					});
+					return JSON.stringify({
+						data: sliceDerivedBits(secret, length).toString("base64"),
+					});
 				}
 				throw new Error(`Unsupported deriveBits algorithm: ${algoName}`);
 			}
 			case "deriveKey": {
 				const { algorithm, baseKey, derivedKeyAlgorithm, extractable, usages } = req;
 				const algoName = algorithm.name;
-				const keyLengthBits = derivedKeyAlgorithm.length;
-				const byteLength = keyLengthBits / 8;
 				if (algoName === "PBKDF2") {
+					const keyLengthBits = resolveDerivedKeyLengthBits(
+						derivedKeyAlgorithm,
+						Buffer.from(baseKey._raw, "base64").byteLength * 8,
+					);
+					const byteLength = keyLengthBits / 8;
 					const password = Buffer.from(baseKey._raw, "base64");
 					const salt = Buffer.from(algorithm.salt, "base64");
 					const hash = normalizeHash(algorithm.hash);
@@ -1237,17 +1595,14 @@ export function buildCryptoBridgeHandlers(): CryptoBridgeResult {
 						byteLength,
 						hash,
 					);
-					return JSON.stringify({
-						key: {
-							type: "secret",
-							algorithm: derivedKeyAlgorithm,
-							extractable,
-							usages,
-							_raw: derived.toString("base64"),
-						},
-					});
+					return JSON.stringify({ key: deriveSecretKeyData(derivedKeyAlgorithm, extractable, usages, derived) });
 				}
 				if (algoName === "HKDF") {
+					const keyLengthBits = resolveDerivedKeyLengthBits(
+						derivedKeyAlgorithm,
+						Buffer.from(baseKey._raw, "base64").byteLength * 8,
+					);
+					const byteLength = keyLengthBits / 8;
 					const ikm = Buffer.from(baseKey._raw, "base64");
 					const salt = Buffer.from(algorithm.salt, "base64");
 					const info = Buffer.from(algorithm.info, "base64");
@@ -1255,17 +1610,184 @@ export function buildCryptoBridgeHandlers(): CryptoBridgeResult {
 					const derived = Buffer.from(
 						hkdfSync(hash, ikm, salt, info, byteLength),
 					);
+					return JSON.stringify({ key: deriveSecretKeyData(derivedKeyAlgorithm, extractable, usages, derived) });
+				}
+				if (algoName === "ECDH" || algoName === "X25519" || algoName === "X448") {
+					const secret = diffieHellman({
+						privateKey: deserializeCryptoKeyObject(baseKey),
+						publicKey: deserializeCryptoKeyObject(algorithm.public),
+					});
 					return JSON.stringify({
-						key: {
-							type: "secret",
-							algorithm: derivedKeyAlgorithm,
-							extractable,
-							usages,
-							_raw: derived.toString("base64"),
-						},
+						key: deriveSecretKeyData(derivedKeyAlgorithm, extractable, usages, secret),
 					});
 				}
 				throw new Error(`Unsupported deriveKey algorithm: ${algoName}`);
+			}
+			case "wrapKey": {
+				const { format, key, wrappingKey, wrapAlgorithm } = req;
+				const exported = JSON.parse(
+					handlers[K.cryptoSubtle](
+						JSON.stringify({
+							op: "exportKey",
+							format,
+							key,
+						}),
+					) as string,
+				) as { data?: string; jwk?: JsonWebKey };
+				const keyData =
+					format === "jwk"
+						? Buffer.from(JSON.stringify(exported.jwk), "utf8")
+						: decodeBridgeBuffer(exported.data);
+				if (wrapAlgorithm.name === "AES-KW") {
+					const wrappingBytes = decodeBridgeBuffer(wrappingKey._raw);
+					const cipherName = `id-aes${wrappingBytes.byteLength * 8}-wrap`;
+					const cipher = createCipheriv(
+						cipherName as never,
+						wrappingBytes,
+						Buffer.alloc(8, 0xa6),
+					);
+					return JSON.stringify({
+						data: Buffer.concat([cipher.update(keyData), cipher.final()]).toString("base64"),
+					});
+				}
+				if (wrapAlgorithm.name === "RSA-OAEP") {
+					return JSON.stringify({
+						data: publicEncrypt(
+							{
+								key: createPublicKey(wrappingKey._pem),
+								oaepHash: normalizeHash(wrappingKey.algorithm.hash),
+								oaepLabel: wrapAlgorithm.label
+									? decodeBridgeBuffer(wrapAlgorithm.label)
+									: undefined,
+							},
+							keyData,
+						).toString("base64"),
+					});
+				}
+				if (
+					wrapAlgorithm.name === "AES-CTR" ||
+					wrapAlgorithm.name === "AES-CBC" ||
+					wrapAlgorithm.name === "AES-GCM"
+				) {
+					const wrappingBytes = decodeBridgeBuffer(wrappingKey._raw);
+					const algorithmName =
+						wrapAlgorithm.name === "AES-CTR"
+							? `aes-${wrappingBytes.byteLength * 8}-ctr`
+							: wrapAlgorithm.name === "AES-CBC"
+								? `aes-${wrappingBytes.byteLength * 8}-cbc`
+								: `aes-${wrappingBytes.byteLength * 8}-gcm`;
+					const iv =
+						wrapAlgorithm.name === "AES-CTR"
+							? decodeBridgeBuffer(wrapAlgorithm.counter)
+							: decodeBridgeBuffer(wrapAlgorithm.iv);
+					const cipher = createCipheriv(
+						algorithmName as never,
+						wrappingBytes,
+						iv,
+						wrapAlgorithm.name === "AES-GCM"
+							? ({ authTagLength: (wrapAlgorithm.tagLength || 128) / 8 } as never)
+							: undefined,
+					) as Cipher & { setAAD?: (aad: Buffer) => void; getAuthTag?: () => Buffer };
+					if (wrapAlgorithm.name === "AES-GCM" && wrapAlgorithm.additionalData) {
+						cipher.setAAD?.(decodeBridgeBuffer(wrapAlgorithm.additionalData));
+					}
+					const encrypted = Buffer.concat([cipher.update(keyData), cipher.final()]);
+					const payload =
+						wrapAlgorithm.name === "AES-GCM"
+							? Buffer.concat([encrypted, cipher.getAuthTag?.() ?? Buffer.alloc(0)])
+							: encrypted;
+					return JSON.stringify({ data: payload.toString("base64") });
+				}
+				throw new Error(`Unsupported wrap algorithm: ${wrapAlgorithm.name}`);
+			}
+			case "unwrapKey": {
+				const {
+					format,
+					wrappedKey,
+					unwrappingKey,
+					unwrapAlgorithm,
+					unwrappedKeyAlgorithm,
+					extractable,
+					usages,
+				} = req;
+				let unwrapped: Buffer;
+				if (unwrapAlgorithm.name === "AES-KW") {
+					const unwrappingBytes = decodeBridgeBuffer(unwrappingKey._raw);
+					const cipherName = `id-aes${unwrappingBytes.byteLength * 8}-wrap`;
+					const decipher = createDecipheriv(
+						cipherName as never,
+						unwrappingBytes,
+						Buffer.alloc(8, 0xa6),
+					);
+					unwrapped = Buffer.concat([
+						decipher.update(decodeBridgeBuffer(wrappedKey)),
+						decipher.final(),
+					]);
+				} else if (unwrapAlgorithm.name === "RSA-OAEP") {
+					unwrapped = privateDecrypt(
+						{
+							key: createPrivateKey(unwrappingKey._pem),
+							oaepHash: normalizeHash(unwrappingKey.algorithm.hash),
+							oaepLabel: unwrapAlgorithm.label
+								? decodeBridgeBuffer(unwrapAlgorithm.label)
+								: undefined,
+						},
+						decodeBridgeBuffer(wrappedKey),
+					);
+				} else if (
+					unwrapAlgorithm.name === "AES-CTR" ||
+					unwrapAlgorithm.name === "AES-CBC" ||
+					unwrapAlgorithm.name === "AES-GCM"
+				) {
+					const unwrappingBytes = decodeBridgeBuffer(unwrappingKey._raw);
+					const algorithmName =
+						unwrapAlgorithm.name === "AES-CTR"
+							? `aes-${unwrappingBytes.byteLength * 8}-ctr`
+							: unwrapAlgorithm.name === "AES-CBC"
+								? `aes-${unwrappingBytes.byteLength * 8}-cbc`
+								: `aes-${unwrappingBytes.byteLength * 8}-gcm`;
+					const iv =
+						unwrapAlgorithm.name === "AES-CTR"
+							? decodeBridgeBuffer(unwrapAlgorithm.counter)
+							: decodeBridgeBuffer(unwrapAlgorithm.iv);
+					const wrappedBytes = decodeBridgeBuffer(wrappedKey);
+					const decipher = createDecipheriv(
+						algorithmName as never,
+						unwrappingBytes,
+						iv,
+						unwrapAlgorithm.name === "AES-GCM"
+							? ({ authTagLength: (unwrapAlgorithm.tagLength || 128) / 8 } as never)
+							: undefined,
+					) as Decipher & {
+						setAAD?: (aad: Buffer) => void;
+						setAuthTag?: (tag: Buffer) => void;
+					};
+					let ciphertext = wrappedBytes;
+					if (unwrapAlgorithm.name === "AES-GCM") {
+						const tagLength = (unwrapAlgorithm.tagLength || 128) / 8;
+						ciphertext = wrappedBytes.subarray(0, wrappedBytes.byteLength - tagLength);
+						decipher.setAuthTag?.(wrappedBytes.subarray(wrappedBytes.byteLength - tagLength));
+						if (unwrapAlgorithm.additionalData) {
+							decipher.setAAD?.(decodeBridgeBuffer(unwrapAlgorithm.additionalData));
+						}
+					}
+					unwrapped = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+				} else {
+					throw new Error(`Unsupported unwrap algorithm: ${unwrapAlgorithm.name}`);
+				}
+				return handlers[K.cryptoSubtle](
+					JSON.stringify({
+						op: "importKey",
+						format,
+						keyData:
+							format === "jwk"
+								? JSON.parse(unwrapped.toString("utf8"))
+								: unwrapped.toString("base64"),
+						algorithm: unwrappedKeyAlgorithm,
+						extractable,
+						usages,
+					}),
+				);
 			}
 			default:
 				throw new Error(`Unsupported subtle operation: ${req.op}`);
