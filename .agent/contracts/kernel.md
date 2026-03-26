@@ -348,6 +348,10 @@ The kernel pipe manager SHALL provide buffered unidirectional pipes with blockin
 ### Requirement: Socket Blocking Waits Respect Signal Handlers
 The kernel socket table SHALL allow blocking accept/recv waits to observe delivered signals so POSIX-style syscall interruption semantics can be enforced.
 
+#### Scenario: sigaction registration preserves mask and flags
+- **WHEN** a runtime registers a caught signal disposition with a signal mask and `SA_*` flags
+- **THEN** the kernel MUST retain the handler, blocked-signal mask, and raw flag bits so later delivery and wait-restart behavior observes the same metadata
+
 #### Scenario: SA_RESETHAND resets a caught handler after first delivery
 - **WHEN** a process delivers a caught signal whose registered handler includes `SA_RESETHAND`
 - **THEN** the kernel MUST invoke that handler once and reset the disposition to `SIG_DFL` before any subsequent delivery of the same signal

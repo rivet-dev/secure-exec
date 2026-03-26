@@ -58,6 +58,13 @@ Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
  int bind (int, const struct sockaddr *, socklen_t);
  int listen (int, int);
 -#endif
+@@ -414,10 +410,8 @@
+ int accept (int, struct sockaddr *__restrict, socklen_t *__restrict);
+ int accept4(int, struct sockaddr *__restrict, socklen_t *__restrict, int);
+-#if (defined __wasilibc_unmodified_upstream) || (defined __wasilibc_use_wasip2)
+ int getsockname (int, struct sockaddr *__restrict, socklen_t *__restrict);
+ int getpeername (int, struct sockaddr *__restrict, socklen_t *__restrict);
+-#endif
 @@ -421,9 +417,7 @@
  ssize_t send (int, const void *, size_t, int);
  ssize_t recv (int, void *, size_t, int);

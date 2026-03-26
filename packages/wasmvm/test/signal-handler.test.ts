@@ -1,14 +1,14 @@
 /**
  * Integration test for WasmVM cooperative signal handling.
  *
- * Spawns the signal_handler C program as WASM (signal(SIGINT, handler) →
+ * Spawns the signal_handler C program as WASM (sigaction(SIGINT, ...) →
  * busy-loop with sleep → verify handler called), delivers SIGINT via
  * kernel.kill(), and verifies the handler fires at a syscall boundary.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createWasmVmRuntime } from '../src/driver.ts';
-import { createKernel } from '@secure-exec/core';
+import { createKernel, SIGTERM } from '@secure-exec/core';
 import type { Kernel } from '@secure-exec/core';
 import { existsSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
@@ -20,6 +20,7 @@ const C_BUILD_DIR = resolve(__dirname, '../../../native/wasmvm/c/build');
 
 const hasWasmBinaries = existsSync(COMMANDS_DIR);
 const hasCWasmBinaries = existsSync(join(C_BUILD_DIR, 'signal_handler'));
+const EXPECTED_SIGACTION_FLAGS = (0x10000000 | 0x80000000) >>> 0;
 
 function skipReason(): string | false {
   if (!hasWasmBinaries) return 'WASM binaries not built (run make wasm in native/wasmvm/)';
@@ -131,7 +132,7 @@ describe.skipIf(skipReason())('WasmVM signal handler integration', { timeout: 30
     await kernel?.dispose();
   });
 
-  it('signal_handler: SIGINT handler fires at syscall boundary', async () => {
+  it('signal_handler: sigaction registration preserves mask/flags and fires at syscall boundary', async () => {
     // Spawn the WASM signal_handler program (registers SIGINT handler, then loops)
     let stdout = '';
     const proc = kernel.spawn('signal_handler', [], {
@@ -145,6 +146,10 @@ describe.skipIf(skipReason())('WasmVM signal handler integration', { timeout: 30
     }
     expect(stdout).toContain('handler_registered');
     expect(stdout).toContain('waiting');
+
+    const registration = kernel.processTable.getSignalState(proc.pid).handlers.get(2);
+    expect(registration?.mask).toEqual(new Set([SIGTERM]));
+    expect(registration?.flags).toBe(EXPECTED_SIGACTION_FLAGS);
 
     // Deliver SIGINT via ManagedProcess.kill() — routes through kernel process table
     proc.kill(2 /* SIGINT */);

@@ -1,12 +1,28 @@
-Implement signal() and __wasi_signal_trampoline for cooperative signal handling.
+Implement sigaction() and __wasi_signal_trampoline for cooperative signal handling.
 
 Adds host_sigaction.c with:
-- signal(): stores handler pointer locally + notifies kernel via proc_sigaction
-- __wasi_signal_trampoline: exported function called by JS worker at syscall boundaries
+- signal-set helpers needed by sigaction()
+- sigaction(): stores local disposition/mask/flags and notifies the kernel
+- signal(): thin wrapper over sigaction()
+- __wasi_signal_trampoline: exported entry point invoked by the JS worker
 
-Also un-gates signal() declaration from signal.h (it is C standard, not POSIX-only).
+Also exposes the sigaction declarations and SA_* constants needed by the
+patched sysroot instead of only surfacing signal().
 
 Import signature matches wasmvm/crates/wasi-ext/src/lib.rs proc_sigaction exactly.
+
+--- a/libc-bottom-half/headers/public/__typedef_sigset_t.h
++++ b/libc-bottom-half/headers/public/__typedef_sigset_t.h
+@@ -1,7 +1,7 @@
+ #ifndef __wasilibc___typedef_sigset_t_h
+ #define __wasilibc___typedef_sigset_t_h
+ 
+-/* TODO: This is just a placeholder for now. Keep this in sync with musl. */
+-typedef unsigned char sigset_t;
++/* Keep this in sync with musl so sigaction() can preserve real signal masks. */
++typedef struct __sigset_t { unsigned long __bits[128/sizeof(long)]; } sigset_t;
+ 
+ #endif
 
 --- a/libc-top-half/musl/include/signal.h
 +++ b/libc-top-half/musl/include/signal.h
@@ -21,23 +37,90 @@ Import signature matches wasmvm/crates/wasi-ext/src/lib.rs proc_sigaction exactl
 +#ifndef _WASI_EMULATED_SIGNAL
 +#define _WASI_EMULATED_SIGNAL 1
 +#endif
-
+ 
  #ifdef __cplusplus
  extern "C" {
-@@ -227,6 +227,8 @@
- int kill(pid_t, int);
-
-+void (*signal(int, void (*)(int)))(int);
+@@ -14,7 +15,18 @@
+ || defined(_XOPEN_SOURCE) || defined(_GNU_SOURCE) \
+  || defined(_BSD_SOURCE)
+ 
+-#ifdef __wasilibc_unmodified_upstream /* WASI has no ucontext support */
++#ifndef __wasilibc_unmodified_upstream
++// Ensure sigaction() has the types/constants it needs in the patched sysroot.
++#define __NEED_pid_t
++#define __NEED_sigset_t
++#include <bits/alltypes.h>
++#define SIG_BLOCK     0
++#define SIG_UNBLOCK   1
++#define SIG_SETMASK   2
++#endif
 +
++#ifdef __wasilibc_unmodified_upstream /* WASI has no ucontext/sigaction support */
+ #ifdef _GNU_SOURCE
+ #define __ucontext ucontext
+ #endif
+@@ -53,6 +65,20 @@
+ 
+ #include <bits/signal.h>
+ 
++#ifndef __wasilibc_unmodified_upstream
++struct sigaction {
++	union {
++		void (*sa_handler)(int);
++		void (*sa_sigaction)(int, void *, void *);
++	} __sa_handler;
++	sigset_t sa_mask;
++	int sa_flags;
++	void (*sa_restorer)(void);
++};
++#define sa_handler   __sa_handler.sa_handler
++#define sa_sigaction __sa_handler.sa_sigaction
++
++#ifndef SA_NOCLDSTOP
++#define SA_NOCLDSTOP 0x00000001
++#endif
++#ifndef SA_RESTART
++#define SA_RESTART 0x10000000
++#endif
++#ifndef SA_RESETHAND
++#define SA_RESETHAND 0x80000000
++#endif
++#ifndef SA_ONESHOT
++#define SA_ONESHOT SA_RESETHAND
++#endif
++#endif
++
+ #if defined(_POSIX_SOURCE) || defined(_POSIX_C_SOURCE) \
+  || defined(_XOPEN_SOURCE) || defined(_GNU_SOURCE) \
+  || defined(_BSD_SOURCE)
+@@ -227,6 +253,13 @@
+ int kill(pid_t, int);
+ 
+ void (*signal(int, void (*)(int)))(int);
++
++int sigemptyset(sigset_t *);
++int sigfillset(sigset_t *);
++int sigaddset(sigset_t *, int);
++int sigdelset(sigset_t *, int);
++int sigismember(const sigset_t *, int);
++int sigaction(int, const struct sigaction *__restrict, struct sigaction *__restrict);
+ 
  #ifdef __wasilibc_unmodified_upstream /* WASI has no signal sets */
  int sigemptyset(sigset_t *);
- int sigfillset(sigset_t *);
-@@ -285,6 +287,7 @@
+@@ -241,7 +274,6 @@
+ int sigprocmask(int, const sigset_t *__restrict, sigset_t *__restrict);
+ int sigsuspend(const sigset_t *);
+ int sigaction(int, const struct sigaction *__restrict, struct sigaction *__restrict);
+-int sigpending(sigset_t *);
+ int sigwait(const sigset_t *__restrict, int *__restrict);
+ int sigwaitinfo(const sigset_t *__restrict, siginfo_t *__restrict);
+ int sigtimedwait(const sigset_t *__restrict, siginfo_t *__restrict, const struct timespec *__restrict);
+@@ -285,6 +317,7 @@
  #define SS_AUTODISARM (1U << 31)
  #define SS_FLAG_BITS SS_AUTODISARM
  #endif
 +#endif
-@@ -343,4 +346,3 @@
+@@ -343,4 +376,3 @@
  #endif
  
  #endif
@@ -45,20 +128,22 @@ Import signature matches wasmvm/crates/wasi-ext/src/lib.rs proc_sigaction exactl
 
 --- /dev/null
 +++ b/libc-bottom-half/sources/host_sigaction.c
-@@ -0,0 +1,56 @@
-+// signal() / __wasi_signal_trampoline via wasmVM host_process import.
+@@ -0,0 +1,174 @@
++// sigaction() / signal() / __wasi_signal_trampoline via wasmVM host_process import.
 +//
 +// Cooperative signal handling for WasmVM:
-+// 1. C program calls signal(SIGINT, handler)
-+// 2. Handler pointer stored in _handlers[] table
-+// 3. proc_sigaction WASM import notifies kernel of disposition (default/ignore/catch)
-+// 4. At syscall boundaries, JS worker invokes __wasi_signal_trampoline(signum)
-+// 5. Trampoline dispatches to the registered C handler
++// 1. C program registers a disposition with sigaction()
++// 2. Local tables keep the handler pointer, sa_mask, and sa_flags
++// 3. proc_sigaction notifies the kernel of the delivery semantics
++// 4. At syscall boundaries, JS invokes __wasi_signal_trampoline(signum)
++// 5. The trampoline dispatches to the registered C handler
 +//
 +// Import signature matches wasmvm/crates/wasi-ext/src/lib.rs exactly.
 +
++#include <errno.h>
 +#include <signal.h>
 +#include <stdint.h>
++#include <string.h>
 +
 +#define WASM_SIG_DFL ((void (*)(int))0)
 +#define WASM_SIG_IGN ((void (*)(int))1)
@@ -67,44 +152,177 @@ Import signature matches wasmvm/crates/wasi-ext/src/lib.rs proc_sigaction exactl
 +#define WASM_IMPORT(mod, fn) \
 +    __attribute__((__import_module__(mod), __import_name__(fn)))
 +
-+// host_process.proc_sigaction(signal: u32, action: u32) -> errno
++// host_process.proc_sigaction(signal: u32, action: u32, mask_lo: u32, mask_hi: u32, flags: u32) -> errno
 +WASM_IMPORT("host_process", "proc_sigaction")
-+uint32_t __host_proc_sigaction(uint32_t signal, uint32_t action);
++uint32_t __host_proc_sigaction(
++    uint32_t signal,
++    uint32_t action,
++    uint32_t mask_lo,
++    uint32_t mask_hi,
++    uint32_t flags);
 +
-+// Handler table — indexed by signal number (1-64)
 +#define MAX_SIGNALS 65
++#define SIGSET_WORD_BITS ((int)(8 * sizeof(unsigned long)))
++
 +static void (*_handlers[MAX_SIGNALS])(int);
++static sigset_t _masks[MAX_SIGNALS];
++static int _flags[MAX_SIGNALS];
 +
-+// -----------------------------------------------------------------------
-+// Trampoline — exported so the JS worker can call it for signal delivery
-+// -----------------------------------------------------------------------
++static int validate_signal_number(int signum) {
++    if (signum < 1 || signum >= MAX_SIGNALS) {
++        errno = EINVAL;
++        return 0;
++    }
++    return 1;
++}
 +
-+__attribute__((export_name("__wasi_signal_trampoline")))
-+void __wasi_signal_trampoline(int signum) {
-+    if (signum >= 1 && signum < MAX_SIGNALS && _handlers[signum] != 0
-+        && _handlers[signum] != WASM_SIG_DFL && _handlers[signum] != WASM_SIG_IGN) {
-+        _handlers[signum](signum);
++static int validate_mutable_sigset(sigset_t *set) {
++    if (set == NULL) {
++        errno = EINVAL;
++        return 0;
++    }
++    return 1;
++}
++
++static int sigset_word_index(int signum) {
++    return (signum - 1) / SIGSET_WORD_BITS;
++}
++
++static unsigned long sigset_word_mask(int signum) {
++    return 1ul << ((signum - 1) % SIGSET_WORD_BITS);
++}
++
++static void encode_sigset64(const sigset_t *set, uint32_t *mask_lo, uint32_t *mask_hi) {
++    *mask_lo = 0;
++    *mask_hi = 0;
++
++    for (int signum = 1; signum < MAX_SIGNALS; signum++) {
++        if (sigismember(set, signum) != 1) {
++            continue;
++        }
++        if (signum <= 32) {
++            *mask_lo |= 1u << (signum - 1);
++        } else {
++            *mask_hi |= 1u << (signum - 33);
++        }
 +    }
 +}
 +
-+// -----------------------------------------------------------------------
-+// signal() — C standard signal handler registration
-+// -----------------------------------------------------------------------
++static void load_local_action(int signum, struct sigaction *act) {
++    memset(act, 0, sizeof(*act));
++    act->sa_handler = _handlers[signum];
++    act->sa_mask = _masks[signum];
++    act->sa_flags = _flags[signum];
++}
 +
-+void (*signal(int sig, void (*handler)(int)))(int) {
-+    if (sig < 1 || sig >= MAX_SIGNALS) {
-+        return WASM_SIG_ERR;
++int sigemptyset(sigset_t *set) {
++    if (!validate_mutable_sigset(set)) {
++        return -1;
++    }
++    memset(set, 0, sizeof(*set));
++    return 0;
++}
++
++int sigfillset(sigset_t *set) {
++    if (!validate_mutable_sigset(set)) {
++        return -1;
++    }
++    memset(set, 0xff, sizeof(*set));
++    return 0;
++}
++
++int sigaddset(sigset_t *set, int signum) {
++    if (!validate_mutable_sigset(set) || !validate_signal_number(signum)) {
++        return -1;
++    }
++    ((unsigned long *)(void *)set)[sigset_word_index(signum)] |= sigset_word_mask(signum);
++    return 0;
++}
++
++int sigdelset(sigset_t *set, int signum) {
++    if (!validate_mutable_sigset(set) || !validate_signal_number(signum)) {
++        return -1;
++    }
++    ((unsigned long *)(void *)set)[sigset_word_index(signum)] &= ~sigset_word_mask(signum);
++    return 0;
++}
++
++int sigismember(const sigset_t *set, int signum) {
++    if (set == NULL || !validate_signal_number(signum)) {
++        return -1;
++    }
++    return ((((const unsigned long *)(const void *)set)[sigset_word_index(signum)] & sigset_word_mask(signum)) != 0)
++        ? 1
++        : 0;
++}
++
++int sigaction(int sig, const struct sigaction *act, struct sigaction *oldact) {
++    if (!validate_signal_number(sig)) {
++        return -1;
++    }
++    if (sig == SIGKILL || sig == SIGSTOP) {
++        errno = EINVAL;
++        return -1;
 +    }
 +
-+    void (*old)(int) = _handlers[sig];
-+    _handlers[sig] = handler;
++    if (oldact != NULL) {
++        load_local_action(sig, oldact);
++    }
++    if (act == NULL) {
++        return 0;
++    }
 +
-+    // Notify kernel of disposition
-+    uint32_t action;
-+    if (handler == WASM_SIG_DFL) action = 0;
-+    else if (handler == WASM_SIG_IGN) action = 1;
-+    else action = 2;  // user handler — cooperative delivery
-+    __host_proc_sigaction((uint32_t)sig, action);
++    uint32_t action = 2;
++    if (act->sa_handler == WASM_SIG_DFL) action = 0;
++    else if (act->sa_handler == WASM_SIG_IGN) action = 1;
 +
-+    return old;
++    uint32_t mask_lo = 0;
++    uint32_t mask_hi = 0;
++    encode_sigset64(&act->sa_mask, &mask_lo, &mask_hi);
++
++    uint32_t err = __host_proc_sigaction((uint32_t)sig, action, mask_lo, mask_hi, (uint32_t)act->sa_flags);
++    if (err != 0) {
++        errno = (int)err;
++        return -1;
++    }
++
++    _handlers[sig] = act->sa_handler;
++    _masks[sig] = act->sa_mask;
++    _flags[sig] = act->sa_flags;
++    return 0;
++}
++
++void (*signal(int sig, void (*handler)(int)))(int) {
++    struct sigaction act;
++    struct sigaction oldact;
++
++    memset(&act, 0, sizeof(act));
++    sigemptyset(&act.sa_mask);
++    act.sa_handler = handler;
++    act.sa_flags = 0;
++
++    if (sigaction(sig, &act, &oldact) != 0) {
++        return WASM_SIG_ERR;
++    }
++    return oldact.sa_handler;
++}
++
++__attribute__((export_name("__wasi_signal_trampoline")))
++void __wasi_signal_trampoline(int signum) {
++    if (signum < 1 || signum >= MAX_SIGNALS) {
++        return;
++    }
++
++    void (*handler)(int) = _handlers[signum];
++    if (handler == WASM_SIG_DFL || handler == WASM_SIG_IGN || handler == WASM_SIG_ERR) {
++        return;
++    }
++
++    if ((_flags[signum] & SA_RESETHAND) != 0) {
++        _handlers[signum] = WASM_SIG_DFL;
++        sigemptyset(&_masks[signum]);
++        _flags[signum] = 0;
++    }
++
++    handler(signum);
 +}

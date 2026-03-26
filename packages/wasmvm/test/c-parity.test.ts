@@ -519,6 +519,23 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
     expect(native.stdout).toContain('test_kill_invalid: ok');
   });
 
+  it.skipIf(tier3Skip)('sigaction_behavior: query, SA_RESETHAND, and SA_RESTART parity', async () => {
+    const env = { ...process.env, PATH: `${NATIVE_DIR}:${process.env.PATH ?? ''}` };
+    const native = await runNative('sigaction_behavior', [], { env });
+    const wasm = await kernel.exec('sigaction_behavior');
+
+    expect(wasm.exitCode).toBe(native.exitCode);
+    expect(wasm.exitCode).toBe(0);
+    expect(wasm.stdout).toBe(native.stdout);
+    expect(normalizeStderr(wasm.stderr)).toBe(normalizeStderr(native.stderr));
+    expect(wasm.stdout).toContain('sigaction_query_mask_sigterm=yes');
+    expect(wasm.stdout).toContain('sigaction_query_flags=yes');
+    expect(wasm.stdout).toContain('sa_resethand_handler_calls=1');
+    expect(wasm.stdout).toContain('sa_resethand_reset=yes');
+    expect(wasm.stdout).toContain('sa_restart_accept=yes');
+    expect(wasm.stdout).toContain('sa_restart_child_exit=0');
+  });
+
   it.skipIf(tier3Skip)('getppid_verify: child getppid matches parent getpid', async () => {
     // Native needs getppid_test on PATH for posix_spawnp
     const native = await runNative('getppid_verify', [], {
@@ -652,7 +669,7 @@ describe.skipIf(skipReason())('C parity: native vs WASM', { timeout: 30_000 }, (
       // Args/env/clock
       'argc', 'argv', 'environ', 'clock_realtime', 'clock_monotonic',
       // host_process
-      'pipe', 'dup', 'dup2', 'getpid', 'getppid', 'spawn_waitpid', 'kill',
+      'pipe', 'dup', 'dup2', 'getpid', 'getppid', 'sigaction_register', 'sigaction_query', 'spawn_waitpid', 'kill',
       // host_user
       'getuid', 'getgid', 'geteuid', 'getegid', 'isatty_stdin', 'getpwuid',
       // host_net

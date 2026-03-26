@@ -118,6 +118,18 @@ function encodeSocketOptionValue(value: number, byteLength: number): Uint8Array 
   return encoded;
 }
 
+function decodeSignalMask(maskLow: number, maskHigh: number): Set<number> {
+  const mask = new Set<number>();
+
+  // Expand the wasm-side 64-bit sigset payload into the kernel's signal set.
+  for (let bit = 0; bit < 32; bit++) {
+    if (((maskLow >>> bit) & 1) !== 0) mask.add(bit + 1);
+    if (((maskHigh >>> bit) & 1) !== 0) mask.add(bit + 33);
+  }
+
+  return mask;
+}
+
 function serializeSockAddr(addr: KernelSockAddr): string {
   return 'host' in addr ? `${addr.host}:${addr.port}` : addr.path;
 }
@@ -830,6 +842,9 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
           // proc_sigaction → register signal disposition in kernel process table
           const sigNum = msg.args.signal as number;
           const action = msg.args.action as number;
+          const maskLow = (msg.args.maskLow as number | undefined) ?? 0;
+          const maskHigh = (msg.args.maskHigh as number | undefined) ?? 0;
+          const flags = ((msg.args.flags as number | undefined) ?? 0) >>> 0;
           let handler: 'default' | 'ignore' | ((signal: number) => void);
           if (action === 0) {
             handler = 'default';
@@ -843,7 +858,11 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
               queue.push(sig);
             };
           }
-          kernel.processTable.sigaction(pid, sigNum, { handler, mask: new Set(), flags: 0 });
+          kernel.processTable.sigaction(pid, sigNum, {
+            handler,
+            mask: decodeSignalMask(maskLow >>> 0, maskHigh >>> 0),
+            flags,
+          });
           break;
         }
         case 'pipe': {

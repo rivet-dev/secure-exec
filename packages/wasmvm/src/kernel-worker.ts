@@ -860,14 +860,20 @@ function createHostProcessImports(getMemory: () => WebAssembly.Memory | null) {
     },
 
     /**
-     * proc_sigaction(signal, action) -> errno
-     * Register signal disposition: 0=SIG_DFL, 1=SIG_IGN, 2=user handler.
-     * For action=2, the C sysroot holds the function pointer; the kernel
-     * only needs to know the signal should be caught (cooperative delivery).
+     * proc_sigaction(signal, action, mask_lo, mask_hi, flags) -> errno
+     * Register signal disposition plus sa_mask / sa_flags for cooperative delivery.
+     * For action=2, the C sysroot still owns the function pointer; the kernel only
+     * needs the POSIX sigaction metadata that affects delivery semantics.
      */
-    proc_sigaction(signal: number, action: number): number {
+    proc_sigaction(signal: number, action: number, mask_lo: number, mask_hi: number, flags: number): number {
       if (signal < 1 || signal > 64) return ERRNO_EINVAL;
-      const res = rpcCall('sigaction', { signal, action });
+      const res = rpcCall('sigaction', {
+        signal,
+        action,
+        maskLow: mask_lo >>> 0,
+        maskHigh: mask_hi >>> 0,
+        flags: flags >>> 0,
+      });
       return res.errno;
     },
   };

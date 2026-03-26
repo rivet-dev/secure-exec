@@ -60,8 +60,8 @@ The kernel (`packages/kernel/`) is the foundational POSIX layer. All runtimes mo
 | SIGTSTP (20) via Ctrl+Z | Implemented | PTY line discipline generates SIGTSTP; process suspended via `stop()` |
 | SIGQUIT (3) via Ctrl+\ | Implemented | PTY line discipline generates SIGQUIT; echoes `^\` |
 | SIGHUP (1) | Implemented | Generated on PTY master close; delivered to foreground process group |
-| Signal masks (sigprocmask) | **Missing** | Processes cannot block/unblock signals |
-| Signal handlers (sigaction) | Not possible | Untrusted code cannot register handlers; kernel owns lifecycle |
+| Signal masks (sigprocmask) | Implemented | Per-process blocked-signal sets are tracked in the kernel and applied during handler delivery |
+| Signal handlers (sigaction) | Implemented | Kernel stores handlers, `sa_mask`, and `sa_flags`; WasmVM delivers caught signals cooperatively at syscall boundaries |
 | Real-time signals | Not possible | No RT signal infrastructure |
 
 ### File Descriptors
@@ -192,11 +192,12 @@ The WasmVM runtime (`packages/runtime/wasmvm/`) runs WASM binaries in Web Worker
 - **Pipes**: Ring buffer pipes (64KB, SharedArrayBuffer + Atomics.wait)
 - **Environment & argv**: Standard WASI args_get/environ_get
 - **Exit codes**: `proc_exit()` → WasiProcExit exception → exit code propagation
+- **Cooperative signal handlers**: patched `sigaction()` support preserves `sa_mask`, `SA_RESTART`, and `SA_RESETHAND`; caught signals are delivered at syscall boundaries
 - **Shell (brush-shell)**: Bash 5.x compatible — pipes, redirections, variable expansion, command substitution, globbing, control flow, functions, here-docs, 40+ builtins
 
 ### What's Missing
 
-- **Async signal delivery**: WASM execution is synchronous within Worker; only `worker.terminate()` (SIGKILL equivalent) works
+- **Preemptive async signal delivery**: caught handlers only run at syscall boundaries; tight CPU loops without syscalls are not interruptible like native Linux
 - **Threads**: `wasm32-wasip1` doesn't support pthreads; `std::thread::spawn` panics
 - **Networking**: HTTP via `host_net` import module (used by curl, wget, git); raw sockets not supported
 - **Job control**: fg/bg/jobs stubbed; SIGTSTP/SIGSTOP/SIGCONT delivered but background scheduling limited

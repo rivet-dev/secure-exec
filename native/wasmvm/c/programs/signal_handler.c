@@ -1,8 +1,9 @@
-/* signal_handler.c — cooperative signal handling test for WasmVM.
+/* signal_handler.c — cooperative sigaction handling test for WasmVM.
  *
- * Registers a SIGINT handler via signal(), then busy-loops with sleep syscalls
- * (each sleep is a syscall boundary where pending signals are delivered).
- * The test runner sends SIGINT via kernel.kill() and verifies the handler fires.
+ * Registers a SIGINT handler via sigaction() with sa_mask + SA_RESTART +
+ * SA_RESETHAND, then busy-loops with sleep syscalls (each sleep is a syscall
+ * boundary where pending signals are delivered). The test runner inspects the
+ * kernel registration and verifies the handler fires.
  *
  * Usage: signal_handler
  * Output:
@@ -21,7 +22,18 @@ static void handler(int sig) {
 }
 
 int main(void) {
-    signal(SIGINT, handler);
+    struct sigaction action;
+    sigemptyset(&action.sa_mask);
+    sigaddset(&action.sa_mask, SIGTERM);
+    action.sa_flags = SA_RESTART | SA_RESETHAND;
+    action.sa_handler = handler;
+    action.sa_restorer = NULL;
+
+    if (sigaction(SIGINT, &action, NULL) != 0) {
+        perror("sigaction");
+        return 1;
+    }
+
     printf("handler_registered\n");
     fflush(stdout);
 

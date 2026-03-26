@@ -104,10 +104,12 @@ extern "C" {
     ///
     /// `signal` is the signal number (1-64).
     /// `action` encodes the disposition: 0=SIG_DFL, 1=SIG_IGN, 2=user handler.
-    /// When action=2, the C sysroot holds the actual function pointer; the kernel
-    /// only needs to know the signal should be caught (cooperative delivery).
+    /// `mask_lo` / `mask_hi` encode the low/high 32 bits of sa_mask, and `flags`
+    /// carries the raw POSIX sa_flags bitmask.
+    /// When action=2, the C sysroot still holds the actual function pointer; the
+    /// kernel only needs the metadata that affects delivery semantics.
     /// Returns errno.
-    fn proc_sigaction(signal: u32, action: u32) -> Errno;
+    fn proc_sigaction(signal: u32, action: u32, mask_lo: u32, mask_hi: u32, flags: u32) -> Errno;
 }
 
 // ============================================================
@@ -303,9 +305,11 @@ pub fn openpty() -> Result<(u32, u32), Errno> {
 ///
 /// `signal` is the signal number (1-64).
 /// `action` encodes the disposition: 0=SIG_DFL, 1=SIG_IGN, 2=user handler (C-side holds pointer).
+/// `mask_lo` / `mask_hi` encode the low/high 32 bits of sa_mask, and `flags`
+/// carries the raw POSIX sa_flags bitmask.
 /// Returns `Ok(())` on success, `Err(errno)` on failure.
-pub fn sigaction_set(signal: u32, action: u32) -> Result<(), Errno> {
-    let errno = unsafe { proc_sigaction(signal, action) };
+pub fn sigaction_set(signal: u32, action: u32, mask_lo: u32, mask_hi: u32, flags: u32) -> Result<(), Errno> {
+    let errno = unsafe { proc_sigaction(signal, action, mask_lo, mask_hi, flags) };
     if errno == ERRNO_SUCCESS {
         Ok(())
     } else {

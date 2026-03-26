@@ -16,6 +16,7 @@
 #include <time.h>
 #include <errno.h>
 #include <pwd.h>
+#include <signal.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -25,6 +26,7 @@
 extern char **environ;
 
 static int failures = 0;
+static volatile sig_atomic_t sigaction_hits = 0;
 
 #define OK(name) printf(name ": ok\n")
 #define FAIL(name, reason) do { \
@@ -33,6 +35,10 @@ static int failures = 0;
 #define TEST(name, cond, reason) do { \
     if (cond) OK(name); else FAIL(name, reason); \
 } while(0)
+
+static void syscall_coverage_sigaction_handler(int sig) {
+    sigaction_hits = sig;
+}
 
 /* ========== WASI FD operations ========== */
 
@@ -241,6 +247,28 @@ static void test_host_process(void) {
     /* getppid */
     pid_t ppid = getppid();
     TEST("getppid", ppid > 0, "not positive");
+
+    /* sigaction */
+    struct sigaction action;
+    memset(&action, 0, sizeof(action));
+    sigemptyset(&action.sa_mask);
+    sigaddset(&action.sa_mask, SIGTERM);
+    action.sa_flags = SA_RESTART | SA_RESETHAND;
+    action.sa_handler = syscall_coverage_sigaction_handler;
+    int sar = sigaction(SIGINT, &action, NULL);
+    TEST("sigaction_register", sar == 0, strerror(errno));
+    if (sar == 0) {
+        struct sigaction current;
+        memset(&current, 0, sizeof(current));
+        kill(getpid(), SIGINT);
+        int sq = sigaction(SIGINT, NULL, &current);
+        TEST("sigaction_query", sq == 0
+            && sigaction_hits == SIGINT
+            && current.sa_handler == SIG_DFL,
+            "handler did not fire or reset");
+    } else {
+        FAIL("sigaction_query", "skipped");
+    }
 
     /* posix_spawn + waitpid */
     int spfd[2];

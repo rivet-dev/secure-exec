@@ -215,6 +215,11 @@ fi
 "$WASI_AR" d "$SYSROOT_LIB/libc.a" accept-wasip1.o send.o recv.o select.o poll.o 2>/dev/null || true
 echo "Removed conflicting accept-wasip1.o/send.o/recv.o/select.o/poll.o from libc.a"
 
+# Remove musl's original signal entry points so host_sigaction.o is the only
+# resolver for sigaction()/signal() in the patched sysroot.
+"$WASI_AR" d "$SYSROOT_LIB/libc.a" sigaction.o signal.o 2>/dev/null || true
+echo "Removed conflicting sigaction.o/signal.o from libc.a"
+
 # wasi-libc builds under wasm32-wasi, but clang --target=wasm32-wasip1 expects
 # wasm32-wasip1 subdirectories. Create symlinks so both targets work.
 for subdir in include lib; do
@@ -227,6 +232,9 @@ done
 # === Install sysroot overrides ===
 # Override files in patches/wasi-libc-overrides/ fix broken libc behavior
 # (fcntl, strfmon, open_wmemstream, swprintf, inet_ntop, pthread_attr, pthread_mutex, pthread_key, fmtmsg).
+# The patched sysroot also provides host_sigaction.o, which must replace musl's
+# original sigaction.o / signal.o so cooperative signal registration flows
+# through the host_process import instead of the upstream rt_sigaction stub.
 # realloc is handled by 0009-realloc-glibc-semantics.patch directly.
 # Overrides are compiled and added to libc.a so ALL WASM programs get the fixes.
 OVERRIDES_DIR="$WASMCORE_DIR/patches/wasi-libc-overrides"
