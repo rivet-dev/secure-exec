@@ -1,4 +1,5 @@
 ## Codebase Patterns
+- Real-provider tool-integration coverage should stay opt-in via a dedicated env flag (for example `SECURE_EXEC_PI_REAL_PROVIDER_E2E=1`) and load secrets at runtime from `process.env` with `~/misc/env.txt` as a local fallback; never commit credentials or silently swap the live provider path back to a mock redirect.
 - Kernel-backed `/proc/self` tests must run through a process-scoped runtime such as `createNodeRuntime()` + `kernel.spawn('node', ...)` (or `createProcessScopedFileSystem`); raw kernel `vfs` calls have no caller PID context, and standalone NodeRuntime intentionally keeps `/proc/self/environ` denied.
 - `AF_UNIX` sockets are local IPC, not host networking: kernel `SocketTable` bind/listen/connect for path sockets must stay fully in-kernel, bypass `permissions.network`, and use only the listener registry plus VFS socket-file state.
 - Socket constants like `SOL_SOCKET`, `TCP_NODELAY`, and `MSG_*` are not exported from the public `@secure-exec/core` entrypoint; tests or adapters outside `packages/core` should import them from the kernel surface (`core/src/kernel/index.ts` in-repo or `@secure-exec/core/internal/kernel` from package consumers).
@@ -710,4 +711,14 @@
   - Non-pass Node conformance inventory should be classified centrally in `expectation-utils.ts`; changing the report without updating the shared classifier will drift the docs and validation rules apart.
   - The remaining-bucket split is now visible in generated artifacts: 1153 implementable, 596 will-not-implement, and 612 cannot-implement tests as of `2026-03-26`.
   - `unsupported-module` and `unsupported-api` are mixed buckets now: some entries are still implementable deferred/runtime gaps, while others are policy or architectural exclusions, so intent must be derived from the specific key/reason rather than the category name alone.
+---
+## [2026-03-26 13:12 PDT] - US-061
+- Added an opt-in real-provider Pi SDK harness at `packages/secure-exec/tests/cli-tools/pi-sdk-real-provider.test.ts` plus a reusable `real-provider-env.ts` helper that loads credentials from exported env vars or `~/misc/env.txt` without committing secrets.
+- Verified Pi v0.60.0's actual programmatic surface is `createAgentSession()` with `SessionManager.inMemory()` and `createCodingTools()`: the same flow succeeds in host Node with real Anthropic traffic and the `read` tool, while the sandbox harness currently reproduces the SecureExec blocker instead of a fake/mock success path.
+- Recorded the blocker as follow-up story `US-067`: importing `@mariozechner/pi-coding-agent@0.60.0` inside `NodeRuntime` fails while compiling `dist/config.js` with `SyntaxError: Identifier '__filename' has already been declared`, so the investigation story is complete and the fix work is explicitly queued.
+- Files changed: `CLAUDE.md`, `docs-internal/todo.md`, `packages/secure-exec/tests/cli-tools/pi-sdk-real-provider.test.ts`, `packages/secure-exec/tests/cli-tools/real-provider-env.ts`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Pi's supported SDK entrypoint in this repo version is `createAgentSession()` from `@mariozechner/pi-coding-agent`; pairing it with `SessionManager.inMemory()` and `createCodingTools(cwd)` is the shortest real tool-capable programmatic path.
+  - For investigation stories that may uncover a runtime blocker, the opt-in harness should accept either true end-to-end success or the pinned blocker signature so the test stays useful before and after the runtime fix lands.
+  - The current Pi SDK blocker is in SecureExec's module/runtime layer, not Pi's provider stack: host Node completes the real-token prompt, but sandbox import of `dist/config.js` dies on a duplicate `__filename` declaration before any provider request is made.
 ---

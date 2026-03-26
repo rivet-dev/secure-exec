@@ -1109,8 +1109,24 @@
         "Typecheck passes"
       ],
       "priority": 53,
+      "passes": true,
+      "notes": "Validated Pi v0.60.0's documented SDK surface (`createAgentSession()` + `SessionManager.inMemory()` + `createCodingTools()`) with runtime-loaded Anthropic credentials and an opt-in SecureExec harness. Host Node completes the prompt and `read` tool path successfully. The sandbox harness reproduces a real blocker instead of a mock-path success: importing Pi through NodeRuntime fails while compiling `dist/config.js` with `SyntaxError: Identifier '__filename' has already been declared`, so a blocked follow-up story is required before headless/PTY real-token proof can pass."
+    },
+    {
+      "id": "US-067",
+      "title": "Fix Pi SDK import in NodeRuntime when Pi modules declare __filename",
+      "description": "As a developer, I need Pi's SDK modules to import inside SecureExec's NodeRuntime without colliding with the runtime's CommonJS wrapper globals, so the real-provider SDK path can progress beyond bootstrap.",
+      "acceptanceCriteria": [
+        "Reproduce the current blocker with `SECURE_EXEC_PI_REAL_PROVIDER_E2E=1 pnpm vitest run packages/secure-exec/tests/cli-tools/pi-sdk-real-provider.test.ts`",
+        "SecureExec can import `@mariozechner/pi-coding-agent@0.60.0` through NodeRuntime without `SyntaxError: Identifier '__filename' has already been declared` while compiling `dist/config.js`",
+        "The fix applies at the runtime/module-loader layer rather than by patching Pi locally",
+        "The Pi SDK real-provider harness advances past bootstrap and either completes successfully or exposes the next concrete blocker",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 53.1,
       "passes": false,
-      "notes": "Use ~/misc/env.txt as the local source of provider credentials at runtime only; never copy token values into the repo. Existing Pi coverage is mostly CLI/mock-server based, and archived notes mention package import/load issues plus baseURL hardcoding that may need dedicated follow-up stories once revalidated."
+      "notes": "Blocked by SecureExec runtime/module-wrapper behavior. Exact repro as of 2026-03-26: `@mariozechner/pi-coding-agent@0.60.0` imports successfully in host Node, but inside NodeRuntime the import chain reaches `dist/config.js` and fails with `SyntaxError: Identifier '__filename' has already been declared`. Proposed unblock path: inspect the CommonJS compilation wrapper / loader path that injects `__filename`/`__dirname` and make it tolerate upstream packages that declare those identifiers in module scope."
     },
     {
       "id": "US-062",
