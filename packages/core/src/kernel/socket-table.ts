@@ -916,11 +916,12 @@ export class SocketTable {
 		const closed = socket.state === "closed";
 		const readClosed = socket.state === "read-closed";
 		const writeClosed = socket.state === "write-closed";
+		const pendingAccept = socket.state === "listening" && socket.backlog.length > 0;
 
 		// UDP: readable when datagramQueue has data
 		const readable = socket.type === SOCK_DGRAM
 			? socket.datagramQueue.length > 0 || closed
-			: socket.readBuffer.length > 0 || closed || readClosed;
+			: socket.readBuffer.length > 0 || pendingAccept || closed || readClosed;
 
 		const writable =
 			socket.state === "connected" ||
@@ -1002,6 +1003,16 @@ export class SocketTable {
 	}
 
 	private destroySocket(socket: KernelSocket): void {
+		// Tear down queued-but-unaccepted connections with the listener so they
+		// cannot leak detached server-side sockets after the listening endpoint closes.
+		for (const pendingId of [...socket.backlog]) {
+			const pending = this.sockets.get(pendingId);
+			if (pending) {
+				this.destroySocket(pending);
+			}
+		}
+		socket.backlog.length = 0;
+
 		// Propagate EOF to peer: clear peer link and wake readers
 		if (socket.peerId !== undefined) {
 			const peer = this.sockets.get(socket.peerId);

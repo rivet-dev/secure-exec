@@ -17,6 +17,12 @@ import {
 	type InetAddr,
 } from "../../src/kernel/index.js";
 
+function createNetworkedSocketTable() {
+	return new SocketTable({
+		networkCheck: () => ({ allow: true }),
+	});
+}
+
 describe("SocketTable", () => {
 	// -------------------------------------------------------------------
 	// create
@@ -231,6 +237,25 @@ describe("SocketTable", () => {
 		expect(result.writable).toBe(true);
 	});
 
+	it("poll: listening socket is readable when backlog has a pending connection", async () => {
+		const table = createNetworkedSocketTable();
+		const listenId = table.create(AF_INET, SOCK_STREAM, 0, 1);
+		await table.bind(listenId, { host: "127.0.0.1", port: 8082 });
+		await table.listen(listenId);
+
+		const clientId = table.create(AF_INET, SOCK_STREAM, 0, 2);
+		await table.connect(clientId, { host: "127.0.0.1", port: 8082 });
+
+		expect(table.poll(listenId)).toMatchObject({
+			readable: true,
+			writable: false,
+			hangup: false,
+		});
+
+		table.accept(listenId);
+		expect(table.poll(listenId).readable).toBe(false);
+	});
+
 	it("poll: write-closed socket reports hangup", () => {
 		const table = new SocketTable();
 		const id = table.create(AF_INET, SOCK_STREAM, 0, 1);
@@ -430,7 +455,7 @@ describe("SocketTable", () => {
 	// -------------------------------------------------------------------
 
 	it("listen transitions bound socket to listening", async () => {
-		const table = new SocketTable();
+		const table = createNetworkedSocketTable();
 		const id = table.create(AF_INET, SOCK_STREAM, 0, 1);
 		await table.bind(id, { host: "0.0.0.0", port: 8080 });
 		await table.listen(id);
@@ -449,7 +474,7 @@ describe("SocketTable", () => {
 	});
 
 	it("listen backlog limit refuses excess loopback connections", async () => {
-		const table = new SocketTable();
+		const table = createNetworkedSocketTable();
 		const listenId = table.create(AF_INET, SOCK_STREAM, 0, 1);
 		await table.bind(listenId, { host: "127.0.0.1", port: 8080 });
 		await table.listen(listenId, 2);
@@ -472,7 +497,7 @@ describe("SocketTable", () => {
 	// -------------------------------------------------------------------
 
 	it("accept returns null when backlog is empty", async () => {
-		const table = new SocketTable();
+		const table = createNetworkedSocketTable();
 		const id = table.create(AF_INET, SOCK_STREAM, 0, 1);
 		await table.bind(id, { host: "0.0.0.0", port: 8080 });
 		await table.listen(id);
@@ -480,7 +505,7 @@ describe("SocketTable", () => {
 	});
 
 	it("accept returns socket ID from backlog in FIFO order", async () => {
-		const table = new SocketTable();
+		const table = createNetworkedSocketTable();
 		const listenId = table.create(AF_INET, SOCK_STREAM, 0, 1);
 		await table.bind(listenId, { host: "0.0.0.0", port: 8080 });
 		await table.listen(listenId);
@@ -511,7 +536,7 @@ describe("SocketTable", () => {
 	// -------------------------------------------------------------------
 
 	it("full bind → listen → accept lifecycle", async () => {
-		const table = new SocketTable();
+		const table = createNetworkedSocketTable();
 		const serverId = table.create(AF_INET, SOCK_STREAM, 0, 1);
 		await table.bind(serverId, { host: "0.0.0.0", port: 3000 });
 		await table.listen(serverId);
@@ -525,12 +550,32 @@ describe("SocketTable", () => {
 		expect(accepted).toBe(clientSock);
 	});
 
+	it("closing a listener closes queued backlog sockets and detaches their clients", async () => {
+		const table = createNetworkedSocketTable();
+		const listenId = table.create(AF_INET, SOCK_STREAM, 0, 1);
+		await table.bind(listenId, { host: "127.0.0.1", port: 3001 });
+		await table.listen(listenId, 1);
+
+		const clientId = table.create(AF_INET, SOCK_STREAM, 0, 2);
+		await table.connect(clientId, { host: "127.0.0.1", port: 3001 });
+
+		const pendingId = table.get(listenId)!.backlog[0];
+		expect(pendingId).toBeDefined();
+		expect(table.get(pendingId!)).not.toBeNull();
+
+		table.close(listenId, 1);
+
+		expect(table.get(listenId)).toBeNull();
+		expect(table.get(pendingId!)).toBeNull();
+		expect(() => table.send(clientId, new Uint8Array([1]))).toThrow(KernelError);
+	});
+
 	// -------------------------------------------------------------------
 	// findListener (wildcard matching)
 	// -------------------------------------------------------------------
 
 	it("findListener returns exact match", async () => {
-		const table = new SocketTable();
+		const table = createNetworkedSocketTable();
 		const id = table.create(AF_INET, SOCK_STREAM, 0, 1);
 		await table.bind(id, { host: "127.0.0.1", port: 8080 });
 		await table.listen(id);
@@ -540,7 +585,7 @@ describe("SocketTable", () => {
 	});
 
 	it("findListener matches wildcard 0.0.0.0 for specific host", async () => {
-		const table = new SocketTable();
+		const table = createNetworkedSocketTable();
 		const id = table.create(AF_INET, SOCK_STREAM, 0, 1);
 		await table.bind(id, { host: "0.0.0.0", port: 8080 });
 		await table.listen(id);
@@ -551,7 +596,7 @@ describe("SocketTable", () => {
 	});
 
 	it("findListener returns null for unmatched port", async () => {
-		const table = new SocketTable();
+		const table = createNetworkedSocketTable();
 		const id = table.create(AF_INET, SOCK_STREAM, 0, 1);
 		await table.bind(id, { host: "0.0.0.0", port: 8080 });
 		await table.listen(id);
@@ -567,7 +612,7 @@ describe("SocketTable", () => {
 	});
 
 	it("findListener prefers exact match over wildcard", async () => {
-		const table = new SocketTable();
+		const table = createNetworkedSocketTable();
 		// Bind wildcard first
 		const wildId = table.create(AF_INET, SOCK_STREAM, 0, 1);
 		table.setsockopt(wildId, SOL_SOCKET, SO_REUSEADDR, 1);
@@ -584,7 +629,7 @@ describe("SocketTable", () => {
 	});
 
 	it("close listener frees port for wildcard matching", async () => {
-		const table = new SocketTable();
+		const table = createNetworkedSocketTable();
 		const id1 = table.create(AF_INET, SOCK_STREAM, 0, 1);
 		await table.bind(id1, { host: "0.0.0.0", port: 8080 });
 		await table.listen(id1);
@@ -666,7 +711,7 @@ describe("SocketTable", () => {
 	});
 
 	it("SO_RCVBUF enforces receive buffer limit via send()", async () => {
-		const table = new SocketTable();
+		const table = createNetworkedSocketTable();
 		// Set up a loopback connection
 		const listenId = table.create(AF_INET, SOCK_STREAM, 0, 1);
 		await table.bind(listenId, { host: "0.0.0.0", port: 7070 });
@@ -692,7 +737,7 @@ describe("SocketTable", () => {
 	});
 
 	it("SO_RCVBUF allows sending after buffer is drained", async () => {
-		const table = new SocketTable();
+		const table = createNetworkedSocketTable();
 		const listenId = table.create(AF_INET, SOCK_STREAM, 0, 1);
 		await table.bind(listenId, { host: "0.0.0.0", port: 7071 });
 		await table.listen(listenId);
@@ -714,7 +759,7 @@ describe("SocketTable", () => {
 	});
 
 	it("getLocalAddr and getRemoteAddr return the connected socket addresses", async () => {
-		const table = new SocketTable();
+		const table = createNetworkedSocketTable();
 		const listenId = table.create(AF_INET, SOCK_STREAM, 0, 1);
 		await table.bind(listenId, { host: "127.0.0.1", port: 8088 });
 		await table.listen(listenId);

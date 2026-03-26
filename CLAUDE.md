@@ -23,6 +23,7 @@
 - kernel blocking-I/O regressions should be proven through `packages/core/test/kernel/kernel-integration.test.ts` using real process-owned FDs via `KernelInterface` (`fdWrite`, `flock`, `fdPollWait`) rather than only manager-level unit tests
 - inode-lifetime/deferred-unlink kernel integration tests must use `InMemoryFileSystem` (or another inode-aware VFS) and await the kernel's POSIX-dir bootstrap; the default `createTestKernel()` `TestFileSystem` does not exercise inode-backed FD lifetime semantics
 - kernel signal-handler regressions should use a real spawned PID plus `KernelInterface.processTable` / `KernelInterface.socketTable`; unit `ProcessTable` coverage alone does not prove pending delivery or `SA_RESTART` behavior through the live kernel
+- socket-table unit tests that call `listen()` or other host-visible network operations must provide an explicit `networkCheck` fixture; bare `new SocketTable()` now models deny-by-default networking and will reject listener setup with `EACCES`
 
 ### POSIX Conformance Test Integrity
 

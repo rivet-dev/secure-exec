@@ -5549,12 +5549,27 @@ describe("kernel + MockRuntimeDriver integration", () => {
 			const serverSock = kernel.socketTable.create(2, 1, 0, pid);
 			await kernel.socketTable.bind(serverSock, { host: "127.0.0.1", port: 9090 });
 			await kernel.socketTable.listen(serverSock, 5);
+			expect(kernel.socketTable.poll(serverSock)).toMatchObject({
+				readable: false,
+				writable: false,
+				hangup: false,
+			});
 
 			const clientSock = kernel.socketTable.create(2, 1, 0, pid);
 			await kernel.socketTable.connect(clientSock, { host: "127.0.0.1", port: 9090 });
+			expect(kernel.socketTable.poll(serverSock)).toMatchObject({
+				readable: true,
+				writable: false,
+				hangup: false,
+			});
 
 			const accepted = kernel.socketTable.accept(serverSock);
 			expect(accepted).not.toBeNull();
+			expect(kernel.socketTable.poll(serverSock)).toMatchObject({
+				readable: false,
+				writable: false,
+				hangup: false,
+			});
 
 			// Exchange data
 			kernel.socketTable.send(clientSock, new TextEncoder().encode("hello"));

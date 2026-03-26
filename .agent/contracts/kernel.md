@@ -424,6 +424,14 @@ The kernel socket table SHALL reserve listener ports deterministically for loopb
 - **WHEN** a loopback `connect()` targets a listening socket whose pending backlog already reached the configured `listen(backlog)` capacity
 - **THEN** the connection MUST fail with `ECONNREFUSED` instead of growing the backlog without bound
 
+#### Scenario: listening socket becomes readable while accept backlog is non-empty
+- **WHEN** one or more pending connections are queued for a listening socket
+- **THEN** `socketTable.poll()` for that listener MUST report `readable: true` until `accept()` drains the backlog
+
+#### Scenario: closing a listener tears down queued unaccepted connections
+- **WHEN** a listening socket is closed while its accept backlog still contains pending server-side sockets
+- **THEN** the kernel MUST close those queued sockets as part of listener teardown so detached connections do not remain reachable without a listener owner
+
 ### Requirement: Kernel Socket Ownership Matches the Process Table
 The kernel socket table SHALL only allocate process-owned sockets for PIDs that are currently registered in the kernel process table when the table is kernel-mediated.
 

@@ -2,6 +2,7 @@
 - Kernel integration tests that need deferred-unlink or inode-lifetime semantics must build the kernel with `InMemoryFileSystem` and await `posixDirsReady`; the default `createTestKernel()` `TestFileSystem` does not exercise inode-backed FD lifetime behavior.
 - `packages/core/src/shared/in-memory-fs.ts` must keep POSIX directory metadata coherent end-to-end: directory `nlink` is `2 + immediate child directory count`, `readDir*()` synthesizes `.`/`..`, and symlink `lstat()` / typed readdir entries should report the symlink's own inode instead of `ino: 0`.
 - Tests that instantiate `createDefaultNetworkAdapter()` or `useDefaultNetwork` are legacy adapter compatibility coverage only; kernel-consolidation proof should live under `packages/secure-exec/tests/kernel/` and mount `createNodeRuntime()` into a real `Kernel`.
+- `packages/core/test/kernel/socket-table.test.ts` now needs an explicit `networkCheck` fixture for `listen()` and other host-visible network operations; bare `new SocketTable()` models deny-by-default networking and will reject listener setup with `EACCES`.
 - Story-critical Wasm C integration suites should keep local `skipIf` guards for missing binaries, but pair them with separate CI-only artifact-availability tests so missing `native/wasmvm/c/build/*` fixtures fail loudly instead of disappearing behind skips.
 - Reserve `category: "vacuous-skip"` for `expected: "pass"` self-skips only; if a vendored file remains `expected: "skip"` because behavior is still broken, keep a real failure category like `implementation-gap` so conformance category totals stay honest.
 - For overfitting-prone kernel/network stories, keep host-vs-sandbox cross-validation tests even when they currently expose a mismatch; assert the concrete exit code/stderr/raw-byte delta instead of downgrading back to another same-code-path loopback test.
@@ -644,4 +645,14 @@
   - Signal-handler kernel integration is best exercised through a real spawned PID plus `KernelInterface.processTable` and `KernelInterface.socketTable`; unit `ProcessTable` tests do not prove live wait interruption or restart semantics.
   - Signal tests that open loopback sockets now need explicit network permission (`network: () => ({ allow: true })` or `networkCheck`) or they fail before reaching the signal path.
   - `createTestKernel()` mount-time command registration touches `/bin`, so permission fixtures that only allow network still need filesystem permission if they mount mock drivers.
+---
+## [2026-03-26 12:05 PDT] - US-047
+- Fixed the kernel TCP listener lifecycle by making `SocketTable.poll()` report listening sockets as readable while their accept backlog is non-empty, and by tearing down queued-but-unaccepted backlog sockets when the listener closes so they do not leak detached server-side connections.
+- Added socket-table coverage for listener poll readiness and listener-close backlog cleanup, updated the existing live-kernel TCP integration to assert poll transitions across connect/accept, and documented both invariants in the kernel contract and root agent guidance.
+- Verified with `pnpm vitest run packages/core/test/kernel/socket-table.test.ts packages/core/test/kernel/kernel-integration.test.ts`, `pnpm vitest run packages/secure-exec/tests/kernel/network-kernel-backed-verification.test.ts -t 'proves host-side HTTP reaches a createNodeRuntime listener through the kernel-mounted path'`, and `pnpm --filter @secure-exec/core check-types`.
+- Files changed: `.agent/contracts/kernel.md`, `CLAUDE.md`, `packages/core/src/kernel/socket-table.ts`, `packages/core/test/kernel/kernel-integration.test.ts`, `packages/core/test/kernel/socket-table.test.ts`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Listening sockets need their own readiness signal: `socketTable.poll()` must treat a non-empty accept backlog as readable, not just rely on per-connection `readBuffer` state.
+  - Listener teardown has to own the queued backlog too; otherwise closing a server leaks orphaned server-side sockets that are no longer reachable through `accept()`.
+  - `packages/core/test/kernel/socket-table.test.ts` should opt into an explicit allow-all `networkCheck` whenever it exercises `listen()`-based behavior, because deny-by-default networking is now part of the default `SocketTable` fixture.
 ---
