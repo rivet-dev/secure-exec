@@ -96,6 +96,7 @@
 - build them locally: `cd native/wasmvm && make wasm` (requires Rust nightly + wasm32-wasip1 target + rust-src component + wasm-opt/binaryen)
 - the Rust toolchain is pinned in `native/wasmvm/rust-toolchain.toml` — rustup will auto-install it
 - CI builds the binaries before tests; a CI-only guard test in `packages/wasmvm/test/driver.test.ts` fails if they're missing
+- story-critical C-built Wasm fixtures also have CI-only availability guards in `packages/wasmvm/test/ci-artifact-availability.test.ts` and `packages/secure-exec/tests/kernel/ci-wasm-artifact-availability.test.ts`; if they fail, rebuild with `make -C native/wasmvm/c sysroot && make -C native/wasmvm/c programs`
 - tests gated behind `skipIf(!hasWasmBinaries)` or `skipUnlessWasmBuilt()` will skip locally if binaries aren't built
 - see `native/wasmvm/CLAUDE.md` for full build details and architecture
 
