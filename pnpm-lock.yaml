@@ -442,20 +442,7 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.3)(@vitest/browser@2.1.9)
 
-  packages/v8:
-    optionalDependencies:
-      '@secure-exec/v8-darwin-arm64':
-        specifier: 0.1.1-rc.3
-        version: 0.1.1-rc.3
-      '@secure-exec/v8-darwin-x64':
-        specifier: 0.1.1-rc.3
-        version: 0.1.1-rc.3
-      '@secure-exec/v8-linux-arm64-gnu':
-        specifier: 0.1.1-rc.3
-        version: 0.1.1-rc.3
-      '@secure-exec/v8-linux-x64-gnu':
-        specifier: 0.1.1-rc.3
-        version: 0.1.1-rc.3
+  packages/v8: {}
 
   packages/wasmvm:
     dependencies:
@@ -3629,38 +3616,6 @@ packages:
     cpu: [x64]
     os: [win32]
     requiresBuild: true
-    optional: true
-
-  /@secure-exec/v8-darwin-arm64@0.1.1-rc.3:
-    resolution: {integrity: sha512-k8dYMlnFq+dvTgpEuY4oOtHmMZX2UT6o/TaI+yeFjKyepdbdEhyr6g6pPeaYjUKQY1Ysf6sqMwg5Ah3I2f5f3A==}
-    cpu: [arm64]
-    os: [darwin]
-    requiresBuild: true
-    dev: false
-    optional: true
-
-  /@secure-exec/v8-darwin-x64@0.1.1-rc.3:
-    resolution: {integrity: sha512-MGRB9tLeQlvMppYd4CydTpYEaBQNxm+pnfyBhp+EKYaYskN9I3XtlPJLtCjdrQugnGaBRXjbV0V+GgcYHxbdzg==}
-    cpu: [x64]
-    os: [darwin]
-    requiresBuild: true
-    dev: false
-    optional: true
-
-  /@secure-exec/v8-linux-arm64-gnu@0.1.1-rc.3:
-    resolution: {integrity: sha512-HGz59p6872sP0UL3XZxrATNA4Sm54146Y7Ngzus0h1xRkxlJ01UV3iAZ5dio/AnhsoSHbZtRkb79GRG9vaiNww==}
-    cpu: [arm64]
-    os: [linux]
-    requiresBuild: true
-    dev: false
-    optional: true
-
-  /@secure-exec/v8-linux-x64-gnu@0.1.1-rc.3:
-    resolution: {integrity: sha512-V5VeZm6batxepB58JmYSu5ygGx71g3VrnISDrCzhgg2Lw3A2n71sxdE2TQ30pvGCM2q2Ev5Nqm9XT+GXm7c+2A==}
-    cpu: [x64]
-    os: [linux]
-    requiresBuild: true
-    dev: false
     optional: true
 
   /@shikijs/core@3.23.0:

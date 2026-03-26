@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to publish (e.g. 0.1.0-rc.2)"
+        description: "Version to publish (e.g. 0.2.0-rc.1)"
         required: true
         type: string
       npm-tag:
@@ -20,7 +20,88 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Build V8 sidecar binaries for all platforms
+  build-v8:
+    name: "Build V8 (${{ matrix.npm-dir }})"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            npm-dir: linux-x64-gnu
+            binary: secure-exec-v8
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            npm-dir: linux-arm64-gnu
+            binary: secure-exec-v8
+            cross: true
+          - target: x86_64-apple-darwin
+            os: macos-13
+            npm-dir: darwin-x64
+            binary: secure-exec-v8
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            npm-dir: darwin-arm64
+            binary: secure-exec-v8
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            npm-dir: win32-x64
+            binary: secure-exec-v8.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          ref: v${{ inputs.version }}
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.85.0"
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/v8-runtime/target
+          key: rust-release-${{ matrix.target }}-${{ hashFiles('native/v8-runtime/Cargo.lock') }}
+          restore-keys: |
+            rust-release-${{ matrix.target }}-
+
+      - name: Install cross-compilation tools
+        if: matrix.cross
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+      - name: Configure cross-compilation linker
+        if: matrix.cross
+        working-directory: native/v8-runtime
+        run: |
+          mkdir -p .cargo
+          cat > .cargo/config.toml <<'EOF'
+          [target.aarch64-unknown-linux-gnu]
+          linker = "aarch64-linux-gnu-gcc"
+          EOF
+
+      - name: Build
+        working-directory: native/v8-runtime
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: v8-${{ matrix.npm-dir }}
+          path: native/v8-runtime/target/${{ matrix.target }}/release/${{ matrix.binary }}
+
+  # Publish all packages to npm after V8 binaries are built
   publish:
+    name: "Publish"
+    needs: [build-v8]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -52,10 +133,38 @@ jobs:
       - name: Build
         run: pnpm turbo build
 
-      - name: Build linux-x64 binary via Docker
+      # Download all V8 platform binaries into their npm package dirs
+      - name: Download V8 binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: v8-*
+          path: native/v8-runtime/npm
+
+      - name: Place V8 binaries
         run: |
-          cd native/v8-runtime
-          docker build -f docker/Dockerfile.linux-x64-gnu -o type=local,dest=npm/linux-x64-gnu .
+          for dir in native/v8-runtime/npm/v8-*/; do
+            PLATFORM_DIR=$(basename "$dir" | sed 's/^v8-//')
+            TARGET_DIR="native/v8-runtime/npm/${PLATFORM_DIR}"
+            if [ -d "$TARGET_DIR" ]; then
+              cp "$dir"/* "$TARGET_DIR/"
+              # Make binary executable on Unix platforms
+              find "$TARGET_DIR" -name "secure-exec-v8" -exec chmod +x {} \;
+              echo "✓ Placed binary in ${TARGET_DIR}"
+            fi
+          done
+          # Verify all platform packages have their binary
+          echo "--- Binary verification ---"
+          for dir in native/v8-runtime/npm/*/; do
+            PLATFORM=$(basename "$dir")
+            # Skip artifact staging dirs
+            if [[ "$PLATFORM" == v8-* ]]; then continue; fi
+            if ls "$dir"secure-exec-v8* 1>/dev/null 2>&1; then
+              echo "✓ ${PLATFORM}: $(ls "$dir"secure-exec-v8*)"
+            else
+              echo "✗ ${PLATFORM}: MISSING BINARY"
+              exit 1
+            fi
+          done
 
       - name: Publish to npm
         run: |
@@ -84,6 +193,9 @@ jobs:
             if [ ! -f "$dir/package.json" ]; then
               continue
             fi
+            # Skip artifact staging dirs
+            PLATFORM=$(basename "$dir")
+            if [[ "$PLATFORM" == v8-* ]]; then continue; fi
             NAME=$(jq -r .name "$dir/package.json")
             VERSION="${{ inputs.version }}"
             if npm view "${NAME}@${VERSION}" version >/dev/null 2>&1; then

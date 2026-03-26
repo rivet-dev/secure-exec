@@ -218,7 +218,7 @@ async function main() {
   console.log(`\n\x1b[1mTriggering CI release workflow...\x1b[0m`);
   run(`gh workflow run release.yml -f version=${version} -f npm-tag=${tag}`, { stdio: "inherit" });
 
-  console.log(`\n\x1b[32m✓ Tag v${version} pushed — CI will handle Docker build + publish.\x1b[0m`);
+  console.log(`\n\x1b[32m✓ Tag v${version} pushed — CI will build V8 sidecar binaries + publish.\x1b[0m`);
   console.log(`  Watch progress: \x1b[36mhttps://github.com/rivet-dev/secure-exec/actions/workflows/release.yml\x1b[0m`);
 }
 
