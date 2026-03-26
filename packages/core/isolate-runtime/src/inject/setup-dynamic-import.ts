@@ -12,6 +12,13 @@ const __fallbackReferrer =
 		: "/";
 
 const __dynamicImportCache = new Map<string, Record<string, unknown>>();
+const __pathToFileURL:
+	| ((path: string) => URL)
+	| null =
+	typeof globalThis.require === "function"
+		? ((globalThis.require("node:url") as { pathToFileURL?: (path: string) => URL })
+				.pathToFileURL ?? null)
+		: null;
 
 const __resolveDynamicImportPath = function (
 	request: string,
@@ -101,4 +108,42 @@ const __dynamicImportHandler = function (
 	return Promise.resolve(namespaceFallback);
 };
 
+const __importMetaResolveHandler = function (
+	specifier: unknown,
+	fromPath: unknown,
+): string {
+	const request = String(specifier);
+	const referrer =
+		typeof fromPath === "string" && fromPath.length > 0
+			? fromPath
+			: __fallbackReferrer;
+
+	let resolved: string | null = null;
+	if (typeof globalThis._resolveModuleSync !== "undefined") {
+		resolved = globalThis._resolveModuleSync.applySync(
+			undefined,
+			[request, referrer, "import"],
+		);
+	}
+	if (resolved === null || resolved === undefined) {
+		resolved = globalThis._resolveModule.applySyncPromise(
+			undefined,
+			[request, referrer, "import"],
+		);
+	}
+	if (resolved === null) {
+		const err = new Error("Cannot find module '" + request + "'");
+		(err as Error & { code?: string }).code = "MODULE_NOT_FOUND";
+		throw err;
+	}
+	if (resolved.startsWith("node:")) {
+		return resolved;
+	}
+	if (__pathToFileURL && resolved.startsWith("/")) {
+		return __pathToFileURL(resolved).href;
+	}
+	return resolved;
+};
+
 __runtimeExposeCustomGlobal("__dynamicImport", __dynamicImportHandler);
+__runtimeExposeCustomGlobal("__importMetaResolve", __importMetaResolveHandler);

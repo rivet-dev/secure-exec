@@ -7705,6 +7705,28 @@ if (typeof (globalThis as Record<string, unknown>).Blob === "undefined") {
   // Minimal Blob stub used by server frameworks for instanceof checks.
   exposeCustomGlobal("Blob", class BlobStub {});
 }
+if (typeof (globalThis as Record<string, unknown>).File === "undefined") {
+  class FileStub extends Blob {
+    name: string;
+    lastModified: number;
+    webkitRelativePath: string;
+
+    constructor(
+      parts: BlobPart[] = [],
+      name = "",
+      options: BlobPropertyBag & { lastModified?: number } = {},
+    ) {
+      super(parts, options);
+      this.name = String(name);
+      this.lastModified =
+        typeof options.lastModified === "number"
+          ? options.lastModified
+          : Date.now();
+      this.webkitRelativePath = "";
+    }
+  }
+  exposeCustomGlobal("File", FileStub);
+}
 if (typeof (globalThis as Record<string, unknown>).FormData === "undefined") {
   // Minimal FormData stub — server frameworks check `instanceof FormData`.
   class FormDataStub {

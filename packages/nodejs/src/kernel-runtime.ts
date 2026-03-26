@@ -20,7 +20,7 @@ import type {
   VirtualFileSystem,
 } from '@secure-exec/core';
 import { NodeExecutionDriver } from './execution-driver.js';
-import { createNodeDriver } from './driver.js';
+import { createDefaultNetworkAdapter, createNodeDriver } from './driver.js';
 import type { BindingTree } from './bindings.js';
 import {
   allowAllChildProcess,
@@ -527,6 +527,10 @@ class NodeRuntimeDriver implements RuntimeDriver {
 
       const systemDriver = createNodeDriver({
         filesystem,
+        moduleAccess: { cwd: ctx.cwd },
+        networkAdapter: kernel.socketTable.hasHostNetworkAdapter()
+          ? createDefaultNetworkAdapter()
+          : undefined,
         commandExecutor,
         permissions,
         processConfig: {

@@ -192,6 +192,10 @@ export class SocketTable {
 		this.processExists = options?.processExists;
 	}
 
+	hasHostNetworkAdapter(): boolean {
+		return this.hostAdapter !== undefined;
+	}
+
 	/**
 	 * Create a new socket owned by the given process.
 	 * Returns the kernel socket ID.

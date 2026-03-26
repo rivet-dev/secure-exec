@@ -814,9 +814,24 @@ export const NODE_CUSTOM_GLOBAL_INVENTORY: readonly CustomGlobalInventoryEntry[]
 		rationale: "Network Response API global — must not be replaceable by sandbox code.",
 	},
 	{
+		name: "DOMException",
+		classification: "hardened",
+		rationale: "DOMException global stub for undici/bootstrap compatibility.",
+	},
+	{
+		name: "__importMetaResolve",
+		classification: "hardened",
+		rationale: "Internal import.meta.resolve helper for transformed ESM modules.",
+	},
+	{
 		name: "Blob",
 		classification: "hardened",
 		rationale: "Blob API global stub — must not be replaceable by sandbox code.",
+	},
+	{
+		name: "File",
+		classification: "hardened",
+		rationale: "File API global stub — must not be replaceable by sandbox code.",
 	},
 	{
 		name: "FormData",

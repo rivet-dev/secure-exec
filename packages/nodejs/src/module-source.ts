@@ -1,11 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname as pathDirname, join as pathJoin } from "node:path";
+import { pathToFileURL } from "node:url";
 import { transform, transformSync } from "esbuild";
 import { initSync as initCjsLexerSync, parse as parseCjsExports } from "cjs-module-lexer";
 import { init, initSync, parse } from "es-module-lexer";
 
 const REQUIRE_TRANSFORM_MARKER = "/*__secure_exec_require_esm__*/";
 const IMPORT_META_URL_HELPER = "__secureExecImportMetaUrl__";
+const IMPORT_META_RESOLVE_HELPER = "__secureExecImportMetaResolve__";
 const UNICODE_SET_REGEX_MARKER = "/v";
 const CJS_IMPORT_DEFAULT_HELPER = "__secureExecImportedCjsModule__";
 
@@ -129,8 +131,25 @@ function getRequireTransformOptions(
 	};
 }
 
-function getImportTransformOptions(filePath: string) {
+function getImportTransformOptions(
+	filePath: string,
+	syntax: ReturnType<typeof parseSourceSyntax>,
+) {
+	const bannerLines: string[] = [];
+	if (syntax.hasImportMeta) {
+		bannerLines.push(
+			`const ${IMPORT_META_URL_HELPER} = ${JSON.stringify(pathToFileURL(filePath).href)};`,
+			`const ${IMPORT_META_RESOLVE_HELPER} = (specifier) => globalThis.__importMetaResolve(specifier, ${JSON.stringify(filePath)});`,
+		);
+	}
 	return {
+		banner: bannerLines.length > 0 ? bannerLines.join("\n") : undefined,
+		define: syntax.hasImportMeta
+			? {
+					"import.meta.url": IMPORT_META_URL_HELPER,
+					"import.meta.resolve": IMPORT_META_RESOLVE_HELPER,
+				}
+			: undefined,
 		format: "esm" as const,
 		loader: "js" as const,
 		platform: "node" as const,
@@ -202,18 +221,23 @@ export async function transformSourceForImport(
 	source: string,
 	filePath: string,
 ): Promise<string> {
-	if (!isJavaScriptLikePath(filePath) || !source.includes(UNICODE_SET_REGEX_MARKER)) {
+	if (!isJavaScriptLikePath(filePath)) {
 		return source;
 	}
 
 	await init;
 	const syntax = parseSourceSyntax(source, filePath);
+	const needsTransform =
+		source.includes(UNICODE_SET_REGEX_MARKER) || syntax.hasImportMeta;
 	if (!(syntax.hasModuleSyntax || syntax.hasDynamicImport || syntax.hasImportMeta)) {
+		return source;
+	}
+	if (!needsTransform) {
 		return source;
 	}
 
 	try {
-		return (await transform(source, getImportTransformOptions(filePath))).code;
+		return (await transform(source, getImportTransformOptions(filePath, syntax))).code;
 	} catch {
 		return source;
 	}
@@ -232,18 +256,19 @@ export function transformSourceForImportSync(
 		return buildCommonJsImportWrapper(source, filePath);
 	}
 
-	if (!source.includes(UNICODE_SET_REGEX_MARKER)) {
-		return source;
-	}
-
 	initSync();
 	const syntax = parseSourceSyntax(source, filePath);
+	const needsTransform =
+		source.includes(UNICODE_SET_REGEX_MARKER) || syntax.hasImportMeta;
 	if (!(syntax.hasModuleSyntax || syntax.hasDynamicImport || syntax.hasImportMeta)) {
+		return source;
+	}
+	if (!needsTransform) {
 		return source;
 	}
 
 	try {
-		return transformSync(source, getImportTransformOptions(filePath)).code;
+		return transformSync(source, getImportTransformOptions(filePath, syntax)).code;
 	} catch {
 		return source;
 	}

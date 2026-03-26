@@ -170,6 +170,83 @@
         };
       }
 
+      if (
+        typeof globalThis.AbortSignal === 'function' &&
+        typeof globalThis.AbortController === 'function' &&
+        typeof globalThis.AbortSignal.timeout !== 'function'
+      ) {
+        globalThis.AbortSignal.timeout = function timeout(milliseconds) {
+          var delay = Number(milliseconds);
+          if (!Number.isFinite(delay) || delay < 0) {
+            throw new RangeError('The value of "milliseconds" is out of range. It must be a finite, non-negative number.');
+          }
+
+          var controller = new globalThis.AbortController();
+          var timer = setTimeout(function() {
+            controller.abort(
+              new globalThis.DOMException(
+                'The operation was aborted due to timeout',
+                'TimeoutError',
+              ),
+            );
+          }, delay);
+          if (timer && typeof timer.unref === 'function') {
+            timer.unref();
+          }
+          return controller.signal;
+        };
+      }
+
+      if (
+        typeof globalThis.AbortSignal === 'function' &&
+        typeof globalThis.AbortController === 'function' &&
+        typeof globalThis.AbortSignal.any !== 'function'
+      ) {
+        globalThis.AbortSignal.any = function any(signals) {
+          if (
+            signals === null ||
+            signals === undefined ||
+            typeof signals[Symbol.iterator] !== 'function'
+          ) {
+            throw new TypeError('The "signals" argument must be an iterable.');
+          }
+
+          var controller = new globalThis.AbortController();
+          var cleanup = [];
+          var abortFromSignal = function abortFromSignal(signal) {
+            for (var index = 0; index < cleanup.length; index += 1) {
+              cleanup[index]();
+            }
+            cleanup.length = 0;
+            controller.abort(signal.reason);
+          };
+
+          for (const signal of signals) {
+            if (
+              !signal ||
+              typeof signal.aborted !== 'boolean' ||
+              typeof signal.addEventListener !== 'function' ||
+              typeof signal.removeEventListener !== 'function'
+            ) {
+              throw new TypeError('The "signals" argument must contain only AbortSignal instances.');
+            }
+            if (signal.aborted) {
+              abortFromSignal(signal);
+              break;
+            }
+            var listener = function() {
+              abortFromSignal(signal);
+            };
+            signal.addEventListener('abort', listener, { once: true });
+            cleanup.push(function() {
+              signal.removeEventListener('abort', listener);
+            });
+          }
+
+          return controller.signal;
+        };
+      }
+
       if (typeof globalThis.structuredClone !== 'function') {
         function structuredClonePolyfill(value) {
           if (value === null || typeof value !== 'object') {
@@ -806,6 +883,282 @@
         globalThis.Event = Event;
         globalThis.CustomEvent = CustomEvent;
         globalThis.EventTarget = EventTarget;
+
+        if (typeof globalThis.DOMException === 'undefined') {
+          var DOM_EXCEPTION_LEGACY_CODES = {
+            IndexSizeError: 1,
+            DOMStringSizeError: 2,
+            HierarchyRequestError: 3,
+            WrongDocumentError: 4,
+            InvalidCharacterError: 5,
+            NoDataAllowedError: 6,
+            NoModificationAllowedError: 7,
+            NotFoundError: 8,
+            NotSupportedError: 9,
+            InUseAttributeError: 10,
+            InvalidStateError: 11,
+            SyntaxError: 12,
+            InvalidModificationError: 13,
+            NamespaceError: 14,
+            InvalidAccessError: 15,
+            ValidationError: 16,
+            TypeMismatchError: 17,
+            SecurityError: 18,
+            NetworkError: 19,
+            AbortError: 20,
+            URLMismatchError: 21,
+            QuotaExceededError: 22,
+            TimeoutError: 23,
+            InvalidNodeTypeError: 24,
+            DataCloneError: 25,
+          };
+
+          function DOMException(message, name) {
+            if (!(this instanceof DOMException)) {
+              throw new TypeError("Class constructor DOMException cannot be invoked without 'new'");
+            }
+
+            Error.call(this, message);
+            this.message = message === undefined ? '' : String(message);
+            this.name = name === undefined ? 'Error' : String(name);
+            this.code = DOM_EXCEPTION_LEGACY_CODES[this.name] || 0;
+
+            if (typeof Error.captureStackTrace === 'function') {
+              Error.captureStackTrace(this, DOMException);
+            }
+          }
+
+          DOMException.prototype = Object.create(Error.prototype);
+          Object.defineProperty(DOMException.prototype, 'constructor', {
+            value: DOMException,
+            writable: true,
+            configurable: true,
+          });
+          Object.defineProperty(DOMException.prototype, Symbol.toStringTag, {
+            value: 'DOMException',
+            writable: false,
+            enumerable: false,
+            configurable: true,
+          });
+
+          for (var codeName in DOM_EXCEPTION_LEGACY_CODES) {
+            if (!Object.prototype.hasOwnProperty.call(DOM_EXCEPTION_LEGACY_CODES, codeName)) {
+              continue;
+            }
+            var codeValue = DOM_EXCEPTION_LEGACY_CODES[codeName];
+            var constantName = codeName
+              .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+              .toUpperCase();
+            Object.defineProperty(DOMException, constantName, {
+              value: codeValue,
+              writable: false,
+              enumerable: true,
+              configurable: false,
+            });
+            Object.defineProperty(DOMException.prototype, constantName, {
+              value: codeValue,
+              writable: false,
+              enumerable: true,
+              configurable: false,
+            });
+          }
+
+          __requireExposeCustomGlobal('DOMException', DOMException);
+        }
+
+        if (typeof globalThis.Blob === 'undefined') {
+          function Blob(parts, options) {
+            if (!(this instanceof Blob)) {
+              throw new TypeError("Class constructor Blob cannot be invoked without 'new'");
+            }
+            this._parts = Array.isArray(parts) ? parts.slice() : [];
+            this.type = options && options.type ? String(options.type).toLowerCase() : '';
+            var size = 0;
+            for (var index = 0; index < this._parts.length; index += 1) {
+              var part = this._parts[index];
+              if (typeof part === 'string') {
+                size += part.length;
+              } else if (part && typeof part.byteLength === 'number') {
+                size += part.byteLength;
+              }
+            }
+            this.size = size;
+          }
+
+          Blob.prototype.arrayBuffer = function arrayBuffer() {
+            return Promise.resolve(new ArrayBuffer(0));
+          };
+          Blob.prototype.text = function text() {
+            return Promise.resolve('');
+          };
+          Blob.prototype.slice = function slice() {
+            return new Blob();
+          };
+          Blob.prototype.stream = function stream() {
+            throw new Error('Blob.stream is not supported in sandbox');
+          };
+          Object.defineProperty(Blob.prototype, Symbol.toStringTag, {
+            value: 'Blob',
+            writable: false,
+            enumerable: false,
+            configurable: true,
+          });
+
+          __requireExposeCustomGlobal('Blob', Blob);
+        }
+
+        if (typeof globalThis.File === 'undefined') {
+          function File(parts, name, options) {
+            if (!(this instanceof File)) {
+              throw new TypeError("Class constructor File cannot be invoked without 'new'");
+            }
+            globalThis.Blob.call(this, parts, options);
+            this.name = String(name);
+            this.lastModified =
+              options && typeof options.lastModified === 'number'
+                ? options.lastModified
+                : Date.now();
+            this.webkitRelativePath = '';
+          }
+
+          File.prototype = Object.create(globalThis.Blob.prototype);
+          Object.defineProperty(File.prototype, 'constructor', {
+            value: File,
+            writable: true,
+            configurable: true,
+          });
+          Object.defineProperty(File.prototype, Symbol.toStringTag, {
+            value: 'File',
+            writable: false,
+            enumerable: false,
+            configurable: true,
+          });
+
+          __requireExposeCustomGlobal('File', File);
+        }
+
+        if (typeof globalThis.FormData === 'undefined') {
+          function FormData() {
+            if (!(this instanceof FormData)) {
+              throw new TypeError("Class constructor FormData cannot be invoked without 'new'");
+            }
+            this._entries = [];
+          }
+
+          FormData.prototype.append = function append(name, value) {
+            this._entries.push([String(name), value]);
+          };
+          FormData.prototype.get = function get(name) {
+            var key = String(name);
+            for (var index = 0; index < this._entries.length; index += 1) {
+              if (this._entries[index][0] === key) {
+                return this._entries[index][1];
+              }
+            }
+            return null;
+          };
+          FormData.prototype.getAll = function getAll(name) {
+            var key = String(name);
+            var values = [];
+            for (var index = 0; index < this._entries.length; index += 1) {
+              if (this._entries[index][0] === key) {
+                values.push(this._entries[index][1]);
+              }
+            }
+            return values;
+          };
+          FormData.prototype.has = function has(name) {
+            return this.get(name) !== null;
+          };
+          FormData.prototype.delete = function del(name) {
+            var key = String(name);
+            this._entries = this._entries.filter(function(entry) {
+              return entry[0] !== key;
+            });
+          };
+          FormData.prototype.entries = function entries() {
+            return this._entries[Symbol.iterator]();
+          };
+          FormData.prototype[Symbol.iterator] = function iterator() {
+            return this.entries();
+          };
+          Object.defineProperty(FormData.prototype, Symbol.toStringTag, {
+            value: 'FormData',
+            writable: false,
+            enumerable: false,
+            configurable: true,
+          });
+
+          __requireExposeCustomGlobal('FormData', FormData);
+        }
+
+        if (typeof globalThis.MessageEvent === 'undefined') {
+          function MessageEvent(type, options) {
+            if (!(this instanceof MessageEvent)) {
+              throw new TypeError("Class constructor MessageEvent cannot be invoked without 'new'");
+            }
+            globalThis.Event.call(this, type, options);
+            this.data = options && 'data' in options ? options.data : undefined;
+          }
+
+          MessageEvent.prototype = Object.create(globalThis.Event.prototype);
+          Object.defineProperty(MessageEvent.prototype, 'constructor', {
+            value: MessageEvent,
+            writable: true,
+            configurable: true,
+          });
+
+          globalThis.MessageEvent = MessageEvent;
+        }
+
+        if (typeof globalThis.MessagePort === 'undefined') {
+          function MessagePort() {
+            if (!(this instanceof MessagePort)) {
+              throw new TypeError("Class constructor MessagePort cannot be invoked without 'new'");
+            }
+            globalThis.EventTarget.call(this);
+            this.onmessage = null;
+            this._pairedPort = null;
+          }
+
+          MessagePort.prototype = Object.create(globalThis.EventTarget.prototype);
+          Object.defineProperty(MessagePort.prototype, 'constructor', {
+            value: MessagePort,
+            writable: true,
+            configurable: true,
+          });
+          MessagePort.prototype.postMessage = function postMessage(data) {
+            var target = this._pairedPort;
+            if (!target) {
+              return;
+            }
+            var event = new globalThis.MessageEvent('message', { data: data });
+            target.dispatchEvent(event);
+            if (typeof target.onmessage === 'function') {
+              target.onmessage.call(target, event);
+            }
+          };
+          MessagePort.prototype.start = function start() {};
+          MessagePort.prototype.close = function close() {
+            this._pairedPort = null;
+          };
+
+          globalThis.MessagePort = MessagePort;
+        }
+
+        if (typeof globalThis.MessageChannel === 'undefined') {
+          function MessageChannel() {
+            if (!(this instanceof MessageChannel)) {
+              throw new TypeError("Class constructor MessageChannel cannot be invoked without 'new'");
+            }
+            this.port1 = new globalThis.MessagePort();
+            this.port2 = new globalThis.MessagePort();
+            this.port1._pairedPort = this.port2;
+            this.port2._pairedPort = this.port1;
+          }
+
+          globalThis.MessageChannel = MessageChannel;
+        }
       })();
 
       (function installWebStreamsGlobals() {
@@ -1116,10 +1469,11 @@
           return result;
         }
 
-        if (name === 'stream') {
+        if (name === 'stream' || name === 'node:stream') {
           const getWebStreamsState = function() {
             return globalThis.__secureExecWebStreams || null;
           };
+          const webStreamsState = getWebStreamsState();
           if (typeof result.isReadable !== 'function') {
             result.isReadable = function(stream) {
               const stateKey = getWebStreamsState() && getWebStreamsState().kState;
@@ -1187,6 +1541,69 @@
               });
               return readable;
             };
+          }
+          if (
+            webStreamsState &&
+            typeof ReadableCtor === 'function'
+          ) {
+            if (
+              typeof ReadableCtor.fromWeb !== 'function' &&
+              typeof webStreamsState.newStreamReadableFromReadableStream === 'function'
+            ) {
+              ReadableCtor.fromWeb = function fromWeb(readableStream, options) {
+                return webStreamsState.newStreamReadableFromReadableStream(readableStream, options);
+              };
+            }
+            if (
+              typeof ReadableCtor.toWeb !== 'function' &&
+              typeof webStreamsState.newReadableStreamFromStreamReadable === 'function'
+            ) {
+              ReadableCtor.toWeb = function toWeb(readable) {
+                return webStreamsState.newReadableStreamFromStreamReadable(readable);
+              };
+            }
+          }
+          if (
+            webStreamsState &&
+            typeof WritableCtor === 'function'
+          ) {
+            if (
+              typeof WritableCtor.fromWeb !== 'function' &&
+              typeof webStreamsState.newStreamWritableFromWritableStream === 'function'
+            ) {
+              WritableCtor.fromWeb = function fromWeb(writableStream, options) {
+                return webStreamsState.newStreamWritableFromWritableStream(writableStream, options);
+              };
+            }
+            if (
+              typeof WritableCtor.toWeb !== 'function' &&
+              typeof webStreamsState.newWritableStreamFromStreamWritable === 'function'
+            ) {
+              WritableCtor.toWeb = function toWeb(writable) {
+                return webStreamsState.newWritableStreamFromStreamWritable(writable);
+              };
+            }
+          }
+          if (
+            webStreamsState &&
+            typeof result.Duplex === 'function'
+          ) {
+            if (
+              typeof result.Duplex.fromWeb !== 'function' &&
+              typeof webStreamsState.newStreamDuplexFromReadableWritablePair === 'function'
+            ) {
+              result.Duplex.fromWeb = function fromWeb(pair, options) {
+                return webStreamsState.newStreamDuplexFromReadableWritablePair(pair, options);
+              };
+            }
+            if (
+              typeof result.Duplex.toWeb !== 'function' &&
+              typeof webStreamsState.newReadableWritablePairFromDuplex === 'function'
+            ) {
+              result.Duplex.toWeb = function toWeb(duplex) {
+                return webStreamsState.newReadableWritablePairFromDuplex(duplex);
+              };
+            }
           }
           if (
             typeof ReadableCtor === 'function' &&
@@ -3350,6 +3767,7 @@
           var getWebStreamsState = function() {
             return globalThis.__secureExecWebStreams || null;
           };
+          var webStreamsState = getWebStreamsState();
           if (typeof result.isReadable !== 'function') {
             result.isReadable = function(stream) {
               var stateKey = getWebStreamsState() && getWebStreamsState().kState;
@@ -3410,6 +3828,69 @@
                 return Boolean(this && this._writableState && this._writableState.objectMode);
               },
             });
+          }
+          if (
+            webStreamsState &&
+            typeof result.Readable === 'function'
+          ) {
+            if (
+              typeof result.Readable.fromWeb !== 'function' &&
+              typeof webStreamsState.newStreamReadableFromReadableStream === 'function'
+            ) {
+              result.Readable.fromWeb = function fromWeb(readableStream, options) {
+                return webStreamsState.newStreamReadableFromReadableStream(readableStream, options);
+              };
+            }
+            if (
+              typeof result.Readable.toWeb !== 'function' &&
+              typeof webStreamsState.newReadableStreamFromStreamReadable === 'function'
+            ) {
+              result.Readable.toWeb = function toWeb(readable) {
+                return webStreamsState.newReadableStreamFromStreamReadable(readable);
+              };
+            }
+          }
+          if (
+            webStreamsState &&
+            typeof result.Writable === 'function'
+          ) {
+            if (
+              typeof result.Writable.fromWeb !== 'function' &&
+              typeof webStreamsState.newStreamWritableFromWritableStream === 'function'
+            ) {
+              result.Writable.fromWeb = function fromWeb(writableStream, options) {
+                return webStreamsState.newStreamWritableFromWritableStream(writableStream, options);
+              };
+            }
+            if (
+              typeof result.Writable.toWeb !== 'function' &&
+              typeof webStreamsState.newWritableStreamFromStreamWritable === 'function'
+            ) {
+              result.Writable.toWeb = function toWeb(writable) {
+                return webStreamsState.newWritableStreamFromStreamWritable(writable);
+              };
+            }
+          }
+          if (
+            webStreamsState &&
+            typeof result.Duplex === 'function'
+          ) {
+            if (
+              typeof result.Duplex.fromWeb !== 'function' &&
+              typeof webStreamsState.newStreamDuplexFromReadableWritablePair === 'function'
+            ) {
+              result.Duplex.fromWeb = function fromWeb(pair, options) {
+                return webStreamsState.newStreamDuplexFromReadableWritablePair(pair, options);
+              };
+            }
+            if (
+              typeof result.Duplex.toWeb !== 'function' &&
+              typeof webStreamsState.newReadableWritablePairFromDuplex === 'function'
+            ) {
+              result.Duplex.toWeb = function toWeb(duplex) {
+                return webStreamsState.newReadableWritablePairFromDuplex(duplex);
+              };
+            }
           }
           return result;
         }
@@ -3497,6 +3978,24 @@
       // Create deferred module stubs that throw on API calls
       function _createDeferredModuleStub(moduleName) {
         const methodCache = {};
+        const workerThreadsCompat = {
+          markAsUncloneable: function markAsUncloneable(value) {
+            return value;
+          },
+          markAsUntransferable: function markAsUntransferable(value) {
+            return value;
+          },
+          isMarkedAsUntransferable: function isMarkedAsUntransferable() {
+            return false;
+          },
+          MessagePort: globalThis.MessagePort,
+          MessageChannel: globalThis.MessageChannel,
+          MessageEvent: globalThis.MessageEvent,
+        };
+        const moduleCompat = {
+          worker_threads: workerThreadsCompat,
+          'node:worker_threads': workerThreadsCompat,
+        };
         let stub = null;
         stub = new Proxy({}, {
           get(_target, prop) {
@@ -3505,6 +4004,12 @@
             if (prop === Symbol.toStringTag) return 'Module';
             if (prop === 'then') return undefined;
             if (typeof prop !== 'string') return undefined;
+            if (
+              moduleCompat[moduleName] &&
+              Object.prototype.hasOwnProperty.call(moduleCompat[moduleName], prop)
+            ) {
+              return moduleCompat[moduleName][prop];
+            }
             if (!methodCache[prop]) {
               methodCache[prop] = function deferredApiStub() {
                 throw _unsupportedApiError(moduleName, prop);

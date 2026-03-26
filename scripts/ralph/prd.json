@@ -1164,6 +1164,39 @@
       "notes": "Current Pi headless coverage in packages/secure-exec/tests/cli-tools/pi-headless.test.ts uses a mock Anthropic server plus NODE_OPTIONS preload interception. This story is specifically to prove the real-token path."
     },
     {
+      "id": "US-069",
+      "title": "Complete modern Web API bootstrap for Pi PTY's undici dependency chain",
+      "description": "As a developer, I need kernel-mounted NodeRuntime PTY sessions to expose the modern Web API and helper surface that Pi's CLI pulls in through undici before the interactive UI can boot.",
+      "acceptanceCriteria": [
+        "Running Pi's real-provider PTY harness through kernel.openShell() no longer exits during undici module bootstrap",
+        "A kernel PTY probe of `node -e \"require('undici'); console.log('ok')\"` succeeds without missing-global or deferred-stub errors",
+        "The sandbox bootstrap provides the undici-required pre-network globals/helpers at module scope, including File/Blob/FormData, MessagePort/MessageChannel/MessageEvent, DOMException, and worker_threads helper compatibility where Node exposes it",
+        "The fix lands in the runtime/bootstrap layer, not as a Pi-specific redirect or mock",
+        "Add regression coverage for the kernel/openShell undici bootstrap path",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 55.1,
+      "passes": true,
+      "notes": "Blocked follow-up from US-063. Exact repro as of 2026-03-26: with `createKernel({ filesystem: overlayVfs, permissions: allowAll, hostNetworkAdapter: createNodeHostNetworkAdapter() })`, `await kernel.mount(createNodeRuntime({ permissions: allowAll }))`, and `kernel.openShell({ command: 'node', args: [PI_CLI, '--verbose', '--no-session', '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-themes', '--provider', 'anthropic', '--model', 'claude-sonnet-4-20250514'] })`, Pi exits with code 1 before rendering. Raw blockers advanced from `File is not defined` to `MessagePort is not defined` to `worker_threads.markAsUncloneable is not supported in sandbox`, and the latest raw failure is `ReferenceError: DOMException is not defined` from `undici/lib/web/websocket/stream/websocketerror.js`. This proves the next unblock is a broader runtime bootstrap gap, not a Pi-specific PTY/rendering bug."
+    },
+    {
+      "id": "US-070",
+      "title": "Make Pi PTY helper-tool bootstrap compatible with sandbox command routing",
+      "description": "As a developer, I need Pi's interactive PTY path to survive helper-binary discovery and extraction inside the sandbox so the TUI can stay alive long enough for real interaction and prompt submission.",
+      "acceptanceCriteria": [
+        "Running Pi's real-provider PTY harness through kernel.openShell() no longer fails on missing or incompatible helper tools such as `tar`, `fd`, or `rg`",
+        "If the sandbox exposes helper commands itself, the exposed `fd` / `rg` surfaces satisfy Pi's version probes; otherwise the supported path is documented and tested as extractor-only sandbox support plus Pi-downloaded upstream helper binaries",
+        "A real kernel/openShell PTY probe pins the helper-tool bootstrap path without mock servers or fake provider redirects",
+        "The chosen command-runtime composition is reflected in regression coverage so future PTY runs do not fall back to `ENOENT: command not found: tar`, `fd 0.1.0 (secure-exec)`, or `rg --version` incompatibilities",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 55.2,
+      "passes": false,
+      "notes": "Blocked follow-up from US-063 after the undici/runtime bootstrap fixes. Exact repro as of 2026-03-26: with `createKernel({ filesystem: overlayVfs, permissions: allowAll, hostNetworkAdapter: createNodeHostNetworkAdapter() })` and `await kernel.mount(createNodeRuntime({ permissions: allowAll }))`, Pi now gets past `AbortSignal.timeout` / `Readable.fromWeb` and fails during helper install with `ENOENT: command not found: tar`. Mounting the full WasmVM commands dir changes the failure to Pi rejecting sandbox helper binaries (`fd 0.1.0 (secure-exec)` and `rg: unrecognized option '--version'`). Mounting a tar-only WasmVM runtime lets Pi download and install upstream `fd` / `rg` into `~/.pi/agent/bin`, flips the PTY into bracketed-paste mode (`\\u001b[?2004h`), and then exits with code 1 plus final raw output `IPC connection closed`. This isolates the next unblock to helper-tool/runtime composition and the post-boot PTY exit path, not the earlier undici bootstrap gap."
+    },
+    {
       "id": "US-063",
       "title": "Make Pi PTY mode pass end-to-end with real-provider tokens",
       "description": "As a developer, I need Pi's interactive terminal UI to work through SecureExec's PTY stack using real credentials so the full TUI path is validated.",

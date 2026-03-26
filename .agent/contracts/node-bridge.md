@@ -125,6 +125,15 @@ Bridge/runtime Web Streams and MIME polyfills SHALL preserve the Node-observable
 - **WHEN** sandboxed code reads `require('util').MIMEType` or `require('util').MIMEParams`
 - **THEN** the runtime MUST source those constructors from the shared `internal/mime` helper so parsing, serialization, and parameter mutation preserve Node-compatible behavior
 
+### Requirement: Early Bootstrap Globals Cover Undici-Class Dependency Chains
+Bridge/runtime bootstrap SHALL expose the modern Web API and worker-thread compatibility helpers that third-party packages such as `undici` read at module scope before the bridge network module finishes loading.
+
+#### Scenario: PTY Node process requires undici before any network bridge import
+- **WHEN** a kernel-mediated PTY session runs `node -e "require('undici')"` or another third-party dependency chain that eagerly evaluates `undici`
+- **THEN** bootstrap-time globals such as `DOMException`, `Blob`, `File`, `FormData`, `MessagePort`, `MessageChannel`, `MessageEvent`, `AbortSignal.timeout`, and `AbortSignal.any` MUST already exist
+- **AND** compatibility helpers like `worker_threads.markAsUncloneable` and `stream.Readable.fromWeb()` MUST be reachable during that same bootstrap path
+- **AND** the runtime MUST satisfy that dependency chain through generic runtime/bootstrap behavior rather than a package-specific redirect or mock
+
 ### Requirement: Cryptographic Randomness Bridge Uses Host CSPRNG
 Bridge-provided randomness for global `crypto` APIs MUST delegate to host `node:crypto` primitives and MUST NOT use isolate-local pseudo-random fallbacks such as `Math.random()`.
 

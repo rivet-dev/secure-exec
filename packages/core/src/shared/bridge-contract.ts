@@ -200,6 +200,8 @@ export interface BridgeApplySyncPromiseRef<TArgs extends unknown[], TResult> {
 	applySyncPromise(ctx: undefined, args: TArgs): TResult;
 }
 
+export type ModuleLoadMode = "require" | "import";
+
 // Module loading boundary contracts.
 export type DynamicImportBridgeRef = BridgeApplyRef<
 	[string, string],
@@ -207,10 +209,13 @@ export type DynamicImportBridgeRef = BridgeApplyRef<
 >;
 export type LoadPolyfillBridgeRef = BridgeApplyRef<[string], string | null>;
 export type ResolveModuleBridgeRef = BridgeApplySyncPromiseRef<
-	[string, string],
+	[string, string] | [string, string, ModuleLoadMode],
 	string | null
 >;
-export type LoadFileBridgeRef = BridgeApplySyncPromiseRef<[string], string | null>;
+export type LoadFileBridgeRef = BridgeApplySyncPromiseRef<
+	[string] | [string, ModuleLoadMode],
+	string | null
+>;
 export type RequireFromBridgeFn = (request: string, dirname: string) => unknown;
 export type ModuleCacheBridgeRecord = Record<string, unknown>;
 
