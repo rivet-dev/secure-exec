@@ -1,0 +1,16 @@
+[package]
+name = "secure-exec-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Rust library for executing JavaScript in secure-exec's V8 sandbox"
+publish = false
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+rand = "0.8"
+uuid = { version = "1", features = ["v4"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+getrandom = "0.2"
+libc = "0.2"
+secure-exec-ipc = { path = "../secure-exec-ipc" }

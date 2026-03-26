@@ -300,11 +300,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "secure-exec-ipc"
+version = "0.1.0"
+
+[[package]]
 name = "secure-exec-v8-runtime"
 version = "0.1.0"
 dependencies = [
  "crossbeam-channel",
  "libc",
+ "secure-exec-ipc",
  "signal-hook",
  "v8",
 ]
