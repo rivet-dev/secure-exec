@@ -192,104 +192,1335 @@ class Dir {
   }
 }
 
-// ReadStream class for createReadStream
-// Provides a proper readable stream implementation that works with stream.pipeline
-class ReadStream {
-  // ReadStream-specific properties
-  bytesRead: number = 0;
-  path: string | Buffer;
-  pending: boolean = true;
+const FILE_HANDLE_READ_CHUNK_BYTES = 64 * 1024;
+const FILE_HANDLE_READ_BUFFER_BYTES = 16 * 1024;
+const FILE_HANDLE_MAX_READ_BYTES = 2 ** 31 - 1;
 
-  // Readable stream properties
-  readable: boolean = true;
-  readableAborted: boolean = false;
-  readableDidRead: boolean = false;
-  readableEncoding: BufferEncoding | null = null;
-  readableEnded: boolean = false;
-  readableFlowing: boolean | null = null;
-  readableHighWaterMark: number = 65536;
-  readableLength: number = 0;
-  readableObjectMode: boolean = false;
-  destroyed: boolean = false;
-  closed: boolean = false;
-  errored: Error | null = null;
+function createAbortError(reason?: unknown): Error & { name: string; code?: string; cause?: unknown } {
+  const error = new Error("The operation was aborted") as Error & {
+    name: string;
+    code?: string;
+    cause?: unknown;
+  };
+  error.name = "AbortError";
+  error.code = "ABORT_ERR";
+  if (reason !== undefined) {
+    error.cause = reason;
+  }
+  return error;
+}
 
-  // Internal state
-  private _content: Buffer | null = null;
+function validateAbortSignal(signal: unknown): AbortSignal | undefined {
+  if (signal === undefined) {
+    return undefined;
+  }
+  if (
+    signal === null ||
+    typeof signal !== "object" ||
+    typeof (signal as AbortSignal).aborted !== "boolean" ||
+    typeof (signal as AbortSignal).addEventListener !== "function" ||
+    typeof (signal as AbortSignal).removeEventListener !== "function"
+  ) {
+    const error = new TypeError(
+      'The "signal" argument must be an instance of AbortSignal'
+    ) as TypeError & { code?: string };
+    error.code = "ERR_INVALID_ARG_TYPE";
+    throw error;
+  }
+  return signal as AbortSignal;
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw createAbortError(signal.reason);
+  }
+}
+
+function waitForNextTick(): Promise<void> {
+  return new Promise((resolve) => process.nextTick(resolve));
+}
+
+function createInternalAssertionError(message: string): Error & { code: string } {
+  const error = new Error(message) as Error & { code: string };
+  error.code = "ERR_INTERNAL_ASSERTION";
+  return error;
+}
+
+function createOutOfRangeError(name: string, range: string, received: unknown): RangeError & { code: string } {
+  const error = new RangeError(
+    `The value of "${name}" is out of range. It must be ${range}. Received ${String(received)}`
+  ) as RangeError & { code: string };
+  error.code = "ERR_OUT_OF_RANGE";
+  return error;
+}
+
+function formatInvalidArgReceived(actual: unknown): string {
+  if (actual === null) {
+    return "Received null";
+  }
+  if (actual === undefined) {
+    return "Received undefined";
+  }
+  if (typeof actual === "string") {
+    return `Received type string ('${actual}')`;
+  }
+  if (typeof actual === "number") {
+    return `Received type number (${String(actual)})`;
+  }
+  if (typeof actual === "boolean") {
+    return `Received type boolean (${String(actual)})`;
+  }
+  if (typeof actual === "bigint") {
+    return `Received type bigint (${actual.toString()}n)`;
+  }
+  if (typeof actual === "symbol") {
+    return `Received type symbol (${String(actual)})`;
+  }
+  if (typeof actual === "function") {
+    return actual.name ? `Received function ${actual.name}` : "Received function";
+  }
+  if (Array.isArray(actual)) {
+    return "Received an instance of Array";
+  }
+  if (actual && typeof actual === "object") {
+    const constructorName = (actual as { constructor?: { name?: string } }).constructor?.name;
+    if (constructorName) {
+      return `Received an instance of ${constructorName}`;
+    }
+  }
+  return `Received type ${typeof actual} (${String(actual)})`;
+}
+
+function createInvalidArgTypeError(name: string, expected: string, actual: unknown): TypeError & { code: string } {
+  const error = new TypeError(
+    `The "${name}" argument must be ${expected}. ${formatInvalidArgReceived(actual)}`
+  ) as TypeError & { code: string };
+  error.code = "ERR_INVALID_ARG_TYPE";
+  return error;
+}
+
+function createInvalidArgValueError(name: string, message: string): TypeError & { code: string } {
+  const error = new TypeError(
+    `The argument '${name}' ${message}`
+  ) as TypeError & { code: string };
+  error.code = "ERR_INVALID_ARG_VALUE";
+  return error;
+}
+
+function createInvalidEncodingError(encoding: unknown): TypeError & { code: string } {
+  const printable =
+    typeof encoding === "string"
+      ? `'${encoding}'`
+      : encoding === undefined
+        ? "undefined"
+        : encoding === null
+          ? "null"
+          : String(encoding);
+  const error = new TypeError(
+    `The argument 'encoding' is invalid encoding. Received ${printable}`
+  ) as TypeError & { code: string };
+  error.code = "ERR_INVALID_ARG_VALUE";
+  return error;
+}
+
+function toUint8ArrayChunk(chunk: unknown, encoding?: BufferEncoding): Uint8Array {
+  if (typeof chunk === "string") {
+    return Buffer.from(chunk, encoding ?? "utf8");
+  }
+  if (Buffer.isBuffer(chunk)) {
+    return new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+  }
+  if (chunk instanceof Uint8Array) {
+    return chunk;
+  }
+  if (ArrayBuffer.isView(chunk)) {
+    return new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+  }
+  throw createInvalidArgTypeError("data", "a string, Buffer, TypedArray, or DataView", chunk);
+}
+
+async function *iterateWriteChunks(
+  data: unknown,
+  encoding?: BufferEncoding
+): AsyncGenerator<Uint8Array> {
+  if (typeof data === "string" || ArrayBuffer.isView(data)) {
+    yield toUint8ArrayChunk(data, encoding);
+    return;
+  }
+  if (data && typeof (data as AsyncIterable<unknown>)[Symbol.asyncIterator] === "function") {
+    for await (const chunk of data as AsyncIterable<unknown>) {
+      yield toUint8ArrayChunk(chunk, encoding);
+    }
+    return;
+  }
+  if (data && typeof (data as Iterable<unknown>)[Symbol.iterator] === "function") {
+    for (const chunk of data as Iterable<unknown>) {
+      yield toUint8ArrayChunk(chunk, encoding);
+    }
+    return;
+  }
+  throw createInvalidArgTypeError("data", "a string, Buffer, TypedArray, DataView, or Iterable", data);
+}
+
+type FileHandleReadFileOptions = nodeFs.ObjectEncodingOptions & { signal?: AbortSignal | undefined };
+type FileHandleWriteFileOptions = nodeFs.ObjectEncodingOptions & { signal?: AbortSignal | undefined };
+
+class FileHandle {
+  private _fd: number;
+  private _closing = false;
+  private _closed = false;
   private _listeners: Map<string | symbol, Array<(...args: unknown[]) => void>> = new Map();
-  private _started: boolean = false;
 
-  constructor(filePath: string | Buffer, private _options?: { encoding?: BufferEncoding; start?: number; end?: number; highWaterMark?: number }) {
-    this.path = filePath;
-    if (_options?.encoding) {
-      this.readableEncoding = _options.encoding;
-    }
-    if (_options?.highWaterMark) {
-      this.readableHighWaterMark = _options.highWaterMark;
-    }
+  constructor(fd: number) {
+    this._fd = fd;
   }
 
-  private _loadContent(): Buffer {
-    if (this._content === null) {
-      const pathStr = typeof this.path === 'string' ? this.path : this.path.toString();
-      // readFileSync already normalizes the path
-      this._content = fs.readFileSync(pathStr) as Buffer;
-      this.pending = false;
+  private static _assertHandle(handle: unknown): FileHandle {
+    if (!(handle instanceof FileHandle)) {
+      throw createInternalAssertionError("handle must be an instance of FileHandle");
     }
-    return this._content;
+    return handle;
   }
 
-  // Start reading - called when 'data' listener is added or resume() is called
-  private _startReading(): void {
-    if (this._started || this.destroyed) return;
-    this._started = true;
-    this.readableFlowing = true;
+  private _emitCloseOnce(): void {
+    if (this._closed) {
+      this._fd = -1;
+      this.emit("close");
+      return;
+    }
+    this._closed = true;
+    this._fd = -1;
+    this.emit("close");
+  }
 
-    Promise.resolve().then(() => {
-      try {
-        const content = this._loadContent();
-        this.readableDidRead = true;
+  private _resolvePath(): string | null {
+    if (this._fd < 0) {
+      return null;
+    }
+    return _fdGetPath.applySync(undefined, [this._fd]);
+  }
 
-        // Determine start/end positions
-        const start = this._options?.start ?? 0;
-        const end = this._options?.end ?? content.length;
-        const chunk = content.slice(start, end);
+  get fd(): number {
+    return this._fd;
+  }
 
-        this.bytesRead = chunk.length;
+  get closed(): boolean {
+    return this._closed;
+  }
 
-        // Emit data event
-        this.emit('data', chunk);
+  on(event: string | symbol, listener: (...args: unknown[]) => void): this {
+    const listeners = this._listeners.get(event) ?? [];
+    listeners.push(listener);
+    this._listeners.set(event, listeners);
+    return this;
+  }
 
-        // Emit end and close
-        Promise.resolve().then(() => {
-          this.readable = false;
-          this.readableEnded = true;
-          this.emit('end');
-          Promise.resolve().then(() => {
-            this.closed = true;
-            this.emit('close');
-          });
-        });
-      } catch (err) {
-        this.errored = err as Error;
-        this.emit('error', err);
-        this.destroy(err as Error);
+  once(event: string | symbol, listener: (...args: unknown[]) => void): this {
+    const wrapper = (...args: unknown[]) => {
+      this.off(event, wrapper);
+      listener(...args);
+    };
+    (wrapper as { _originalListener?: typeof listener })._originalListener = listener;
+    return this.on(event, wrapper);
+  }
+
+  off(event: string | symbol, listener: (...args: unknown[]) => void): this {
+    const listeners = this._listeners.get(event);
+    if (!listeners) {
+      return this;
+    }
+    const index = listeners.findIndex(
+      (candidate) =>
+        candidate === listener ||
+        (candidate as { _originalListener?: typeof listener })._originalListener === listener
+    );
+    if (index !== -1) {
+      listeners.splice(index, 1);
+    }
+    return this;
+  }
+
+  removeListener(event: string | symbol, listener: (...args: unknown[]) => void): this {
+    return this.off(event, listener);
+  }
+
+  emit(event: string | symbol, ...args: unknown[]): boolean {
+    const listeners = this._listeners.get(event);
+    if (!listeners || listeners.length === 0) {
+      return false;
+    }
+    for (const listener of listeners.slice()) {
+      listener(...args);
+    }
+    return true;
+  }
+
+  async close(): Promise<void> {
+    const handle = FileHandle._assertHandle(this);
+    if (handle._closing || handle._closed) {
+      if (handle._fd < 0) {
+        throw createFsError("EBADF", "EBADF: bad file descriptor, close", "close");
       }
+    }
+    handle._closing = true;
+    try {
+      fs.closeSync(handle._fd);
+      handle._emitCloseOnce();
+    } finally {
+      handle._closing = false;
+    }
+  }
+
+  async stat(): Promise<Stats> {
+    const handle = FileHandle._assertHandle(this);
+    return fs.fstatSync(handle.fd);
+  }
+
+  async sync(): Promise<void> {
+    const handle = FileHandle._assertHandle(this);
+    fs.fsyncSync(handle.fd);
+  }
+
+  async datasync(): Promise<void> {
+    return this.sync();
+  }
+
+  async truncate(len?: number): Promise<void> {
+    const handle = FileHandle._assertHandle(this);
+    fs.ftruncateSync(handle.fd, len);
+  }
+
+  async chmod(mode: Mode): Promise<void> {
+    const handle = FileHandle._assertHandle(this);
+    const path = handle._resolvePath();
+    if (!path) {
+      throw createFsError("EBADF", "EBADF: bad file descriptor", "chmod");
+    }
+    fs.chmodSync(path, mode);
+  }
+
+  async chown(uid: number, gid: number): Promise<void> {
+    const handle = FileHandle._assertHandle(this);
+    const path = handle._resolvePath();
+    if (!path) {
+      throw createFsError("EBADF", "EBADF: bad file descriptor", "chown");
+    }
+    fs.chownSync(path, uid, gid);
+  }
+
+  async utimes(atime: string | number | Date, mtime: string | number | Date): Promise<void> {
+    const handle = FileHandle._assertHandle(this);
+    const path = handle._resolvePath();
+    if (!path) {
+      throw createFsError("EBADF", "EBADF: bad file descriptor", "utimes");
+    }
+    fs.utimesSync(path, atime, mtime);
+  }
+
+  async read(
+    buffer: NodeJS.ArrayBufferView | null,
+    offset?: number,
+    length?: number,
+    position?: number | null
+  ): Promise<{ bytesRead: number; buffer: NodeJS.ArrayBufferView }> {
+    const handle = FileHandle._assertHandle(this);
+    let target = buffer;
+    if (target === null) {
+      target = Buffer.alloc(FILE_HANDLE_READ_BUFFER_BYTES);
+    }
+    if (!ArrayBuffer.isView(target)) {
+      throw createInvalidArgTypeError("buffer", "an instance of ArrayBufferView", target);
+    }
+    const readOffset = offset ?? 0;
+    const readLength = length ?? (target.byteLength - readOffset);
+    const bytesRead = fs.readSync(handle.fd, target, readOffset, readLength, position ?? null);
+    return { bytesRead, buffer: target };
+  }
+
+  async write(
+    buffer: string | NodeJS.ArrayBufferView,
+    offsetOrPosition?: number,
+    lengthOrEncoding?: number | BufferEncoding,
+    position?: number
+  ): Promise<{ bytesWritten: number; buffer: string | NodeJS.ArrayBufferView }> {
+    const handle = FileHandle._assertHandle(this);
+    if (typeof buffer === "string") {
+      const encoding = typeof lengthOrEncoding === "string" ? lengthOrEncoding : "utf8";
+      if (encoding === "hex" && buffer.length % 2 !== 0) {
+        throw createInvalidArgValueError("encoding", `is invalid for data of length ${buffer.length}`);
+      }
+      const bytesWritten = fs.writeSync(handle.fd, Buffer.from(buffer, encoding), 0, undefined, offsetOrPosition ?? null);
+      return { bytesWritten, buffer };
+    }
+    if (!ArrayBuffer.isView(buffer)) {
+      throw createInvalidArgTypeError("buffer", "a string, Buffer, TypedArray, or DataView", buffer);
+    }
+    const offset = offsetOrPosition ?? 0;
+    const length = typeof lengthOrEncoding === "number" ? lengthOrEncoding : undefined;
+    const bytesWritten = fs.writeSync(handle.fd, buffer, offset, length, position ?? null);
+    return { bytesWritten, buffer };
+  }
+
+  async readFile(options?: BufferEncoding | FileHandleReadFileOptions | null): Promise<string | Buffer> {
+    const handle = FileHandle._assertHandle(this);
+    const normalized =
+      typeof options === "string" ? { encoding: options } : (options ?? undefined);
+    const signal = validateAbortSignal(normalized?.signal);
+    const encoding = normalized?.encoding ?? undefined;
+    const stats = await handle.stat();
+    if (stats.size > FILE_HANDLE_MAX_READ_BYTES) {
+      const error = new RangeError("File size is greater than 2 GiB") as RangeError & { code: string };
+      error.code = "ERR_FS_FILE_TOO_LARGE";
+      throw error;
+    }
+    await waitForNextTick();
+    throwIfAborted(signal);
+
+    const chunks: Buffer[] = [];
+    let totalLength = 0;
+    while (true) {
+      throwIfAborted(signal);
+      const chunk = Buffer.alloc(FILE_HANDLE_READ_CHUNK_BYTES);
+      const { bytesRead } = await handle.read(chunk, 0, chunk.byteLength, null);
+      if (bytesRead === 0) {
+        break;
+      }
+      chunks.push(chunk.subarray(0, bytesRead));
+      totalLength += bytesRead;
+      if (totalLength > FILE_HANDLE_MAX_READ_BYTES) {
+        const error = new RangeError("File size is greater than 2 GiB") as RangeError & { code: string };
+        error.code = "ERR_FS_FILE_TOO_LARGE";
+        throw error;
+      }
+      await waitForNextTick();
+    }
+    const result = Buffer.concat(chunks, totalLength);
+    return encoding ? result.toString(encoding) : result;
+  }
+
+  async writeFile(
+    data: unknown,
+    options?: BufferEncoding | FileHandleWriteFileOptions | null
+  ): Promise<void> {
+    const handle = FileHandle._assertHandle(this);
+    const normalized =
+      typeof options === "string" ? { encoding: options } : (options ?? undefined);
+    const signal = validateAbortSignal(normalized?.signal);
+    const encoding = normalized?.encoding ?? undefined;
+    await waitForNextTick();
+    throwIfAborted(signal);
+    for await (const chunk of iterateWriteChunks(data, encoding)) {
+      throwIfAborted(signal);
+      await handle.write(chunk, 0, chunk.byteLength, undefined);
+      await waitForNextTick();
+    }
+  }
+
+  async appendFile(
+    data: unknown,
+    options?: BufferEncoding | FileHandleWriteFileOptions | null
+  ): Promise<void> {
+    return this.writeFile(data, options);
+  }
+
+  createReadStream(
+    options?: {
+      encoding?: BufferEncoding;
+      start?: number;
+      end?: number;
+      highWaterMark?: number;
+      signal?: AbortSignal;
+    }
+  ): ReadStream {
+    FileHandle._assertHandle(this);
+    return new ReadStream(null, { ...(options ?? {}), fd: this });
+  }
+
+  createWriteStream(
+    options?: { encoding?: BufferEncoding; flags?: string; mode?: number }
+  ): WriteStream {
+    FileHandle._assertHandle(this);
+    return new WriteStream(null, { ...(options ?? {}), fd: this });
+  }
+}
+
+type StreamFsMethods = {
+  open?: (...args: unknown[]) => unknown;
+  close?: (...args: unknown[]) => unknown;
+  read?: (...args: unknown[]) => unknown;
+  write?: (...args: unknown[]) => unknown;
+  writev?: (...args: unknown[]) => unknown;
+};
+
+function isArrayBufferView(value: unknown): value is NodeJS.ArrayBufferView {
+  return ArrayBuffer.isView(value);
+}
+
+function createInvalidPropertyTypeError(propertyPath: string, actual: unknown): TypeError & { code: string } {
+  let received: string;
+  if (actual === null) {
+    received = "Received null";
+  } else if (typeof actual === "string") {
+    received = `Received type string ('${actual}')`;
+  } else {
+    received = `Received type ${typeof actual} (${String(actual)})`;
+  }
+  const error = new TypeError(
+    `The "${propertyPath}" property must be of type function. ${received}`
+  ) as TypeError & { code: string };
+  error.code = "ERR_INVALID_ARG_TYPE";
+  return error;
+}
+
+function validateCallback(callback: unknown, name: string = "cb"): asserts callback is (...args: unknown[]) => void {
+  if (typeof callback !== "function") {
+    throw createInvalidArgTypeError(name, "of type function", callback);
+  }
+}
+
+function validateEncodingValue(encoding: unknown): asserts encoding is BufferEncoding {
+  if (encoding === undefined || encoding === null) {
+    return;
+  }
+  if (typeof encoding !== "string" || !Buffer.isEncoding(encoding)) {
+    throw createInvalidEncodingError(encoding);
+  }
+}
+
+function validateEncodingOption(options: unknown): void {
+  if (typeof options === "string") {
+    validateEncodingValue(options);
+    return;
+  }
+  if (options && typeof options === "object" && "encoding" in options) {
+    validateEncodingValue((options as { encoding?: unknown }).encoding);
+  }
+}
+
+function normalizePathLike(path: unknown, name: string = "path"): string {
+  if (typeof path === "string") {
+    return path;
+  }
+  if (Buffer.isBuffer(path)) {
+    return path.toString("utf8");
+  }
+  if (path instanceof URL) {
+    if (path.protocol === "file:") {
+      return path.pathname;
+    }
+    throw createInvalidArgTypeError(name, "of type string or an instance of Buffer or URL", path);
+  }
+  throw createInvalidArgTypeError(name, "of type string or an instance of Buffer or URL", path);
+}
+
+function tryNormalizeExistsPath(path: unknown): string | null {
+  try {
+    return normalizePathLike(path);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeNumberArgument(
+  name: string,
+  value: unknown,
+  options: { min?: number; max?: number; allowNegativeOne?: boolean } = {},
+): number {
+  const { min = 0, max = 0x7fffffff, allowNegativeOne = false } = options;
+  if (typeof value !== "number") {
+    throw createInvalidArgTypeError(name, "of type number", value);
+  }
+  if (!Number.isFinite(value) || !Number.isInteger(value)) {
+    throw createOutOfRangeError(name, "an integer", value);
+  }
+  if ((allowNegativeOne && value === -1) || (value >= min && value <= max)) {
+    return value;
+  }
+  throw createOutOfRangeError(name, `>= ${min} && <= ${max}`, value);
+}
+
+function normalizeModeArgument(mode: unknown, name: string = "mode"): number {
+  if (typeof mode === "string") {
+    if (!/^[0-7]+$/.test(mode)) {
+      throw createInvalidArgValueError(name, "must be a 32-bit unsigned integer or an octal string. Received '" + mode + "'");
+    }
+    return parseInt(mode, 8);
+  }
+  return normalizeNumberArgument(name, mode, { min: 0, max: 0xffffffff });
+}
+
+function normalizeOpenModeArgument(mode: unknown): number | undefined {
+  if (mode === undefined || mode === null) {
+    return undefined;
+  }
+  return normalizeModeArgument(mode);
+}
+
+function validateWriteStreamStartOption(options: Record<string, unknown> | undefined): void {
+  if (options?.start === undefined) {
+    return;
+  }
+  if (typeof options.start !== "number") {
+    throw createInvalidArgTypeError("start", "of type number", options.start);
+  }
+  if (!Number.isFinite(options.start) || !Number.isInteger(options.start) || options.start < 0) {
+    throw createOutOfRangeError("start", ">= 0", options.start);
+  }
+}
+
+function validateBooleanOption(name: string, value: unknown): boolean | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "boolean") {
+    throw createInvalidArgTypeError(name, "of type boolean", value);
+  }
+  return value;
+}
+
+function validateAbortSignalOption(name: string, signal: unknown): AbortSignal | undefined {
+  if (signal === undefined) {
+    return undefined;
+  }
+  if (
+    signal === null ||
+    typeof signal !== "object" ||
+    typeof (signal as AbortSignal).aborted !== "boolean" ||
+    typeof (signal as AbortSignal).addEventListener !== "function" ||
+    typeof (signal as AbortSignal).removeEventListener !== "function"
+  ) {
+    const error = new TypeError(
+      `The "${name}" property must be an instance of AbortSignal. ${formatInvalidArgReceived(signal)}`
+    ) as TypeError & { code?: string };
+    error.code = "ERR_INVALID_ARG_TYPE";
+    throw error;
+  }
+  return signal as AbortSignal;
+}
+
+function createUnsupportedWatcherError(api: "watch" | "watchFile" | "unwatchFile" | "promises.watch"): Error {
+  return new Error(`fs.${api} is not supported in sandbox — use polling`);
+}
+
+function normalizeWatchOptions(
+  options: unknown,
+  allowString: boolean,
+): {
+  persistent?: boolean;
+  recursive?: boolean;
+  encoding?: BufferEncoding;
+  signal?: AbortSignal;
+} {
+  let normalized: Record<string, unknown>;
+  if (options === undefined || options === null) {
+    normalized = {};
+  } else if (typeof options === "string") {
+    if (!allowString) {
+      throw createInvalidArgTypeError("options", "of type object", options);
+    }
+    validateEncodingValue(options);
+    normalized = { encoding: options };
+  } else if (typeof options === "object") {
+    normalized = options as Record<string, unknown>;
+  } else {
+    throw createInvalidArgTypeError(
+      "options",
+      allowString ? "one of type string or object" : "of type object",
+      options
+    );
+  }
+
+  validateBooleanOption("options.persistent", normalized.persistent);
+  validateBooleanOption("options.recursive", normalized.recursive);
+  validateEncodingOption(normalized);
+  const signal = validateAbortSignalOption("options.signal", normalized.signal);
+
+  return {
+    persistent: normalized.persistent as boolean | undefined,
+    recursive: normalized.recursive as boolean | undefined,
+    encoding: normalized.encoding as BufferEncoding | undefined,
+    signal,
+  };
+}
+
+function normalizeWatchArguments(
+  path: unknown,
+  optionsOrListener?: unknown,
+  listener?: unknown,
+): {
+  persistent?: boolean;
+  recursive?: boolean;
+  encoding?: BufferEncoding;
+  signal?: AbortSignal;
+} {
+  normalizePathLike(path);
+
+  let options = optionsOrListener;
+  let resolvedListener = listener;
+  if (typeof optionsOrListener === "function") {
+    options = undefined;
+    resolvedListener = optionsOrListener;
+  }
+
+  if (resolvedListener !== undefined && typeof resolvedListener !== "function") {
+    throw createInvalidArgTypeError("listener", "of type function", resolvedListener);
+  }
+
+  return normalizeWatchOptions(options, true);
+}
+
+function normalizeWatchFileArguments(
+  path: unknown,
+  optionsOrListener?: unknown,
+  listener?: unknown,
+): void {
+  normalizePathLike(path);
+
+  let options: Record<string, unknown> = {};
+  let resolvedListener = listener;
+
+  if (typeof optionsOrListener === "function") {
+    resolvedListener = optionsOrListener;
+  } else if (optionsOrListener === undefined || optionsOrListener === null) {
+    options = {};
+  } else if (typeof optionsOrListener === "object") {
+    options = optionsOrListener as Record<string, unknown>;
+  } else {
+    throw createInvalidArgTypeError("listener", "of type function", optionsOrListener);
+  }
+
+  if (typeof resolvedListener !== "function") {
+    throw createInvalidArgTypeError("listener", "of type function", resolvedListener);
+  }
+
+  if (options.interval !== undefined && typeof options.interval !== "number") {
+    throw createInvalidArgTypeError("interval", "of type number", options.interval);
+  }
+}
+
+async function *createUnsupportedPromisesWatchIterator(
+  path: unknown,
+  options?: unknown,
+): AsyncIterableIterator<{ eventType: string; filename: string | Buffer | null }> {
+  const normalized = normalizeWatchOptions(options, false);
+  normalizePathLike(path);
+  throwIfAborted(normalized.signal);
+  throw createUnsupportedWatcherError("promises.watch");
+}
+
+function isReadWriteOptionsObject(value: unknown): value is Record<string, unknown> {
+  return value === null || value === undefined || (typeof value === "object" && !Array.isArray(value));
+}
+
+function normalizeOptionalPosition(value: unknown): number | null {
+  if (value === undefined || value === null || value === -1) {
+    return null;
+  }
+  if (typeof value === "bigint") {
+    return Number(value);
+  }
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    throw createInvalidArgTypeError("position", "an integer", value);
+  }
+  return value;
+}
+
+function normalizeOffsetLength(
+  bufferByteLength: number,
+  offsetValue: unknown,
+  lengthValue: unknown,
+): { offset: number; length: number } {
+  const offset = offsetValue ?? 0;
+  if (typeof offset !== "number" || !Number.isInteger(offset)) {
+    throw createInvalidArgTypeError("offset", "an integer", offset);
+  }
+  if (offset < 0 || offset > bufferByteLength) {
+    throw createOutOfRangeError("offset", `>= 0 && <= ${bufferByteLength}`, offset);
+  }
+
+  const defaultLength = bufferByteLength - offset;
+  const length = lengthValue ?? defaultLength;
+  if (typeof length !== "number" || !Number.isInteger(length)) {
+    throw createInvalidArgTypeError("length", "an integer", length);
+  }
+  if (length < 0 || length > 0x7fffffff) {
+    throw createOutOfRangeError("length", ">= 0 && <= 2147483647", length);
+  }
+  if (offset + length > bufferByteLength) {
+    throw createOutOfRangeError("length", `>= 0 && <= ${bufferByteLength - offset}`, length);
+  }
+
+  return { offset, length };
+}
+
+function normalizeReadSyncArgs(
+  buffer: unknown,
+  offsetOrOptions?: number | Record<string, unknown> | null,
+  length?: number | null,
+  position?: nodeFs.ReadPosition | null,
+): {
+  buffer: NodeJS.ArrayBufferView;
+  offset: number;
+  length: number;
+  position: number | null;
+} {
+  if (!isArrayBufferView(buffer)) {
+    throw createInvalidArgTypeError("buffer", "an instance of Buffer, TypedArray, or DataView", buffer);
+  }
+
+  if (
+    length === undefined &&
+    position === undefined &&
+    isReadWriteOptionsObject(offsetOrOptions)
+  ) {
+    const options = (offsetOrOptions ?? {}) as Record<string, unknown>;
+    const { offset, length } = normalizeOffsetLength(
+      buffer.byteLength,
+      options.offset,
+      options.length,
+    );
+    return {
+      buffer,
+      offset,
+      length,
+      position: normalizeOptionalPosition(options.position),
+    };
+  }
+
+  const { offset, length: normalizedLength } = normalizeOffsetLength(
+    buffer.byteLength,
+    offsetOrOptions,
+    length,
+  );
+  return {
+    buffer,
+    offset,
+    length: normalizedLength,
+    position: normalizeOptionalPosition(position),
+  };
+}
+
+function normalizeWriteSyncArgs(
+  buffer: unknown,
+  offsetOrPosition?: number | Record<string, unknown> | null,
+  lengthOrEncoding?: number | BufferEncoding | null,
+  position?: number | null,
+): {
+  buffer: string | NodeJS.ArrayBufferView;
+  offset: number;
+  length: number;
+  position: number | null;
+  encoding?: BufferEncoding;
+} {
+  if (typeof buffer === "string") {
+    if (
+      lengthOrEncoding === undefined &&
+      position === undefined &&
+      isReadWriteOptionsObject(offsetOrPosition)
+    ) {
+      const options = (offsetOrPosition ?? {}) as Record<string, unknown>;
+      const encoding = typeof options.encoding === "string" ? (options.encoding as BufferEncoding) : undefined;
+      return {
+        buffer,
+        offset: 0,
+        length: Buffer.byteLength(buffer, encoding),
+        position: normalizeOptionalPosition(options.position),
+        encoding,
+      };
+    }
+
+    if (
+      offsetOrPosition !== undefined &&
+      offsetOrPosition !== null &&
+      typeof offsetOrPosition !== "number"
+    ) {
+      throw createInvalidArgTypeError("position", "an integer", offsetOrPosition);
+    }
+
+    return {
+      buffer,
+      offset: 0,
+      length: Buffer.byteLength(buffer, typeof lengthOrEncoding === "string" ? lengthOrEncoding : undefined),
+      position: normalizeOptionalPosition(offsetOrPosition),
+      encoding: typeof lengthOrEncoding === "string" ? lengthOrEncoding : undefined,
+    };
+  }
+
+  if (!isArrayBufferView(buffer)) {
+    throw createInvalidArgTypeError("buffer", "a string, Buffer, TypedArray, or DataView", buffer);
+  }
+
+  if (
+    lengthOrEncoding === undefined &&
+    position === undefined &&
+    isReadWriteOptionsObject(offsetOrPosition)
+  ) {
+    const options = (offsetOrPosition ?? {}) as Record<string, unknown>;
+    const { offset, length } = normalizeOffsetLength(
+      buffer.byteLength,
+      options.offset,
+      options.length,
+    );
+    return {
+      buffer,
+      offset,
+      length,
+      position: normalizeOptionalPosition(options.position),
+    };
+  }
+
+  const { offset, length } = normalizeOffsetLength(
+    buffer.byteLength,
+    offsetOrPosition,
+    typeof lengthOrEncoding === "number" ? lengthOrEncoding : undefined,
+  );
+  return {
+    buffer,
+    offset,
+    length,
+    position: normalizeOptionalPosition(position),
+  };
+}
+
+function normalizeFdInteger(fd: unknown): number {
+  return normalizeNumberArgument("fd", fd);
+}
+
+function normalizeIoVectorBuffers(buffers: unknown): ArrayBufferView[] {
+  if (!Array.isArray(buffers)) {
+    throw createInvalidArgTypeError("buffers", "an ArrayBufferView[]", buffers);
+  }
+  for (const buffer of buffers) {
+    if (!isArrayBufferView(buffer)) {
+      throw createInvalidArgTypeError("buffers", "an ArrayBufferView[]", buffers);
+    }
+  }
+  return buffers as ArrayBufferView[];
+}
+
+function validateStreamFsOverride(streamFs: unknown, required: Array<keyof StreamFsMethods>): StreamFsMethods | undefined {
+  if (streamFs === undefined) {
+    return undefined;
+  }
+  if (streamFs === null || typeof streamFs !== "object") {
+    throw createInvalidArgTypeError("options.fs", "an object", streamFs);
+  }
+  const typed = streamFs as StreamFsMethods;
+  for (const key of required) {
+    if (typeof typed[key] !== "function") {
+      throw createInvalidPropertyTypeError(`options.fs.${String(key)}`, typed[key]);
+    }
+  }
+  return typed;
+}
+
+function normalizeStreamFd(fd: unknown): number | FileHandle | undefined {
+  if (fd === undefined) {
+    return undefined;
+  }
+  if (fd instanceof FileHandle) {
+    return fd;
+  }
+  return normalizeNumberArgument("fd", fd);
+}
+
+function normalizeStreamPath(pathValue: nodeFs.PathLike | null, fd: number | FileHandle | undefined): string | Buffer | null {
+  if (pathValue === null) {
+    if (fd === undefined) {
+      throw createInvalidArgTypeError("path", "of type string or an instance of Buffer or URL", pathValue);
+    }
+    return null;
+  }
+  if (typeof pathValue === "string" || Buffer.isBuffer(pathValue)) {
+    return pathValue;
+  }
+  if (pathValue instanceof URL) {
+    if (pathValue.protocol === "file:") {
+      return pathValue.pathname;
+    }
+    throw createInvalidArgTypeError("path", "of type string or an instance of Buffer or URL", pathValue);
+  }
+  throw createInvalidArgTypeError("path", "of type string or an instance of Buffer or URL", pathValue);
+}
+
+function normalizeStreamStartEnd(options: Record<string, unknown> | undefined): {
+  start: number | undefined;
+  end: number | undefined;
+  highWaterMark: number;
+  autoClose: boolean;
+} {
+  const start = options?.start;
+  const end = options?.end;
+
+  if (start !== undefined && typeof start !== "number") {
+    throw createInvalidArgTypeError("start", "of type number", start);
+  }
+  if (end !== undefined && typeof end !== "number") {
+    throw createInvalidArgTypeError("end", "of type number", end);
+  }
+
+  const normalizedStart = start;
+  const normalizedEnd = end;
+
+  if (normalizedStart !== undefined && (!Number.isFinite(normalizedStart) || normalizedStart < 0)) {
+    throw createOutOfRangeError("start", ">= 0", start);
+  }
+  if (normalizedEnd !== undefined && (!Number.isFinite(normalizedEnd) || normalizedEnd < 0)) {
+    throw createOutOfRangeError("end", ">= 0", end);
+  }
+  if (
+    normalizedStart !== undefined &&
+    normalizedEnd !== undefined &&
+    normalizedStart > normalizedEnd
+  ) {
+    throw createOutOfRangeError("start", `<= "end" (here: ${normalizedEnd})`, normalizedStart);
+  }
+
+  const highWaterMarkCandidate = options?.highWaterMark ?? options?.bufferSize;
+  const highWaterMark =
+    typeof highWaterMarkCandidate === "number" && Number.isFinite(highWaterMarkCandidate) && highWaterMarkCandidate > 0
+      ? Math.floor(highWaterMarkCandidate)
+      : 65536;
+
+  return {
+    start: normalizedStart,
+    end: normalizedEnd,
+    highWaterMark,
+    autoClose: options?.autoClose !== false,
+  };
+}
+
+class ReadStream {
+  bytesRead = 0;
+  path: string | Buffer | null;
+  pending = true;
+  readable = true;
+  readableAborted = false;
+  readableDidRead = false;
+  readableEncoding: BufferEncoding | null = null;
+  readableEnded = false;
+  readableFlowing: boolean | null = null;
+  readableHighWaterMark = 65536;
+  readableLength = 0;
+  readableObjectMode = false;
+  destroyed = false;
+  closed = false;
+  errored: Error | null = null;
+  fd: number | null = null;
+  autoClose = true;
+  start: number | undefined;
+  end: number | undefined;
+
+  private _listeners: Map<string | symbol, Array<(...args: unknown[]) => void>> = new Map();
+  private _started = false;
+  private _reading = false;
+  private _readScheduled = false;
+  private _opening = false;
+  private _remaining: number | null = null;
+  private _position: number | null = null;
+  private _fileHandle: FileHandle | null = null;
+  private _streamFs?: StreamFsMethods;
+  private _signal?: AbortSignal;
+  private _handleCloseListener?: () => void;
+
+  constructor(
+    filePath: string | Buffer | null,
+    private _options?: {
+      encoding?: BufferEncoding;
+      start?: number;
+      end?: number;
+      highWaterMark?: number;
+      bufferSize?: number;
+      autoClose?: boolean;
+      fd?: number | FileHandle;
+      fs?: unknown;
+      signal?: AbortSignal;
+    }
+  ) {
+    const fdOption = normalizeStreamFd(_options?.fd);
+    const optionsRecord = (_options ?? {}) as Record<string, unknown>;
+    const streamState = normalizeStreamStartEnd(optionsRecord);
+    this.path = filePath;
+    this.start = streamState.start;
+    this.end = streamState.end;
+    this.autoClose = streamState.autoClose;
+    this.readableHighWaterMark = streamState.highWaterMark;
+    this.readableEncoding = _options?.encoding ?? null;
+    this._position = this.start ?? null;
+    this._remaining =
+      this.end !== undefined ? this.end - (this.start ?? 0) + 1 : null;
+    this._signal = validateAbortSignal(_options?.signal);
+
+    if (fdOption instanceof FileHandle) {
+      if (_options?.fs !== undefined) {
+        const error = new Error("The FileHandle with fs method is not implemented") as Error & { code?: string };
+        error.code = "ERR_METHOD_NOT_IMPLEMENTED";
+        throw error;
+      }
+      this._fileHandle = fdOption;
+      this.fd = fdOption.fd;
+      this.pending = false;
+      this._handleCloseListener = () => {
+        if (!this.closed) {
+          this.closed = true;
+          this.destroyed = true;
+          this.readable = false;
+          this.emit("close");
+        }
+      };
+      this._fileHandle.on("close", this._handleCloseListener);
+    } else {
+      this._streamFs = validateStreamFsOverride(_options?.fs, ["open", "read", "close"]);
+      if (typeof fdOption === "number") {
+        this.fd = fdOption;
+        this.pending = false;
+      }
+    }
+
+    if (this._signal) {
+      if (this._signal.aborted) {
+        queueMicrotask(() => {
+          void this._abort(this._signal?.reason);
+        });
+      } else {
+        this._signal.addEventListener("abort", () => {
+          void this._abort(this._signal?.reason);
+        });
+      }
+    }
+
+    if (this.fd === null) {
+      queueMicrotask(() => {
+        void this._openIfNeeded();
+      });
+    }
+  }
+
+  private _emitOpen(fd: number): void {
+    this.fd = fd;
+    this.pending = false;
+    this.emit("open", fd);
+    if (this._started || this.readableFlowing) {
+      this._scheduleRead();
+    }
+  }
+
+  private async _openIfNeeded(): Promise<void> {
+    if (this.fd !== null || this._opening || this.destroyed || this.closed) {
+      return;
+    }
+    const pathStr =
+      typeof this.path === "string"
+        ? this.path
+        : this.path instanceof Buffer
+          ? this.path.toString()
+          : null;
+    if (!pathStr) {
+      this._handleStreamError(createFsError("EBADF", "EBADF: bad file descriptor", "read"));
+      return;
+    }
+
+    this._opening = true;
+    const opener = (this._streamFs?.open ?? fs.open).bind(this._streamFs ?? fs);
+    opener(pathStr, "r", 0o666, (error: Error | null, fd?: number) => {
+      this._opening = false;
+      if (error || typeof fd !== "number") {
+        this._handleStreamError((error as Error) ?? createFsError("EBADF", "EBADF: bad file descriptor", "open"));
+        return;
+      }
+      this._emitOpen(fd);
     });
   }
 
-  // Event handling
+  private async _closeUnderlying(): Promise<void> {
+    if (this._fileHandle) {
+      if (!this._fileHandle.closed) {
+        await this._fileHandle.close();
+      }
+      return;
+    }
+    if (this.fd !== null && this.fd >= 0) {
+      const fd = this.fd;
+      const closer = (this._streamFs?.close ?? fs.close).bind(this._streamFs ?? fs);
+      await new Promise<void>((resolve) => {
+        closer(fd, () => resolve());
+      });
+      this.fd = -1;
+    }
+  }
+
+  private _scheduleRead(): void {
+    if (this._readScheduled || this._reading || this.readableFlowing === false || this.destroyed || this.closed) {
+      return;
+    }
+    this._readScheduled = true;
+    queueMicrotask(() => {
+      this._readScheduled = false;
+      void this._readNextChunk();
+    });
+  }
+
+  private async _readNextChunk(): Promise<void> {
+    if (this._reading || this.destroyed || this.closed || this.readableFlowing === false) {
+      return;
+    }
+    throwIfAborted(this._signal);
+    if (this.fd === null) {
+      await this._openIfNeeded();
+      return;
+    }
+    if (this._remaining === 0) {
+      await this._finishReadable();
+      return;
+    }
+
+    const nextLength = this._remaining === null
+      ? this.readableHighWaterMark
+      : Math.min(this.readableHighWaterMark, this._remaining);
+    const target = Buffer.alloc(nextLength);
+
+    this._reading = true;
+    const onRead = async (error: Error | null, bytesRead: number = 0): Promise<void> => {
+      this._reading = false;
+      if (error) {
+        this._handleStreamError(error);
+        return;
+      }
+      if (bytesRead === 0) {
+        await this._finishReadable();
+        return;
+      }
+
+      this.bytesRead += bytesRead;
+      this.readableDidRead = true;
+      if (typeof this._position === "number") {
+        this._position += bytesRead;
+      }
+      if (this._remaining !== null) {
+        this._remaining -= bytesRead;
+      }
+
+      const chunk = target.subarray(0, bytesRead);
+      this.emit("data", this.readableEncoding ? chunk.toString(this.readableEncoding) : Buffer.from(chunk));
+
+      if (this._remaining === 0) {
+        await this._finishReadable();
+        return;
+      }
+      this._scheduleRead();
+    };
+
+    if (this._fileHandle) {
+      try {
+        const result = await this._fileHandle.read(target, 0, nextLength, this._position);
+        await onRead(null, result.bytesRead);
+      } catch (error) {
+        await onRead(error as Error);
+      }
+      return;
+    }
+
+    const reader = (this._streamFs?.read ?? fs.read).bind(this._streamFs ?? fs);
+    reader(this.fd, target, 0, nextLength, this._position, (error: Error | null, bytesRead?: number) => {
+      void onRead(error, bytesRead ?? 0);
+    });
+  }
+
+  private async _finishReadable(): Promise<void> {
+    if (this.readableEnded) {
+      return;
+    }
+    this.readable = false;
+    this.readableEnded = true;
+    this.emit("end");
+    if (this.autoClose) {
+      this.destroy();
+    }
+  }
+
+  private _handleStreamError(error: Error): void {
+    if (this.closed) {
+      return;
+    }
+    this.errored = error;
+    this.emit("error", error);
+    if (this.autoClose) {
+      this.destroy();
+    } else {
+      this.readable = false;
+    }
+  }
+
+  private async _abort(reason?: unknown): Promise<void> {
+    if (this.closed || this.destroyed) {
+      return;
+    }
+    this.readableAborted = true;
+    this.errored = createAbortError(reason);
+    this.emit("error", this.errored);
+    if (this._fileHandle) {
+      this.destroyed = true;
+      this.readable = false;
+      this.closed = true;
+      this.emit("close");
+      return;
+    }
+    if (this.autoClose) {
+      this.destroy();
+      return;
+    }
+    this.closed = true;
+    this.emit("close");
+  }
+
+  private async _readAllContent(): Promise<Buffer> {
+    const chunks: Buffer[] = [];
+    let totalLength = 0;
+    const savedFlowing = this.readableFlowing;
+    this.readableFlowing = false;
+    while (this._remaining !== 0) {
+      if (this.fd === null) {
+        await this._openIfNeeded();
+      }
+      if (this.fd === null) {
+        break;
+      }
+      const nextLength = this._remaining === null
+        ? FILE_HANDLE_READ_CHUNK_BYTES
+        : Math.min(FILE_HANDLE_READ_CHUNK_BYTES, this._remaining);
+      const target = Buffer.alloc(nextLength);
+      let bytesRead = 0;
+      if (this._fileHandle) {
+        bytesRead = (await this._fileHandle.read(target, 0, nextLength, this._position)).bytesRead;
+      } else {
+        bytesRead = fs.readSync(this.fd, target, 0, nextLength, this._position);
+      }
+      if (bytesRead === 0) {
+        break;
+      }
+      const chunk = target.subarray(0, bytesRead);
+      chunks.push(chunk);
+      totalLength += bytesRead;
+      if (typeof this._position === "number") {
+        this._position += bytesRead;
+      }
+      if (this._remaining !== null) {
+        this._remaining -= bytesRead;
+      }
+    }
+    this.readableFlowing = savedFlowing;
+    return Buffer.concat(chunks, totalLength);
+  }
+
   on(event: string | symbol, listener: (...args: unknown[]) => void): this {
-    if (!this._listeners.has(event)) {
-      this._listeners.set(event, []);
+    const listeners = this._listeners.get(event) ?? [];
+    listeners.push(listener);
+    this._listeners.set(event, listeners);
+    if (event === "data") {
+      this._started = true;
+      this.readableFlowing = true;
+      this._scheduleRead();
     }
-    this._listeners.get(event)!.push(listener);
-
-    // Start reading when 'data' listener is added (flowing mode)
-    if (event === 'data' && !this._started) {
-      this._startReading();
-    }
-
     return this;
   }
 
@@ -304,11 +1535,14 @@ class ReadStream {
 
   off(event: string | symbol, listener: (...args: unknown[]) => void): this {
     const listeners = this._listeners.get(event);
-    if (listeners) {
-      const idx = listeners.findIndex(
-        fn => fn === listener || (fn as { _originalListener?: typeof listener })._originalListener === listener
-      );
-      if (idx !== -1) listeners.splice(idx, 1);
+    if (!listeners) {
+      return this;
+    }
+    const index = listeners.findIndex(
+      (fn) => fn === listener || (fn as { _originalListener?: typeof listener })._originalListener === listener,
+    );
+    if (index >= 0) {
+      listeners.splice(index, 1);
     }
     return this;
   }
@@ -318,80 +1552,35 @@ class ReadStream {
   }
 
   removeAllListeners(event?: string | symbol): this {
-    if (event) {
-      this._listeners.delete(event);
-    } else {
+    if (event === undefined) {
       this._listeners.clear();
+    } else {
+      this._listeners.delete(event);
     }
     return this;
   }
 
   emit(event: string | symbol, ...args: unknown[]): boolean {
     const listeners = this._listeners.get(event);
-    if (listeners && listeners.length > 0) {
-      listeners.slice().forEach(fn => fn(...args));
-      return true;
+    if (!listeners?.length) {
+      return false;
     }
-    return false;
+    listeners.slice().forEach((listener) => listener(...args));
+    return true;
   }
 
-  // Readable methods
-  read(_size?: number): Buffer | string | null {
-    if (this.readableEnded || this.destroyed) return null;
-
-    try {
-      const content = this._loadContent();
-      const start = this._options?.start ?? 0;
-      const end = this._options?.end ?? content.length;
-      const chunk = content.slice(start, end);
-
-      this.bytesRead = chunk.length;
-      this.readableDidRead = true;
-      this.readable = false;
-      this.readableEnded = true;
-
-      // Schedule end event
-      Promise.resolve().then(() => {
-        this.emit('end');
-        Promise.resolve().then(() => {
-          this.closed = true;
-          this.emit('close');
-        });
-      });
-
-      return this.readableEncoding ? chunk.toString(this.readableEncoding) : chunk;
-    } catch (err) {
-      this.errored = err as Error;
-      this.emit('error', err);
-      return null;
-    }
+  read(): Buffer | string | null {
+    return null;
   }
 
   pipe<T extends NodeJS.WritableStream>(destination: T, _options?: { end?: boolean }): T {
-    const content = this._loadContent();
-    const start = this._options?.start ?? 0;
-    const end = this._options?.end ?? content.length;
-    const chunk = content.slice(start, end);
-
-    this.bytesRead = chunk.length;
-    this.readableDidRead = true;
-
-    if (typeof destination.write === 'function') {
-      destination.write(chunk as unknown as string);
-    }
-    if (typeof destination.end === 'function') {
-      Promise.resolve().then(() => destination.end());
-    }
-
-    this.readable = false;
-    this.readableEnded = true;
-    this.closed = true;
-
-    Promise.resolve().then(() => {
-      this.emit('end');
-      this.emit('close');
+    this.on("data", (chunk) => {
+      destination.write(chunk as string);
     });
-
+    this.on("end", () => {
+      destination.end?.();
+    });
+    this.resume();
     return destination;
   }
 
@@ -405,10 +1594,9 @@ class ReadStream {
   }
 
   resume(): this {
+    this._started = true;
     this.readableFlowing = true;
-    if (!this._started) {
-      this._startReading();
-    }
+    this._scheduleRead();
     return this;
   }
 
@@ -418,135 +1606,179 @@ class ReadStream {
   }
 
   destroy(error?: Error): this {
-    if (this.destroyed) return this;
+    if (this.destroyed) {
+      return this;
+    }
     this.destroyed = true;
     this.readable = false;
     if (error) {
       this.errored = error;
-      this.emit('error', error);
+      this.emit("error", error);
     }
-    this.emit('close');
-    this.closed = true;
+    queueMicrotask(() => {
+      void this._closeUnderlying().then(() => {
+        if (!this.closed) {
+          this.closed = true;
+          this.emit("close");
+        }
+      });
+    });
     return this;
   }
 
   close(callback?: (err?: Error | null) => void): void {
-    if (this.closed) {
-      if (callback) Promise.resolve().then(() => callback(null));
-      return;
+    this.destroy();
+    if (callback) {
+      queueMicrotask(() => callback(null));
     }
-    this.closed = true;
-    this.readable = false;
-    this.destroyed = true;
-    Promise.resolve().then(() => {
-      this.emit('close');
-      if (callback) callback(null);
-    });
   }
 
-  // Symbol.asyncIterator for async iteration
   async *[Symbol.asyncIterator](): AsyncIterator<Buffer | string> {
-    const content = this._loadContent();
-    const start = this._options?.start ?? 0;
-    const end = this._options?.end ?? content.length;
-    const chunk = content.slice(start, end);
-    yield this.readableEncoding ? chunk.toString(this.readableEncoding) : chunk;
+    const content = await this._readAllContent();
+    yield this.readableEncoding ? content.toString(this.readableEncoding) : content;
   }
 }
 
-// WriteStream class for createWriteStream
-// This provides a type-safe implementation that satisfies nodeFs.WriteStream
-const MAX_WRITE_STREAM_BYTES = 16 * 1024 * 1024; // 16MB cap to prevent memory exhaustion
-// We use 'as' assertion at the return site since the full interface is complex
+const MAX_WRITE_STREAM_BYTES = 16 * 1024 * 1024;
+
 class WriteStream {
-  // WriteStream-specific properties
-  bytesWritten: number = 0;
-  path: string | Buffer;
-  pending: boolean = false;
-
-  // Writable stream properties
-  writable: boolean = true;
-  writableAborted: boolean = false;
-  writableEnded: boolean = false;
-  writableFinished: boolean = false;
-  writableHighWaterMark: number = 16384;
-  writableLength: number = 0;
-  writableObjectMode: boolean = false;
-  writableCorked: number = 0;
-  destroyed: boolean = false;
-  closed: boolean = false;
+  bytesWritten = 0;
+  path: string | Buffer | null;
+  pending = false;
+  writable = true;
+  writableAborted = false;
+  writableEnded = false;
+  writableFinished = false;
+  writableHighWaterMark = 16384;
+  writableLength = 0;
+  writableObjectMode = false;
+  writableCorked = 0;
+  destroyed = false;
+  closed = false;
   errored: Error | null = null;
-  writableNeedDrain: boolean = false;
+  writableNeedDrain = false;
+  fd: number | null = null;
+  autoClose = true;
 
-  // Internal state
   private _chunks: Uint8Array[] = [];
   private _listeners: Map<string | symbol, Array<(...args: unknown[]) => void>> = new Map();
+  private _fileHandle: FileHandle | null = null;
+  private _streamFs?: StreamFsMethods;
 
-  constructor(filePath: string | Buffer, _options?: { encoding?: BufferEncoding; flags?: string; mode?: number }) {
+  constructor(
+    filePath: string | Buffer | null,
+    private _options?: { encoding?: BufferEncoding; flags?: string; mode?: number; fd?: number | FileHandle; fs?: unknown; autoClose?: boolean }
+  ) {
+    const fdOption = normalizeStreamFd(_options?.fd);
     this.path = filePath;
-  }
-
-  // WriteStream-specific methods
-  close(callback?: (err?: NodeJS.ErrnoException | null) => void): void {
-    if (this.closed) {
-      if (callback) Promise.resolve().then(() => callback(null));
+    this.autoClose = _options?.autoClose !== false;
+    this._streamFs = validateStreamFsOverride(_options?.fs, ["open", "close", "write"]);
+    if (_options?.fs !== undefined) {
+      validateStreamFsOverride(_options?.fs, ["writev"]);
+    }
+    if (fdOption instanceof FileHandle) {
+      this._fileHandle = fdOption;
+      this.fd = fdOption.fd;
       return;
     }
-    this.closed = true;
-    this.writable = false;
-    Promise.resolve().then(() => {
-      this.emit("close");
-      if (callback) callback(null);
+    if (typeof fdOption === "number") {
+      this.fd = fdOption;
+      return;
+    }
+
+    const pathStr =
+      typeof this.path === "string"
+        ? this.path
+        : this.path instanceof Buffer
+          ? this.path.toString()
+          : null;
+    if (!pathStr) {
+      throw createFsError("EBADF", "EBADF: bad file descriptor", "write");
+    }
+    this.fd = fs.openSync(pathStr, _options?.flags ?? "w", _options?.mode);
+    queueMicrotask(() => {
+      if (this.fd !== null && this.fd >= 0) {
+        this.emit("open", this.fd);
+      }
     });
   }
 
-  // Writable methods
-  write(chunk: unknown, encodingOrCallback?: BufferEncoding | ((error: Error | null | undefined) => void), callback?: (error: Error | null | undefined) => void): boolean {
-    if (this.writableEnded || this.destroyed) {
-      const err = new Error("write after end");
-      if (typeof encodingOrCallback === "function") {
-        Promise.resolve().then(() => encodingOrCallback(err));
-      } else if (callback) {
-        Promise.resolve().then(() => callback(err));
+  private async _closeUnderlying(): Promise<void> {
+    if (this._fileHandle) {
+      if (!this._fileHandle.closed) {
+        await this._fileHandle.close();
       }
+      return;
+    }
+    if (this.fd !== null && this.fd >= 0) {
+      const fd = this.fd;
+      const closer = (this._streamFs?.close ?? fs.close).bind(this._streamFs ?? fs);
+      await new Promise<void>((resolve) => {
+        closer(fd, () => resolve());
+      });
+      this.fd = -1;
+    }
+  }
+
+  close(callback?: (err?: NodeJS.ErrnoException | null) => void): void {
+    queueMicrotask(() => {
+      void this._closeUnderlying().then(() => {
+        if (!this.closed) {
+          this.closed = true;
+          this.writable = false;
+          this.emit("close");
+        }
+        callback?.(null);
+      });
+    });
+  }
+
+  write(
+    chunk: unknown,
+    encodingOrCallback?: BufferEncoding | ((error: Error | null | undefined) => void),
+    callback?: (error: Error | null | undefined) => void
+  ): boolean {
+    if (this.writableEnded || this.destroyed) {
+      const error = new Error("write after end");
+      const cb = typeof encodingOrCallback === "function" ? encodingOrCallback : callback;
+      queueMicrotask(() => cb?.(error));
       return false;
     }
 
     let data: Uint8Array;
     if (typeof chunk === "string") {
       data = Buffer.from(chunk, typeof encodingOrCallback === "string" ? encodingOrCallback : "utf8");
-    } else if (Buffer.isBuffer(chunk)) {
+    } else if (isArrayBufferView(chunk)) {
       data = new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
-    } else if (chunk instanceof Uint8Array) {
-      data = chunk;
     } else {
-      data = Buffer.from(String(chunk));
+      throw createInvalidArgTypeError("chunk", "a string, Buffer, TypedArray, or DataView", chunk);
     }
 
-    // Cap buffered data to prevent memory exhaustion
     if (this.writableLength + data.length > MAX_WRITE_STREAM_BYTES) {
-      const err = new Error(`WriteStream buffer exceeded ${MAX_WRITE_STREAM_BYTES} bytes`);
-      this.errored = err;
+      const error = new Error(`WriteStream buffer exceeded ${MAX_WRITE_STREAM_BYTES} bytes`);
+      this.errored = error;
       this.destroyed = true;
       this.writable = false;
       const cb = typeof encodingOrCallback === "function" ? encodingOrCallback : callback;
-      if (cb) Promise.resolve().then(() => cb(err));
-      Promise.resolve().then(() => this.emit("error", err));
+      queueMicrotask(() => {
+        cb?.(error);
+        this.emit("error", error);
+      });
       return false;
     }
 
     this._chunks.push(data);
     this.bytesWritten += data.length;
     this.writableLength += data.length;
-
     const cb = typeof encodingOrCallback === "function" ? encodingOrCallback : callback;
-    if (cb) Promise.resolve().then(() => cb(null));
-
+    queueMicrotask(() => cb?.(null));
     return true;
   }
 
   end(chunkOrCb?: unknown, encodingOrCallback?: BufferEncoding | (() => void), callback?: () => void): this {
-    if (this.writableEnded) return this;
+    if (this.writableEnded) {
+      return this;
+    }
 
     let cb: (() => void) | undefined;
     if (typeof chunkOrCb === "function") {
@@ -564,29 +1796,50 @@ class WriteStream {
     }
 
     this.writableEnded = true;
-
-    // Concatenate and write all chunks
-    const totalLength = this._chunks.reduce((sum, c) => sum + c.length, 0);
-    const result = new Uint8Array(totalLength);
-    let offset = 0;
-    for (const c of this._chunks) {
-      result.set(c, offset);
-      offset += c.length;
-    }
-
-    // Write to filesystem
-    const pathStr = typeof this.path === "string" ? this.path : this.path.toString();
-    fs.writeFileSync(pathStr, result);
-
     this.writable = false;
     this.writableFinished = true;
     this.writableLength = 0;
 
-    Promise.resolve().then(() => {
-      this.emit("finish");
-      this.emit("close");
-      this.closed = true;
-      if (cb) cb();
+    queueMicrotask(() => {
+      void (async () => {
+        try {
+          if (this._fileHandle) {
+            for (const chunk of this._chunks) {
+              await this._fileHandle.write(chunk, 0, chunk.byteLength, undefined);
+            }
+            if (this.autoClose && !this._fileHandle.closed) {
+              await this._fileHandle.close();
+            }
+          } else if (this.fd !== null && this.fd >= 0) {
+            for (const chunk of this._chunks) {
+              fs.writeSync(this.fd, chunk, 0, chunk.byteLength, null);
+            }
+            if (this.autoClose) {
+              await this._closeUnderlying();
+            }
+          } else {
+            const pathStr =
+              typeof this.path === "string"
+                ? this.path
+                : this.path instanceof Buffer
+                  ? this.path.toString()
+                  : null;
+            if (!pathStr) {
+              throw createFsError("EBADF", "EBADF: bad file descriptor", "write");
+            }
+            fs.writeFileSync(pathStr, Buffer.concat(this._chunks.map((chunk) => Buffer.from(chunk))));
+          }
+          this.emit("finish");
+          if (this.autoClose && !this.closed) {
+            this.closed = true;
+            this.emit("close");
+          }
+          cb?.();
+        } catch (error) {
+          this.errored = error as Error;
+          this.emit("error", error);
+        }
+      })();
     });
 
     return this;
@@ -601,82 +1854,59 @@ class WriteStream {
   }
 
   uncork(): void {
-    if (this.writableCorked > 0) this.writableCorked--;
+    if (this.writableCorked > 0) {
+      this.writableCorked--;
+    }
   }
 
   destroy(error?: Error): this {
-    if (this.destroyed) return this;
+    if (this.destroyed) {
+      return this;
+    }
     this.destroyed = true;
     this.writable = false;
     if (error) {
       this.errored = error;
-      Promise.resolve().then(() => {
-        this.emit("error", error);
-        this.emit("close");
-        this.closed = true;
-      });
-    } else {
-      Promise.resolve().then(() => {
-        this.emit("close");
-        this.closed = true;
-      });
+      this.emit("error", error);
     }
+    queueMicrotask(() => {
+      void this._closeUnderlying().then(() => {
+        if (!this.closed) {
+          this.closed = true;
+          this.emit("close");
+        }
+      });
+    });
     return this;
   }
 
-  // Internal methods (required by Writable interface but not typically called directly)
-  _write(_chunk: unknown, _encoding: BufferEncoding, callback: (error?: Error | null) => void): void {
-    callback();
-  }
-
-  _destroy(_error: Error | null, callback: (error?: Error | null) => void): void {
-    callback();
-  }
-
-  _final(callback: (error?: Error | null) => void): void {
-    callback();
-  }
-
-  // EventEmitter methods
   addListener(event: string | symbol, listener: (...args: unknown[]) => void): this {
     return this.on(event, listener);
   }
 
   on(event: string | symbol, listener: (...args: unknown[]) => void): this {
-    const listeners = this._listeners.get(event) || [];
+    const listeners = this._listeners.get(event) ?? [];
     listeners.push(listener);
     this._listeners.set(event, listeners);
     return this;
   }
 
   once(event: string | symbol, listener: (...args: unknown[]) => void): this {
-    const wrapper = (...args: unknown[]) => {
+    const wrapper = (...args: unknown[]): void => {
       this.removeListener(event, wrapper);
       listener(...args);
     };
     return this.on(event, wrapper);
   }
 
-  prependListener(event: string | symbol, listener: (...args: unknown[]) => void): this {
-    const listeners = this._listeners.get(event) || [];
-    listeners.unshift(listener);
-    this._listeners.set(event, listeners);
-    return this;
-  }
-
-  prependOnceListener(event: string | symbol, listener: (...args: unknown[]) => void): this {
-    const wrapper = (...args: unknown[]) => {
-      this.removeListener(event, wrapper);
-      listener(...args);
-    };
-    return this.prependListener(event, wrapper);
-  }
-
   removeListener(event: string | symbol, listener: (...args: unknown[]) => void): this {
     const listeners = this._listeners.get(event);
-    if (listeners) {
-      const idx = listeners.indexOf(listener);
-      if (idx !== -1) listeners.splice(idx, 1);
+    if (!listeners) {
+      return this;
+    }
+    const index = listeners.indexOf(listener);
+    if (index >= 0) {
+      listeners.splice(index, 1);
     }
     return this;
   }
@@ -686,48 +1916,23 @@ class WriteStream {
   }
 
   removeAllListeners(event?: string | symbol): this {
-    if (event !== undefined) {
-      this._listeners.delete(event);
-    } else {
+    if (event === undefined) {
       this._listeners.clear();
+    } else {
+      this._listeners.delete(event);
     }
     return this;
   }
 
   emit(event: string | symbol, ...args: unknown[]): boolean {
     const listeners = this._listeners.get(event);
-    if (listeners && listeners.length > 0) {
-      listeners.slice().forEach(l => l(...args));
-      return true;
+    if (!listeners?.length) {
+      return false;
     }
-    return false;
+    listeners.slice().forEach((listener) => listener(...args));
+    return true;
   }
 
-  listeners(event: string | symbol): Function[] {
-    return [...(this._listeners.get(event) || [])];
-  }
-
-  rawListeners(event: string | symbol): Function[] {
-    return this.listeners(event);
-  }
-
-  listenerCount(event: string | symbol): number {
-    return (this._listeners.get(event) || []).length;
-  }
-
-  eventNames(): (string | symbol)[] {
-    return [...this._listeners.keys()];
-  }
-
-  getMaxListeners(): number {
-    return 10;
-  }
-
-  setMaxListeners(_n: number): this {
-    return this;
-  }
-
-  // Pipe methods (minimal implementation)
   pipe<T extends NodeJS.WritableStream>(destination: T, _options?: { end?: boolean }): T {
     return destination;
   }
@@ -736,15 +1941,49 @@ class WriteStream {
     return this;
   }
 
-  // Additional required methods
-  compose<T extends NodeJS.ReadableStream>(_stream: T | Iterable<T> | AsyncIterable<T>, _options?: { signal: AbortSignal }): T {
-    throw new Error("compose not implemented in sandbox");
-  }
-
   [Symbol.asyncDispose](): Promise<void> {
     return Promise.resolve();
   }
 }
+
+const ReadStreamClass = ReadStream;
+const WriteStreamClass = WriteStream;
+
+const ReadStreamFactory = function ReadStream(
+  path: string | Buffer | null,
+  options?: {
+    encoding?: BufferEncoding;
+    start?: number;
+    end?: number;
+    highWaterMark?: number;
+    bufferSize?: number;
+    autoClose?: boolean;
+    fd?: number | FileHandle;
+    fs?: unknown;
+    signal?: AbortSignal;
+  },
+): ReadStream {
+  validateEncodingOption(options);
+  return new ReadStreamClass(path, options);
+};
+ReadStreamFactory.prototype = ReadStream.prototype;
+
+const WriteStreamFactory = function WriteStream(
+  path: string | Buffer | null,
+  options?: {
+    encoding?: BufferEncoding;
+    flags?: string;
+    mode?: number;
+    fd?: number | FileHandle;
+    fs?: unknown;
+    autoClose?: boolean;
+  },
+): WriteStream {
+  validateEncodingOption(options);
+  validateWriteStreamStartOption((options ?? {}) as Record<string, unknown>);
+  return new WriteStreamClass(path, options);
+};
+WriteStreamFactory.prototype = WriteStream.prototype;
 
 // Parse flags string to number
 function parseFlags(flags: OpenMode): number {
@@ -752,6 +1991,8 @@ function parseFlags(flags: OpenMode): number {
   const flagMap: Record<string, number> = {
     r: O_RDONLY,
     "r+": O_RDWR,
+    rs: O_RDONLY,
+    "rs+": O_RDWR,
     w: O_WRONLY | O_CREAT | O_TRUNC,
     "w+": O_RDWR | O_CREAT | O_TRUNC,
     a: O_WRONLY | O_APPEND | O_CREAT,
@@ -944,10 +2185,7 @@ type NodeCallback<T> = (err: NodeJS.ErrnoException | null, result?: T) => void;
 
 // Helper to convert PathLike to string
 function toPathString(path: PathLike): string {
-  if (typeof path === "string") return path;
-  if (Buffer.isBuffer(path)) return path.toString("utf8");
-  if (path instanceof URL) return path.pathname;
-  return String(path);
+  return normalizePathLike(path);
 }
 
 // Note: Path normalization is handled by VirtualFileSystem, not here.
@@ -1015,7 +2253,10 @@ const fs = {
   // Sync methods
 
   readFileSync(path: PathOrFileDescriptor, options?: ReadFileOptions): string | Buffer {
-    const rawPath = typeof path === "number" ? _fdGetPath.applySync(undefined, [path]) : toPathString(path);
+    validateEncodingOption(options);
+    const rawPath = typeof path === "number"
+      ? _fdGetPath.applySync(undefined, [normalizeFdInteger(path)])
+      : normalizePathLike(path);
     if (!rawPath) throw createFsError("EBADF", "EBADF: bad file descriptor", "read");
     const pathStr = rawPath;
     const encoding =
@@ -1065,7 +2306,10 @@ const fs = {
     data: string | NodeJS.ArrayBufferView,
     _options?: WriteFileOptions
   ): void {
-    const rawPath = typeof file === "number" ? _fdGetPath.applySync(undefined, [file]) : toPathString(file);
+    validateEncodingOption(_options);
+    const rawPath = typeof file === "number"
+      ? _fdGetPath.applySync(undefined, [normalizeFdInteger(file)])
+      : normalizePathLike(file);
     if (!rawPath) throw createFsError("EBADF", "EBADF: bad file descriptor", "write");
     const pathStr = rawPath;
 
@@ -1089,6 +2333,7 @@ const fs = {
     data: string | Uint8Array,
     options?: WriteFileOptions
   ): void {
+    validateEncodingOption(options);
     const existing = fs.existsSync(path as PathLike)
       ? (fs.readFileSync(path, "utf8") as string)
       : "";
@@ -1097,7 +2342,8 @@ const fs = {
   },
 
   readdirSync(path: PathLike, options?: nodeFs.ObjectEncodingOptions & { withFileTypes?: boolean; recursive?: boolean }): string[] | Dirent[] {
-    const rawPath = toPathString(path);
+    validateEncodingOption(options);
+    const rawPath = normalizePathLike(path);
     const pathStr = rawPath;
     let entriesJson: string;
     try {
@@ -1126,7 +2372,7 @@ const fs = {
   },
 
   mkdirSync(path: PathLike, options?: MakeDirectoryOptions | Mode): string | undefined {
-    const rawPath = toPathString(path);
+    const rawPath = normalizePathLike(path);
     const pathStr = rawPath;
     const recursive = typeof options === "object" ? options?.recursive ?? false : false;
     _fs.mkdir.applySyncPromise(undefined, [pathStr, recursive]);
@@ -1134,7 +2380,7 @@ const fs = {
   },
 
   rmdirSync(path: PathLike, _options?: RmDirOptions): void {
-    const pathStr = toPathString(path);
+    const pathStr = normalizePathLike(path);
     _fs.rmdir.applySyncPromise(undefined, [pathStr]);
   },
 
@@ -1172,12 +2418,15 @@ const fs = {
   },
 
   existsSync(path: PathLike): boolean {
-    const pathStr = toPathString(path);
+    const pathStr = tryNormalizeExistsPath(path);
+    if (!pathStr) {
+      return false;
+    }
     return _fs.exists.applySyncPromise(undefined, [pathStr]);
   },
 
   statSync(path: PathLike, _options?: nodeFs.StatSyncOptions): Stats {
-    const rawPath = toPathString(path);
+    const rawPath = normalizePathLike(path);
     const pathStr = rawPath;
     let statJson: string;
     try {
@@ -1212,7 +2461,7 @@ const fs = {
   },
 
   lstatSync(path: PathLike, _options?: nodeFs.StatSyncOptions): Stats {
-    const pathStr = toPathString(path);
+    const pathStr = normalizePathLike(path);
     const statJson = bridgeCall(() => _fs.lstat.applySyncPromise(undefined, [pathStr]), "lstat", pathStr);
     const stat = JSON.parse(statJson) as {
       mode: number;
@@ -1228,13 +2477,13 @@ const fs = {
   },
 
   unlinkSync(path: PathLike): void {
-    const pathStr = toPathString(path);
+    const pathStr = normalizePathLike(path);
     _fs.unlink.applySyncPromise(undefined, [pathStr]);
   },
 
   renameSync(oldPath: PathLike, newPath: PathLike): void {
-    const oldPathStr = toPathString(oldPath);
-    const newPathStr = toPathString(newPath);
+    const oldPathStr = normalizePathLike(oldPath, "oldPath");
+    const newPathStr = normalizePathLike(newPath, "newPath");
     _fs.rename.applySyncPromise(undefined, [oldPathStr, newPathStr]);
   },
 
@@ -1293,6 +2542,7 @@ const fs = {
 
   // Temp directory creation
   mkdtempSync(prefix: string, _options?: nodeFs.EncodingOption): string {
+    validateEncodingOption(_options);
     const suffix = Math.random().toString(36).slice(2, 8);
     const dirPath = prefix + suffix;
     fs.mkdirSync(dirPath, { recursive: true });
@@ -1301,7 +2551,7 @@ const fs = {
 
   // Directory handle (sync)
   opendirSync(path: PathLike, _options?: nodeFs.OpenDirOptions): Dir {
-    const pathStr = toPathString(path);
+    const pathStr = normalizePathLike(path);
     // Verify directory exists
     const stat = fs.statSync(pathStr);
     if (!stat.isDirectory()) {
@@ -1317,12 +2567,10 @@ const fs = {
 
   // File descriptor methods
 
-  openSync(path: PathLike, flags: OpenMode, _mode?: Mode | null): number {
-    const pathStr = toPathString(path);
-    const numFlags = parseFlags(flags);
-    const modeNum = _mode !== null && _mode !== undefined
-      ? (typeof _mode === "string" ? parseInt(_mode as string, 8) : _mode as number)
-      : undefined;
+  openSync(path: PathLike, flags?: OpenMode, _mode?: Mode | null): number {
+    const pathStr = normalizePathLike(path);
+    const numFlags = parseFlags(flags ?? "r");
+    const modeNum = normalizeOpenModeArgument(_mode);
     try {
       return _fdOpen.applySyncPromise(undefined, [pathStr, numFlags, modeNum]);
     } catch (e: any) {
@@ -1334,6 +2582,7 @@ const fs = {
   },
 
   closeSync(fd: number): void {
+    normalizeFdInteger(fd);
     try {
       _fdClose.applySyncPromise(undefined, [fd]);
     } catch (e: any) {
@@ -1346,17 +2595,15 @@ const fs = {
   readSync(
     fd: number,
     buffer: NodeJS.ArrayBufferView,
-    offset?: number | null,
+    offset?: number | Record<string, unknown> | null,
     length?: number | null,
     position?: nodeFs.ReadPosition | null
   ): number {
-    const readOffset = offset ?? 0;
-    const readLength = length ?? (buffer.byteLength - readOffset);
-    const pos = (position !== null && position !== undefined) ? Number(position) : undefined;
+    const normalized = normalizeReadSyncArgs(buffer, offset, length, position);
 
     let base64: string;
     try {
-      base64 = _fdRead.applySyncPromise(undefined, [fd, readLength, pos ?? null]);
+      base64 = _fdRead.applySyncPromise(undefined, [fd, normalized.length, normalized.position ?? null]);
     } catch (e: any) {
       const msg = e?.message ?? String(e);
       if (msg.includes("EBADF")) throw createFsError("EBADF", msg, "read");
@@ -1364,9 +2611,13 @@ const fs = {
     }
 
     const bytes = Buffer.from(base64, "base64");
-    const targetBuffer = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-    for (let i = 0; i < bytes.length && i < readLength; i++) {
-      targetBuffer[readOffset + i] = bytes[i];
+    const targetBuffer = new Uint8Array(
+      normalized.buffer.buffer,
+      normalized.buffer.byteOffset,
+      normalized.buffer.byteLength,
+    );
+    for (let i = 0; i < bytes.length && i < normalized.length; i++) {
+      targetBuffer[normalized.offset + i] = bytes[i];
     }
     return bytes.length;
   },
@@ -1374,27 +2625,24 @@ const fs = {
   writeSync(
     fd: number,
     buffer: string | NodeJS.ArrayBufferView,
-    offsetOrPosition?: number | null,
+    offsetOrPosition?: number | Record<string, unknown> | null,
     lengthOrEncoding?: number | BufferEncoding | null,
     position?: number | null
   ): number {
-
-    // Encode data as base64 for bridge transfer
+    const normalized = normalizeWriteSyncArgs(buffer, offsetOrPosition, lengthOrEncoding, position);
     let dataBytes: Uint8Array;
-    let writePosition: number | null | undefined;
-
-    if (typeof buffer === "string") {
-      dataBytes = Buffer.from(buffer);
-      writePosition = offsetOrPosition;
+    if (typeof normalized.buffer === "string") {
+      dataBytes = Buffer.from(normalized.buffer, normalized.encoding);
     } else {
-      const offset = offsetOrPosition ?? 0;
-      const length = (typeof lengthOrEncoding === "number" ? lengthOrEncoding : null) ?? (buffer.byteLength - offset);
-      dataBytes = new Uint8Array(buffer.buffer, buffer.byteOffset + offset, length);
-      writePosition = position;
+      dataBytes = new Uint8Array(
+        normalized.buffer.buffer,
+        normalized.buffer.byteOffset + normalized.offset,
+        normalized.length,
+      );
     }
 
     const base64 = Buffer.from(dataBytes).toString("base64");
-    const pos = (writePosition !== null && writePosition !== undefined) ? writePosition : null;
+    const pos = normalized.position ?? null;
 
     try {
       return _fdWrite.applySyncPromise(undefined, [fd, base64, pos]);
@@ -1406,6 +2654,7 @@ const fs = {
   },
 
   fstatSync(fd: number): Stats {
+    normalizeFdInteger(fd);
     let raw: string;
     try {
       raw = _fdFstat.applySyncPromise(undefined, [fd]);
@@ -1418,6 +2667,7 @@ const fs = {
   },
 
   ftruncateSync(fd: number, len?: number): void {
+    normalizeFdInteger(fd);
     try {
       _fdFtruncate.applySyncPromise(undefined, [fd, len]);
     } catch (e: any) {
@@ -1429,6 +2679,7 @@ const fs = {
 
   // fsync / fdatasync — no-op for in-memory VFS (validates FD exists)
   fsyncSync(fd: number): void {
+    normalizeFdInteger(fd);
     try {
       _fdFsync.applySyncPromise(undefined, [fd]);
     } catch (e: any) {
@@ -1439,6 +2690,7 @@ const fs = {
   },
 
   fdatasyncSync(fd: number): void {
+    normalizeFdInteger(fd);
     try {
       _fdFsync.applySyncPromise(undefined, [fd]);
     } catch (e: any) {
@@ -1450,15 +2702,19 @@ const fs = {
 
   // readv — scatter-read into multiple buffers (delegates to readSync)
   readvSync(fd: number, buffers: ArrayBufferView[], position?: number | null): number {
+    const normalizedFd = normalizeFdInteger(fd);
+    const normalizedBuffers = normalizeIoVectorBuffers(buffers);
     let totalBytesRead = 0;
-    for (const buffer of buffers) {
+    const normalizedPosition = normalizeOptionalPosition(position);
+    let nextPosition = normalizedPosition;
+    for (const buffer of normalizedBuffers) {
       const target = buffer instanceof Uint8Array
         ? buffer
         : new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-      const bytesRead = fs.readSync(fd, target, 0, target.byteLength, position);
+      const bytesRead = fs.readSync(normalizedFd, target, 0, target.byteLength, nextPosition);
       totalBytesRead += bytesRead;
-      if (position !== null && position !== undefined) {
-        position += bytesRead;
+      if (nextPosition !== null) {
+        nextPosition += bytesRead;
       }
       // EOF — stop filling further buffers
       if (bytesRead < target.byteLength) break;
@@ -1468,7 +2724,7 @@ const fs = {
 
   // statfs — return synthetic filesystem stats for the in-memory VFS
   statfsSync(path: PathLike, _options?: nodeFs.StatFsOptions): nodeFs.StatsFs {
-    const pathStr = toPathString(path);
+    const pathStr = normalizePathLike(path);
     // Verify path exists
     if (!fs.existsSync(pathStr)) {
       throw createFsError(
@@ -1502,40 +2758,68 @@ const fs = {
 
   // Metadata and link sync methods — delegate to VFS via host refs
   chmodSync(path: PathLike, mode: Mode): void {
-    const pathStr = toPathString(path);
-    const modeNum = typeof mode === "string" ? parseInt(mode, 8) : mode;
+    const pathStr = normalizePathLike(path);
+    const modeNum = normalizeModeArgument(mode);
     bridgeCall(() => _fs.chmod.applySyncPromise(undefined, [pathStr, modeNum]), "chmod", pathStr);
   },
 
   chownSync(path: PathLike, uid: number, gid: number): void {
-    const pathStr = toPathString(path);
-    bridgeCall(() => _fs.chown.applySyncPromise(undefined, [pathStr, uid, gid]), "chown", pathStr);
+    const pathStr = normalizePathLike(path);
+    const normalizedUid = normalizeNumberArgument("uid", uid, { min: -1, max: 0xffffffff, allowNegativeOne: true });
+    const normalizedGid = normalizeNumberArgument("gid", gid, { min: -1, max: 0xffffffff, allowNegativeOne: true });
+    bridgeCall(() => _fs.chown.applySyncPromise(undefined, [pathStr, normalizedUid, normalizedGid]), "chown", pathStr);
+  },
+
+  fchmodSync(fd: number, mode: Mode): void {
+    const normalizedFd = normalizeFdInteger(fd);
+    const pathStr = _fdGetPath.applySync(undefined, [normalizedFd]);
+    if (!pathStr) {
+      throw createFsError("EBADF", "EBADF: bad file descriptor", "chmod");
+    }
+    fs.chmodSync(pathStr, normalizeModeArgument(mode));
+  },
+
+  fchownSync(fd: number, uid: number, gid: number): void {
+    const normalizedFd = normalizeFdInteger(fd);
+    const pathStr = _fdGetPath.applySync(undefined, [normalizedFd]);
+    if (!pathStr) {
+      throw createFsError("EBADF", "EBADF: bad file descriptor", "chown");
+    }
+    fs.chownSync(pathStr, uid, gid);
+  },
+
+  lchownSync(path: PathLike, uid: number, gid: number): void {
+    const pathStr = normalizePathLike(path);
+    const normalizedUid = normalizeNumberArgument("uid", uid, { min: -1, max: 0xffffffff, allowNegativeOne: true });
+    const normalizedGid = normalizeNumberArgument("gid", gid, { min: -1, max: 0xffffffff, allowNegativeOne: true });
+    bridgeCall(() => _fs.chown.applySyncPromise(undefined, [pathStr, normalizedUid, normalizedGid]), "chown", pathStr);
   },
 
   linkSync(existingPath: PathLike, newPath: PathLike): void {
-    const existingStr = toPathString(existingPath);
-    const newStr = toPathString(newPath);
+    const existingStr = normalizePathLike(existingPath, "existingPath");
+    const newStr = normalizePathLike(newPath, "newPath");
     bridgeCall(() => _fs.link.applySyncPromise(undefined, [existingStr, newStr]), "link", newStr);
   },
 
   symlinkSync(target: PathLike, path: PathLike, _type?: string | null): void {
-    const targetStr = toPathString(target);
-    const pathStr = toPathString(path);
+    const targetStr = normalizePathLike(target, "target");
+    const pathStr = normalizePathLike(path);
     bridgeCall(() => _fs.symlink.applySyncPromise(undefined, [targetStr, pathStr]), "symlink", pathStr);
   },
 
   readlinkSync(path: PathLike, _options?: nodeFs.EncodingOption): string {
-    const pathStr = toPathString(path);
+    validateEncodingOption(_options);
+    const pathStr = normalizePathLike(path);
     return bridgeCall(() => _fs.readlink.applySyncPromise(undefined, [pathStr]), "readlink", pathStr);
   },
 
   truncateSync(path: PathLike, len?: number | null): void {
-    const pathStr = toPathString(path);
+    const pathStr = normalizePathLike(path);
     bridgeCall(() => _fs.truncate.applySyncPromise(undefined, [pathStr, len ?? 0]), "truncate", pathStr);
   },
 
   utimesSync(path: PathLike, atime: string | number | Date, mtime: string | number | Date): void {
-    const pathStr = toPathString(path);
+    const pathStr = normalizePathLike(path);
     const atimeNum = typeof atime === "number" ? atime : new Date(atime).getTime() / 1000;
     const mtimeNum = typeof mtime === "number" ? mtime : new Date(mtime).getTime() / 1000;
     bridgeCall(() => _fs.utimes.applySyncPromise(undefined, [pathStr, atimeNum, mtimeNum]), "utimes", pathStr);
@@ -1573,6 +2857,8 @@ const fs = {
       options = undefined;
     }
     if (callback) {
+      normalizePathLike(path);
+      validateEncodingOption(options);
       try {
         callback(null, fs.readFileSync(path, options));
       } catch (e) {
@@ -1594,6 +2880,8 @@ const fs = {
       options = undefined;
     }
     if (callback) {
+      normalizePathLike(path);
+      validateEncodingOption(options);
       try {
         fs.writeFileSync(path, data, options);
         callback(null);
@@ -1618,6 +2906,8 @@ const fs = {
       options = undefined;
     }
     if (callback) {
+      normalizePathLike(path);
+      validateEncodingOption(options);
       try {
         fs.appendFileSync(path, data, options);
         callback(null);
@@ -1641,6 +2931,8 @@ const fs = {
       options = undefined;
     }
     if (callback) {
+      normalizePathLike(path);
+      validateEncodingOption(options);
       try {
         callback(null, fs.readdirSync(path, options));
       } catch (e) {
@@ -1663,6 +2955,7 @@ const fs = {
       options = undefined;
     }
     if (callback) {
+      normalizePathLike(path);
       try {
         fs.mkdirSync(path, options);
         callback(null);
@@ -1677,6 +2970,7 @@ const fs = {
 
   rmdir(path: string, callback?: NodeCallback<void>): Promise<void> | void {
     if (callback) {
+      normalizePathLike(path);
       // Defer callback to next tick to allow event loop to process stream events
       const cb = callback;
       try {
@@ -1754,25 +3048,22 @@ const fs = {
   },
 
   exists(path: string, callback?: (exists: boolean) => void): Promise<boolean> | void {
-    if (callback) {
-      callback(fs.existsSync(path));
-    } else {
-      return Promise.resolve(fs.existsSync(path));
+    validateCallback(callback, "cb");
+    if (path === undefined) {
+      throw createInvalidArgTypeError("path", "of type string or an instance of Buffer or URL", path);
     }
+    queueMicrotask(() => callback(Boolean(tryNormalizeExistsPath(path) && fs.existsSync(path))));
   },
 
   stat(path: string, callback?: NodeCallback<Stats>): Promise<Stats> | void {
-    if (callback) {
-      // Defer callback to next tick to allow event loop to process stream events
-      const cb = callback;
-      try {
-        const stats = fs.statSync(path);
-        queueMicrotask(() => cb(null, stats));
-      } catch (e) {
-        queueMicrotask(() => cb(e as Error));
-      }
-    } else {
-      return Promise.resolve(fs.statSync(path));
+    validateCallback(callback, "cb");
+    normalizePathLike(path);
+    const cb = callback;
+    try {
+      const stats = fs.statSync(path);
+      queueMicrotask(() => cb(null, stats));
+    } catch (e) {
+      queueMicrotask(() => cb(e as Error));
     }
   },
 
@@ -1793,6 +3084,7 @@ const fs = {
 
   unlink(path: string, callback?: NodeCallback<void>): Promise<void> | void {
     if (callback) {
+      normalizePathLike(path);
       // Defer callback to next tick to allow event loop to process stream events
       const cb = callback;
       try {
@@ -1812,6 +3104,8 @@ const fs = {
     callback?: NodeCallback<void>
   ): Promise<void> | void {
     if (callback) {
+      normalizePathLike(oldPath, "oldPath");
+      normalizePathLike(newPath, "newPath");
       // Defer callback to next tick to allow event loop to process stream events
       const cb = callback;
       try {
@@ -1873,14 +3167,12 @@ const fs = {
       callback = options;
       options = undefined;
     }
-    if (callback) {
-      try {
-        callback(null, fs.mkdtempSync(prefix, options as nodeFs.EncodingOption));
-      } catch (e) {
-        callback(e as Error);
-      }
-    } else {
-      return Promise.resolve(fs.mkdtempSync(prefix, options as nodeFs.EncodingOption));
+    validateCallback(callback, "cb");
+    validateEncodingOption(options);
+    try {
+      callback(null, fs.mkdtempSync(prefix, options as nodeFs.EncodingOption));
+    } catch (e) {
+      callback(e as Error);
     }
   },
 
@@ -1906,40 +3198,43 @@ const fs = {
 
   open(
     path: string,
-    flags: OpenFlags,
+    flags?: OpenFlags | NodeCallback<number>,
     mode?: number | NodeCallback<number>,
     callback?: NodeCallback<number>
   ): Promise<number> | void {
+    let resolvedFlags: OpenFlags = "r";
+    let resolvedMode: number | null | undefined = mode as number | null | undefined;
+    if (typeof flags === "function") {
+      callback = flags;
+      resolvedMode = undefined;
+    } else {
+      resolvedFlags = flags ?? "r";
+    }
     if (typeof mode === "function") {
       callback = mode;
-      mode = undefined;
+      resolvedMode = undefined;
     }
-    if (callback) {
-      // Defer callback to next tick to allow event loop to process stream events
-      const cb = callback;
-      try {
-        const fd = fs.openSync(path, flags, mode);
-        queueMicrotask(() => cb(null, fd));
-      } catch (e) {
-        queueMicrotask(() => cb(e as Error));
-      }
-    } else {
-      return Promise.resolve(fs.openSync(path, flags, mode));
+    validateCallback(callback, "cb");
+    normalizePathLike(path);
+    normalizeOpenModeArgument(resolvedMode);
+    const cb = callback;
+    try {
+      const fd = fs.openSync(path, resolvedFlags, resolvedMode);
+      queueMicrotask(() => cb(null, fd));
+    } catch (e) {
+      queueMicrotask(() => cb(e as Error));
     }
   },
 
   close(fd: number, callback?: NodeCallback<void>): Promise<void> | void {
-    if (callback) {
-      // Defer callback to next tick to allow event loop to process stream events
-      const cb = callback;
-      try {
-        fs.closeSync(fd);
-        queueMicrotask(() => cb(null));
-      } catch (e) {
-        queueMicrotask(() => cb(e as Error));
-      }
-    } else {
-      return Promise.resolve(fs.closeSync(fd));
+    normalizeFdInteger(fd);
+    validateCallback(callback, "cb");
+    const cb = callback;
+    try {
+      fs.closeSync(fd);
+      queueMicrotask(() => cb(null));
+    } catch (e) {
+      queueMicrotask(() => cb(e as Error));
     }
   },
 
@@ -1968,8 +3263,8 @@ const fs = {
   write(
     fd: number,
     buffer: string | Uint8Array,
-    offset?: number | NodeCallback<number>,
-    length?: number | NodeCallback<number>,
+    offset?: number | Record<string, unknown> | NodeCallback<number>,
+    length?: number | BufferEncoding | NodeCallback<number>,
     position?: number | null | NodeCallback<number>,
     callback?: NodeCallback<number>
   ): Promise<number> | void {
@@ -1987,16 +3282,34 @@ const fs = {
       position = undefined;
     }
     if (callback) {
+      const normalized = normalizeWriteSyncArgs(
+        buffer,
+        offset as number | Record<string, unknown> | null | undefined,
+        length as number | BufferEncoding | null | undefined,
+        position as number | null | undefined,
+      );
       // Defer callback to next tick to allow event loop to process stream events
       const cb = callback;
       try {
-        const bytesWritten = fs.writeSync(
-          fd,
-          buffer,
-          offset as number | undefined,
-          length as number | undefined,
-          position as number | null | undefined
-        );
+        const bytesWritten = typeof normalized.buffer === "string"
+          ? _fdWrite.applySyncPromise(
+              undefined,
+              [fd, Buffer.from(normalized.buffer, normalized.encoding).toString("base64"), normalized.position ?? null],
+            )
+          : _fdWrite.applySyncPromise(
+              undefined,
+              [
+                fd,
+                Buffer.from(
+                  new Uint8Array(
+                    normalized.buffer.buffer,
+                    normalized.buffer.byteOffset + normalized.offset,
+                    normalized.length,
+                  ),
+                ).toString("base64"),
+                normalized.position ?? null,
+              ],
+            );
         queueMicrotask(() => cb(null, bytesWritten));
       } catch (e) {
         queueMicrotask(() => cb(e as Error));
@@ -2025,23 +3338,29 @@ const fs = {
       callback = position;
       position = null;
     }
+    const normalizedFd = normalizeFdInteger(fd);
+    const normalizedBuffers = normalizeIoVectorBuffers(buffers);
+    const normalizedPosition = normalizeOptionalPosition(position);
     if (callback) {
       try {
-        const bytesWritten = fs.writevSync(fd, buffers, position as number | null);
-        callback(null, bytesWritten, buffers);
+        const bytesWritten = fs.writevSync(normalizedFd, normalizedBuffers, normalizedPosition);
+        queueMicrotask(() => callback(null, bytesWritten, normalizedBuffers));
       } catch (e) {
-        callback(e as Error);
+        queueMicrotask(() => callback(e as Error));
       }
     }
   },
 
   writevSync(fd: number, buffers: ArrayBufferView[], position?: number | null): number {
+    const normalizedFd = normalizeFdInteger(fd);
+    const normalizedBuffers = normalizeIoVectorBuffers(buffers);
+    let nextPosition = normalizeOptionalPosition(position);
     let totalBytesWritten = 0;
-    for (const buffer of buffers) {
+    for (const buffer of normalizedBuffers) {
       const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-      totalBytesWritten += fs.writeSync(fd, bytes, 0, bytes.length, position);
-      if (position !== null && position !== undefined) {
-        position += bytes.length;
+      totalBytesWritten += fs.writeSync(normalizedFd, bytes, 0, bytes.length, nextPosition);
+      if (nextPosition !== null) {
+        nextPosition += bytes.length;
       }
     }
     return totalBytesWritten;
@@ -2061,28 +3380,24 @@ const fs = {
 
   // fsync / fdatasync async callback forms
   fsync(fd: number, callback?: NodeCallback<void>): Promise<void> | void {
-    if (callback) {
-      try {
-        fs.fsyncSync(fd);
-        callback(null);
-      } catch (e) {
-        callback(e as Error);
-      }
-    } else {
-      return Promise.resolve(fs.fsyncSync(fd));
+    normalizeFdInteger(fd);
+    validateCallback(callback, "cb");
+    try {
+      fs.fsyncSync(fd);
+      callback(null);
+    } catch (e) {
+      callback(e as Error);
     }
   },
 
   fdatasync(fd: number, callback?: NodeCallback<void>): Promise<void> | void {
-    if (callback) {
-      try {
-        fs.fdatasyncSync(fd);
-        callback(null);
-      } catch (e) {
-        callback(e as Error);
-      }
-    } else {
-      return Promise.resolve(fs.fdatasyncSync(fd));
+    normalizeFdInteger(fd);
+    validateCallback(callback, "cb");
+    try {
+      fs.fdatasyncSync(fd);
+      callback(null);
+    } catch (e) {
+      callback(e as Error);
     }
   },
 
@@ -2097,12 +3412,15 @@ const fs = {
       callback = position;
       position = null;
     }
+    const normalizedFd = normalizeFdInteger(fd);
+    const normalizedBuffers = normalizeIoVectorBuffers(buffers);
+    const normalizedPosition = normalizeOptionalPosition(position);
     if (callback) {
       try {
-        const bytesRead = fs.readvSync(fd, buffers, position as number | null);
-        callback(null, bytesRead, buffers);
+        const bytesRead = fs.readvSync(normalizedFd, normalizedBuffers, normalizedPosition);
+        queueMicrotask(() => callback(null, bytesRead, normalizedBuffers));
       } catch (e) {
-        callback(e as Error);
+        queueMicrotask(() => callback(e as Error));
       }
     }
   },
@@ -2150,14 +3468,23 @@ const fs = {
   // fs.promises API
   // Note: Using async functions to properly catch sync errors and return rejected promises
   promises: {
-    async readFile(path: string, options?: ReadFileOptions) {
+    async readFile(path: string | FileHandle, options?: ReadFileOptions | FileHandleReadFileOptions) {
+      if (path instanceof FileHandle) {
+        return path.readFile(options as FileHandleReadFileOptions);
+      }
       return fs.readFileSync(path, options);
     },
-    async writeFile(path: string, data: string | Uint8Array, options?: WriteFileOptions) {
-      return fs.writeFileSync(path, data, options);
+    async writeFile(path: string | FileHandle, data: unknown, options?: WriteFileOptions | FileHandleWriteFileOptions) {
+      if (path instanceof FileHandle) {
+        return path.writeFile(data, options as FileHandleWriteFileOptions);
+      }
+      return fs.writeFileSync(path, data as string | Uint8Array, options);
     },
-    async appendFile(path: string, data: string | Uint8Array, options?: WriteFileOptions) {
-      return fs.appendFileSync(path, data, options);
+    async appendFile(path: string | FileHandle, data: unknown, options?: WriteFileOptions | FileHandleWriteFileOptions) {
+      if (path instanceof FileHandle) {
+        return path.appendFile(data, options as FileHandleWriteFileOptions);
+      }
+      return fs.appendFileSync(path, data as string | Uint8Array, options);
     },
     async readdir(path: string, options?: ReaddirOptions) {
       return fs.readdirSync(path, options);
@@ -2192,6 +3519,9 @@ const fs = {
     async opendir(path: string, options?: nodeFs.OpenDirOptions) {
       return fs.opendirSync(path, options);
     },
+    async open(path: string, flags?: OpenFlags, mode?: Mode): Promise<FileHandle> {
+      return new FileHandle(fs.openSync(path, flags ?? "r", mode));
+    },
     async statfs(path: string, options?: nodeFs.StatFsOptions) {
       return fs.statfsSync(path, options);
     },
@@ -2217,6 +3547,9 @@ const fs = {
     async chown(path: string, uid: number, gid: number): Promise<void> {
       return fs.chownSync(path, uid, gid);
     },
+    async lchown(path: string, uid: number, gid: number): Promise<void> {
+      return fs.lchownSync(path, uid, gid);
+    },
     async link(existingPath: string, newPath: string): Promise<void> {
       return fs.linkSync(existingPath, newPath);
     },
@@ -2231,6 +3564,9 @@ const fs = {
     },
     async utimes(path: string, atime: string | number | Date, mtime: string | number | Date): Promise<void> {
       return fs.utimesSync(path, atime, mtime);
+    },
+    watch(path: unknown, options?: unknown) {
+      return createUnsupportedPromisesWatchIterator(path, options);
     },
   },
 
@@ -2270,11 +3606,12 @@ const fs = {
   },
 
   realpathSync: Object.assign(
-    function realpathSync(path: PathLike): string {
+    function realpathSync(path: PathLike, options?: nodeFs.EncodingOption): string {
+      validateEncodingOption(options);
       // Resolve symlinks by walking each path component via lstat + readlink
       const MAX_SYMLINK_DEPTH = 40;
       let symlinksFollowed = 0;
-      const raw = toPathString(path);
+      const raw = normalizePathLike(path);
 
       // Build initial queue: normalize . and .. segments
       const pending: string[] = [];
@@ -2331,68 +3668,121 @@ const fs = {
       return "/" + resolved.join("/") || "/";
     },
     {
-      native(path: PathLike): string {
+      native(path: PathLike, options?: nodeFs.EncodingOption): string {
+        validateEncodingOption(options);
         return fs.realpathSync(path);
       }
     }
   ),
 
   realpath: Object.assign(
-    function realpath(path: PathLike, callback?: NodeCallback<string>): Promise<string> | void {
-      if (callback) {
-        callback(null, fs.realpathSync(path));
+    function realpath(
+      path: PathLike,
+      optionsOrCallback?: nodeFs.EncodingOption | NodeCallback<string>,
+      callback?: NodeCallback<string>,
+    ): Promise<string> | void {
+      let options: nodeFs.EncodingOption | undefined;
+      if (typeof optionsOrCallback === "function") {
+        callback = optionsOrCallback;
       } else {
-        return Promise.resolve(fs.realpathSync(path));
+        options = optionsOrCallback;
+      }
+      if (callback) {
+        validateEncodingOption(options);
+        callback(null, fs.realpathSync(path, options));
+      } else {
+        return Promise.resolve(fs.realpathSync(path, options));
       }
     },
     {
-      native(path: PathLike, callback?: NodeCallback<string>): Promise<string> | void {
-        if (callback) {
-          callback(null, fs.realpathSync.native(path));
+      native(
+        path: PathLike,
+        optionsOrCallback?: nodeFs.EncodingOption | NodeCallback<string>,
+        callback?: NodeCallback<string>,
+      ): Promise<string> | void {
+        let options: nodeFs.EncodingOption | undefined;
+        if (typeof optionsOrCallback === "function") {
+          callback = optionsOrCallback;
         } else {
-          return Promise.resolve(fs.realpathSync.native(path));
+          options = optionsOrCallback;
+        }
+        if (callback) {
+          validateEncodingOption(options);
+          callback(null, fs.realpathSync.native(path, options));
+        } else {
+          return Promise.resolve(fs.realpathSync.native(path, options));
         }
       }
     }
   ),
 
-  createReadStream(
+  ReadStream: ReadStreamFactory,
+  WriteStream: WriteStreamFactory,
+
+  createReadStream: function createReadStream(
     path: nodeFs.PathLike,
-    options?: BufferEncoding | { encoding?: BufferEncoding; start?: number; end?: number; highWaterMark?: number }
+    options?: BufferEncoding | {
+      encoding?: BufferEncoding;
+      start?: number;
+      end?: number;
+      highWaterMark?: number;
+      bufferSize?: number;
+      autoClose?: boolean;
+      fd?: number | FileHandle;
+      fs?: unknown;
+      signal?: AbortSignal;
+    }
   ): nodeFs.ReadStream {
-    const pathStr = typeof path === "string" ? path : path instanceof Buffer ? path.toString() : String(path);
     const opts = typeof options === "string" ? { encoding: options } : options;
+    validateEncodingOption(opts);
+    const fd = normalizeStreamFd(opts?.fd);
+    const pathLike = normalizeStreamPath(path as nodeFs.PathLike | null, fd);
     // Use type assertion since our ReadStream has all the methods npm needs
     // but not all the complex overloaded signatures of the full Node.js interface
-    return new ReadStream(pathStr, opts) as unknown as nodeFs.ReadStream;
+    return new ReadStream(pathLike, opts) as unknown as nodeFs.ReadStream;
   },
 
-  createWriteStream(
+  createWriteStream: function createWriteStream(
     path: nodeFs.PathLike,
-    options?: BufferEncoding | { encoding?: BufferEncoding; flags?: string; mode?: number }
+    options?: BufferEncoding | {
+      encoding?: BufferEncoding;
+      flags?: string;
+      mode?: number;
+      autoClose?: boolean;
+      fd?: number | FileHandle;
+      fs?: unknown;
+    }
   ): nodeFs.WriteStream {
-    const pathStr = typeof path === "string" ? path : path instanceof Buffer ? path.toString() : String(path);
     const opts = typeof options === "string" ? { encoding: options } : options;
+    validateEncodingOption(opts);
+    validateWriteStreamStartOption((opts ?? {}) as Record<string, unknown>);
+    const fd = normalizeStreamFd(opts?.fd);
+    const pathLike = normalizeStreamPath(path as nodeFs.PathLike | null, fd);
     // Use type assertion since our WriteStream has all the methods npm needs
     // but not all the complex overloaded signatures of the full Node.js interface
-    return new WriteStream(pathStr, opts) as unknown as nodeFs.WriteStream;
+    return new WriteStream(pathLike, opts) as unknown as nodeFs.WriteStream;
   },
 
   // Unsupported fs APIs — watch requires kernel-level inotify, use polling instead
   watch(..._args: unknown[]): never {
-    throw new Error("fs.watch is not supported in sandbox — use polling");
+    normalizeWatchArguments(_args[0], _args[1], _args[2]);
+    throw createUnsupportedWatcherError("watch");
   },
 
   watchFile(..._args: unknown[]): never {
-    throw new Error("fs.watchFile is not supported in sandbox — use polling");
+    normalizeWatchFileArguments(_args[0], _args[1], _args[2]);
+    throw createUnsupportedWatcherError("watchFile");
   },
 
   unwatchFile(..._args: unknown[]): never {
-    throw new Error("fs.unwatchFile is not supported in sandbox — use polling");
+    normalizePathLike(_args[0]);
+    throw createUnsupportedWatcherError("unwatchFile");
   },
 
   chmod(path: PathLike, mode: Mode, callback?: NodeCallback<void>): Promise<void> | void {
     if (callback) {
+      normalizePathLike(path);
+      normalizeModeArgument(mode);
       try {
         fs.chmodSync(path, mode);
         callback(null);
@@ -2406,6 +3796,9 @@ const fs = {
 
   chown(path: PathLike, uid: number, gid: number, callback?: NodeCallback<void>): Promise<void> | void {
     if (callback) {
+      normalizePathLike(path);
+      normalizeNumberArgument("uid", uid, { min: -1, max: 0xffffffff, allowNegativeOne: true });
+      normalizeNumberArgument("gid", gid, { min: -1, max: 0xffffffff, allowNegativeOne: true });
       try {
         fs.chownSync(path, uid, gid);
         callback(null);
@@ -2417,8 +3810,63 @@ const fs = {
     }
   },
 
+  fchmod(fd: number, mode: Mode, callback?: NodeCallback<void>): Promise<void> | void {
+    if (callback) {
+      normalizeFdInteger(fd);
+      normalizeModeArgument(mode);
+      try {
+        fs.fchmodSync(fd, mode);
+        callback(null);
+      } catch (e) {
+        callback(e as Error);
+      }
+    } else {
+      normalizeFdInteger(fd);
+      normalizeModeArgument(mode);
+      return Promise.resolve(fs.fchmodSync(fd, mode));
+    }
+  },
+
+  fchown(fd: number, uid: number, gid: number, callback?: NodeCallback<void>): Promise<void> | void {
+    if (callback) {
+      normalizeFdInteger(fd);
+      normalizeNumberArgument("uid", uid, { min: -1, max: 0xffffffff, allowNegativeOne: true });
+      normalizeNumberArgument("gid", gid, { min: -1, max: 0xffffffff, allowNegativeOne: true });
+      try {
+        fs.fchownSync(fd, uid, gid);
+        callback(null);
+      } catch (e) {
+        callback(e as Error);
+      }
+    } else {
+      normalizeFdInteger(fd);
+      normalizeNumberArgument("uid", uid, { min: -1, max: 0xffffffff, allowNegativeOne: true });
+      normalizeNumberArgument("gid", gid, { min: -1, max: 0xffffffff, allowNegativeOne: true });
+      return Promise.resolve(fs.fchownSync(fd, uid, gid));
+    }
+  },
+
+  lchown(path: PathLike, uid: number, gid: number, callback?: NodeCallback<void>): Promise<void> | void {
+    if (arguments.length >= 4) {
+      validateCallback(callback, "cb");
+      normalizePathLike(path);
+      normalizeNumberArgument("uid", uid, { min: -1, max: 0xffffffff, allowNegativeOne: true });
+      normalizeNumberArgument("gid", gid, { min: -1, max: 0xffffffff, allowNegativeOne: true });
+      try {
+        fs.lchownSync(path, uid, gid);
+        callback(null);
+      } catch (e) {
+        callback(e as Error);
+      }
+    } else {
+      return Promise.resolve(fs.lchownSync(path, uid, gid));
+    }
+  },
+
   link(existingPath: PathLike, newPath: PathLike, callback?: NodeCallback<void>): Promise<void> | void {
     if (callback) {
+      normalizePathLike(existingPath, "existingPath");
+      normalizePathLike(newPath, "newPath");
       try {
         fs.linkSync(existingPath, newPath);
         callback(null);
@@ -2449,15 +3897,18 @@ const fs = {
   readlink(path: PathLike, optionsOrCb?: nodeFs.EncodingOption | NodeCallback<string>, callback?: NodeCallback<string>): Promise<string> | void {
     if (typeof optionsOrCb === "function") {
       callback = optionsOrCb;
+      optionsOrCb = undefined;
     }
     if (callback) {
+      normalizePathLike(path);
+      validateEncodingOption(optionsOrCb);
       try {
-        callback(null, fs.readlinkSync(path));
+        callback(null, fs.readlinkSync(path, optionsOrCb));
       } catch (e) {
         callback(e as Error);
       }
     } else {
-      return Promise.resolve(fs.readlinkSync(path));
+      return Promise.resolve(fs.readlinkSync(path, optionsOrCb));
     }
   },
 

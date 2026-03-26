@@ -1,6 +1,7 @@
 ---
 title: Node.js Conformance Report
 description: Node.js v22 test/parallel/ conformance results for the secure-exec sandbox.
+icon: "chart-bar"
 ---
 
 {/* AUTO-GENERATED — do not edit. Run: pnpm tsx scripts/generate-node-conformance-report.ts */}
@@ -12,24 +13,24 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 | Node.js version | 22.14.0 |
 | Source | v22.14.0 (test/parallel/) |
 | Total tests | 3532 |
-| Passing (genuine) | 754 (21.3%) |
-| Passing (vacuous self-skip) | 33 |
-| Passing (total) | 787 (22.3%) |
-| Expected fail | 2674 |
-| Skip | 71 |
+| Passing (genuine) | 1082 (30.6%) |
+| Passing (vacuous self-skip) | 50 |
+| Passing (total) | 1132 (32.0%) |
+| Expected fail | 2288 |
+| Skip | 112 |
 | Last updated | 2026-03-26 |
 
 ## Failure Categories
 
 | Category | Tests |
 | --- | --- |
-| implementation-gap | 1372 |
-| unsupported-module | 738 |
-| requires-v8-flags | 239 |
+| implementation-gap | 940 |
+| unsupported-module | 755 |
+| requires-v8-flags | 247 |
 | requires-exec-path | 200 |
-| unsupported-api | 123 |
-| test-infra | 68 |
-| vacuous-skip | 33 |
+| unsupported-api | 155 |
+| test-infra | 98 |
+| vacuous-skip | 50 |
 | native-addon | 3 |
 | security-constraint | 2 |
 
@@ -60,7 +61,7 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 | c | 1 | 0 | 1 | 0 | 0.0% |
 | child | 107 | 4 (2 vacuous) | 103 | 0 | 3.7% |
 | cli | 14 | 0 | 14 | 0 | 0.0% |
-| client | 1 | 0 | 1 | 0 | 0.0% |
+| client | 1 | 1 | 0 | 0 | 100.0% |
 | cluster | 83 | 3 | 80 | 0 | 3.6% |
 | code | 1 | 0 | 1 | 0 | 0.0% |
 | common | 5 | 0 | 5 | 0 | 0.0% |
@@ -70,7 +71,7 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 | constants | 1 | 0 | 1 | 0 | 0.0% |
 | corepack | 1 | 0 | 1 | 0 | 0.0% |
 | coverage | 1 | 0 | 1 | 0 | 0.0% |
-| crypto | 99 | 56 (12 vacuous) | 43 | 0 | 56.6% |
+| crypto | 99 | 57 (12 vacuous) | 42 | 0 | 57.6% |
 | cwd | 3 | 0 | 3 | 0 | 0.0% |
 | data | 1 | 0 | 1 | 0 | 0.0% |
 | datetime | 1 | 0 | 1 | 0 | 0.0% |
@@ -78,7 +79,7 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 | debugger | 25 | 0 | 25 | 0 | 0.0% |
 | delayed | 1 | 1 | 0 | 0 | 100.0% |
 | destroy | 1 | 1 | 0 | 0 | 100.0% |
-| dgram | 76 | 3 | 73 | 0 | 3.9% |
+| dgram | 76 | 49 | 27 | 0 | 64.5% |
 | diagnostic | 2 | 0 | 2 | 0 | 0.0% |
 | diagnostics | 32 | 1 | 31 | 0 | 3.1% |
 | directory | 1 | 1 | 0 | 0 | 100.0% |
@@ -107,25 +108,25 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 | experimental | 1 | 0 | 1 | 0 | 0.0% |
 | fetch | 1 | 0 | 1 | 0 | 0.0% |
 | file | 8 | 3 | 5 | 0 | 37.5% |
-| filehandle | 2 | 2 | 0 | 0 | 100.0% |
+| filehandle | 2 | 0 | 2 | 0 | 0.0% |
 | finalization | 1 | 1 | 0 | 0 | 100.0% |
 | find | 1 | 0 | 1 | 0 | 0.0% |
 | fixed | 1 | 0 | 1 | 0 | 0.0% |
 | force | 2 | 0 | 2 | 0 | 0.0% |
 | freelist | 1 | 0 | 1 | 0 | 0.0% |
 | freeze | 1 | 0 | 1 | 0 | 0.0% |
-| fs | 232 | 69 (8 vacuous) | 129 | 34 | 34.8% |
+| fs | 232 | 104 (8 vacuous) | 114 | 14 | 47.7% |
 | gc | 3 | 0 | 3 | 0 | 0.0% |
 | global | 11 | 3 | 8 | 0 | 27.3% |
-| h2 | 1 | 0 | 1 | 0 | 0.0% |
+| h2 | 1 | 1 | 0 | 0 | 100.0% |
 | h2leak | 1 | 0 | 1 | 0 | 0.0% |
 | handle | 2 | 1 | 1 | 0 | 50.0% |
 | heap | 11 | 0 | 11 | 0 | 0.0% |
 | heapdump | 1 | 1 | 0 | 0 | 100.0% |
 | heapsnapshot | 2 | 0 | 2 | 0 | 0.0% |
-| http | 377 | 243 (1 vacuous) | 133 | 1 | 64.6% |
-| http2 | 256 | 4 | 252 | 0 | 1.6% |
-| https | 62 | 4 | 58 | 0 | 6.5% |
+| http | 377 | 275 (1 vacuous) | 101 | 1 | 73.1% |
+| http2 | 256 | 18 | 238 | 0 | 7.0% |
+| https | 62 | 5 (3 vacuous) | 0 | 57 | 100.0% |
 | icu | 5 | 0 | 5 | 0 | 0.0% |
 | inspect | 4 | 0 | 4 | 0 | 0.0% |
 | inspector | 61 | 0 | 61 | 0 | 0.0% |
@@ -146,7 +147,7 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 | mime | 2 | 0 | 2 | 0 | 0.0% |
 | module | 30 | 5 (2 vacuous) | 24 | 1 | 17.2% |
 | navigator | 1 | 0 | 1 | 0 | 0.0% |
-| net | 149 | 8 | 141 | 0 | 5.4% |
+| net | 149 | 98 | 50 | 1 | 66.2% |
 | next | 9 | 5 | 2 | 2 | 71.4% |
 | no | 2 | 1 | 1 | 0 | 50.0% |
 | node | 1 | 0 | 1 | 0 | 0.0% |
@@ -203,7 +204,7 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 | stdio | 5 | 2 | 3 | 0 | 40.0% |
 | stdout | 7 | 1 | 5 | 1 | 16.7% |
 | strace | 1 | 1 (1 vacuous) | 0 | 0 | 100.0% |
-| stream | 169 | 78 | 85 | 6 | 47.9% |
+| stream | 169 | 79 | 84 | 6 | 48.5% |
 | stream2 | 25 | 15 | 4 | 6 | 78.9% |
 | stream3 | 4 | 3 | 0 | 1 | 100.0% |
 | streams | 1 | 0 | 1 | 0 | 0.0% |
@@ -215,7 +216,7 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 | tcp | 3 | 0 | 3 | 0 | 0.0% |
 | tick | 2 | 1 (1 vacuous) | 1 | 0 | 50.0% |
 | timers | 56 | 26 | 21 | 9 | 55.3% |
-| tls | 192 | 19 | 173 | 0 | 9.9% |
+| tls | 192 | 120 (14 vacuous) | 69 | 3 | 63.5% |
 | tojson | 1 | 0 | 1 | 0 | 0.0% |
 | trace | 35 | 3 | 32 | 0 | 8.6% |
 | tracing | 1 | 0 | 1 | 0 | 0.0% |
@@ -239,30 +240,27 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 | webstorage | 1 | 0 | 1 | 0 | 0.0% |
 | webstream | 4 | 0 | 4 | 0 | 0.0% |
 | webstreams | 5 | 0 | 5 | 0 | 0.0% |
-| whatwg | 60 | 1 | 59 | 0 | 1.7% |
+| whatwg | 60 | 25 | 35 | 0 | 41.7% |
 | windows | 2 | 1 (1 vacuous) | 1 | 0 | 50.0% |
 | worker | 133 | 11 | 122 | 0 | 8.3% |
 | wrap | 4 | 0 | 4 | 0 | 0.0% |
 | x509 | 1 | 0 | 1 | 0 | 0.0% |
 | zlib | 53 | 17 | 33 | 3 | 34.0% |
-| **Total** | **3532** | **787** | **2674** | **71** | **22.7%** |
+| **Total** | **3532** | **1132** | **2288** | **112** | **33.1%** |
 
 ## Expectations Detail
 
-### implementation-gap (691 entries)
+### implementation-gap (658 entries)
 
 **Glob patterns:**
 
 - `test-v8-*.js` — v8 module exposed as empty stub — no real v8 APIs (serialize, deserialize, getHeapStatistics, promiseHooks, etc.) are implemented
-- `test-dgram-*.js` — dgram module bridged via kernel UDP — most tests fail on API gaps (bind, send, multicast, cluster)
-- `test-net-*.js` — net module bridged via kernel TCP — most tests fail on API gaps (socket options, pipe, cluster, FD handling)
-- `test-tls-*.js` — tls module bridged via kernel — most tests fail on missing TLS fixture files or crypto API gaps
-- `test-https-*.js` — https depends on tls — most tests fail on missing TLS fixture files or crypto API gaps
-- `test-http2-*.js` — http2 module bridged via kernel — most tests fail on API gaps, missing fixtures, or protocol handling
+- `test-http2-!(allow-http1|client-request-options-errors|client-setLocalWindowSize|error-order|goaway-delayed-request|goaway-opaquedata|misbehaving-flow-control|misbehaving-flow-control-paused|request-response-proto|respond-file-filehandle|server-push-stream|server-push-stream-errors-args|server-push-stream-head|server-setLocalWindowSize|session-settings|status-code-invalid|update-settings|window-size).js` — outside the landed allowHTTP1, push/settings, request-response, and window-size slices, the remaining http2 suite still fails on compatibility wrappers, secure-session bootstrap, multiplexing/teardown, and file-response helper gaps
+- `test-https-*.js` — https conformance still hangs on most TLS-backed client/server lifecycle and certificate-handling paths, so the remaining broad slice is skipped pending exact inventory
 
-*685 individual tests — see expectations.json for full list.*
+*655 individual tests — see expectations.json for full list.*
 
-### unsupported-module (191 entries)
+### unsupported-module (208 entries)
 
 **Glob patterns:**
 
@@ -278,7 +276,7 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 - `test-debugger-*.js` — debugger protocol requires inspector which is Tier 5 (Unsupported)
 - `test-quic-*.js` — QUIC protocol depends on tls which is Tier 4 (Deferred)
 
-<Accordion title="180 individual tests">
+<details><summary>197 individual tests</summary>
 
 | Test | Reason |
 | --- | --- |
@@ -332,7 +330,6 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 | `test-fs-mkdir.js` | requires worker_threads module which is Tier 4 (Deferred) |
 | `test-fs-whatwg-url.js` | requires worker_threads module which is Tier 4 (Deferred) |
 | `test-fs-write-file-sync.js` | requires worker_threads module which is Tier 4 (Deferred) |
-| `test-h2-large-header-cause-client-to-hangup.js` | requires http2 module — createServer/createSecureServer unsupported |
 | `test-http-agent-reuse-drained-socket-only.js` | requires net module which is Tier 4 (Deferred) |
 | `test-http-autoselectfamily.js` | requires dns module — DNS resolution not available in sandbox |
 | `test-http-client-error-rawbytes.js` | requires net module which is Tier 4 (Deferred) |
@@ -348,9 +345,7 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 | `test-http-multi-line-headers.js` | requires net module which is Tier 4 (Deferred) |
 | `test-http-no-content-length.js` | requires net module which is Tier 4 (Deferred) |
 | `test-http-perf_hooks.js` | requires perf_hooks module which is Tier 4 (Deferred) |
-| `test-http-pipeline-requests-connection-leak.js` | requires net module which is Tier 4 (Deferred) |
 | `test-http-request-agent.js` | requires https module — depends on tls which is Tier 4 (Deferred) |
-| `test-http-response-no-headers.js` | requires net module which is Tier 4 (Deferred) |
 | `test-http-response-splitting.js` | requires net module which is Tier 4 (Deferred) |
 | `test-http-response-status-message.js` | requires net module which is Tier 4 (Deferred) |
 | `test-http-server-headers-timeout-delayed-headers.js` | requires net module which is Tier 4 (Deferred) |
@@ -425,7 +420,6 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 | `test-socket-writes-before-passed-to-tls-socket.js` | requires net module which is Tier 4 (Deferred) |
 | `test-stdio-pipe-redirect.js` | requires worker_threads module which is Tier 4 (Deferred) |
 | `test-stream-base-typechecking.js` | requires net module which is Tier 4 (Deferred) |
-| `test-stream-pipeline-http2.js` | requires http2 module — createServer/createSecureServer unsupported |
 | `test-stream-pipeline.js` | requires net module which is Tier 4 (Deferred) |
 | `test-stream-preprocess.js` | requires readline module which is Tier 4 (Deferred) |
 | `test-stream-writable-samecb-singletick.js` | async_hooks module is a deferred stub — AsyncLocalStorage, AsyncResource, createHook exported but not functional |
@@ -444,8 +438,6 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 | `test-fetch-mock.js` | requires node:test module which is not available in sandbox |
 | `test-fs-operations-with-surrogate-pairs.js` | requires node:test module which is not available in sandbox |
 | `test-fs-readdir-recursive.js` | requires node:test module which is not available in sandbox |
-| `test-http-common.js` | Cannot find module '_http_common' — Node.js internal module _http_common not exposed in sandbox |
-| `test-http-invalidheaderfield2.js` | Cannot find module '_http_common' — Node.js internal module _http_common not exposed in sandbox |
 | `test-http-parser.js` | Cannot find module '_http_common' — Node.js internal module _http_common (and HTTPParser) not exposed in sandbox |
 | `test-npm-version.js` | Cannot find module '/deps/npm/package.json' — npm is not bundled in the sandbox runtime |
 | `test-outgoing-message-pipe.js` | Cannot find module '_http_outgoing' — Node.js internal module _http_outgoing not exposed in sandbox |
@@ -462,10 +454,33 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 | `test-assert-fail-deprecation.js` | requires 'test' module (node:test) which is not available in sandbox |
 | `test-buffer-resizable.js` | requires 'test' module (node:test) which is not available in sandbox |
 | `test-stream-consumers.js` | stream/consumers submodule not available in stream polyfill |
+| `test-fs-promises-file-handle-read-worker.js` | worker_threads.Worker is not supported in sandbox |
+| `test-dgram-bind-socket-close-before-cluster-reply.js` | the fixture depends on the cluster module, which remains unsupported in the sandbox |
+| `test-dgram-cluster-bind-error.js` | the fixture depends on cluster-managed dgram handle sharing, which remains unsupported in the sandbox |
+| `test-dgram-cluster-close-during-bind.js` | the fixture depends on the cluster module, which remains unsupported in the sandbox |
+| `test-dgram-cluster-close-in-listening.js` | the fixture depends on the cluster module, which remains unsupported in the sandbox |
+| `test-dgram-unref-in-cluster.js` | the fixture depends on the cluster module, which remains unsupported in the sandbox |
+| `test-net-listen-exclusive-random-ports.js` | the fixture depends on the cluster module, which remains unsupported in the sandbox |
+| `test-net-listen-handle-in-cluster-1.js` | the fixture depends on the cluster module, which remains unsupported in the sandbox |
+| `test-net-listen-handle-in-cluster-2.js` | the fixture depends on the cluster module, which remains unsupported in the sandbox |
+| `test-net-listen-twice.js` | the fixture depends on the cluster module, which remains unsupported in the sandbox |
+| `test-net-server-close-before-ipc-response.js` | the fixture depends on the cluster module, which remains unsupported in the sandbox |
+| `test-net-server-drop-connections-in-cluster.js` | the fixture depends on the cluster module, which remains unsupported in the sandbox |
+| `test-net-socket-constructor.js` | the fixture depends on the cluster module, which remains unsupported in the sandbox |
+| `test-http2-server-push-stream-errors.js` | the vendored internal/test/binding and internal/http2/util modules are not exposed in the sandbox, so the internal nghttp2 error-path fixture aborts before exercising pushStream parity |
+| `test-tls-canonical-ip.js` | Cannot find module 'internal/test/binding' |
+| `test-tls-client-allow-partial-trust-chain.js` | Cannot find module 'test' |
+| `test-tls-clientcertengine-unsupported.js` | Cannot find module 'internal/test/binding' |
+| `test-tls-close-notify.js` | Cannot find module 'internal/test/binding' |
+| `test-tls-keyengine-unsupported.js` | Cannot find module 'internal/test/binding' |
+| `test-tls-reinitialize-listeners.js` | Cannot find module 'internal/net' |
+| `test-tls-translate-peer-certificate.js` | Cannot find module '_tls_common' |
+| `test-tls-wrap-no-abort.js` | Cannot find module 'internal/test/binding' |
+| `test-tls-wrap-timeout.js` | Cannot find module 'internal/timers' |
 
-</Accordion>
+</details>
 
-### unsupported-api (78 entries)
+### unsupported-api (110 entries)
 
 **Glob patterns:**
 
@@ -473,7 +488,7 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 - `test-shadow-*.js` — ShadowRealm is experimental and not supported in sandbox
 - `test-compile-*.js` — V8 compile cache/code cache features not available in sandbox
 
-<Accordion title="75 individual tests">
+<details><summary>107 individual tests</summary>
 
 | Test | Reason |
 | --- | --- |
@@ -486,26 +501,26 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 | `test-child-process-send-after-close.js` | uses child_process.fork — IPC across isolate boundary not supported |
 | `test-child-process-send-keep-open.js` | uses child_process.fork — IPC across isolate boundary not supported |
 | `test-child-process-send-type-error.js` | uses child_process.fork — IPC across isolate boundary not supported |
-| `test-fs-options-immutable.js` | hangs — fs.watch() with frozen options waits for events that never arrive (VFS has no inotify) |
-| `test-fs-promises-watch.js` | hangs — fs.promises.watch() waits forever for filesystem events (VFS has no watcher) |
-| `test-fs-watch-file-enoent-after-deletion.js` | hangs — fs.watchFile() waits for stat changes that never arrive (VFS has no inotify) |
-| `test-fs-watch-recursive-add-file-to-existing-subfolder.js` | hangs — fs.watch(\{recursive\}) waits for filesystem events that never arrive (VFS has no inotify) |
-| `test-fs-watch-recursive-add-file-to-new-folder.js` | hangs — fs.watch(\{recursive\}) waits for filesystem events that never arrive (VFS has no inotify) |
-| `test-fs-watch-recursive-add-file.js` | hangs — fs.watch(\{recursive\}) waits for filesystem events that never arrive (VFS has no inotify) |
-| `test-fs-watch-recursive-assert-leaks.js` | hangs — fs.watch(\{recursive\}) waits for filesystem events that never arrive (VFS has no inotify) |
-| `test-fs-watch-recursive-delete.js` | hangs — fs.watch(\{recursive\}) waits for filesystem events that never arrive (VFS has no inotify) |
-| `test-fs-watch-recursive-linux-parallel-remove.js` | hangs — fs.watch(\{recursive\}) waits for filesystem events that never arrive (VFS has no inotify) |
-| `test-fs-watch-recursive-sync-write.js` | hangs — fs.watch() with recursive option waits forever for events |
-| `test-fs-watch-recursive-update-file.js` | hangs — fs.watch(\{recursive\}) waits for filesystem events that never arrive (VFS has no inotify) |
-| `test-fs-watch-stop-async.js` | uses fs.watch/watchFile — inotify not available in VFS |
-| `test-fs-watch-stop-sync.js` | uses fs.watch/watchFile — inotify not available in VFS |
-| `test-fs-watch.js` | hangs — fs.watch() waits for filesystem events that never arrive (VFS has no inotify) |
+| `test-fs-options-immutable.js` | fails fast — fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive |
+| `test-fs-promises-watch.js` | fails fast — fs.promises.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive |
+| `test-fs-watch-encoding.js` | fails fast — fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive |
+| `test-fs-watch-file-enoent-after-deletion.js` | fails fast — fs.watchFile is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive |
+| `test-fs-watch-recursive-add-file-to-existing-subfolder.js` | fails fast — recursive fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive |
+| `test-fs-watch-recursive-add-file-to-new-folder.js` | fails fast — recursive fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive |
+| `test-fs-watch-recursive-add-file.js` | fails fast — recursive fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive |
+| `test-fs-watch-recursive-assert-leaks.js` | fails fast — recursive fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive |
+| `test-fs-watch-recursive-delete.js` | fails fast — recursive fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive |
+| `test-fs-watch-recursive-linux-parallel-remove.js` | fails fast — recursive fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive |
+| `test-fs-watch-recursive-sync-write.js` | fails fast — recursive fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive |
+| `test-fs-watch-recursive-update-file.js` | fails fast — recursive fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive |
+| `test-fs-watch-stop-async.js` | fails fast — fs.watchFile is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive |
+| `test-fs-watch-stop-sync.js` | fails fast — fs.watchFile is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive |
+| `test-fs-watch.js` | fails fast — fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive |
+| `test-fs-watchfile.js` | fails fast — fs.watchFile is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive |
 | `test-process-external-stdio-close.js` | uses child_process.fork — IPC across isolate boundary not supported |
 | `test-events-uncaught-exception-stack.js` | sandbox does not route synchronous throws from EventEmitter.emit('error') to process 'uncaughtException' handler |
-| `test-fs-promises-file-handle-writeFile.js` | Readable.from is not available in the browser — stream.Readable.from() factory not implemented in sandbox stream polyfill |
 | `test-fs-promises-writefile.js` | Readable.from is not available in the browser — stream.Readable.from() factory not implemented; used by writeFile() Readable/iterable overload |
 | `test-http-addrequest-localaddress.js` | TypeError: agent.addRequest is not a function — http.Agent.addRequest() internal method not implemented in http polyfill |
-| `test-http-header-validators.js` | TypeError: Cannot read properties of undefined (reading 'constructor') — validateHeaderName/validateHeaderValue not exported from http polyfill module |
 | `test-http-import-websocket.js` | ReferenceError: WebSocket is not defined — WebSocket global not available in sandbox; undici WebSocket not polyfilled as a global |
 | `test-http-incoming-matchKnownFields.js` | TypeError: incomingMessage._addHeaderLine is not a function — http.IncomingMessage._addHeaderLine() internal method not implemented in http polyfill |
 | `test-http-outgoing-destroy.js` | Error: The _implicitHeader() method is not implemented — http.OutgoingMessage._implicitHeader() not implemented; required by write() after destroy() path |
@@ -543,21 +558,53 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 | `test-util-types-exists.js` | require('util/types') subpath import not supported by sandbox module system |
 | `test-websocket.js` | WebSocket global is not defined in sandbox — Node.js 22 added WebSocket as a global but the sandbox does not expose it |
 | `test-webstream-readable-from.js` | ReadableStream.from() static method not implemented in sandbox WebStreams polyfill — added in Node.js 20 and not available globally in sandbox |
-| `test-webstreams-clone-unref.js` | structuredClone(\{ transfer: [stream] \}) for ReadableStream/WritableStream not supported in sandbox — transferable stream structured clone not implemented |
+| `test-webstreams-clone-unref.js` | structuredClone({ transfer: [stream] }) for ReadableStream/WritableStream not supported in sandbox — transferable stream structured clone not implemented |
 | `test-zlib-brotli-16GB.js` | getDefaultHighWaterMark() not exported from readable-stream v3 polyfill — test also relies on native zlib BrotliDecompress buffering behavior with _readableState internals |
+| `test-fs-watch-recursive-add-file-with-url.js` | fails fast — recursive fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive |
+| `test-fs-watch-recursive-add-folder.js` | fails fast — recursive fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive |
+| `test-fs-watch-recursive-promise.js` | fails fast — fs.promises.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive |
+| `test-fs-watch-recursive-symlink.js` | fails fast — recursive fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive |
+| `test-fs-watch-recursive-watch-file.js` | fails fast — fs.watchFile is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive |
 | `test-buffer-constructor-outside-node-modules.js` | ReferenceError: document is not defined — test uses browser DOM API not available in sandbox |
 | `test-child-process-fork.js` | child_process.fork is not supported in sandbox |
-| `test-fs-promises-file-handle-read-worker.js` | fs.promises.open (FileHandle API) not implemented |
-| `test-fs-watch-close-when-destroyed.js` | fs.watch not supported in sandbox |
-| `test-fs-watch-ref-unref.js` | fs.watch not supported in sandbox |
-| `test-fs-watchfile-ref-unref.js` | fs.watchFile not supported in sandbox |
-| `test-fs-write-stream-file-handle-2.js` | fs.promises.open (FileHandle API) not implemented |
+| `test-fs-watch-close-when-destroyed.js` | fails fast — fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive |
+| `test-fs-watch-ref-unref.js` | fails fast — fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive |
+| `test-fs-watchfile-ref-unref.js` | fails fast — fs.watchFile is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive |
+| `test-dgram-blocklist.js` | net.BlockList is not implemented in the sandbox net bridge, so dgram sendBlockList and receiveBlockList coverage aborts immediately |
+| `test-dgram-send-cb-quelches-error.js` | dns.setServers() is not implemented in the sandbox dns module, so the DNS failure callback-vs-error-emission fixture cannot run |
+| `test-dgram-send-queue-info.js` | dgram.Socket getSendQueueSize() and getSendQueueCount() are not implemented in the bridge |
+| `test-net-autoselectfamily-attempt-timeout-cli-option.js` | net.getDefaultAutoSelectFamilyAttemptTimeout() is still missing, so the CLI autoSelectFamily timeout test aborts before exercising connection behavior |
+| `test-net-autoselectfamily-attempt-timeout-default-value.js` | net.getDefaultAutoSelectFamilyAttemptTimeout() is still missing, so the default timeout helper test aborts before exercising connection behavior |
+| `test-net-blocklist.js` | net.BlockList is not implemented in the sandbox net bridge |
+| `test-net-child-process-connect-reset.js` | the child-process spawn path used by the reset fixture still returns ENOSYS in the sandbox |
+| `test-net-connect-reset-before-connected.js` | net.Socket.resetAndDestroy() is still missing from the sandbox socket implementation |
+| `test-net-connect-reset.js` | net.Socket.resetAndDestroy() is still missing from the sandbox socket implementation |
+| `test-net-deprecated-setsimultaneousaccepts.js` | the deprecated net._setSimultaneousAccepts() helper is not implemented in the sandbox bridge |
+| `test-net-perf_hooks.js` | perf_hooks.PerformanceObserver remains unsupported in the sandbox, so the net perf observer fixture aborts early |
+| `test-net-server-blocklist.js` | net.BlockList is not implemented in the sandbox net bridge |
+| `test-net-server-simultaneous-accepts-produce-warning-once.js` | the deprecated net._setSimultaneousAccepts() helper is not implemented in the sandbox bridge |
+| `test-net-write-arguments.js` | the legacy net.Stream constructor surface is still missing, so write-argument validation aborts before the vendored assertions run |
+| `test-tls-addca.js` | TypeError: contextWithCert.context.addCACert is not a function |
+| `test-tls-check-server-identity.js` | TypeError: tls.checkServerIdentity is not a function |
+| `test-tls-cipher-list.js` | ENOSYS: function not implemented, spawn |
+| `test-tls-cli-min-max-conflict.js` | ENOSYS: function not implemented, spawn |
+| `test-tls-env-extra-ca-no-crypto.js` | child_process.fork is not supported in sandbox |
+| `test-tls-error-servername.js` | TypeError: duplexPair is not a function or its return value is not iterable |
+| `test-tls-generic-stream.js` | TypeError: duplexPair is not a function or its return value is not iterable |
+| `test-tls-handshake-exception.js` | AssertionError2: ENOSYS: function not implemented, spawn |
+| `test-tls-handshake-nohang.js` | TypeError: tls.createSecurePair is not a function |
+| `test-tls-legacy-deprecated.js` | TypeError: tls.createSecurePair is not a function |
+| `test-tls-securepair-fiftharg.js` | TypeError: tls.createSecurePair is not a function |
+| `test-tls-securepair-leak.js` | TypeError: createSecurePair is not a function |
+| `test-tls-server-setoptions-clientcertengine.js` | TypeError: server.setOptions is not a function |
+| `test-tls-socket-snicallback-without-server.js` | TypeError: duplexPair is not a function or its return value is not iterable |
+| `test-tls-transport-destroy-after-own-gc.js` | TypeError: duplexPair is not a function or its return value is not iterable |
 
-</Accordion>
+</details>
 
-### requires-v8-flags (239 entries)
+### requires-v8-flags (247 entries)
 
-*239 individual tests — see expectations.json for full list.*
+*247 individual tests — see expectations.json for full list.*
 
 ### requires-exec-path (173 entries)
 
@@ -565,7 +612,7 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 
 - `test-permission-*.js` — spawns child Node.js process via process.execPath — sandbox does not provide a real node binary
 
-<Accordion title="172 individual tests">
+<details><summary>172 individual tests</summary>
 
 | Test | Reason |
 | --- | --- |
@@ -742,30 +789,31 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 | `test-webstorage.js` | spawns child Node.js process via process.execPath — sandbox does not provide a real node binary |
 | `test-windows-failed-heap-allocation.js` | spawns child Node.js process via process.execPath — sandbox does not provide a real node binary |
 
-</Accordion>
+</details>
 
 ### security-constraint (2 entries)
 
-<Accordion title="2 individual tests">
+<details><summary>2 individual tests</summary>
 
 | Test | Reason |
 | --- | --- |
 | `test-crypto-pbkdf2.js` | SharedArrayBuffer is intentionally removed by sandbox hardening, so the vendored TypedArray coverage loop aborts before the remaining pbkdf2 assertions run |
 | `test-process-binding-internalbinding-allowlist.js` | process.binding is not supported in sandbox (security constraint) |
 
-</Accordion>
+</details>
 
-### test-infra (22 entries)
+### test-infra (52 entries)
 
 **Glob patterns:**
 
 - `test-runner-*.js` — Node.js test runner infrastructure — not runtime behavior
 - `test-eslint-*.js` — ESLint integration tests — Node.js CI tooling, not runtime
 
-<Accordion title="20 individual tests">
+<details><summary>50 individual tests</summary>
 
 | Test | Reason |
 | --- | --- |
+| `test-whatwg-url-canparse.js` | depends on internal/test/binding for a debug-only fast-API counter assertion; URL.canParse() behavior itself now passes in the sandbox |
 | `test-benchmark-cli.js` | Cannot find module '../../benchmark/_cli.js' — benchmark CLI helper not vendored in conformance test tree |
 | `test-http-client-req-error-dont-double-fire.js` | Cannot find module '../common/internet' — internet connectivity helper not vendored in conformance test tree |
 | `test-inspect-async-hook-setup-at-inspect.js` | TypeError: common.skipIfInspectorDisabled is not a function — skipIfInspectorDisabled() helper not implemented in conformance common shim; test requires V8 inspector |
@@ -786,12 +834,41 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 | `test-vm-parse-abort-on-uncaught-exception.js` | passes in sandbox — overrides glob pattern |
 | `test-worker-messaging-errors-handler.js` | passes in sandbox — overrides glob pattern |
 | `test-worker-messaging-errors-invalid.js` | passes in sandbox — overrides glob pattern |
+| `test-dgram-reuseport.js` | the vendored ../common/udp helper is missing from the conformance VFS, so the reusePort fixture cannot run |
+| `test-net-autoselectfamily-commandline-option.js` | the vendored ../common/dns shim is missing from the conformance VFS, so the autoSelectFamily DNS fixture cannot run |
+| `test-net-autoselectfamily-default.js` | the vendored ../common/dns shim is missing from the conformance VFS, so the autoSelectFamily DNS fixture cannot run |
+| `test-net-autoselectfamily-ipv4first.js` | the vendored ../common/dns shim is missing from the conformance VFS, so the autoSelectFamily DNS fixture cannot run |
+| `test-net-autoselectfamily.js` | the vendored ../common/dns shim is missing from the conformance VFS, so the autoSelectFamily DNS fixture cannot run |
+| `test-net-better-error-messages-port-hostname.js` | the vendored ../common/internet helper is missing from the conformance VFS, so the port/hostname error-message fixture cannot run |
+| `test-net-connect-immediate-finish.js` | the vendored ../common/internet helper is missing from the conformance VFS, so the external-connect fixture cannot run |
+| `test-net-connect-memleak.js` | the vendored ../common/gc helper is missing from the conformance VFS, so the GC-sensitive connect leak fixture cannot run |
+| `test-net-end-close.js` | the vendored end/close fixture depends on internal/test/binding, which is absent in the sandbox |
+| `test-net-normalize-args.js` | the vendored internal/net helper module is missing from the conformance VFS, so argument-normalization coverage cannot run |
+| `test-net-persistent-nodelay.js` | the persistent nodelay fixture depends on internal/test/binding, which is absent in the sandbox |
+| `test-net-persistent-ref-unref.js` | the persistent ref/unref fixture depends on internal/test/binding, which is absent in the sandbox |
+| `test-net-reuseport.js` | the vendored ../common/net helper is missing from the conformance VFS, so the reusePort fixture cannot run |
+| `test-tls-cli-max-version-1.3.js` | Cannot find module './test-tls-min-max-version.js' |
+| `test-tls-cli-min-version-1.2.js` | Cannot find module './test-tls-min-max-version.js' |
+| `test-tls-client-reject-12.js` | Cannot find module './test-tls-client-reject.js' |
+| `test-tls-client-resume-12.js` | Cannot find module './test-tls-client-resume.js' |
+| `test-tls-connect-memleak.js` | Cannot find module '../common/gc' |
+| `test-tls-destroy-stream-12.js` | Cannot find module './test-tls-destroy-stream.js' |
+| `test-tls-enable-keylog-cli.js` | SyntaxError: Illegal return statement |
+| `test-tls-enable-trace-cli.js` | SyntaxError: Illegal return statement |
+| `test-tls-enable-trace.js` | SyntaxError: Illegal return statement |
+| `test-tls-env-bad-extra-ca.js` | SyntaxError: Illegal return statement |
+| `test-tls-env-extra-ca.js` | SyntaxError: Illegal return statement |
+| `test-tls-net-socket-keepalive-12.js` | Cannot find module './test-tls-net-socket-keepalive.js' |
+| `test-tls-ticket-12.js` | Cannot find module './test-tls-ticket.js' |
+| `test-tls-ticket-cluster.js` | SyntaxError: Illegal return statement |
+| `test-tls-wrap-econnreset-pipe.js` | SyntaxError: Illegal return statement |
+| `test-tls-write-error.js` | Cannot find module '../common/tls' |
 
-</Accordion>
+</details>
 
 ### native-addon (3 entries)
 
-<Accordion title="3 individual tests">
+<details><summary>3 individual tests</summary>
 
 | Test | Reason |
 | --- | --- |
@@ -799,11 +876,11 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 | `test-internal-process-binding.js` | uses process.binding() or native addons — not available in sandbox |
 | `test-process-binding-util.js` | uses process.binding() or native addons — not available in sandbox |
 
-</Accordion>
+</details>
 
-### vacuous-skip (33 entries)
+### vacuous-skip (50 entries)
 
-<Accordion title="33 individual tests">
+<details><summary>50 individual tests</summary>
 
 | Test | Reason |
 | --- | --- |
@@ -840,5 +917,22 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 | `test-child-process-stdio-overlapped.js` | vacuous pass — test self-skips because required overlapped-checker binary not found in sandbox |
 | `test-fs-utimes-y2K38.js` | vacuous pass — test self-skips because child_process.spawnSync(touch) fails in sandbox |
 | `test-tick-processor-arguments.js` | vacuous pass — test self-skips because common.enoughTestMem is undefined in sandbox shim |
+| `test-tls-alert-handling.js` | vacuous pass — test self-skips via common.skip() because common.hasCrypto is false |
+| `test-tls-alert.js` | vacuous pass — test self-skips via common.skip() because common.hasCrypto is false |
+| `test-tls-client-renegotiation-limit.js` | vacuous pass — test self-skips via common.skip() because common.hasCrypto is false |
+| `test-tls-connect-address-family.js` | vacuous pass — test self-skips via common.skip() because common.hasCrypto is false |
+| `test-tls-destroy-whilst-write.js` | vacuous pass — test self-skips via common.skip() because common.hasCrypto is false |
+| `test-tls-dhe.js` | vacuous pass — test self-skips via common.skip() because common.hasCrypto is false |
+| `test-tls-ecdh-auto.js` | vacuous pass — test self-skips via common.skip() because common.hasCrypto is false |
+| `test-tls-ecdh-multiple.js` | vacuous pass — test self-skips via common.skip() because common.hasCrypto is false |
+| `test-tls-ecdh.js` | vacuous pass — test self-skips via common.skip() because common.hasCrypto is false |
+| `test-tls-ocsp-callback.js` | vacuous pass — test self-skips via common.skip() because common.hasCrypto is false |
+| `test-tls-psk-server.js` | vacuous pass — test self-skips via common.skip() because common.hasCrypto is false |
+| `test-tls-securepair-server.js` | vacuous pass — test self-skips via common.skip() because common.hasCrypto is false |
+| `test-tls-server-verify.js` | vacuous pass — test self-skips via common.skip() because common.hasCrypto is false |
+| `test-tls-session-cache.js` | vacuous pass — test self-skips via common.skip() because common.hasCrypto is false |
+| `test-https-client-renegotiation-limit.js` | vacuous pass — test self-skips via common.skip() because common.hasCrypto is false |
+| `test-https-connect-address-family.js` | vacuous pass — test self-skips via common.skip() because common.hasCrypto is false |
+| `test-https-foafssl.js` | vacuous pass — test self-skips via common.skip() because common.hasCrypto is false |
 
-</Accordion>
+</details>

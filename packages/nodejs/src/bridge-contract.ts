@@ -76,14 +76,53 @@ export const HOST_BRIDGE_GLOBAL_KEYS = {
 	networkHttpServerCloseRaw: "_networkHttpServerCloseRaw",
 	networkHttpServerRespondRaw: "_networkHttpServerRespondRaw",
 	networkHttpServerWaitRaw: "_networkHttpServerWaitRaw",
+	networkHttp2ServerListenRaw: "_networkHttp2ServerListenRaw",
+	networkHttp2ServerCloseRaw: "_networkHttp2ServerCloseRaw",
+	networkHttp2ServerWaitRaw: "_networkHttp2ServerWaitRaw",
+	networkHttp2SessionConnectRaw: "_networkHttp2SessionConnectRaw",
+	networkHttp2SessionRequestRaw: "_networkHttp2SessionRequestRaw",
+	networkHttp2SessionSettingsRaw: "_networkHttp2SessionSettingsRaw",
+	networkHttp2SessionSetLocalWindowSizeRaw: "_networkHttp2SessionSetLocalWindowSizeRaw",
+	networkHttp2SessionGoawayRaw: "_networkHttp2SessionGoawayRaw",
+	networkHttp2SessionCloseRaw: "_networkHttp2SessionCloseRaw",
+	networkHttp2SessionDestroyRaw: "_networkHttp2SessionDestroyRaw",
+	networkHttp2SessionWaitRaw: "_networkHttp2SessionWaitRaw",
+	networkHttp2ServerPollRaw: "_networkHttp2ServerPollRaw",
+	networkHttp2SessionPollRaw: "_networkHttp2SessionPollRaw",
+	networkHttp2StreamRespondRaw: "_networkHttp2StreamRespondRaw",
+	networkHttp2StreamPushStreamRaw: "_networkHttp2StreamPushStreamRaw",
+	networkHttp2StreamWriteRaw: "_networkHttp2StreamWriteRaw",
+	networkHttp2StreamEndRaw: "_networkHttp2StreamEndRaw",
+	networkHttp2StreamPauseRaw: "_networkHttp2StreamPauseRaw",
+	networkHttp2StreamResumeRaw: "_networkHttp2StreamResumeRaw",
+	networkHttp2StreamRespondWithFileRaw: "_networkHttp2StreamRespondWithFileRaw",
+	networkHttp2ServerRespondRaw: "_networkHttp2ServerRespondRaw",
 	upgradeSocketWriteRaw: "_upgradeSocketWriteRaw",
 	upgradeSocketEndRaw: "_upgradeSocketEndRaw",
 	upgradeSocketDestroyRaw: "_upgradeSocketDestroyRaw",
 	netSocketConnectRaw: "_netSocketConnectRaw",
+	netSocketWaitConnectRaw: "_netSocketWaitConnectRaw",
+	netSocketReadRaw: "_netSocketReadRaw",
+	netSocketSetNoDelayRaw: "_netSocketSetNoDelayRaw",
+	netSocketSetKeepAliveRaw: "_netSocketSetKeepAliveRaw",
 	netSocketWriteRaw: "_netSocketWriteRaw",
 	netSocketEndRaw: "_netSocketEndRaw",
 	netSocketDestroyRaw: "_netSocketDestroyRaw",
 	netSocketUpgradeTlsRaw: "_netSocketUpgradeTlsRaw",
+	netSocketGetTlsClientHelloRaw: "_netSocketGetTlsClientHelloRaw",
+	netSocketTlsQueryRaw: "_netSocketTlsQueryRaw",
+	tlsGetCiphersRaw: "_tlsGetCiphersRaw",
+	netServerListenRaw: "_netServerListenRaw",
+	netServerAcceptRaw: "_netServerAcceptRaw",
+	netServerCloseRaw: "_netServerCloseRaw",
+	dgramSocketCreateRaw: "_dgramSocketCreateRaw",
+	dgramSocketBindRaw: "_dgramSocketBindRaw",
+	dgramSocketRecvRaw: "_dgramSocketRecvRaw",
+	dgramSocketSendRaw: "_dgramSocketSendRaw",
+	dgramSocketCloseRaw: "_dgramSocketCloseRaw",
+	dgramSocketAddressRaw: "_dgramSocketAddressRaw",
+	dgramSocketSetBufferSizeRaw: "_dgramSocketSetBufferSizeRaw",
+	dgramSocketGetBufferSizeRaw: "_dgramSocketGetBufferSizeRaw",
 	resolveModuleSync: "_resolveModuleSync",
 	loadFileSync: "_loadFileSync",
 	ptySetRawMode: "_ptySetRawMode",
@@ -116,8 +155,11 @@ export const RUNTIME_BRIDGE_GLOBAL_KEYS = {
 	httpsModule: "_httpsModule",
 	http2Module: "_http2Module",
 	dnsModule: "_dnsModule",
+	dgramModule: "_dgramModule",
 	httpServerDispatch: "_httpServerDispatch",
 	httpServerUpgradeDispatch: "_httpServerUpgradeDispatch",
+	httpServerConnectDispatch: "_httpServerConnectDispatch",
+	http2Dispatch: "_http2Dispatch",
 	timerDispatch: "_timerDispatch",
 	upgradeSocketData: "_upgradeSocketData",
 	upgradeSocketEnd: "_upgradeSocketEnd",
@@ -323,14 +365,110 @@ export type NetworkHttpServerRespondRawBridgeRef = BridgeApplySyncRef<
 	void
 >;
 export type NetworkHttpServerWaitRawBridgeRef = BridgeApplyRef<[number], void>;
+export type NetworkHttp2ServerListenRawBridgeRef = BridgeApplySyncPromiseRef<
+	[string],
+	string
+>;
+export type NetworkHttp2ServerCloseRawBridgeRef = BridgeApplyRef<[number], void>;
+export type NetworkHttp2ServerWaitRawBridgeRef = BridgeApplyRef<[number], void>;
+export type NetworkHttp2SessionConnectRawBridgeRef = BridgeApplySyncPromiseRef<
+	[string],
+	string
+>;
+export type NetworkHttp2SessionRequestRawBridgeRef = BridgeApplySyncRef<
+	[number, string, string],
+	number
+>;
+export type NetworkHttp2SessionSettingsRawBridgeRef = BridgeApplySyncRef<
+	[number, string],
+	void
+>;
+export type NetworkHttp2SessionSetLocalWindowSizeRawBridgeRef = BridgeApplySyncRef<
+	[number, number],
+	string
+>;
+export type NetworkHttp2SessionGoawayRawBridgeRef = BridgeApplySyncRef<
+	[number, number, number, string | null],
+	void
+>;
+export type NetworkHttp2SessionCloseRawBridgeRef = BridgeApplySyncRef<
+	[number],
+	void
+>;
+export type NetworkHttp2SessionDestroyRawBridgeRef = BridgeApplySyncRef<
+	[number],
+	void
+>;
+export type NetworkHttp2SessionWaitRawBridgeRef = BridgeApplyRef<[number], void>;
+export type NetworkHttp2ServerPollRawBridgeRef = BridgeApplySyncRef<
+	[number],
+	string | null
+>;
+export type NetworkHttp2SessionPollRawBridgeRef = BridgeApplySyncRef<
+	[number],
+	string | null
+>;
+export type NetworkHttp2StreamRespondRawBridgeRef = BridgeApplySyncRef<
+	[number, string],
+	void
+>;
+export type NetworkHttp2StreamPushStreamRawBridgeRef = BridgeApplySyncPromiseRef<
+	[number, string, string],
+	string
+>;
+export type NetworkHttp2StreamWriteRawBridgeRef = BridgeApplySyncRef<
+	[number, string],
+	boolean
+>;
+export type NetworkHttp2StreamEndRawBridgeRef = BridgeApplySyncRef<
+	[number, string | null],
+	void
+>;
+export type NetworkHttp2StreamPauseRawBridgeRef = BridgeApplySyncRef<[number], void>;
+export type NetworkHttp2StreamResumeRawBridgeRef = BridgeApplySyncRef<[number], void>;
+export type NetworkHttp2StreamRespondWithFileRawBridgeRef = BridgeApplySyncRef<
+	[number, string, string, string],
+	void
+>;
+export type NetworkHttp2ServerRespondRawBridgeRef = BridgeApplySyncRef<
+	[number, number, string],
+	void
+>;
 export type UpgradeSocketWriteRawBridgeRef = BridgeApplySyncRef<[number, string], void>;
 export type UpgradeSocketEndRawBridgeRef = BridgeApplySyncRef<[number], void>;
 export type UpgradeSocketDestroyRawBridgeRef = BridgeApplySyncRef<[number], void>;
-export type NetSocketConnectRawBridgeRef = BridgeApplySyncRef<[string, number], number>;
+export type NetSocketConnectRawBridgeRef = BridgeApplySyncRef<[string], number>;
+export type NetSocketWaitConnectRawBridgeRef = BridgeApplyRef<[number], string>;
+export type NetSocketReadRawBridgeRef = BridgeApplySyncRef<[number], string | null>;
+export type NetSocketSetNoDelayRawBridgeRef = BridgeApplySyncRef<[number, boolean], void>;
+export type NetSocketSetKeepAliveRawBridgeRef = BridgeApplySyncRef<[number, boolean, number], void>;
 export type NetSocketWriteRawBridgeRef = BridgeApplySyncRef<[number, string], void>;
 export type NetSocketEndRawBridgeRef = BridgeApplySyncRef<[number], void>;
 export type NetSocketDestroyRawBridgeRef = BridgeApplySyncRef<[number], void>;
 export type NetSocketUpgradeTlsRawBridgeRef = BridgeApplySyncRef<[number, string], void>;
+export type NetSocketGetTlsClientHelloRawBridgeRef = BridgeApplySyncRef<[number], string>;
+export type NetSocketTlsQueryRawBridgeRef = BridgeApplySyncRef<
+	[number, string, boolean?],
+	string
+>;
+export type TlsGetCiphersRawBridgeRef = BridgeApplySyncRef<[], string>;
+export type NetServerListenRawBridgeRef = BridgeApplySyncPromiseRef<[string], string>;
+export type NetServerAcceptRawBridgeRef = BridgeApplySyncRef<[number], string | null>;
+export type NetServerCloseRawBridgeRef = BridgeApplyRef<[number], void>;
+export type DgramSocketCreateRawBridgeRef = BridgeApplySyncRef<[string], number>;
+export type DgramSocketBindRawBridgeRef = BridgeApplySyncPromiseRef<[number, string], string>;
+export type DgramSocketRecvRawBridgeRef = BridgeApplySyncRef<[number], string | null>;
+export type DgramSocketSendRawBridgeRef = BridgeApplySyncPromiseRef<[number, string], number>;
+export type DgramSocketCloseRawBridgeRef = BridgeApplySyncPromiseRef<[number], void>;
+export type DgramSocketAddressRawBridgeRef = BridgeApplySyncRef<[number], string>;
+export type DgramSocketSetBufferSizeRawBridgeRef = BridgeApplySyncRef<
+	[number, "recv" | "send", number],
+	void
+>;
+export type DgramSocketGetBufferSizeRawBridgeRef = BridgeApplySyncRef<
+	[number, "recv" | "send"],
+	number
+>;
 export type ResolveModuleSyncBridgeRef = BridgeApplySyncRef<
 	[string, string],
 	string | null

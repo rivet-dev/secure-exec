@@ -32,6 +32,7 @@
 ### Node.js Conformance Test Integrity
 
 - conformance tests live in `packages/secure-exec/tests/node-conformance/` — they are vendored upstream Node.js v22.14.0 test/parallel/ tests run through the sandbox
+- vendored Node conformance helper shims live in `packages/secure-exec/tests/node-conformance/common/`; if a WPT-derived vendored test fails on a missing `../common/*` helper, add the minimal harness/shim there instead of rewriting the vendored test file
 - `docs-internal/nodejs-compat-roadmap.md` tracks every non-passing test with its fix category and resolution
 - when implementing bridge/polyfill features where both sides go through our code (e.g., loopback HTTP server + client), prevent overfitting:
   - **wire-level snapshot tests**: capture raw protocol bytes and compare against known-good captures from real Node.js
@@ -42,9 +43,13 @@
   - **host-side assertion verification**: periodically run assert-heavy conformance tests through host Node.js to verify the assert polyfill isn't masking failures
 - never inflate conformance numbers — if a test self-skips (exits 0 without testing anything), mark it `vacuous-skip` in expectations.json, not as a real pass
 - every entry in `expectations.json` must have a specific, verifiable reason — no vague "fails in sandbox" reasons
+- when rerunning a single expected-fail conformance file through `runner.test.ts`, a green Vitest result only means the expectation still matches; only the explicit `now passes! Remove its expectation` failure proves the vendored test itself now passes and the entry is stale
+- before deleting explicit `pass` overrides behind a negated glob, rerun the exact promoted vendored files through a direct `createTestNodeRuntime()` harness or another no-expectation path; broad module cleanup can still hide stale passes
 - after changing expectations.json or adding/removing test files, regenerate both the JSON report and docs page: `pnpm tsx scripts/generate-node-conformance-report.ts`
 - the script produces `packages/secure-exec/tests/node-conformance/conformance-report.json` (machine-readable) and `docs/nodejs-conformance-report.mdx` (docs page) — commit both
 - to run the actual conformance suite: `pnpm vitest run packages/secure-exec/tests/node-conformance/runner.test.ts`
+- raw `net.connect()` traffic to sandbox `http.createServer()` is implemented entirely in `packages/nodejs/src/bridge/network.ts`; when fixing loopback HTTP behavior, re-run the vendored pipeline/transfer files (`test-http-get-pipeline-problem.js`, `test-http-pipeline-requests-connection-leak.js`, `test-http-transfer-encoding-*.js`, `test-http-chunked-304.js`) because they all exercise the same parser/serializer path
+- For callback-style `fs` bridge methods, do Node-style argument validation before entering the callback/error-delivery wrapper; otherwise invalid args that should throw synchronously get converted into callback errors or Promise returns and vendored fs validation coverage goes red
 
 ## Tooling
 
@@ -111,6 +116,18 @@
 
 - read `docs-internal/arch/overview.md` for the component map (NodeRuntime, RuntimeDriver, NodeDriver, NodeExecutionDriver, ModuleAccessFileSystem, Permissions)
 - keep it up to date when adding, removing, or significantly changing components
+- keep host bootstrap polyfills in `packages/nodejs/src/execution-driver.ts` aligned with isolate bootstrap polyfills in `packages/core/isolate-runtime/src/inject/require-setup.ts`; drift in shared globals like `AbortController` causes sandbox-only behavior gaps that source-level tests can miss
+- vendored fs abort tests deep-freeze option bags via `common.mustNotMutateObjectDeep()`, so sandbox `AbortSignal` state must live outside writable instance properties; freezing `{ signal }` must not break later `controller.abort()`
+- vendored `common.mustNotMutateObjectDeep()` helpers must skip populated typed-array/DataView instances; `Object.freeze(new Uint8Array([1]))` throws before the runtime under test executes, which turns option-bag immutability coverage into a harness failure
+- when adding bridge globals that the sandbox calls with `.apply(..., { result: { promise: true } })`, register them in the native V8 async bridge list in `native/v8-runtime/src/session.rs`; otherwise the `_loadPolyfill` shim can turn a supposed async wait into a synchronous deadlock
+- bridged `net.Server.listen()` must make `server.address()` readable immediately after `listen()` returns, even before the `'listening'` callback, because vendored Node tests read ephemeral ports synchronously
+- bridged Unix path sockets (`server.listen(path)`, `net.connect(path)`) must route through kernel `AF_UNIX`, not TCP validation, and `readableAll` / `writableAll` listener options must update the VFS socket-file mode bits that `fs.statSync()` observes
+- bridged `net.Socket.setTimeout()` must match Node validation codes (`ERR_INVALID_ARG_TYPE`, `ERR_OUT_OF_RANGE`) and any timeout timer created for an unrefed socket must also be unrefed so it cannot keep the runtime alive by itself
+- bridged `dgram.Socket` loopback semantics depend on both layers: the isolate bridge must implicitly bind unbound sender sockets before `send()`, and the kernel UDP path must rewrite wildcard local addresses (`0.0.0.0` / `::`) to concrete loopback source addresses so `rinfo.address` matches Node on self-send/echo tests
+- bridged `dgram.Socket` buffer-size options must be cached until `bind()` completes; Node expects unbound `get*BufferSize()` / `set*BufferSize()` calls to throw `ERR_SOCKET_BUFFER_SIZE` with `EBADF`, so eager pre-bind application hides the real error path
+- bridged `http2` server streams must start paused on the host and only resume when sandbox code opts into flow (`req.on('data')`, `req.resume()`, or `stream.resume()`); otherwise the host consumes DATA frames too early, sends WINDOW_UPDATE unexpectedly, and hides paused flow-control / pipeline regressions
+- bridge exports that userland constructs with `new` must be assigned as constructable function properties, not object-literal method shorthands; shorthand methods like `createReadStream() {}` are not constructable and vendored fs coverage calls `new fs.createReadStream(...)`
+- `/proc/sys/kernel/hostname` conformance hits both kernel-backed and standalone NodeRuntime paths; a procfs fix that only lands in the kernel layer still leaves `createTestNodeRuntime()` fs/FileHandle coverage red
 
 ## Virtual Kernel Architecture
 
@@ -201,9 +218,6 @@ Follow the style in `packages/secure-exec/src/index.ts`.
 
 - all public-facing docs (quickstart, guides, API reference, landing page, README) must focus on the **Node.js runtime** as the primary and default experience — do not lead with WasmVM, kernel internals, or multi-runtime concepts
 - code examples in docs should use the `NodeRuntime` API (`runtime.run()`, `runtime.exec()`) as the default path; the kernel API (`createKernel`, `kernel.spawn()`) is for advanced multi-process use cases and should be presented as secondary
-- keep documentation pages and their runnable example sources in sync: `docs/quickstart.mdx` must match `examples/kitchen-sink/src/`, and `docs/features/*.mdx` must match `examples/features/src/`
-- when updating a doc snippet, update the corresponding example file and the docs/example verification scripts in the same change
-- when converting runnable example code into documentation snippets, use public package imports like `from "secure-exec"` and `from "@secure-exec/typescript"` instead of repo-local source paths
 - WasmVM and Python docs are experimental docs and must stay grouped under the `Experimental` section in `docs/docs.json`
 - docs pages that must stay current with API changes:
   - `docs/quickstart.mdx` — update when core setup flow changes

@@ -27,7 +27,7 @@ const runtime = new NodeRuntime({
 const ts = createTypeScriptTools({
   systemDriver: compilerSystemDriver,
   runtimeDriverFactory,
-  compilerSpecifier: "typescript",
+  compilerSpecifier: "/root/node_modules/typescript/lib/typescript.js",
 });
 
 try {

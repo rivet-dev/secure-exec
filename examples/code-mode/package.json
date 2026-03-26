@@ -5,7 +5,7 @@
   "scripts": {
     "check-types": "tsc --noEmit -p tsconfig.json",
     "dev": "tsx src/index.ts",
-    "verify-docs": "docs-gen verify --config docs-gen.json"
+    "verify-docs": "node scripts/verify-docs.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.58",
@@ -14,7 +14,6 @@
     "zod": "^3.24.0"
   },
   "devDependencies": {
-    "@secure-exec/docs-gen": "workspace:*",
     "@types/node": "^22.10.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"

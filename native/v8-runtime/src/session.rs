@@ -684,7 +684,7 @@ pub(crate) const SYNC_BRIDGE_FNS: [&str; 32] = [
     "_networkHttpServerRespondRaw",
 ];
 
-pub(crate) const ASYNC_BRIDGE_FNS: [&str; 8] = [
+pub(crate) const ASYNC_BRIDGE_FNS: [&str; 10] = [
     // Module loading (async)
     "_dynamicImport",
     // Timer
@@ -696,6 +696,8 @@ pub(crate) const ASYNC_BRIDGE_FNS: [&str; 8] = [
     "_networkHttpServerListenRaw",
     "_networkHttpServerCloseRaw",
     "_networkHttpServerWaitRaw",
+    "_networkHttp2ServerWaitRaw",
+    "_networkHttp2SessionWaitRaw",
 ];
 
 /// Run the session event loop: dispatch incoming messages to V8.

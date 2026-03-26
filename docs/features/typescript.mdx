@@ -12,16 +12,14 @@ The `@secure-exec/typescript` companion package runs the TypeScript compiler ins
 
 ## Runnable example
 
-Source file: `examples/features/src/typescript.ts`
-
 ```ts
 import {
   NodeRuntime,
   allowAllFs,
   createNodeDriver,
   createNodeRuntimeDriverFactory,
-} from "secure-exec";
-import { createTypeScriptTools } from "@secure-exec/typescript";
+} from "../../../packages/secure-exec/src/index.ts";
+import { createTypeScriptTools } from "../../../packages/typescript/src/index.ts";
 
 const sourceText = `
   export const message: string = "hello from typescript";
@@ -44,7 +42,7 @@ const runtime = new NodeRuntime({
 const ts = createTypeScriptTools({
   systemDriver: compilerSystemDriver,
   runtimeDriverFactory,
-  compilerSpecifier: "typescript",
+  compilerSpecifier: "/root/node_modules/typescript/lib/typescript.js",
 });
 
 try {
@@ -93,6 +91,8 @@ try {
 }
 ```
 
+Source: [examples/features/src/typescript.ts](https://github.com/rivet-dev/secure-exec/blob/main/examples/features/src/typescript.ts)
+
 ## Install
 
 ```bash
@@ -119,7 +119,7 @@ const ts = createTypeScriptTools({
 | `runtimeDriverFactory` | `NodeRuntimeDriverFactory` | required | Creates the compiler sandbox |
 | `memoryLimit` | `number` | `512` | Compiler isolate memory cap in MB |
 | `cpuTimeLimitMs` | `number` | | Compiler CPU time budget in ms |
-| `compilerSpecifier` | `string` | `"typescript"` | Module specifier for the TypeScript compiler |
+| `compilerSpecifier` | `string` | `"/root/node_modules/typescript/lib/typescript.js"` | Module specifier for the TypeScript compiler |
 
 ## Type-check a source string
 

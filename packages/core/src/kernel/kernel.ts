@@ -110,6 +110,7 @@ class KernelImpl implements Kernel {
 		fs = createProcLayer(fs, {
 			processTable: this.processTable,
 			fdTableManager: this.fdTableManager,
+			hostname: options.env?.HOSTNAME,
 		});
 
 		// Apply permission wrapping

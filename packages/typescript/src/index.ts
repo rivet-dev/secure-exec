@@ -83,7 +83,7 @@ type CompilerTools = {
 
 const DEFAULT_COMPILER_RUNTIME_MEMORY_LIMIT = 512;
 const COMPILER_RUNTIME_FILE_PATH = "/root/__secure_exec_typescript_compiler__.js";
-const DEFAULT_COMPILER_SPECIFIER = "typescript";
+const DEFAULT_COMPILER_SPECIFIER = "/root/node_modules/typescript/lib/typescript.js";
 
 export function createTypeScriptTools(
 	options: TypeScriptToolsOptions,

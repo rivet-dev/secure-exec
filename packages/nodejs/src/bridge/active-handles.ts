@@ -20,6 +20,22 @@ const HANDLE_DISPATCH = {
 
 // Resolvers waiting for all handles to complete
 let _waitResolvers: Array<() => void> = [];
+let _handlePollTimer: ReturnType<typeof setInterval> | null = null;
+
+function ensureHandlePollTimer(): void {
+	if (_handlePollTimer !== null) {
+		return;
+	}
+	_handlePollTimer = setInterval(() => {
+		if (_getActiveHandles().length > 0) {
+			return;
+		}
+		if (_handlePollTimer !== null) {
+			clearInterval(_handlePollTimer);
+			_handlePollTimer = null;
+		}
+	}, 25);
+}
 
 /**
  * Register an active handle that keeps the sandbox alive.
@@ -30,6 +46,7 @@ let _waitResolvers: Array<() => void> = [];
 export function _registerHandle(id: string, description: string): void {
 	try {
 		bridgeDispatchSync<void>(HANDLE_DISPATCH.register, id, description);
+		ensureHandlePollTimer();
 	} catch (error) {
 		if (error instanceof Error && error.message.includes("EAGAIN")) {
 			throw new Error(
@@ -46,6 +63,10 @@ export function _registerHandle(id: string, description: string): void {
  */
 export function _unregisterHandle(id: string): void {
 	const remaining = bridgeDispatchSync<number>(HANDLE_DISPATCH.unregister, id);
+	if (remaining === 0 && _handlePollTimer !== null) {
+		clearInterval(_handlePollTimer);
+		_handlePollTimer = null;
+	}
 	if (remaining === 0 && _waitResolvers.length > 0) {
 		const resolvers = _waitResolvers;
 		_waitResolvers = [];
@@ -62,7 +83,26 @@ export function _waitForActiveHandles(): Promise<void> {
 		return Promise.resolve();
 	}
 	return new Promise((resolve) => {
-		_waitResolvers.push(resolve);
+		let settled = false;
+		const complete = () => {
+			if (settled) {
+				return;
+			}
+			settled = true;
+			resolve();
+		};
+		_waitResolvers.push(complete);
+		const poll = () => {
+			if (settled) {
+				return;
+			}
+			if (_getActiveHandles().length === 0) {
+				complete();
+				return;
+			}
+			setTimeout(poll, 10);
+		};
+		setTimeout(poll, 10);
 	});
 }
 

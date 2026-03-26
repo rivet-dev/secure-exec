@@ -94,6 +94,11 @@ export const NODE_CUSTOM_GLOBAL_INVENTORY: readonly CustomGlobalInventoryEntry[]
 		rationale: "Bridge-owned dns module handle for require resolution.",
 	},
 	{
+		name: "_dgramModule",
+		classification: "hardened",
+		rationale: "Bridge-owned dgram module handle for require resolution.",
+	},
+	{
 		name: "_netModule",
 		classification: "hardened",
 		rationale: "Bridge-owned net module handle for require resolution.",
@@ -117,6 +122,16 @@ export const NODE_CUSTOM_GLOBAL_INVENTORY: readonly CustomGlobalInventoryEntry[]
 		name: "_httpServerUpgradeDispatch",
 		classification: "hardened",
 		rationale: "Host-to-sandbox HTTP upgrade dispatch entrypoint.",
+	},
+	{
+		name: "_httpServerConnectDispatch",
+		classification: "hardened",
+		rationale: "Host-to-sandbox HTTP CONNECT dispatch entrypoint.",
+	},
+	{
+		name: "_http2Dispatch",
+		classification: "hardened",
+		rationale: "Host-to-sandbox HTTP/2 event dispatch entrypoint.",
 	},
 	{
 		name: "_timerDispatch",
@@ -454,6 +469,76 @@ export const NODE_CUSTOM_GLOBAL_INVENTORY: readonly CustomGlobalInventoryEntry[]
 		rationale: "Host network bridge reference for sandbox HTTP server lifetime tracking.",
 	},
 	{
+		name: "_networkHttp2ServerListenRaw",
+		classification: "hardened",
+		rationale: "Host HTTP/2 server listen bridge reference.",
+	},
+	{
+		name: "_networkHttp2ServerCloseRaw",
+		classification: "hardened",
+		rationale: "Host HTTP/2 server close bridge reference.",
+	},
+	{
+		name: "_networkHttp2ServerWaitRaw",
+		classification: "hardened",
+		rationale: "Host HTTP/2 server lifetime bridge reference.",
+	},
+	{
+		name: "_networkHttp2SessionConnectRaw",
+		classification: "hardened",
+		rationale: "Host HTTP/2 session connect bridge reference.",
+	},
+	{
+		name: "_networkHttp2SessionRequestRaw",
+		classification: "hardened",
+		rationale: "Host HTTP/2 session request bridge reference.",
+	},
+	{
+		name: "_networkHttp2SessionSettingsRaw",
+		classification: "hardened",
+		rationale: "Host HTTP/2 session settings bridge reference.",
+	},
+	{
+		name: "_networkHttp2SessionGoawayRaw",
+		classification: "hardened",
+		rationale: "Host HTTP/2 session GOAWAY bridge reference.",
+	},
+	{
+		name: "_networkHttp2SessionCloseRaw",
+		classification: "hardened",
+		rationale: "Host HTTP/2 session close bridge reference.",
+	},
+	{
+		name: "_networkHttp2SessionDestroyRaw",
+		classification: "hardened",
+		rationale: "Host HTTP/2 session destroy bridge reference.",
+	},
+	{
+		name: "_networkHttp2SessionWaitRaw",
+		classification: "hardened",
+		rationale: "Host HTTP/2 session lifetime bridge reference.",
+	},
+	{
+		name: "_networkHttp2StreamRespondRaw",
+		classification: "hardened",
+		rationale: "Host HTTP/2 stream respond bridge reference.",
+	},
+	{
+		name: "_networkHttp2StreamPushStreamRaw",
+		classification: "hardened",
+		rationale: "Host HTTP/2 push stream bridge reference.",
+	},
+	{
+		name: "_networkHttp2StreamWriteRaw",
+		classification: "hardened",
+		rationale: "Host HTTP/2 stream write bridge reference.",
+	},
+	{
+		name: "_networkHttp2StreamEndRaw",
+		classification: "hardened",
+		rationale: "Host HTTP/2 stream end bridge reference.",
+	},
+	{
 		name: "_upgradeSocketWriteRaw",
 		classification: "hardened",
 		rationale: "Host HTTP upgrade socket write bridge reference.",
@@ -474,6 +559,26 @@ export const NODE_CUSTOM_GLOBAL_INVENTORY: readonly CustomGlobalInventoryEntry[]
 		rationale: "Host net socket connect bridge reference.",
 	},
 	{
+		name: "_netSocketWaitConnectRaw",
+		classification: "hardened",
+		rationale: "Host net socket connect-wait bridge reference.",
+	},
+	{
+		name: "_netSocketReadRaw",
+		classification: "hardened",
+		rationale: "Host net socket read bridge reference.",
+	},
+	{
+		name: "_netSocketSetNoDelayRaw",
+		classification: "hardened",
+		rationale: "Host net socket no-delay bridge reference.",
+	},
+	{
+		name: "_netSocketSetKeepAliveRaw",
+		classification: "hardened",
+		rationale: "Host net socket keepalive bridge reference.",
+	},
+	{
 		name: "_netSocketWriteRaw",
 		classification: "hardened",
 		rationale: "Host net socket write bridge reference.",
@@ -492,6 +597,36 @@ export const NODE_CUSTOM_GLOBAL_INVENTORY: readonly CustomGlobalInventoryEntry[]
 		name: "_netSocketUpgradeTlsRaw",
 		classification: "hardened",
 		rationale: "Host net socket TLS-upgrade bridge reference.",
+	},
+	{
+		name: "_netSocketGetTlsClientHelloRaw",
+		classification: "hardened",
+		rationale: "Host loopback TLS client-hello bridge reference.",
+	},
+	{
+		name: "_netSocketTlsQueryRaw",
+		classification: "hardened",
+		rationale: "Host TLS socket query bridge reference.",
+	},
+	{
+		name: "_tlsGetCiphersRaw",
+		classification: "hardened",
+		rationale: "Host TLS cipher-list bridge reference.",
+	},
+	{
+		name: "_netServerListenRaw",
+		classification: "hardened",
+		rationale: "Host net server listen bridge reference.",
+	},
+	{
+		name: "_netServerAcceptRaw",
+		classification: "hardened",
+		rationale: "Host net server accept bridge reference.",
+	},
+	{
+		name: "_netServerCloseRaw",
+		classification: "hardened",
+		rationale: "Host net server close bridge reference.",
 	},
 	{
 		name: "_batchResolveModules",

@@ -12,14 +12,12 @@ Resource limits prevent sandboxed code from running forever or exhausting host m
 
 ## Runnable example
 
-Source file: `examples/features/src/resource-limits.ts`
-
 ```ts
 import {
   NodeRuntime,
   createNodeDriver,
   createNodeRuntimeDriverFactory,
-} from "secure-exec";
+} from "../../../packages/secure-exec/src/index.ts";
 
 const runtime = new NodeRuntime({
   systemDriver: createNodeDriver(),
@@ -53,6 +51,8 @@ try {
   runtime.dispose();
 }
 ```
+
+Source: [examples/features/src/resource-limits.ts](https://github.com/rivet-dev/secure-exec/blob/main/examples/features/src/resource-limits.ts)
 
 ## CPU time limit
 

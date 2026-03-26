@@ -12,16 +12,14 @@ Sandboxed code can spawn child processes through the `CommandExecutor` interface
 
 ## Runnable example
 
-Source file: `examples/features/src/child-processes.ts`
-
 ```ts
 import {
   NodeRuntime,
   allowAllChildProcess,
   createNodeDriver,
   createNodeRuntimeDriverFactory,
-} from "secure-exec";
-import type { CommandExecutor } from "secure-exec";
+} from "../../../packages/secure-exec/src/index.ts";
+import type { CommandExecutor } from "../../../packages/secure-exec/src/types.ts";
 import { spawn } from "node:child_process";
 
 const commandExecutor: CommandExecutor = {
@@ -99,6 +97,8 @@ try {
   runtime.dispose();
 }
 ```
+
+Source: [examples/features/src/child-processes.ts](https://github.com/rivet-dev/secure-exec/blob/main/examples/features/src/child-processes.ts)
 
 ## Permission gating
 

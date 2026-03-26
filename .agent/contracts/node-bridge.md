@@ -79,6 +79,22 @@ This hardening policy MUST NOT force Node stdlib globals to non-writable/non-con
 - **WHEN** bridge setup exposes a Node stdlib global surface (for example `process`, timers, `Buffer`, `URL`, `fetch`, or `console`)
 - **THEN** the bridge MUST preserve Node-compatible behavior and MUST NOT require non-writable/non-configurable descriptors for that stdlib global due to this policy alone
 
+### Requirement: WHATWG URL Bridge Preserves Node Validation And Scalar-Value Semantics
+Bridge-provided `URL` and `URLSearchParams` globals SHALL preserve the Node-observable validation, coercion, and inspection behavior that vendored conformance tests assert.
+
+#### Scenario: WHATWG URL validation preserves Node ERR_* metadata
+- **WHEN** sandboxed code calls `new URL()`, `new URL("bad")`, detached `URLSearchParams` methods, or malformed `URLSearchParams` tuple constructors
+- **THEN** the bridge MUST throw Node-compatible `TypeError` instances with the expected `ERR_MISSING_ARGS`, `ERR_INVALID_URL`, `ERR_INVALID_THIS`, `ERR_ARG_NOT_ITERABLE`, and `ERR_INVALID_TUPLE` codes
+
+#### Scenario: WHATWG URL string inputs use scalar-value normalization
+- **WHEN** sandboxed code passes strings with surrogate pairs or lone surrogates into `URL` / `URLSearchParams` constructors or setters
+- **THEN** the bridge MUST apply string-hint coercion followed by USV-string normalization before handing values to the underlying implementation
+- **AND** valid surrogate pairs MUST encode as UTF-8 scalar values while lone surrogates become U+FFFD
+
+#### Scenario: WHATWG URL custom inspect hooks stay reachable through util.inspect
+- **WHEN** sandboxed code calls `util.inspect(urlLike)` for bridged `URL`, `URLSearchParams`, or iterator instances, including negative-depth and nested-object cases
+- **THEN** the bridge/runtime polyfill layer MUST continue to invoke the custom inspect hooks instead of falling back to plain `{}` output
+
 ### Requirement: Cryptographic Randomness Bridge Uses Host CSPRNG
 Bridge-provided randomness for global `crypto` APIs MUST delegate to host `node:crypto` primitives and MUST NOT use isolate-local pseudo-random fallbacks such as `Math.random()`.
 
@@ -154,6 +170,21 @@ Bridge-exposed filesystem metadata calls (`exists`, `stat`, and typed directory 
 - **WHEN** sandboxed code calls bridge `readdir` with typed entry expectations
 - **THEN** bridge handling MUST return entry type information without a repeated `readDir` probe for each entry
 
+### Requirement: AbortSignal Polyfills Preserve Frozen-Options Cancellation Semantics
+Bridge/runtime `AbortController` and `AbortSignal` polyfills SHALL preserve Node-compatible cancellation behavior even when test helpers freeze the options bag and nested signal object.
+
+#### Scenario: Sandboxed code aborts after freezing an options bag
+- **WHEN** sandboxed code passes `{ signal }` through a deep-freeze helper such as the vendored conformance `common.mustNotMutateObjectDeep()` and later calls `controller.abort(reason)`
+- **THEN** the abort operation MUST still succeed
+- **AND** fs and network APIs observing that signal MUST surface a Node-compatible `AbortError` instead of throwing from signal state mutation
+
+### Requirement: Standalone NodeRuntime FS Bridge Exposes Proc Hostname Parity
+The standalone NodeRuntime filesystem bridge SHALL expose a readable `/proc/sys/kernel/hostname` pseudo-file so vendored Linux fs paths behave consistently outside the kernel-mounted proc layer.
+
+#### Scenario: Sandboxed standalone runtime reads proc hostname
+- **WHEN** sandboxed code in a standalone `NodeRuntime` calls `fs.readFile('/proc/sys/kernel/hostname')`, `fs.readFileSync('/proc/sys/kernel/hostname')`, or opens that path through `fs.promises.open()`
+- **THEN** the bridge MUST return a non-empty hostname payload instead of `ENOENT`
+
 ### Requirement: Bridge Boundary Contracts SHALL Be Defined In A Canonical Shared Type Module
 Bridge global keys and host/isolate boundary type contracts SHALL be defined in canonical shared type modules — bridge-contract types in `packages/nodejs/src/bridge-contract.ts` and global-exposure helpers in `packages/core/src/shared/global-exposure.ts` — and reused across host runtime setup and bridge modules.
 
@@ -218,9 +249,187 @@ Bridge-provided `http.Agent` behavior SHALL preserve the observable pooling stat
 #### Scenario: Keepalive sockets are reused or discarded
 - **WHEN** sandboxed code enables `keepAlive` and reuses pooled HTTP connections
 - **THEN** the bridge MUST mark reused requests via `request.reusedSocket`
+
+### Requirement: Dgram Socket Option Bridge Preserves Node Validation And Bind-Time Semantics
+Bridge-provided `dgram.Socket` option helpers SHALL preserve Node-compatible validation order, not-running errors, and deferred application of constructor buffer-size options.
+
+#### Scenario: Unbound dgram socket exposes Node-style socket-option errors
+- **WHEN** sandboxed code calls `socket.setBroadcast()`, `socket.setTTL()`, `socket.setMulticastTTL()`, or `socket.setMulticastLoopback()` before `bind()`
+- **THEN** the bridge MUST throw the corresponding Node-style `Error` with the syscall name and `EBADF`
+- **AND** unbound `get*BufferSize()` / `set*BufferSize()` calls MUST throw `ERR_SOCKET_BUFFER_SIZE` with `EBADF`
+
+#### Scenario: Constructor buffer-size options do not hide unbound error paths
+- **WHEN** sandboxed code creates `dgram.createSocket({ recvBufferSize, sendBufferSize })`
+- **THEN** the bridge MUST cache those requested sizes until the socket is actually bound
+- **AND** it MUST NOT eagerly apply them in a way that makes unbound buffer-size getters/setters succeed
+
+#### Scenario: Source-specific membership validates argument types before address semantics
+- **WHEN** sandboxed code calls `addSourceSpecificMembership()` or `dropSourceSpecificMembership()` with non-string `sourceAddress` or `groupAddress`
+- **THEN** the bridge MUST throw Node-compatible `ERR_INVALID_ARG_TYPE` for the offending argument before running multicast/unicast address validation
+
+### Requirement: HTTP Server Bridge Preserves CONNECT Upgrade And Informational Semantics
+Bridge-provided `http.Server` behavior SHALL preserve Node.js event sequencing for `CONNECT`, `upgrade`, and informational `1xx` responses.
+
+#### Scenario: Sandboxed loopback server receives CONNECT or upgrade traffic
+- **WHEN** sandboxed code listens with `http.createServer()` and registers `server.on('connect', ...)` or `server.on('upgrade', ...)`
+- **THEN** localhost `CONNECT` and `Connection: Upgrade` requests MUST dispatch those server events instead of being collapsed into a normal `'request'` handler
+- **AND** the bridged socket/head arguments MUST remain writable/readable so tunnel and upgrade protocols can continue over the same connection
+
+#### Scenario: Sandboxed server emits informational responses before the final response
+- **WHEN** sandboxed code sends `100`, `102`, or `103` responses via `writeHead()`, `writeContinue()`, `writeProcessing()`, or raw header writes
+- **THEN** sandboxed HTTP clients MUST receive matching `'information'` events before the final `'response'`
+- **AND** the bridged informational message MUST preserve status code, status text, headers, and raw header casing needed by Node conformance assertions
 - **AND** destroyed or remotely closed sockets MUST be removed from the pool instead of being reassigned to queued requests
 
 #### Scenario: Total socket limits are configured
 - **WHEN** sandboxed code constructs an `http.Agent` with `maxSockets`, `maxFreeSockets`, or `maxTotalSockets`
 - **THEN** invalid argument types and ranges MUST throw Node-compatible `ERR_INVALID_ARG_TYPE` / `ERR_OUT_OF_RANGE` errors
 - **AND** queued requests across origins MUST respect both per-origin and total socket limits
+
+### Requirement: TLS Bridge Uses Host TLS Semantics For Both External And Loopback Sockets
+Bridge-provided `tls` APIs SHALL terminate TLS with host `node:tls` primitives, including sandbox loopback sockets that are paired in-kernel.
+
+#### Scenario: Sandbox upgrades a client or accepted server socket to TLS
+- **WHEN** sandboxed code calls `tls.connect(...)` or `tls.createServer(...)` and the bridged socket is upgraded to TLS
+- **THEN** the bridge MUST use host `node:tls` handshakes, certificate validation, and cipher reporting
+- **AND** loopback socket pairs MUST use a host-side in-memory duplex transport instead of bypassing the kernel connection model
+
+#### Scenario: Sandbox reads TLS authorization or cipher metadata
+- **WHEN** sandboxed code inspects `tls.TLSSocket.authorized`, `authorizationError`, `getCipher()`, or `tls.getCiphers()`
+- **THEN** the bridge MUST surface host `node:tls` results rather than placeholder values
+
+#### Scenario: Loopback TLS servers resolve SNI contexts and ALPN/session metadata
+- **WHEN** sandboxed code uses `tls.Server(...)` or `tls.createServer(...)` with `server.addContext(...)`, `SNICallback`, `ALPNProtocols`, or `ALPNCallback`, and a sandboxed client connects with `servername`, `session`, or `ALPNProtocols`
+- **THEN** the server-side bridge MUST resolve the client hello metadata before starting the host TLS handshake
+- **AND** `tls.TLSSocket` methods such as `getSession()`, `isSessionReused()`, `getPeerCertificate()`, `getCertificate()`, and `getProtocol()` MUST reflect the underlying host `node:tls` socket state
+
+### Requirement: HTTP2 Bridge Preserves Basic Session And Stream Lifecycle
+Bridge-provided `http2` APIs SHALL preserve the basic client/server session and stream lifecycle needed for sandbox request/response flows.
+
+#### Scenario: Sandboxed code establishes plaintext or TLS HTTP2 sessions
+- **WHEN** sandboxed code calls `http2.createServer(...)`, `http2.createSecureServer(...)`, or `http2.connect(...)`
+- **THEN** the bridge MUST surface Node-compatible `'listening'`, `'connect'`, `'connection'`, and `'secureConnection'` events
+- **AND** `server.address()`, `session.encrypted`, `session.alpnProtocol`, `session.originSet`, and the internal `kSocket` metadata MUST reflect the host-backed session state
+
+#### Scenario: Sandboxed code responds through HTTP2 stream events
+- **WHEN** a bridged HTTP2 server receives a request and emits `'stream'`
+- **THEN** the stream callback MUST receive a writable server stream plus pseudo-header metadata
+- **AND** `stream.respond(...)`, `stream.write(...)`, and `stream.end(...)` MUST drive the corresponding host HTTP2 response headers/body/close lifecycle
+- **AND** the paired client stream MUST emit `'response'`, `'data'`, `'end'`, and `'close'` with Node-compatible ordering for basic request/response flows
+
+#### Scenario: Sandboxed code uses HTTP2 push, settings negotiation, or GOAWAY lifecycle
+- **WHEN** sandboxed code calls `stream.pushStream(...)`, `session.settings(...)`, `server.updateSettings(...)`, `session.goaway(...)`, or inspects `session.localSettings`, `session.remoteSettings`, and `pendingSettingsAck`
+- **THEN** the bridge MUST delegate push-stream creation, settings exchange, and GOAWAY delivery to the host `node:http2` session
+- **AND** pushed client streams MUST emit the session `'stream'` event plus pushed-stream `'push'` headers before body delivery
+- **AND** nested push attempts and HEAD push write-after-end behavior MUST surface Node-compatible `ERR_HTTP2_NESTED_PUSH` and `ERR_STREAM_WRITE_AFTER_END` errors
+- **AND** session/server settings objects exposed in the sandbox MUST track the last host-acknowledged values with stable object identity until the next settings update
+
+#### Scenario: Sandboxed code inspects HTTP2 flow-control state or pauses inbound streams
+- **WHEN** sandboxed code calls `session.setLocalWindowSize(...)`, inspects `session.state`, or pauses/resumes a bridged server stream while request body frames are in flight
+- **THEN** the bridge MUST delegate the window-size change to the host `node:http2` session
+- **AND** sandbox-visible `session.state` fields such as `effectiveLocalWindowSize`, `localWindowSize`, and `remoteWindowSize` MUST reflect the host session state after the update
+- **AND** server-stream `'error'`, `'close'`, `'drain'`, `'data'`, and `'end'` events MUST preserve the host flow-control and RST lifecycle closely enough for Node's vendored flow-control tests
+
+#### Scenario: Secure HTTP2 servers allow HTTP1 compatibility fallback
+- **WHEN** sandboxed code creates `http2.createSecureServer({ allowHTTP1: true }, listener)` and an HTTP/1.1 client connects to that port
+- **THEN** the host-backed server MUST negotiate the HTTP/1.1 fallback instead of hanging the connection
+- **AND** the sandbox `'request'` listener MUST receive compatibility request/response objects that can complete the HTTP/1.1 exchange
+
+### Requirement: HTTP ClientRequest Bridge Preserves Abort Destroy And Timeout Lifecycle Semantics
+Bridge-provided `http.ClientRequest` behavior SHALL preserve the observable abort, destroy, timeout, and abort-signal lifecycle that Node.js tests inspect.
+
+#### Scenario: Sandboxed code aborts or destroys an HTTP request
+- **WHEN** sandboxed code calls `req.abort()` or `req.destroy()` on an `http.ClientRequest`
+- **THEN** the request MUST expose Node-compatible `aborted` / `destroyed` state
+- **AND** the request MUST emit `'abort'` at most once for `req.abort()`
+- **AND** the request MUST emit `'close'` when teardown completes
+- **AND** loopback server-side request objects MUST observe matching `'aborted'` / `ECONNRESET` behavior
+
+#### Scenario: Sandboxed code configures request timeouts or abort signals
+- **WHEN** sandboxed code passes `timeout` or `signal` in `http.request()` options, or calls `req.setTimeout(...)`
+- **THEN** invalid timeout values MUST throw Node-compatible argument errors
+- **AND** the request/socket timeout callbacks MUST be attached with Node-compatible listener reuse
+- **AND** `AbortSignal` cancellation MUST destroy the request with an `AbortError` carrying `code === 'ABORT_ERR'`
+
+### Requirement: Net Bridge Preserves Socket Timeout Validation, Listen Validation, And Server Bookkeeping
+Bridge-provided `net.Socket` and `net.Server` behavior SHALL preserve the timeout validation, listen-address timing, and server bookkeeping that Node.js tests inspect.
+
+#### Scenario: Sandboxed code configures socket timeouts
+- **WHEN** sandboxed code calls `socket.setTimeout(timeout, callback)` on a `net.Socket`
+- **THEN** invalid timeout values MUST throw Node-compatible `ERR_INVALID_ARG_TYPE` / `ERR_OUT_OF_RANGE` errors
+- **AND** invalid callbacks MUST throw `ERR_INVALID_ARG_TYPE`
+- **AND** refed sockets MUST emit `'timeout'` after idle periods while unrefed socket timeout timers MUST NOT keep the runtime alive
+
+#### Scenario: Sandboxed code reads server.address() immediately after listen()
+- **WHEN** sandboxed code calls `server.listen(...)` and synchronously reads `server.address()` before the `'listening'` callback runs
+- **THEN** the bridge MUST already expose the bound address and assigned port, including `port: 0` ephemeral bindings
+
+#### Scenario: Sandboxed code passes invalid listen() arguments
+- **WHEN** sandboxed code calls `server.listen(...)` with invalid booleans, malformed option objects, or out-of-range ports
+- **THEN** the bridge MUST throw Node-compatible `ERR_INVALID_ARG_VALUE` / `ERR_SOCKET_BAD_PORT` errors
+- **AND** accepted numeric strings such as `'0'` MUST still bind successfully like Node
+
+#### Scenario: Sandboxed code inspects server connection bookkeeping
+- **WHEN** sandboxed code uses `server.getConnections(...)`, assigns `server.maxConnections`, or inspects `socket.server`
+- **THEN** accepted sockets MUST increment/decrement the observable connection count with Node-compatible callback timing
+- **AND** `server.getConnections(...)` MUST return the server instance
+- **AND** sockets rejected because `maxConnections` is reached MUST emit a `'drop'` event carrying local and remote address metadata
+
+#### Scenario: Sandboxed code listens on or connects to Unix path sockets
+- **WHEN** sandboxed code calls `server.listen(path)`, `server.listen({ path, readableAll, writableAll })`, `net.connect(path)`, or `net.connect({ path })`
+- **THEN** the bridge MUST route those sockets through the kernel `AF_UNIX` path instead of TCP port validation
+- **AND** `server.address()` MUST return the bound path string for Unix listeners
+- **AND** `readableAll` / `writableAll` listener options MUST be reflected in the created socket file mode bits
+
+#### Scenario: Sandboxed code validates IP address helpers
+- **WHEN** sandboxed code calls `net.isIP(...)`, `net.isIPv4(...)`, or `net.isIPv6(...)`
+- **THEN** the bridge MUST match Node-compatible IPv4 / IPv6 validation for plain strings, zoned IPv6 literals, embedded IPv4 IPv6 forms, and string-coercible objects
+
+### Requirement: Dgram Bridge Preserves Basic UDP Socket Lifecycle And Message Delivery
+Bridge-provided `dgram.Socket` behavior SHALL preserve the basic bind, send, receive, close, and address semantics that Node.js tests inspect.
+
+#### Scenario: Sandboxed code creates and binds UDP sockets
+- **WHEN** sandboxed code calls `dgram.createSocket('udp4' | 'udp6')` and then `socket.bind(...)`
+- **THEN** the bridge MUST return a reusable `Socket` instance
+- **AND** invalid socket types MUST throw Node-compatible `ERR_SOCKET_BAD_TYPE`
+- **AND** successful binds MUST emit `'listening'` and make `socket.address()` report the bound family/address/port
+
+#### Scenario: Sandboxed code sends or receives UDP datagrams
+- **WHEN** sandboxed code calls `socket.send(...)` between sandbox UDP sockets or to its own bound port
+- **THEN** the bridge MUST preserve datagram message boundaries and callback byte counts
+- **AND** unbound sender sockets MUST implicitly bind before sending like Node
+- **AND** `'message'` listeners MUST receive a `Buffer` plus `rinfo` metadata carrying `address`, `family`, `port`, and `size`
+
+#### Scenario: Sandboxed code closes or unrefs a UDP socket
+- **WHEN** sandboxed code calls `socket.close()` or `socket.unref()` on a bridged UDP socket
+- **THEN** the bridge MUST stop polling for incoming datagrams, release kernel socket ownership, and emit `'close'` with Node-compatible timing
+
+### Requirement: Raw Loopback HTTP Bridge Preserves Pipelining And Transfer Framing
+Bridge-provided loopback `net.connect()` traffic sent to sandbox `http.createServer()` listeners SHALL preserve the HTTP/1.1 framing and sequencing that Node.js raw-socket tests inspect.
+
+#### Scenario: Sandboxed raw client pipelines multiple loopback HTTP requests
+- **WHEN** sandboxed code opens a loopback `net.Socket` to a sandbox `http.Server` and writes multiple HTTP/1.1 requests on the same connection
+- **THEN** the bridge MUST parse and dispatch each complete request sequentially from the shared byte stream
+- **AND** leading blank lines before the next request line MUST be ignored like Node's parser
+- **AND** already-buffered requests MUST still dispatch even if an earlier request destroys the socket or response
+
+#### Scenario: Sandboxed raw client uses chunked or invalid transfer framing
+- **WHEN** loopback raw HTTP traffic uses `Transfer-Encoding: chunked` or malformed transfer-encoding/chunk framing
+- **THEN** valid chunked bodies MUST be de-chunked before the request listener sees them
+- **AND** malformed transfer-encoding values or invalid chunk extensions MUST receive a raw `400 Bad Request` response with `Connection: close`
+- **AND** `204`/`304` responses with an explicit `Transfer-Encoding: chunked` header MUST close the connection without emitting a terminating chunk body
+
+### Requirement: HTTP Header Validation And Duplicate Header Semantics Match Node
+Bridge-provided `http` behavior SHALL preserve Node.js header token validation, path validation, and duplicate header normalization for the public `http` surface and `_http_common`.
+
+#### Scenario: Sandboxed code validates methods, paths, and header tokens
+- **WHEN** sandboxed code calls `http.request()`, `http.validateHeaderName()`, `http.validateHeaderValue()`, or `_http_common` validators
+- **THEN** invalid HTTP methods and header names MUST throw `ERR_INVALID_HTTP_TOKEN`
+- **AND** invalid request paths MUST throw `ERR_UNESCAPED_CHARACTERS`
+- **AND** invalid header values MUST throw `ERR_HTTP_INVALID_HEADER_VALUE` or `ERR_INVALID_CHAR` with Node-compatible messages
+
+#### Scenario: Sandboxed code sends or receives duplicate headers
+- **WHEN** sandboxed code sets duplicate headers such as repeated `set-cookie`
+- **THEN** `IncomingMessage.headers['set-cookie']` MUST remain an array of cookie values
+- **AND** non-cookie duplicate headers MUST be normalized to the Node-compatible comma-joined string form
+- **AND** request-side header inspection (`getHeaderNames()`, `getRawHeaderNames()`) MUST preserve Node-compatible casing and ordering

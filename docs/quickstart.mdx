@@ -28,9 +28,7 @@ icon: "rocket"
   <Step title="Create a runtime">
     A `NodeRuntime` executes JavaScript in an isolated V8 sandbox with its own virtual filesystem, module system, and permissions.
 
-    Source: `examples/kitchen-sink/src/create-runtime.ts`
-
-    ```ts Create Runtime
+    ```ts
     import {
       NodeRuntime,
       createNodeDriver,
@@ -41,8 +39,6 @@ icon: "rocket"
       systemDriver: createNodeDriver(),
       runtimeDriverFactory: createNodeRuntimeDriverFactory(),
     });
-
-    runtime.dispose();
     ```
   </Step>
 
@@ -50,8 +46,6 @@ icon: "rocket"
     Use `runtime.run()` to execute JavaScript and get back exported values. Use `runtime.exec()` for scripts that produce console output.
 
     <CodeGroup>
-      Source: `examples/kitchen-sink/src/run-get-exports.ts`
-
       ```ts Run & Get Exports
       import {
         NodeRuntime,
@@ -72,8 +66,6 @@ icon: "rocket"
 
       runtime.dispose();
       ```
-
-      Source: `examples/kitchen-sink/src/execute-capture-output.ts`
 
       ```ts Execute & Capture Output
       import {
@@ -99,8 +91,6 @@ icon: "rocket"
       runtime.dispose();
       ```
 
-      Source: `examples/kitchen-sink/src/filesystem.ts`
-
       ```ts Filesystem
       import {
         NodeRuntime,
@@ -115,7 +105,7 @@ icon: "rocket"
       const runtime = new NodeRuntime({
         systemDriver: createNodeDriver({
           filesystem,
-          permissions: { ...allowAllFs },
+          permissions: { fs: allowAllFs },
         }),
         runtimeDriverFactory: createNodeRuntimeDriverFactory(),
       });
@@ -132,8 +122,6 @@ icon: "rocket"
       runtime.dispose();
       ```
 
-      Source: `examples/kitchen-sink/src/network-access.ts`
-
       ```ts Network Access
       import {
         NodeRuntime,
@@ -144,8 +132,7 @@ icon: "rocket"
 
       const runtime = new NodeRuntime({
         systemDriver: createNodeDriver({
-          useDefaultNetwork: true,
-          permissions: { ...allowAllNetwork },
+          permissions: { network: allowAllNetwork },
         }),
         runtimeDriverFactory: createNodeRuntimeDriverFactory(),
         onStdio: (event) => {
@@ -154,16 +141,12 @@ icon: "rocket"
       });
 
       await runtime.exec(`
-        const response = await fetch("http://example.com");
+        const response = await fetch("https://example.com");
         console.log(response.status); // 200
-      `, {
-        filePath: "/entry.mjs", // enables top-level await
-      });
+      `);
 
       runtime.dispose();
       ```
-
-      Source: `examples/kitchen-sink/src/esm-modules.ts`
 
       ```ts ESM Modules
       import {
@@ -190,6 +173,31 @@ icon: "rocket"
   </Step>
 
 </Steps>
+
+## Kernel API
+
+For multi-process workloads (shell commands, child processes, inter-process communication), use the kernel API. This requires both a Node.js runtime and a shell runtime (WasmVM).
+
+```ts
+import {
+  createKernel,
+  createInMemoryFileSystem,
+  createNodeRuntime,
+} from "secure-exec";
+
+const kernel = createKernel({
+  filesystem: createInMemoryFileSystem(),
+});
+await kernel.mount(createNodeRuntime());
+
+// spawn() runs a command directly (no shell needed)
+const proc = kernel.spawn("node", ["-e", "console.log('hello')"], {
+  onStdout: (data) => process.stdout.write(data),
+});
+await proc.wait();
+
+await kernel.dispose();
+```
 
 ## Next steps
 

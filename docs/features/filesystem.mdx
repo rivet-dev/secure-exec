@@ -12,8 +12,6 @@ secure-exec supports three filesystem backends. The system driver controls which
 
 ## Runnable example
 
-Source file: `examples/features/src/filesystem.ts`
-
 ```ts
 import {
   NodeRuntime,
@@ -21,7 +19,7 @@ import {
   createInMemoryFileSystem,
   createNodeDriver,
   createNodeRuntimeDriverFactory,
-} from "secure-exec";
+} from "../../../packages/secure-exec/src/index.ts";
 
 const filesystem = createInMemoryFileSystem();
 const runtime = new NodeRuntime({
@@ -56,6 +54,8 @@ try {
   runtime.dispose();
 }
 ```
+
+Source: [examples/features/src/filesystem.ts](https://github.com/rivet-dev/secure-exec/blob/main/examples/features/src/filesystem.ts)
 
 ## OPFS (browser)
 

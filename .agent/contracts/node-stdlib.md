@@ -96,15 +96,32 @@ Modules classified as Unsupported (Tier 5) SHALL throw immediately when required
 - **THEN** the call MUST throw an error indicating the module is not supported in sandbox
 
 ### Requirement: fs Missing API Classification
-The following `fs` APIs SHALL be classified as Deferred with deterministic error behavior: `watch`, `watchFile`. The APIs `chmod`, `chown`, `link`, `symlink`, `readlink`, `truncate`, `utimes`, `access`, and `realpath` SHALL be documented as implemented (Bridge tier), delegating to the VFS with permission checks.
+The following `fs` watcher APIs SHALL be classified as Deferred with deterministic error behavior: `watch`, `watchFile`, and `fs/promises.watch`. The sandbox VFS/kernel has no inotify/kqueue/FSEvents-equivalent primitive, so these APIs MUST fail fast instead of hanging while waiting for events that can never arrive. The APIs `chmod`, `chown`, `link`, `symlink`, `readlink`, `truncate`, `utimes`, `access`, and `realpath` SHALL be documented as implemented (Bridge tier), delegating to the VFS with permission checks.
 
 #### Scenario: Calling a deferred fs API
 - **WHEN** sandboxed code calls `fs.watch()`
 - **THEN** the call MUST throw `"fs.watch is not supported in sandbox — use polling"`
 
+#### Scenario: Calling deferred watcher APIs through fs/promises
+- **WHEN** sandboxed code iterates `require("fs/promises").watch(...)`
+- **THEN** the iterator MUST reject with `"fs.promises.watch is not supported in sandbox — use polling"`
+- **AND** it MUST preserve Node-compatible `ERR_INVALID_ARG_TYPE`, `ERR_INVALID_ARG_VALUE`, and `AbortError` validation behavior before the deferred unsupported error path
+
 #### Scenario: Calling an implemented fs API previously listed as missing
 - **WHEN** sandboxed code calls `fs.access("/some/path", callback)`
 - **THEN** the call MUST execute normally via the fs bridge without error
+
+### Requirement: fs Validation Paths Preserve Node ERR_* Shapes
+Bridge-provided `fs` APIs SHALL throw Node-compatible validation errors before asynchronous dispatch when the argument contract is violated.
+
+#### Scenario: Callback-style fs API is missing or given a non-function callback
+- **WHEN** sandboxed code calls callback-style APIs such as `fs.open()`, `fs.close()`, `fs.exists()`, `fs.stat()`, or `fs.mkdtemp()` without a valid callback
+- **THEN** the bridge MUST throw `ERR_INVALID_ARG_TYPE` synchronously instead of returning a Promise or reporting the validation failure through the callback
+
+#### Scenario: fs validation rejects invalid encodings and numeric option types
+- **WHEN** sandboxed code passes an invalid encoding to `fs.readFile*()`, `fs.readdir*()`, `fs.readlink*()`, `fs.writeFile*()`, `fs.appendFile*()`, `fs.realpath*()`, `fs.mkdtemp*()`, `fs.ReadStream()`, `fs.WriteStream()`, or `fs.watch()`
+- **THEN** the bridge MUST throw `ERR_INVALID_ARG_VALUE`
+- **AND** invalid numeric `start` / `end` stream options or fd/path argument types MUST throw `ERR_INVALID_ARG_TYPE` or `ERR_OUT_OF_RANGE` with Node-compatible names
 
 ### Requirement: child_process.fork Is Permanently Unsupported
 `child_process.fork()` SHALL be classified as Unsupported and MUST throw a deterministic error explaining that IPC across the isolate boundary is not supported.

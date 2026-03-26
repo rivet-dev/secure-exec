@@ -1,21 +1,48 @@
 ---
-title: Virtual Filesystem
+title: Custom Virtual Filesystem
 description: Implement your own VirtualFileSystem to control how sandboxed code reads and writes files.
 icon: "hard-drive"
 ---
 
-<Card title="Example on GitHub" icon="github" href="https://github.com/rivet-dev/secure-exec/blob/main/examples/features/src/virtual-filesystem.ts">
-  Runnable example for a custom virtual filesystem.
-</Card>
-
 You can create a custom `VirtualFileSystem` to back the sandbox with any storage layer — a database, S3, a zip archive, or anything else. Sandboxed code uses `fs`, `require`, and other Node APIs as normal, and your implementation handles the actual I/O.
 
-## Runnable example
+## The interface
 
-Source file: `examples/features/src/virtual-filesystem.ts`
+Your class must implement `VirtualFileSystem` from `secure-exec-core`:
 
 ```ts
-import type { DirEntry, StatInfo, VirtualFileSystem } from "secure-exec";
+import type { VirtualFileSystem, VirtualStat, VirtualDirEntry } from "secure-exec";
+
+class MyFileSystem implements VirtualFileSystem {
+  async readFile(path: string): Promise<Uint8Array> { /* ... */ }
+  async readTextFile(path: string): Promise<string> { /* ... */ }
+  async writeFile(path: string, content: string | Uint8Array): Promise<void> { /* ... */ }
+  async readDir(path: string): Promise<string[]> { /* ... */ }
+  async readDirWithTypes(path: string): Promise<VirtualDirEntry[]> { /* ... */ }
+  async createDir(path: string): Promise<void> { /* ... */ }
+  async mkdir(path: string): Promise<void> { /* ... */ }
+  async exists(path: string): Promise<boolean> { /* ... */ }
+  async stat(path: string): Promise<VirtualStat> { /* ... */ }
+  async removeFile(path: string): Promise<void> { /* ... */ }
+  async removeDir(path: string): Promise<void> { /* ... */ }
+  async rename(oldPath: string, newPath: string): Promise<void> { /* ... */ }
+  async symlink(target: string, linkPath: string): Promise<void> { /* ... */ }
+  async readlink(path: string): Promise<string> { /* ... */ }
+  async lstat(path: string): Promise<VirtualStat> { /* ... */ }
+  async link(oldPath: string, newPath: string): Promise<void> { /* ... */ }
+  async chmod(path: string, mode: number): Promise<void> { /* ... */ }
+  async chown(path: string, uid: number, gid: number): Promise<void> { /* ... */ }
+  async utimes(path: string, atime: number, mtime: number): Promise<void> { /* ... */ }
+  async truncate(path: string, length: number): Promise<void> { /* ... */ }
+}
+```
+
+## Example: read-only Map filesystem
+
+A minimal filesystem backed by a `Map<string, string>`. Useful when you have a fixed set of files (e.g. loaded from a database) and want to make them available to sandboxed code.
+
+```ts
+import type { VirtualFileSystem, VirtualStat, VirtualDirEntry } from "secure-exec";
 import {
   NodeRuntime,
   allowAllFs,
@@ -42,54 +69,18 @@ class ReadOnlyMapFS implements VirtualFileSystem {
     return content;
   }
 
-  async readDir(path: string) {
-    const prefix = path === "/" ? "/" : path + "/";
-    const entries = new Set<string>();
-    for (const key of this.files.keys()) {
-      if (!key.startsWith(prefix)) continue;
-      const rest = key.slice(prefix.length);
-      if (rest.length > 0) {
-        entries.add(rest.split("/")[0]);
-      }
-    }
-    if (entries.size === 0) throw new Error(`ENOENT: ${path}`);
-    return [...entries];
-  }
-
-  async readDirWithTypes(path: string): Promise<DirEntry[]> {
-    const names = await this.readDir(path);
-    const prefix = path === "/" ? "/" : path + "/";
-    return names.map((name) => ({
-      name,
-      isDirectory: this.#isDir(prefix + name),
-      isSymbolicLink: false,
-    }));
-  }
-
-  async writeFile() { throw new Error("EROFS: read-only filesystem"); }
-  async createDir() { throw new Error("EROFS: read-only filesystem"); }
-  async mkdir() { throw new Error("EROFS: read-only filesystem"); }
-
   async exists(path: string) {
     return this.files.has(path) || this.#isDir(path);
   }
 
-  async stat(path: string): Promise<StatInfo> {
+  async stat(path: string): Promise<VirtualStat> {
     const now = Date.now();
     if (this.files.has(path)) {
       return {
         mode: 0o444,
-        size: new TextEncoder().encode(this.files.get(path) ?? "").byteLength,
+        size: new TextEncoder().encode(this.files.get(path)!).byteLength,
         isDirectory: false,
-        isSymbolicLink: false,
-        atimeMs: now,
-        mtimeMs: now,
-        ctimeMs: now,
-        birthtimeMs: now,
-        ino: 1,
-        nlink: 1,
-        uid: 0,
-        gid: 0,
+        atimeMs: now, mtimeMs: now, ctimeMs: now, birthtimeMs: now,
       };
     }
     if (this.#isDir(path)) {
@@ -97,36 +88,50 @@ class ReadOnlyMapFS implements VirtualFileSystem {
         mode: 0o555,
         size: 0,
         isDirectory: true,
-        isSymbolicLink: false,
-        atimeMs: now,
-        mtimeMs: now,
-        ctimeMs: now,
-        birthtimeMs: now,
-        ino: 1,
-        nlink: 1,
-        uid: 0,
-        gid: 0,
+        atimeMs: now, mtimeMs: now, ctimeMs: now, birthtimeMs: now,
       };
     }
     throw new Error(`ENOENT: ${path}`);
   }
 
+  async lstat(path: string) { return this.stat(path); }
+
+  async readDir(path: string) {
+    const prefix = path === "/" ? "/" : path + "/";
+    const entries = new Set<string>();
+    for (const key of this.files.keys()) {
+      if (key.startsWith(prefix)) {
+        const rest = key.slice(prefix.length);
+        entries.add(rest.split("/")[0]);
+      }
+    }
+    if (entries.size === 0) throw new Error(`ENOENT: ${path}`);
+    return [...entries];
+  }
+
+  async readDirWithTypes(path: string): Promise<VirtualDirEntry[]> {
+    const names = await this.readDir(path);
+    const prefix = path === "/" ? "/" : path + "/";
+    return names.map((name) => ({
+      name,
+      isDirectory: this.#isDir(prefix + name),
+    }));
+  }
+
+  // Write operations throw — this filesystem is read-only
+  async writeFile() { throw new Error("EROFS: read-only filesystem"); }
+  async createDir() { throw new Error("EROFS: read-only filesystem"); }
+  async mkdir() { throw new Error("EROFS: read-only filesystem"); }
   async removeFile() { throw new Error("EROFS: read-only filesystem"); }
   async removeDir() { throw new Error("EROFS: read-only filesystem"); }
   async rename() { throw new Error("EROFS: read-only filesystem"); }
-  async realpath(path: string) { return path; }
   async symlink() { throw new Error("EROFS: read-only filesystem"); }
-  async readlink(_path: string): Promise<string> { throw new Error("ENOSYS: no symlinks"); }
-  async lstat(path: string) { return this.stat(path); }
+  async readlink() { throw new Error("ENOSYS: no symlinks"); }
   async link() { throw new Error("EROFS: read-only filesystem"); }
   async chmod() { throw new Error("EROFS: read-only filesystem"); }
   async chown() { throw new Error("EROFS: read-only filesystem"); }
   async utimes() { throw new Error("EROFS: read-only filesystem"); }
   async truncate() { throw new Error("EROFS: read-only filesystem"); }
-  async pread(path: string, offset: number, length: number) {
-    const bytes = await this.readFile(path);
-    return bytes.slice(offset, offset + length);
-  }
 
   #isDir(path: string) {
     const prefix = path === "/" ? "/" : path + "/";
@@ -136,84 +141,34 @@ class ReadOnlyMapFS implements VirtualFileSystem {
     return false;
   }
 }
+```
 
-const filesystem = new ReadOnlyMapFS({
-  "/config.json": JSON.stringify({ greeting: "hello from custom vfs" }),
+### Using it
+
+```ts
+const fs = new ReadOnlyMapFS({
+  "/config.json": JSON.stringify({ greeting: "hello" }),
+  "/src/index.js": `
+    const config = JSON.parse(require("fs").readFileSync("/config.json", "utf8"));
+    console.log(config.greeting);
+  `,
 });
-const events: string[] = [];
 
 const runtime = new NodeRuntime({
   systemDriver: createNodeDriver({
-    filesystem,
+    filesystem: fs,
     permissions: { ...allowAllFs },
   }),
   runtimeDriverFactory: createNodeRuntimeDriverFactory(),
 });
 
-try {
-  const result = await runtime.exec(
-    `
-      const fs = require("node:fs");
-      const config = JSON.parse(fs.readFileSync("/config.json", "utf8"));
-      console.log(config.greeting);
-    `,
-    {
-      onStdio: (event) => {
-        if (event.channel === "stdout") {
-          events.push(event.message);
-        }
-      },
-    },
-  );
+const result = await runtime.exec(`
+  const config = JSON.parse(require("fs").readFileSync("/config.json", "utf8"));
+  console.log(config.greeting);
+`);
 
-  const message = events.at(-1);
-  if (result.code !== 0 || message !== "hello from custom vfs") {
-    throw new Error(`Unexpected runtime result: ${JSON.stringify({ result, events })}`);
-  }
-
-  console.log(
-    JSON.stringify({
-      ok: true,
-      message,
-      summary: "sandbox read config data from a custom read-only virtual filesystem",
-    }),
-  );
-} finally {
-  runtime.dispose();
-}
-```
-
-## The interface
-
-Your class must implement `VirtualFileSystem` from `secure-exec-core`:
-
-```ts
-import type { DirEntry, StatInfo, VirtualFileSystem } from "secure-exec";
-
-class MyFileSystem implements VirtualFileSystem {
-  async readFile(path: string): Promise<Uint8Array> { /* ... */ }
-  async readTextFile(path: string): Promise<string> { /* ... */ }
-  async writeFile(path: string, content: string | Uint8Array): Promise<void> { /* ... */ }
-  async readDir(path: string): Promise<string[]> { /* ... */ }
-  async readDirWithTypes(path: string): Promise<DirEntry[]> { /* ... */ }
-  async createDir(path: string): Promise<void> { /* ... */ }
-  async mkdir(path: string): Promise<void> { /* ... */ }
-  async exists(path: string): Promise<boolean> { /* ... */ }
-  async stat(path: string): Promise<StatInfo> { /* ... */ }
-  async removeFile(path: string): Promise<void> { /* ... */ }
-  async removeDir(path: string): Promise<void> { /* ... */ }
-  async rename(oldPath: string, newPath: string): Promise<void> { /* ... */ }
-  async realpath(path: string): Promise<string> { /* ... */ }
-  async symlink(target: string, linkPath: string): Promise<void> { /* ... */ }
-  async readlink(path: string): Promise<string> { /* ... */ }
-  async lstat(path: string): Promise<StatInfo> { /* ... */ }
-  async link(oldPath: string, newPath: string): Promise<void> { /* ... */ }
-  async chmod(path: string, mode: number): Promise<void> { /* ... */ }
-  async chown(path: string, uid: number, gid: number): Promise<void> { /* ... */ }
-  async utimes(path: string, atime: number, mtime: number): Promise<void> { /* ... */ }
-  async truncate(path: string, length: number): Promise<void> { /* ... */ }
-  async pread(path: string, offset: number, length: number): Promise<Uint8Array> { /* ... */ }
-}
+// Output captured via onStdio callback — see Output Capture docs
+runtime.dispose();
 ```
 
 ## More examples

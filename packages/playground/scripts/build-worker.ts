@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 
 const playgroundDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const workerSourcePath = resolve(playgroundDir, "../secure-exec-browser/src/worker.ts");
+const workerSourcePath = resolve(playgroundDir, "../secure-exec/src/browser/worker.ts");
 const workerSourceDir = dirname(workerSourcePath);
 const workerOutputPath = resolve(playgroundDir, "secure-exec-worker.js");
 const appSourcePath = resolve(playgroundDir, "frontend/app.ts");
@@ -12,14 +12,10 @@ const appOutputPath = resolve(playgroundDir, "dist/app.js");
 
 const BRIDGE_IMPORT_BLOCK = `\tlet bridgeModule: Record<string, unknown>;
 \ttry {
-\t\tbridgeModule = await dynamicImportModule("@secure-exec/core/internal/bridge");
+\t\tbridgeModule = await dynamicImportModule("../bridge/index.js");
 \t} catch {
-\t\t// Vite browser tests may need source fallback.
-\t\ttry {
-\t\t\tbridgeModule = await dynamicImportModule("@secure-exec/core/internal/bridge");
-\t\t} catch {
-\t\t\tthrow new Error("Failed to load bridge module from @secure-exec/core");
-\t\t}
+\t\t// Vite browser tests execute source files directly, so \`.ts\` fallback is required.
+\t\tbridgeModule = await dynamicImportModule("../bridge/index.ts");
 \t}`;
 
 async function writeGeneratedBundle(outputPath: string, sourcePath: string): Promise<void> {
@@ -31,10 +27,10 @@ async function buildWorkerBundle(): Promise<void> {
 	const originalSource = await readFile(workerSourcePath, "utf8");
 	const patchedSource = originalSource
 		.replace(
-			'import { validatePermissionSource } from "./permission-validation.js";',
-			'import { validatePermissionSource } from "./permission-validation.js";\nimport importedBridgeModule from "@secure-exec/core/internal/bridge";',
+			'import { mkdir } from "../fs-helpers.js";',
+			'import { mkdir } from "../fs-helpers.js";\nimport * as browserWorkerBridgeModule from "../bridge/index.ts";',
 		)
-		.replace(BRIDGE_IMPORT_BLOCK, "\tconst bridgeModule = { default: importedBridgeModule };");
+		.replace(BRIDGE_IMPORT_BLOCK, "\tconst bridgeModule = browserWorkerBridgeModule;");
 
 	await build({
 		bundle: true,

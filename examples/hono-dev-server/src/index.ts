@@ -1,10 +1,6 @@
 import { createServer } from "node:net";
-import path from "node:path";
-import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
 import {
   NodeRuntime,
-  allowAllFs,
   allowAllNetwork,
   createNodeDriver,
   createNodeRuntimeDriverFactory,
@@ -13,39 +9,38 @@ import {
 const host = "127.0.0.1";
 const port = await findOpenPort();
 const logs: string[] = [];
-const require = createRequire(import.meta.url);
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
-const honoEntry = toSandboxModulePath(require.resolve("hono"));
-const honoNodeServerEntry = toSandboxModulePath(require.resolve("@hono/node-server"));
 
 const runtime = new NodeRuntime({
   systemDriver: createNodeDriver({
-    moduleAccess: { cwd: repoRoot },
     useDefaultNetwork: true,
-    permissions: { ...allowAllFs, ...allowAllNetwork },
+    permissions: { ...allowAllNetwork },
   }),
   runtimeDriverFactory: createNodeRuntimeDriverFactory(),
   memoryLimit: 128,
-  cpuTimeLimitMs: 60_000,
+  cpuTimeLimitMs: 5000,
 });
 
 const execPromise = runtime.exec(`
-  globalThis.global = globalThis;
-  const { Hono } = require("${honoEntry}");
-  const { serve } = require("${honoNodeServerEntry}");
+  (async () => {
+    const { Hono } = require("hono");
+    const { serve } = require("@hono/node-server");
 
-  const app = new Hono();
-  app.get("/", (c) => c.text("hello from sandboxed hono"));
-  app.get("/health", (c) => c.json({ ok: true }));
+    const app = new Hono();
+    app.get("/", (c) => c.text("hello from sandboxed hono"));
+    app.get("/health", (c) => c.json({ ok: true }));
 
-  serve({
-    fetch: app.fetch,
-    port: ${port},
-    hostname: "${host}",
+    serve({
+      fetch: app.fetch,
+      port: ${port},
+      hostname: "${host}",
+    });
+
+    console.log("server:listening:${port}");
+    await new Promise(() => {});
+  })().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
   });
-
-  console.log("server:listening:${port}");
-  setInterval(() => {}, 1 << 30);
 `, {
   onStdio: (event) => logs.push(`[${event.channel}] ${event.message}`),
 });
@@ -62,15 +57,6 @@ try {
 } finally {
   await runtime.terminate();
   await execPromise.catch(() => undefined);
-}
-
-function toSandboxModulePath(hostPath: string): string {
-  const hostNodeModulesRoot = path.join(repoRoot, "node_modules");
-  const relativePath = path.relative(hostNodeModulesRoot, hostPath);
-  if (relativePath.startsWith("..")) {
-    throw new Error(`Expected module inside ${hostNodeModulesRoot}: ${hostPath}`);
-  }
-  return path.posix.join("/root/node_modules", relativePath.split(path.sep).join("/"));
 }
 
 async function findOpenPort(): Promise<number> {

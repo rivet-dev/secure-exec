@@ -90,6 +90,7 @@ function line(s = '') {
 line('---');
 line('title: POSIX Conformance Report');
 line('description: os-test POSIX.1-2024 conformance results for WasmVM.');
+line('icon: "chart-bar"');
 line('---');
 line();
 line('{/* AUTO-GENERATED — do not edit. Run scripts/generate-posix-report.ts */}');

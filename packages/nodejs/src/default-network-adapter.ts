@@ -244,7 +244,10 @@ export function createDefaultNetworkAdapter(
 
 		async httpRequest(url, requestOptions) {
 			await assertNotPrivateHost(url, allowLoopbackPort);
-			return new Promise((resolve, reject) => {
+			type HttpRequestResult = Awaited<ReturnType<NetworkAdapter["httpRequest"]>> & {
+				rawHeaders?: string[];
+			};
+			return new Promise<HttpRequestResult>((resolve, reject) => {
 				const urlObj = new URL(url);
 				const isHttps = urlObj.protocol === "https:";
 				const transport = isHttps ? https : http;
@@ -291,6 +294,7 @@ export function createDefaultNetworkAdapter(
 							url.endsWith(".tgz");
 
 						const headers: Record<string, string> = {};
+						const rawHeaders = [...res.rawHeaders];
 						Object.entries(res.headers).forEach(([key, value]) => {
 							if (typeof value === "string") headers[key] = value;
 							else if (Array.isArray(value)) headers[key] = value.join(", ");
@@ -310,6 +314,7 @@ export function createDefaultNetworkAdapter(
 							status: res.statusCode || 200,
 							statusText: res.statusMessage || "OK",
 							headers,
+							rawHeaders,
 							url,
 							...(hasTrailers ? { trailers } : {}),
 						};
@@ -326,6 +331,7 @@ export function createDefaultNetworkAdapter(
 
 				req.on("upgrade", (res, socket, head) => {
 					const headers: Record<string, string> = {};
+					const rawHeaders = [...res.rawHeaders];
 					Object.entries(res.headers).forEach(([key, value]) => {
 						if (typeof value === "string") headers[key] = value;
 						else if (Array.isArray(value)) headers[key] = value.join(", ");
@@ -350,6 +356,41 @@ export function createDefaultNetworkAdapter(
 						status: res.statusCode || 101,
 						statusText: res.statusMessage || "Switching Protocols",
 						headers,
+						rawHeaders,
+						body: head.toString("base64"),
+						url,
+						upgradeSocketId: socketId,
+					});
+				});
+
+				req.on("connect", (res, socket, head) => {
+					const headers: Record<string, string> = {};
+					const rawHeaders = [...res.rawHeaders];
+					Object.entries(res.headers).forEach(([key, value]) => {
+						if (typeof value === "string") headers[key] = value;
+						else if (Array.isArray(value)) headers[key] = value.join(", ");
+					});
+
+					const socketId = nextUpgradeSocketId++;
+					upgradeSockets.set(socketId, socket);
+
+					socket.on("data", (chunk) => {
+						if (onUpgradeSocketData) {
+							onUpgradeSocketData(socketId, chunk.toString("base64"));
+						}
+					});
+					socket.on("close", () => {
+						if (onUpgradeSocketEnd) {
+							onUpgradeSocketEnd(socketId);
+						}
+						upgradeSockets.delete(socketId);
+					});
+
+					resolve({
+						status: res.statusCode || 200,
+						statusText: res.statusMessage || "Connection established",
+						headers,
+						rawHeaders,
 						body: head.toString("base64"),
 						url,
 						upgradeSocketId: socketId,

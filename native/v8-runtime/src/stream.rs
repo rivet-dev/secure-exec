@@ -7,6 +7,7 @@
 /// function is called:
 /// - "child_stdout", "child_stderr", "child_exit" → _childProcessDispatch
 /// - "http_request" → _httpServerDispatch
+/// - "http2" → _http2Dispatch
 /// - "timer" → _timerDispatch
 pub fn dispatch_stream_event(scope: &mut v8::HandleScope, event_type: &str, payload: &[u8]) {
     // Look up the dispatch function on the global object
@@ -16,6 +17,7 @@ pub fn dispatch_stream_event(scope: &mut v8::HandleScope, event_type: &str, payl
     let dispatch_name = match event_type {
         "child_stdout" | "child_stderr" | "child_exit" => "_childProcessDispatch",
         "http_request" => "_httpServerDispatch",
+        "http2" => "_http2Dispatch",
         "timer" => "_timerDispatch",
         _ => return, // Unknown event type — ignore
     };

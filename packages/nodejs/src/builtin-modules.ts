@@ -198,6 +198,8 @@ export const BUILTIN_NAMED_EXPORTS: Record<string, string[]> = {
 		"IncomingMessage",
 		"ServerResponse",
 		"Agent",
+		"validateHeaderName",
+		"validateHeaderValue",
 		"METHODS",
 		"STATUS_CODES",
 	],

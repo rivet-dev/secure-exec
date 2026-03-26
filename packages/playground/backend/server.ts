@@ -21,14 +21,10 @@ import { fileURLToPath } from "node:url";
 const DEFAULT_PORT = Number(process.env.PORT ?? "4173");
 const playgroundDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const secureExecDir = resolve(playgroundDir, "../secure-exec");
-const secureExecCoreDir = resolve(playgroundDir, "../secure-exec-core");
-const secureExecBrowserDir = resolve(playgroundDir, "../secure-exec-browser");
 
 /* Map URL prefixes to filesystem directories outside playgroundDir */
 const PATH_ALIASES: Array<{ prefix: string; dir: string }> = [
 	{ prefix: "/secure-exec/", dir: secureExecDir },
-	{ prefix: "/secure-exec-core/", dir: secureExecCoreDir },
-	{ prefix: "/secure-exec-browser/", dir: secureExecBrowserDir },
 ];
 
 const mimeTypes = new Map<string, string>([

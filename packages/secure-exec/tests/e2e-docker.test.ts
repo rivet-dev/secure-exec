@@ -1,9 +1,18 @@
+import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
+	access,
+	cp,
+	mkdir,
 	readFile,
 	readdir,
+	rename,
+	rm,
+	writeFile,
 } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
 	allowAllEnv,
@@ -12,19 +21,6 @@ import {
 	createDefaultNetworkAdapter,
 	NodeFileSystem,
 } from "../src/index.js";
-import {
-	assertPathExists,
-	type CapturedConsoleEvent,
-	formatConsoleChannel,
-	formatErrorOutput,
-	isRecord,
-	normalizeEnvelope,
-	pathExists,
-	type PreparedFixture,
-	prepareFixtureProject as prepareSharedFixtureProject,
-	type ResultEnvelope,
-	runHostExecution,
-} from "./project-matrix/shared.js";
 import { createTestNodeRuntime } from "./test-utils.js";
 import {
 	buildImage,
@@ -34,7 +30,10 @@ import {
 	type Container,
 } from "./utils/docker.js";
 
+const execFileAsync = promisify(execFile);
 const TEST_TIMEOUT_MS = 55_000;
+const COMMAND_TIMEOUT_MS = 45_000;
+const CACHE_READY_MARKER = ".ready";
 
 const TESTS_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = path.resolve(TESTS_ROOT, "..");
@@ -78,6 +77,23 @@ type FixtureProject = {
 	name: string;
 	sourceDir: string;
 	metadata: FixtureMetadata;
+};
+
+type PreparedFixture = {
+	cacheHit: boolean;
+	cacheKey: string;
+	projectDir: string;
+};
+
+type ResultEnvelope = {
+	code: number;
+	stdout: string;
+	stderr: string;
+};
+
+type CapturedConsoleEvent = {
+	channel: "stdout" | "stderr";
+	message: string;
 };
 
 type ServiceConnection = { host: string; port: number };
@@ -227,7 +243,6 @@ describe.skipIf(skipReason)("e2e-docker", () => {
 					fixture.metadata.entry,
 					serviceEnv,
 				);
-				assertHostFixtureBaseline(host);
 				const sandbox = await runSandboxExecution(
 					prepared.projectDir,
 					fixture.metadata.entry,
@@ -242,6 +257,7 @@ describe.skipIf(skipReason)("e2e-docker", () => {
 				}
 
 				// Fail expectation: host should succeed, sandbox should fail predictably
+				expect(host.code).toBe(0);
 				expect(sandbox.code).toBe(fixture.metadata.fail.code);
 				expect(sandbox.stderr).toContain(
 					fixture.metadata.fail.stderrIncludes,
@@ -251,11 +267,6 @@ describe.skipIf(skipReason)("e2e-docker", () => {
 		);
 	}
 });
-
-function assertHostFixtureBaseline(host: ResultEnvelope): void {
-	// Validate the fixture in plain Node before treating any mismatch as a sandbox bug.
-	expect(host.code).toBe(0);
-}
 
 /* ------------------------------------------------------------------ */
 /*  Service env var injection                                          */
@@ -413,17 +424,132 @@ function parseFixtureMetadata(
 async function prepareFixtureProject(
 	fixture: FixtureProject,
 ): Promise<PreparedFixture> {
-	return prepareSharedFixtureProject({
-		cacheRoot: CACHE_ROOT,
-		workspaceRoot: WORKSPACE_ROOT,
-		fixtureName: fixture.name,
-		sourceDir: fixture.sourceDir,
+	await mkdir(CACHE_ROOT, { recursive: true });
+	const cacheKey = await createFixtureCacheKey(fixture);
+	const cacheDir = path.join(CACHE_ROOT, `${fixture.name}-${cacheKey}`);
+	const readyMarkerPath = path.join(cacheDir, CACHE_READY_MARKER);
+
+	if (await pathExists(readyMarkerPath)) {
+		return { cacheHit: true, cacheKey, projectDir: cacheDir };
+	}
+
+	if (await pathExists(cacheDir)) {
+		await rm(cacheDir, { recursive: true, force: true });
+	}
+
+	// Prepare staging directory and install deps
+	const stagingDir = `${cacheDir}.tmp-${process.pid}-${Date.now()}`;
+	await rm(stagingDir, { recursive: true, force: true });
+	await cp(fixture.sourceDir, stagingDir, {
+		recursive: true,
+		filter: (source) => !isNodeModulesPath(source),
 	});
+
+	await execFileAsync(
+		"pnpm",
+		["install", "--ignore-workspace", "--prefer-offline"],
+		{
+			cwd: stagingDir,
+			timeout: COMMAND_TIMEOUT_MS,
+			maxBuffer: 10 * 1024 * 1024,
+		},
+	);
+
+	await writeFile(
+		path.join(stagingDir, CACHE_READY_MARKER),
+		`${new Date().toISOString()}\n`,
+	);
+
+	// Promote staging to cache
+	try {
+		await rename(stagingDir, cacheDir);
+	} catch (error) {
+		const code =
+			error && typeof error === "object" && "code" in error
+				? String(error.code)
+				: "";
+		if (code !== "EEXIST") throw error;
+		await rm(stagingDir, { recursive: true, force: true });
+		if (!(await pathExists(readyMarkerPath))) {
+			throw new Error(
+				`Cache entry race produced missing ready marker: ${cacheDir}`,
+			);
+		}
+	}
+
+	return { cacheHit: false, cacheKey, projectDir: cacheDir };
+}
+
+async function createFixtureCacheKey(
+	fixture: FixtureProject,
+): Promise<string> {
+	const hash = createHash("sha256");
+	const nodeMajor = process.versions.node.split(".")[0] ?? "0";
+	hash.update(`node-major:${nodeMajor}\n`);
+	hash.update(`platform:${process.platform}\n`);
+	hash.update(`arch:${process.arch}\n`);
+
+	await hashOptionalFile(
+		hash,
+		"workspace-lock",
+		path.join(WORKSPACE_ROOT, "pnpm-lock.yaml"),
+	);
+	await hashOptionalFile(
+		hash,
+		"fixture-package",
+		path.join(fixture.sourceDir, "package.json"),
+	);
+	await hashOptionalFile(
+		hash,
+		"fixture-lock",
+		path.join(fixture.sourceDir, "pnpm-lock.yaml"),
+	);
+
+	const files = await listFixtureFiles(fixture.sourceDir);
+	for (const relativePath of files) {
+		const absolutePath = path.join(fixture.sourceDir, relativePath);
+		const content = await readFile(absolutePath);
+		hash.update(`fixture-file:${toPosixPath(relativePath)}\n`);
+		hash.update(content);
+		hash.update("\n");
+	}
+
+	return hash.digest("hex").slice(0, 16);
 }
 
 /* ------------------------------------------------------------------ */
 /*  Execution                                                          */
 /* ------------------------------------------------------------------ */
+
+function formatConsoleChannel(
+	events: CapturedConsoleEvent[],
+	channel: CapturedConsoleEvent["channel"],
+): string {
+	const lines = events
+		.filter((event) => event.channel === channel)
+		.map((event) => event.message);
+	return lines.join("\n") + (lines.length > 0 ? "\n" : "");
+}
+
+function formatErrorOutput(errorMessage: string | undefined): string {
+	if (!errorMessage) return "";
+	return errorMessage.endsWith("\n") ? errorMessage : `${errorMessage}\n`;
+}
+
+async function runHostExecution(
+	projectDir: string,
+	entryRelativePath: string,
+	serviceEnv: Record<string, string>,
+): Promise<ResultEnvelope> {
+	const entryPath = path.join(projectDir, entryRelativePath);
+	const result = await runCommand(
+		process.execPath,
+		[entryPath],
+		projectDir,
+		serviceEnv,
+	);
+	return normalizeEnvelope(result, projectDir);
+}
 
 async function runSandboxExecution(
 	projectDir: string,
@@ -468,6 +594,144 @@ async function runSandboxExecution(
 	}
 }
 
+async function runCommand(
+	command: string,
+	args: string[],
+	cwd: string,
+	extraEnv: Record<string, string>,
+): Promise<ResultEnvelope> {
+	try {
+		const result = await execFileAsync(command, args, {
+			cwd,
+			timeout: COMMAND_TIMEOUT_MS,
+			maxBuffer: 10 * 1024 * 1024,
+			env: { ...process.env, ...extraEnv },
+		});
+		return { code: 0, stdout: result.stdout, stderr: result.stderr };
+	} catch (error: unknown) {
+		if (!isExecError(error)) throw error;
+		return {
+			code: typeof error.code === "number" ? error.code : 1,
+			stdout: typeof error.stdout === "string" ? error.stdout : "",
+			stderr: typeof error.stderr === "string" ? error.stderr : "",
+		};
+	}
+}
+
+/* ------------------------------------------------------------------ */
+/*  Normalization                                                      */
+/* ------------------------------------------------------------------ */
+
+function normalizeEnvelope(
+	envelope: ResultEnvelope,
+	projectDir: string,
+): ResultEnvelope {
+	return {
+		code: envelope.code,
+		stdout: normalizeText(envelope.stdout, projectDir),
+		stderr: normalizeText(envelope.stderr, projectDir),
+	};
+}
+
+function normalizeText(value: string, projectDir: string): string {
+	const normalized = value.replace(/\r\n/g, "\n");
+	const projectDirPosix = toPosixPath(projectDir);
+	return normalized
+		.split(projectDir)
+		.join("<project>")
+		.split(projectDirPosix)
+		.join("<project>");
+}
+
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
+
+async function hashOptionalFile(
+	hash: ReturnType<typeof createHash>,
+	label: string,
+	filePath: string,
+): Promise<void> {
+	hash.update(`${label}:`);
+	try {
+		const content = await readFile(filePath);
+		hash.update(content);
+	} catch (error) {
+		if (!isNotFoundError(error)) throw error;
+		hash.update("<missing>");
+	}
+	hash.update("\n");
+}
+
+async function listFixtureFiles(rootDir: string): Promise<string[]> {
+	const files: string[] = [];
+
+	async function walk(relativeDir: string): Promise<void> {
+		const directory = path.join(rootDir, relativeDir);
+		const entries = await readdir(directory, { withFileTypes: true });
+		const sortedEntries = entries
+			.filter((entry) => !isNodeModulesPath(entry.name))
+			.sort((left, right) => left.name.localeCompare(right.name));
+
+		for (const entry of sortedEntries) {
+			const relativePath = relativeDir
+				? path.join(relativeDir, entry.name)
+				: entry.name;
+			if (entry.isDirectory()) {
+				await walk(relativePath);
+				continue;
+			}
+			if (entry.isFile()) files.push(relativePath);
+		}
+	}
+
+	await walk("");
+	return files.sort((left, right) => left.localeCompare(right));
+}
+
+async function assertPathExists(
+	pathname: string,
+	message: string,
+): Promise<void> {
+	try {
+		await access(pathname);
+	} catch {
+		throw new Error(message);
+	}
+}
+
+async function pathExists(pathname: string): Promise<boolean> {
+	try {
+		await access(pathname);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+function isNodeModulesPath(value: string): boolean {
+	return value.split(path.sep).includes("node_modules");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isNotFoundError(value: unknown): boolean {
+	return (
+		Boolean(value) &&
+		typeof value === "object" &&
+		"code" in value &&
+		String(value.code) === "ENOENT"
+	);
+}
+
+function isExecError(
+	value: unknown,
+): value is { code?: number; stdout?: string; stderr?: string } {
+	return Boolean(value) && typeof value === "object" && "stdout" in value;
+}
+
+function toPosixPath(value: string): string {
+	return value.split(path.sep).join(path.posix.sep);
+}

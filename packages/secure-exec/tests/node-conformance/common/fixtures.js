@@ -19,9 +19,19 @@ function fixturesPath(...args) {
  * Usage: fixtures.readSync('test-file.txt')
  * Usage: fixtures.readSync('test-file.txt', 'utf8')
  */
+function parseFixtureArgs(args) {
+  const normalized = args.at(-1) === 'utf-8' ? 'utf8' : args.at(-1);
+  const hasEncoding =
+    typeof normalized === 'string' && Buffer.isEncoding(normalized);
+  return {
+    encoding: hasEncoding ? normalized : undefined,
+    pathArgs: hasEncoding ? args.slice(0, -1) : args,
+  };
+}
+
 function readSync(...args) {
-  const filepath = fixturesPath(...args.filter((a) => typeof a !== 'string' || !a.startsWith('utf')));
-  const encoding = args.find((a) => typeof a === 'string' && (a === 'utf8' || a === 'utf-8'));
+  const { pathArgs, encoding } = parseFixtureArgs(args);
+  const filepath = fixturesPath(...pathArgs);
   return fs.readFileSync(filepath, encoding);
 }
 
@@ -29,7 +39,8 @@ function readSync(...args) {
  * Reads a fixture file as a UTF-8 string.
  */
 function readKey(...args) {
-  return fs.readFileSync(fixturesPath(...args), 'utf8');
+  const { pathArgs, encoding } = parseFixtureArgs(args);
+  return fs.readFileSync(fixturesPath('keys', ...pathArgs), encoding);
 }
 
 // Lazy-loaded UTF-8 test text (matches upstream test/common/fixtures.js)

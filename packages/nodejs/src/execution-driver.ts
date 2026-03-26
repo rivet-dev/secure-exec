@@ -193,8 +193,31 @@ if (typeof atob === 'undefined') {
   };
 }
 if (typeof TextEncoder === 'undefined') {
+  const _encodeUtf8 = (str = '') => {
+    const bytes = [];
+    for (let i = 0; i < str.length; i++) {
+      const codeUnit = str.charCodeAt(i);
+      let codePoint = codeUnit;
+      if (codeUnit >= 0xD800 && codeUnit <= 0xDBFF) {
+        const next = i + 1 < str.length ? str.charCodeAt(i + 1) : 0;
+        if (next >= 0xDC00 && next <= 0xDFFF) {
+          codePoint = 0x10000 + ((codeUnit - 0xD800) << 10) + (next - 0xDC00);
+          i++;
+        } else {
+          codePoint = 0xFFFD;
+        }
+      } else if (codeUnit >= 0xDC00 && codeUnit <= 0xDFFF) {
+        codePoint = 0xFFFD;
+      }
+      if (codePoint < 0x80) bytes.push(codePoint);
+      else if (codePoint < 0x800) bytes.push(0xC0 | (codePoint >> 6), 0x80 | (codePoint & 63));
+      else if (codePoint < 0x10000) bytes.push(0xE0 | (codePoint >> 12), 0x80 | ((codePoint >> 6) & 63), 0x80 | (codePoint & 63));
+      else bytes.push(0xF0 | (codePoint >> 18), 0x80 | ((codePoint >> 12) & 63), 0x80 | ((codePoint >> 6) & 63), 0x80 | (codePoint & 63));
+    }
+    return new Uint8Array(bytes);
+  };
   globalThis.TextEncoder = class TextEncoder {
-    encode(str) { const a = []; for (let i = 0; i < str.length; i++) { const c = str.charCodeAt(i); if (c < 128) a.push(c); else if (c < 2048) { a.push(192|(c>>6), 128|(c&63)); } else { a.push(224|(c>>12), 128|((c>>6)&63), 128|(c&63)); } } return new Uint8Array(a); }
+    encode(str = '') { return _encodeUtf8(String(str)); }
     get encoding() { return 'utf-8'; }
   };
 }
@@ -225,10 +248,92 @@ if (typeof structuredClone === 'undefined') {
 if (typeof performance === 'undefined') {
   globalThis.performance = { now: () => Date.now(), timeOrigin: Date.now() };
 }
-if (typeof AbortController === 'undefined') {
-  class AbortSignal { constructor() { this.aborted = false; this.reason = undefined; } }
+if (
+  typeof AbortController === 'undefined' ||
+  typeof AbortSignal === 'undefined' ||
+  typeof AbortSignal.prototype?.addEventListener !== 'function' ||
+  typeof AbortSignal.prototype?.removeEventListener !== 'function'
+) {
+  const abortSignalState = new WeakMap();
+  function getAbortSignalState(signal) {
+    const state = abortSignalState.get(signal);
+    if (!state) throw new Error('Invalid AbortSignal');
+    return state;
+  }
+  class AbortSignal {
+    constructor() {
+      this.onabort = null;
+      abortSignalState.set(this, {
+        aborted: false,
+        reason: undefined,
+        listeners: [],
+      });
+    }
+    get aborted() {
+      return getAbortSignalState(this).aborted;
+    }
+    get reason() {
+      return getAbortSignalState(this).reason;
+    }
+    get _listeners() {
+      return getAbortSignalState(this).listeners.slice();
+    }
+    getEventListeners(type) {
+      if (type !== 'abort') return [];
+      return getAbortSignalState(this).listeners.slice();
+    }
+    addEventListener(type, listener) {
+      if (type !== 'abort' || typeof listener !== 'function') return;
+      getAbortSignalState(this).listeners.push(listener);
+    }
+    removeEventListener(type, listener) {
+      if (type !== 'abort' || typeof listener !== 'function') return;
+      const listeners = getAbortSignalState(this).listeners;
+      const index = listeners.indexOf(listener);
+      if (index !== -1) {
+        listeners.splice(index, 1);
+      }
+    }
+    dispatchEvent(event) {
+      if (!event || event.type !== 'abort') return false;
+      if (typeof this.onabort === 'function') {
+        try {
+          this.onabort.call(this, event);
+        } catch {}
+      }
+      const listeners = getAbortSignalState(this).listeners.slice();
+      for (const listener of listeners) {
+        try {
+          listener.call(this, event);
+        } catch {}
+      }
+      return true;
+    }
+  }
   globalThis.AbortSignal = AbortSignal;
-  globalThis.AbortController = class AbortController { constructor() { this.signal = new AbortSignal(); } abort(reason) { this.signal.aborted = true; this.signal.reason = reason; } };
+  globalThis.AbortController = class AbortController {
+    constructor() {
+      this.signal = new AbortSignal();
+    }
+    abort(reason) {
+      const state = getAbortSignalState(this.signal);
+      if (state.aborted) return;
+      state.aborted = true;
+      state.reason = reason;
+      this.signal.dispatchEvent({ type: 'abort' });
+    }
+  };
+}
+if (
+  typeof globalThis.AbortSignal === 'function' &&
+  typeof globalThis.AbortController === 'function' &&
+  typeof globalThis.AbortSignal.abort !== 'function'
+) {
+  globalThis.AbortSignal.abort = function abort(reason) {
+    const controller = new globalThis.AbortController();
+    controller.abort(reason);
+    return controller.signal;
+  };
 }
 if (typeof navigator === 'undefined') {
   globalThis.navigator = { userAgent: 'secure-exec-v8' };
@@ -697,6 +802,7 @@ export class NodeExecutionDriver implements RuntimeDriver {
 				}, {
 					// Dispatch handlers routed through _loadPolyfill for V8 runtime compat
 					...cryptoResult.handlers,
+					...networkBridgeResult.handlers,
 					...netSocketResult.handlers,
 					...buildModuleResolutionBridgeHandlers({
 						sandboxToHostPath: (p) => {

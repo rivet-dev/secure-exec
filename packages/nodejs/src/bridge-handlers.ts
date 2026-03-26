@@ -5,8 +5,9 @@
 
 import * as net from "node:net";
 import * as http from "node:http";
+import * as http2 from "node:http2";
 import * as tls from "node:tls";
-import { Duplex } from "node:stream";
+import { Duplex, PassThrough } from "node:stream";
 import { readFileSync, realpathSync, existsSync } from "node:fs";
 import { dirname as pathDirname, join as pathJoin, resolve as pathResolve } from "node:path";
 import { createRequire } from "node:module";
@@ -48,6 +49,9 @@ import {
 } from "./bridge-contract.js";
 import {
 	AF_INET,
+	AF_INET6,
+	AF_UNIX,
+	SOCK_DGRAM,
 	SOCK_STREAM,
 	mkdir,
 	FDTableManager,
@@ -91,6 +95,13 @@ import type {
 	ProcessConfig,
 } from "@secure-exec/core/internal/shared/api-types";
 import type { BudgetState } from "./isolate-bootstrap.js";
+
+const SOL_SOCKET = 1;
+const IPPROTO_TCP = 6;
+const SO_KEEPALIVE = 9;
+const SO_RCVBUF = 8;
+const SO_SNDBUF = 7;
+const TCP_NODELAY = 1;
 
 /** A bridge handler function invoked when sandbox code calls a bridge global. */
 export type BridgeHandler = (...args: unknown[]) => unknown | Promise<unknown>;
@@ -1885,11 +1896,391 @@ function buildKernelSocketBridgeHandlers(
 ): NetSocketBridgeResult {
 	const handlers: BridgeHandlers = {};
 	const K = HOST_BRIDGE_GLOBAL_KEYS;
+	const NET_BRIDGE_TIMEOUT_SENTINEL = "__secure_exec_net_timeout__";
 
 	// Track active kernel socket IDs for cleanup
 	const activeSocketIds = new Set<number>();
+	const activeServerIds = new Set<number>();
+	const activeDgramIds = new Set<number>();
 	// Track TLS-upgraded sockets that bypass kernel recv (host-side TLS)
-	const tlsSockets = new Map<number, net.Socket>();
+	const tlsSockets = new Map<number, tls.TLSSocket>();
+	const loopbackTlsTransports = new Map<string, { a: Duplex; b: Duplex }>();
+	const loopbackTlsClientHello = new Map<string, SerializedTlsClientHello>();
+	const pendingConnects = new Map<number, Promise<{ ok: true } | { ok: false; error: string }>>();
+
+	type SerializedNetSocketInfo = {
+		localAddress: string;
+		localPort: number;
+		localFamily: string;
+		localPath?: string;
+		remoteAddress?: string;
+		remotePort?: number;
+		remoteFamily?: string;
+		remotePath?: string;
+	};
+
+	type SerializedNetConnectOptions = {
+		host?: string;
+		port?: number;
+		path?: string;
+	};
+
+	type SerializedNetListenOptions = {
+		host?: string;
+		port?: number;
+		path?: string;
+		backlog?: number;
+		readableAll?: boolean;
+		writableAll?: boolean;
+	};
+
+	type SerializedDgramBindOptions = {
+		port?: number;
+		address?: string;
+	};
+
+	type SerializedDgramSendOptions = {
+		data: string;
+		port: number;
+		address: string;
+	};
+
+	type SerializedTlsDataValue =
+		| {
+				kind: "buffer";
+				data: string;
+		  }
+		| {
+				kind: "string";
+				data: string;
+		  };
+
+	type SerializedTlsMaterial = SerializedTlsDataValue | SerializedTlsDataValue[];
+
+	type SerializedTlsUpgradeOptions = {
+		isServer?: boolean;
+		servername?: string;
+		rejectUnauthorized?: boolean;
+		requestCert?: boolean;
+		session?: string;
+		key?: SerializedTlsMaterial;
+		cert?: SerializedTlsMaterial;
+		ca?: SerializedTlsMaterial;
+		passphrase?: string;
+		ciphers?: string;
+		ALPNProtocols?: string[];
+		minVersion?: tls.SecureVersion;
+		maxVersion?: tls.SecureVersion;
+	};
+
+	type SerializedTlsClientHello = {
+		servername?: string;
+		ALPNProtocols?: string[];
+	};
+
+	type SerializedTlsBridgeValue =
+		| null
+		| boolean
+		| number
+		| string
+		| {
+				type: "undefined";
+		  }
+		| {
+				type: "buffer";
+				data: string;
+		  }
+		| {
+				type: "array";
+				value: SerializedTlsBridgeValue[];
+		  }
+		| {
+				type: "object";
+				id: number;
+				value: Record<string, SerializedTlsBridgeValue>;
+		  }
+		| {
+				type: "ref";
+				id: number;
+		  };
+
+	type KernelSocketLike = NonNullable<ReturnType<typeof socketTable.get>>;
+
+	function addressFamily(host?: string): string {
+		return host?.includes(":") ? "IPv6" : "IPv4";
+	}
+
+	function decodeTlsMaterial(
+		value: SerializedTlsMaterial | undefined,
+	): string | Buffer | Array<string | Buffer> | undefined {
+		if (value === undefined) {
+			return undefined;
+		}
+		const decodeOne = (entry: SerializedTlsDataValue): string | Buffer =>
+			entry.kind === "buffer" ? Buffer.from(entry.data, "base64") : entry.data;
+		return Array.isArray(value) ? value.map(decodeOne) : decodeOne(value);
+	}
+
+	function buildHostTlsOptions(
+		options: SerializedTlsUpgradeOptions,
+	): Record<string, unknown> {
+		const hostOptions: Record<string, unknown> = {};
+		const key = decodeTlsMaterial(options.key);
+		const cert = decodeTlsMaterial(options.cert);
+		const ca = decodeTlsMaterial(options.ca);
+		if (key !== undefined) hostOptions.key = key;
+		if (cert !== undefined) hostOptions.cert = cert;
+		if (ca !== undefined) hostOptions.ca = ca;
+		if (typeof options.passphrase === "string") hostOptions.passphrase = options.passphrase;
+		if (typeof options.ciphers === "string") hostOptions.ciphers = options.ciphers;
+		if (typeof options.session === "string") hostOptions.session = Buffer.from(options.session, "base64");
+		if (Array.isArray(options.ALPNProtocols) && options.ALPNProtocols.length > 0) {
+			hostOptions.ALPNProtocols = [...options.ALPNProtocols];
+		}
+		if (typeof options.minVersion === "string") hostOptions.minVersion = options.minVersion;
+		if (typeof options.maxVersion === "string") hostOptions.maxVersion = options.maxVersion;
+		if (typeof options.servername === "string") hostOptions.servername = options.servername;
+		if (typeof options.requestCert === "boolean") hostOptions.requestCert = options.requestCert;
+		return hostOptions;
+	}
+
+	function getLoopbackTlsKey(socketId: number, peerId: number): string {
+		return socketId < peerId ? `${socketId}:${peerId}` : `${peerId}:${socketId}`;
+	}
+
+	function createTlsTransportEndpoint(
+		readable: PassThrough,
+		writable: PassThrough,
+	): Duplex {
+		const duplex = new Duplex({
+			read() {
+				let chunk: Buffer | null;
+				while ((chunk = readable.read() as Buffer | null) !== null) {
+					if (!this.push(chunk)) {
+						return;
+					}
+				}
+			},
+			write(chunk, _encoding, callback) {
+				if (!writable.write(chunk)) {
+					writable.once("drain", callback);
+					return;
+				}
+				callback();
+			},
+			final(callback) {
+				writable.end();
+				callback();
+			},
+			destroy(error, callback) {
+				readable.destroy(error ?? undefined);
+				writable.destroy(error ?? undefined);
+				callback(error ?? null);
+			},
+		});
+
+		readable.on("readable", () => {
+			let chunk: Buffer | null;
+			while ((chunk = readable.read() as Buffer | null) !== null) {
+				if (!duplex.push(chunk)) {
+					return;
+				}
+			}
+		});
+		readable.on("end", () => duplex.push(null));
+		readable.on("error", (error) => duplex.destroy(error));
+
+		return duplex;
+	}
+
+	function getLoopbackTlsTransport(socket: KernelSocketLike): Duplex {
+		if (socket.peerId === undefined) {
+			throw new Error(`Socket ${socket.id} has no loopback peer for TLS upgrade`);
+		}
+		const key = getLoopbackTlsKey(socket.id, socket.peerId);
+		let pair = loopbackTlsTransports.get(key);
+		if (!pair) {
+			const aIn = new PassThrough();
+			const bIn = new PassThrough();
+			pair = {
+				a: createTlsTransportEndpoint(aIn, bIn),
+				b: createTlsTransportEndpoint(bIn, aIn),
+			};
+			loopbackTlsTransports.set(key, pair);
+		}
+		return socket.id < socket.peerId ? pair.a : pair.b;
+	}
+
+	function cleanupLoopbackTlsTransport(socketId: number, peerId?: number): void {
+		if (peerId === undefined) {
+			return;
+		}
+		if (tlsSockets.has(socketId) || tlsSockets.has(peerId)) {
+			return;
+		}
+		const key = getLoopbackTlsKey(socketId, peerId);
+		const pair = loopbackTlsTransports.get(key);
+		if (!pair) {
+			return;
+		}
+		pair.a.destroy();
+		pair.b.destroy();
+		loopbackTlsTransports.delete(key);
+		loopbackTlsClientHello.delete(key);
+	}
+
+	function serializeTlsState(tlsSocket: tls.TLSSocket): string {
+		let cipher: Record<string, unknown> | null = null;
+			try {
+				const details = tlsSocket.getCipher();
+				if (details) {
+					const standardName = (details as { standardName?: string }).standardName ?? details.name;
+					cipher = {
+						name: details.name,
+						standardName,
+						version: details.version,
+					};
+				}
+		} catch {
+			cipher = null;
+		}
+		return JSON.stringify({
+			authorized: tlsSocket.authorized === true,
+			authorizationError:
+				typeof tlsSocket.authorizationError === "string"
+					? tlsSocket.authorizationError
+					: undefined,
+			alpnProtocol: tlsSocket.alpnProtocol || false,
+			servername: (tlsSocket as tls.TLSSocket & { servername?: string }).servername,
+			protocol: tlsSocket.getProtocol?.() ?? null,
+			sessionReused: tlsSocket.isSessionReused?.() === true,
+			cipher,
+		});
+	}
+
+	function serializeTlsBridgeValue(
+		value: unknown,
+		seen = new Map<object, number>(),
+	): SerializedTlsBridgeValue {
+		if (value === undefined) {
+			return { type: "undefined" };
+		}
+		if (
+			value === null ||
+			typeof value === "boolean" ||
+			typeof value === "number" ||
+			typeof value === "string"
+		) {
+			return value;
+		}
+		if (Buffer.isBuffer(value) || value instanceof Uint8Array) {
+			return {
+				type: "buffer",
+				data: Buffer.from(value).toString("base64"),
+			};
+		}
+		if (Array.isArray(value)) {
+			return {
+				type: "array",
+				value: value.map((entry) => serializeTlsBridgeValue(entry, seen)),
+			};
+		}
+		if (typeof value === "object") {
+			const existingId = seen.get(value);
+			if (existingId !== undefined) {
+				return { type: "ref", id: existingId };
+			}
+			const id = seen.size + 1;
+			seen.set(value, id);
+			const serialized: Record<string, SerializedTlsBridgeValue> = {};
+			for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+				serialized[key] = serializeTlsBridgeValue(entry, seen);
+			}
+			return {
+				type: "object",
+				id,
+				value: serialized,
+			};
+		}
+		return String(value);
+	}
+
+	function serializeTlsError(error: unknown, tlsSocket?: tls.TLSSocket): string {
+		const err =
+			error instanceof Error ? error : new Error(typeof error === "string" ? error : String(error));
+		const payload: Record<string, unknown> = {
+			message: err.message,
+			name: err.name,
+			stack: err.stack,
+		};
+		const code = (err as { code?: unknown }).code;
+		if (typeof code === "string") {
+			payload.code = code;
+		}
+		if (tlsSocket) {
+			payload.authorized = tlsSocket.authorized === true;
+			if (typeof tlsSocket.authorizationError === "string") {
+				payload.authorizationError = tlsSocket.authorizationError;
+			}
+		}
+		return JSON.stringify(payload);
+	}
+
+	function serializeSocketInfo(socketId: number): SerializedNetSocketInfo {
+		const socket = socketTable.get(socketId);
+		const localAddr = socket?.localAddr;
+		const remoteAddr = socket?.remoteAddr;
+		return {
+			localAddress:
+				localAddr && typeof localAddr === "object" && "host" in localAddr
+					? localAddr.host
+					: localAddr && typeof localAddr === "object" && "path" in localAddr
+						? localAddr.path
+						: "0.0.0.0",
+			localPort:
+				localAddr && typeof localAddr === "object" && "port" in localAddr
+					? localAddr.port
+					: 0,
+			localFamily:
+				localAddr && typeof localAddr === "object" && "host" in localAddr
+					? addressFamily(localAddr.host)
+					: localAddr && typeof localAddr === "object" && "path" in localAddr
+						? "Unix"
+						: "IPv4",
+			...(localAddr && typeof localAddr === "object" && "path" in localAddr
+				? { localPath: localAddr.path }
+				: {}),
+			...(remoteAddr && typeof remoteAddr === "object" && "host" in remoteAddr
+				? {
+						remoteAddress: remoteAddr.host,
+						remotePort: remoteAddr.port,
+						remoteFamily: addressFamily(remoteAddr.host),
+					}
+				: remoteAddr && typeof remoteAddr === "object" && "path" in remoteAddr
+					? {
+							remoteAddress: remoteAddr.path,
+							remoteFamily: "Unix",
+							remotePath: remoteAddr.path,
+						}
+					: {}),
+		};
+	}
+
+	function getBackingSocket(socketId: number): net.Socket | undefined {
+		const tlsSocket = tlsSockets.get(socketId);
+		if (tlsSocket) {
+			return tlsSocket;
+		}
+		const socket = socketTable.get(socketId);
+		const hostSocket = socket?.hostSocket as { socket?: net.Socket } | undefined;
+		return hostSocket?.socket;
+	}
+
+	function dispatchAsync(socketId: number, event: string, data?: string): void {
+		setTimeout(() => {
+			dispatch(socketId, event, data);
+		}, 0);
+	}
 
 	/** Background read pump: polls kernel recv() and dispatches data/end/close. */
 	function startReadPump(socketId: number): void {
@@ -1906,7 +2297,7 @@ function buildKernelSocketBridgeHandlers(
 					}
 
 					if (data !== null) {
-						dispatch(socketId, "data", Buffer.from(data).toString("base64"));
+						dispatchAsync(socketId, "data", Buffer.from(data).toString("base64"));
 						continue;
 					}
 
@@ -1914,16 +2305,16 @@ function buildKernelSocketBridgeHandlers(
 					const socket = socketTable.get(socketId);
 					if (!socket) break;
 					if (socket.state === "closed" || socket.state === "read-closed") {
-						dispatch(socketId, "end");
+						dispatchAsync(socketId, "end");
 						break;
 					}
 					if (socket.peerWriteClosed || (socket.peerId === undefined && !socket.external)) {
-						dispatch(socketId, "end");
+						dispatchAsync(socketId, "end");
 						break;
 					}
 					// For external sockets, check hostSocket EOF via readBuffer state
 					if (socket.external && socket.readBuffer.length === 0 && socket.peerWriteClosed) {
-						dispatch(socketId, "end");
+						dispatchAsync(socketId, "end");
 						break;
 					}
 
@@ -1936,32 +2327,107 @@ function buildKernelSocketBridgeHandlers(
 			}
 			// Dispatch close if socket was active
 			if (activeSocketIds.delete(socketId)) {
-				dispatch(socketId, "close");
+				dispatchAsync(socketId, "close");
 			}
 		};
 		pump();
 	}
 
 	// Connect — create kernel socket and start async connect + read pump
-	handlers[K.netSocketConnectRaw] = (host: unknown, port: unknown) => {
-		const socketId = socketTable.create(AF_INET, SOCK_STREAM, 0, pid);
+	handlers[K.netSocketConnectRaw] = (optionsJson: unknown) => {
+		const options = parseJsonWithLimit<SerializedNetConnectOptions>(
+			"net.socket.connect options",
+			String(optionsJson),
+			128 * 1024,
+		);
+		const isUnixPath = typeof options.path === "string" && options.path.length > 0;
+		const host = String(options.host ?? "127.0.0.1");
+		const port = Number(options.port ?? 0);
+		const socketId = socketTable.create(
+			isUnixPath ? AF_UNIX : host.includes(":") ? AF_INET6 : AF_INET,
+			SOCK_STREAM,
+			0,
+			pid,
+		);
 		activeSocketIds.add(socketId);
 
-		// Async connect — dispatch 'connect' on success, 'error' on failure
-		socketTable.connect(socketId, { host: String(host), port: Number(port) })
-			.then(() => {
-				if (!activeSocketIds.has(socketId)) return;
-				dispatch(socketId, "connect");
-				startReadPump(socketId);
-			})
-			.catch((err: Error) => {
-				if (!activeSocketIds.has(socketId)) return;
-				dispatch(socketId, "error", err.message);
-				activeSocketIds.delete(socketId);
-				dispatch(socketId, "close");
-			});
+		// Async connect completion is polled from the isolate via waitConnectRaw.
+		pendingConnects.set(
+			socketId,
+			socketTable.connect(
+				socketId,
+				isUnixPath ? { path: options.path! } : { host, port },
+			).then(
+				() => ({ ok: true } as const),
+				(error) => ({
+					ok: false as const,
+					error: error instanceof Error ? error.message : String(error),
+				}),
+			),
+		);
 
 		return socketId;
+	};
+
+	handlers[K.netSocketWaitConnectRaw] = async (socketId: unknown): Promise<string> => {
+		const id = Number(socketId);
+		const pending = pendingConnects.get(id);
+		try {
+			if (pending) {
+				const result = await pending;
+				if (!result.ok) {
+					throw new Error(result.error);
+				}
+			}
+			return JSON.stringify(serializeSocketInfo(id));
+		} finally {
+			pendingConnects.delete(id);
+		}
+	};
+
+	handlers[K.netSocketReadRaw] = (socketId: unknown): string | null => {
+		const id = Number(socketId);
+		if (!activeSocketIds.has(id)) {
+			return null;
+		}
+		try {
+			const chunk = socketTable.recv(id, 65536, 0);
+			if (chunk !== null) {
+				return Buffer.from(chunk).toString("base64");
+			}
+			const socket = socketTable.get(id);
+			if (
+				!socket ||
+				socket.state === "closed" ||
+				socket.state === "read-closed" ||
+				socket.peerWriteClosed
+			) {
+				return null;
+			}
+			return NET_BRIDGE_TIMEOUT_SENTINEL;
+		} catch (error) {
+			if (error instanceof Error && error.message.includes("EAGAIN")) {
+				return NET_BRIDGE_TIMEOUT_SENTINEL;
+			}
+			return null;
+		}
+	};
+
+	handlers[K.netSocketSetNoDelayRaw] = (socketId: unknown, enable: unknown) => {
+		const id = Number(socketId);
+		socketTable.setsockopt(id, IPPROTO_TCP, TCP_NODELAY, enable ? 1 : 0);
+		getBackingSocket(id)?.setNoDelay(Boolean(enable));
+	};
+
+	handlers[K.netSocketSetKeepAliveRaw] = (
+		socketId: unknown,
+		enable: unknown,
+		initialDelaySeconds: unknown,
+	) => {
+		const id = Number(socketId);
+		const delaySeconds = Math.max(0, Number(initialDelaySeconds) || 0);
+		socketTable.setsockopt(id, SOL_SOCKET, SO_KEEPALIVE, enable ? 1 : 0);
+		getBackingSocket(id)?.setKeepAlive(Boolean(enable), delaySeconds * 1000);
 	};
 
 	// Write — send data through kernel socket
@@ -1998,11 +2464,14 @@ function buildKernelSocketBridgeHandlers(
 	// Destroy — close kernel socket
 	handlers[K.netSocketDestroyRaw] = (socketId: unknown) => {
 		const id = Number(socketId);
+		const socket = socketTable.get(id);
 		const tlsSocket = tlsSockets.get(id);
 		if (tlsSocket) {
 			tlsSocket.destroy();
 			tlsSockets.delete(id);
 		}
+		cleanupLoopbackTlsTransport(id, socket?.peerId);
+		socketTable.get(id)?.readWaiters.wakeAll();
 		if (activeSocketIds.has(id)) {
 			activeSocketIds.delete(id);
 			try {
@@ -2023,50 +2492,335 @@ function buildKernelSocketBridgeHandlers(
 		const socket = socketTable.get(id);
 		if (!socket) throw new Error(`Socket ${id} not found for TLS upgrade`);
 
-		// TLS only works for external sockets with a real host socket
-		if (!socket.external || !socket.hostSocket) {
-			throw new Error(`Socket ${id} cannot be TLS-upgraded (loopback socket)`);
+		const options = optionsJson
+			? parseJsonWithLimit<SerializedTlsUpgradeOptions>(
+					"net.socket.upgradeTls options",
+					String(optionsJson),
+					256 * 1024,
+				)
+			: {};
+		const hostTlsOptions = buildHostTlsOptions(options);
+		const peerId = socket.peerId;
+		const loopbackTlsKey = peerId === undefined ? undefined : getLoopbackTlsKey(id, peerId);
+
+		if (!options.isServer && loopbackTlsKey) {
+			loopbackTlsClientHello.set(loopbackTlsKey, {
+				servername: options.servername,
+				ALPNProtocols: options.ALPNProtocols,
+			});
 		}
 
-		const options = optionsJson ? JSON.parse(String(optionsJson)) : {};
-
-		// Access the underlying net.Socket from the host adapter
-		const hostSocket = socket.hostSocket as unknown as { socket?: net.Socket };
-		const realSocket = (hostSocket as any).socket as net.Socket | undefined;
-		if (!realSocket) {
-			throw new Error(`Socket ${id} has no underlying TCP socket for TLS upgrade`);
+		let transport: net.Socket | Duplex;
+		if (socket.external && socket.hostSocket) {
+			const hostSocket = socket.hostSocket as unknown as { socket?: net.Socket };
+			const realSocket = hostSocket.socket;
+			if (!realSocket) {
+				throw new Error(`Socket ${id} has no underlying TCP socket for TLS upgrade`);
+			}
+			socket.hostSocket = undefined;
+			transport = realSocket;
+		} else {
+			transport = getLoopbackTlsTransport(socket);
 		}
 
-		// Detach the kernel read pump by clearing the host socket ref
-		socket.hostSocket = undefined;
-
-		const tlsSocket = tls.connect({
-			socket: realSocket,
-			rejectUnauthorized: options.rejectUnauthorized ?? false,
-			servername: options.servername,
-			...( options.minVersion ? { minVersion: options.minVersion } : {}),
-			...( options.maxVersion ? { maxVersion: options.maxVersion } : {}),
-		});
+		const tlsSocket = options.isServer
+			? new tls.TLSSocket(transport, {
+					isServer: true,
+					secureContext: tls.createSecureContext(hostTlsOptions),
+					requestCert: options.requestCert === true,
+					rejectUnauthorized: options.rejectUnauthorized === true,
+				})
+			: tls.connect({
+					socket: transport,
+					...hostTlsOptions,
+					rejectUnauthorized: options.rejectUnauthorized !== false,
+				});
 
 		// Track TLS socket for write/end/destroy bypass
-		tlsSockets.set(id, tlsSocket as unknown as net.Socket);
+		tlsSockets.set(id, tlsSocket);
 
-		tlsSocket.on("secureConnect", () => dispatch(id, "secureConnect"));
-		tlsSocket.on("data", (chunk: Buffer) =>
-			dispatch(id, "data", chunk.toString("base64")),
+		tlsSocket.on("secureConnect", () =>
+			dispatchAsync(id, "secureConnect", serializeTlsState(tlsSocket)),
 		);
-		tlsSocket.on("end", () => dispatch(id, "end"));
+		tlsSocket.on("secure", () =>
+			dispatchAsync(id, "secure", serializeTlsState(tlsSocket)),
+		);
+		tlsSocket.on("session", (session: Buffer) =>
+			dispatchAsync(id, "session", session.toString("base64")),
+		);
+		tlsSocket.on("data", (chunk: Buffer) =>
+			dispatchAsync(id, "data", chunk.toString("base64")),
+		);
+		tlsSocket.on("end", () => dispatchAsync(id, "end"));
 		tlsSocket.on("error", (err: Error) =>
-			dispatch(id, "error", err.message),
+			dispatchAsync(id, "error", serializeTlsError(err, tlsSocket)),
 		);
 		tlsSocket.on("close", () => {
 			tlsSockets.delete(id);
 			activeSocketIds.delete(id);
-			dispatch(id, "close");
+			cleanupLoopbackTlsTransport(id, peerId);
+			dispatchAsync(id, "close");
 		});
 	};
 
+	handlers[K.netSocketGetTlsClientHelloRaw] = (socketId: unknown): string => {
+		const id = Number(socketId);
+		const socket = socketTable.get(id);
+		if (!socket || socket.peerId === undefined) {
+			return "{}";
+		}
+		const entry = loopbackTlsClientHello.get(getLoopbackTlsKey(id, socket.peerId));
+		return JSON.stringify(entry ?? {});
+	};
+
+	handlers[K.netSocketTlsQueryRaw] = (
+		socketId: unknown,
+		query: unknown,
+		detailed?: unknown,
+	): string => {
+		const tlsSocket = tlsSockets.get(Number(socketId)) as tls.TLSSocket | undefined;
+		if (!tlsSocket) {
+			return JSON.stringify({ type: "undefined" });
+		}
+		let result: unknown;
+		switch (String(query)) {
+			case "getSession":
+				result = tlsSocket.getSession();
+				break;
+			case "isSessionReused":
+				result = tlsSocket.isSessionReused();
+				break;
+			case "getPeerCertificate":
+				result = tlsSocket.getPeerCertificate(Boolean(detailed));
+				break;
+			case "getCertificate":
+				result = tlsSocket.getCertificate();
+				break;
+			case "getProtocol":
+				result = tlsSocket.getProtocol();
+				break;
+			case "getCipher":
+				result = tlsSocket.getCipher();
+				break;
+			default:
+				result = undefined;
+				break;
+		}
+		return JSON.stringify(serializeTlsBridgeValue(result));
+	};
+
+	handlers[K.tlsGetCiphersRaw] = (): string => JSON.stringify(tls.getCiphers());
+
+	handlers[K.netServerListenRaw] = async (optionsJson: unknown): Promise<string> => {
+		const options = parseJsonWithLimit<SerializedNetListenOptions>(
+			"net.server.listen options",
+			String(optionsJson),
+			128 * 1024,
+		);
+		const isUnixPath = typeof options.path === "string" && options.path.length > 0;
+		const host = String(options.host ?? "127.0.0.1");
+		const serverId = socketTable.create(
+			isUnixPath ? AF_UNIX : host.includes(":") ? AF_INET6 : AF_INET,
+			SOCK_STREAM,
+			0,
+			pid,
+		);
+		activeServerIds.add(serverId);
+		const socketMode =
+			options.readableAll || options.writableAll
+				? 0o600 |
+					(options.readableAll ? 0o044 : 0) |
+					(options.writableAll ? 0o022 : 0)
+				: undefined;
+		await socketTable.bind(
+			serverId,
+			isUnixPath
+				? { path: options.path! }
+				: {
+						host,
+						port: Number(options.port ?? 0),
+					},
+			socketMode === undefined ? undefined : { mode: socketMode },
+		);
+		await socketTable.listen(serverId, Number(options.backlog ?? 511));
+		return JSON.stringify({
+			serverId,
+			address: serializeSocketInfo(serverId),
+		});
+	};
+
+	handlers[K.netServerAcceptRaw] = (serverId: unknown): string | null => {
+		const id = Number(serverId);
+		if (!activeServerIds.has(id)) {
+			return null;
+		}
+		const listener = socketTable.get(id);
+		if (!listener || listener.state !== "listening") {
+			return null;
+		}
+		const acceptedId = socketTable.accept(id);
+		if (acceptedId === null) {
+			return NET_BRIDGE_TIMEOUT_SENTINEL;
+		}
+		activeSocketIds.add(acceptedId);
+		return JSON.stringify({
+			socketId: acceptedId,
+			info: serializeSocketInfo(acceptedId),
+		});
+	};
+
+	handlers[K.netServerCloseRaw] = async (serverId: unknown): Promise<void> => {
+		const id = Number(serverId);
+		activeServerIds.delete(id);
+		socketTable.get(id)?.acceptWaiters.wakeAll();
+		try {
+			socketTable.close(id, pid);
+		} catch {
+			// Already closed
+		}
+	};
+
+	handlers[K.dgramSocketCreateRaw] = (type: unknown): number => {
+		const socketType = String(type);
+		const domain = socketType === "udp6" ? AF_INET6 : AF_INET;
+		const socketId = socketTable.create(domain, SOCK_DGRAM, 0, pid);
+		activeDgramIds.add(socketId);
+		return socketId;
+	};
+
+	handlers[K.dgramSocketBindRaw] = async (
+		socketId: unknown,
+		optionsJson: unknown,
+	): Promise<string> => {
+		const id = Number(socketId);
+		const socket = socketTable.get(id);
+		if (!socket) {
+			throw new Error(`UDP socket ${id} not found`);
+		}
+		const options = parseJsonWithLimit<SerializedDgramBindOptions>(
+			"dgram.socket.bind options",
+			String(optionsJson),
+			128 * 1024,
+		);
+		const host = String(
+			options.address ??
+				(socket.domain === AF_INET6 ? "::" : "0.0.0.0"),
+		);
+		await socketTable.bind(id, {
+			host,
+			port: Number(options.port ?? 0),
+		});
+		return JSON.stringify(serializeSocketInfo(id));
+	};
+
+	handlers[K.dgramSocketRecvRaw] = (socketId: unknown): string | null => {
+		const id = Number(socketId);
+		if (!activeDgramIds.has(id)) {
+			return null;
+		}
+		try {
+			const socket = socketTable.get(id);
+			if (!socket || socket.state === "closed") {
+				return null;
+			}
+			const message = socketTable.recvFrom(id, 65535, 0);
+			if (message === null) {
+				return NET_BRIDGE_TIMEOUT_SENTINEL;
+			}
+			return JSON.stringify({
+				data: Buffer.from(message.data).toString("base64"),
+				rinfo:
+					"path" in message.srcAddr
+						? {
+								address: message.srcAddr.path,
+								family: "unix",
+								port: 0,
+								size: message.data.length,
+							}
+						: {
+								address: message.srcAddr.host,
+								family: addressFamily(message.srcAddr.host),
+								port: message.srcAddr.port,
+								size: message.data.length,
+							},
+			});
+		} catch (error) {
+			if (error instanceof Error && error.message.includes("EAGAIN")) {
+				return NET_BRIDGE_TIMEOUT_SENTINEL;
+			}
+			return null;
+		}
+	};
+
+	handlers[K.dgramSocketSendRaw] = async (
+		socketId: unknown,
+		optionsJson: unknown,
+	): Promise<number> => {
+		const id = Number(socketId);
+		const options = parseJsonWithLimit<SerializedDgramSendOptions>(
+			"dgram.socket.send options",
+			String(optionsJson),
+			256 * 1024,
+		);
+		const data = Buffer.from(options.data, "base64");
+		return socketTable.sendTo(
+			id,
+			new Uint8Array(data),
+			0,
+			{ host: String(options.address), port: Number(options.port) },
+		);
+	};
+
+	handlers[K.dgramSocketCloseRaw] = async (socketId: unknown): Promise<void> => {
+		const id = Number(socketId);
+		activeDgramIds.delete(id);
+		socketTable.get(id)?.readWaiters.wakeAll();
+		try {
+			socketTable.close(id, pid);
+		} catch {
+			// Already closed
+		}
+	};
+
+	handlers[K.dgramSocketAddressRaw] = (socketId: unknown): string => {
+		const id = Number(socketId);
+		const socket = socketTable.get(id);
+		if (!socket?.localAddr || "path" in socket.localAddr) {
+			throw new Error("getsockname EBADF");
+		}
+		return JSON.stringify({
+			address: socket.localAddr.host,
+			family: addressFamily(socket.localAddr.host),
+			port: socket.localAddr.port,
+		});
+	};
+
+	handlers[K.dgramSocketSetBufferSizeRaw] = (
+		socketId: unknown,
+		which: unknown,
+		size: unknown,
+	): void => {
+		const optname = which === "send" ? SO_SNDBUF : SO_RCVBUF;
+		socketTable.setsockopt(Number(socketId), SOL_SOCKET, optname, Number(size));
+	};
+
+	handlers[K.dgramSocketGetBufferSizeRaw] = (
+		socketId: unknown,
+		which: unknown,
+	): number => {
+		const optname = which === "send" ? SO_SNDBUF : SO_RCVBUF;
+		return socketTable.getsockopt(Number(socketId), SOL_SOCKET, optname) ?? 0;
+	};
+
 	const dispose = () => {
+		for (const id of activeServerIds) {
+			try { socketTable.close(id, pid); } catch { /* best effort */ }
+		}
+		activeServerIds.clear();
+		for (const id of activeDgramIds) {
+			try { socketTable.close(id, pid); } catch { /* best effort */ }
+		}
+		activeDgramIds.clear();
 		for (const id of activeSocketIds) {
 			try { socketTable.close(id, pid); } catch { /* best effort */ }
 		}
@@ -2075,6 +2829,12 @@ function buildKernelSocketBridgeHandlers(
 			socket.destroy();
 		}
 		tlsSockets.clear();
+		for (const pair of loopbackTlsTransports.values()) {
+			pair.a.destroy();
+			pair.b.destroy();
+		}
+		loopbackTlsTransports.clear();
+		loopbackTlsClientHello.clear();
 	};
 
 	return { handlers, dispose };
@@ -2759,7 +3519,7 @@ export function buildFsBridgeHandlers(deps: FsBridgeDeps): BridgeHandlers {
 
 	handlers[K.fsReadFile] = async (path: unknown) => {
 		checkBridgeBudget(deps);
-		const text = await fs.readTextFile(String(path));
+		const text = await readStandaloneProcAwareTextFile(fs, String(path));
 		assertTextPayloadSize(`fs.readFile ${path}`, text, jsonLimit);
 		return text;
 	};
@@ -2771,7 +3531,7 @@ export function buildFsBridgeHandlers(deps: FsBridgeDeps): BridgeHandlers {
 
 	handlers[K.fsReadFileBinary] = async (path: unknown) => {
 		checkBridgeBudget(deps);
-		const data = await fs.readFile(String(path));
+		const data = await readStandaloneProcAwareFile(fs, String(path));
 		assertPayloadByteLength(`fs.readFileBinary ${path}`, getBase64EncodedByteLength(data.byteLength), base64Limit);
 		return Buffer.from(data).toString("base64");
 	};
@@ -2805,12 +3565,12 @@ export function buildFsBridgeHandlers(deps: FsBridgeDeps): BridgeHandlers {
 
 	handlers[K.fsExists] = async (path: unknown) => {
 		checkBridgeBudget(deps);
-		return fs.exists(String(path));
+		return standaloneProcAwareExists(fs, String(path));
 	};
 
 	handlers[K.fsStat] = async (path: unknown) => {
 		checkBridgeBudget(deps);
-		const s = await fs.stat(String(path));
+		const s = await standaloneProcAwareStat(fs, String(path));
 		return JSON.stringify({ mode: s.mode, size: s.size, isDirectory: s.isDirectory,
 			atimeMs: s.atimeMs, mtimeMs: s.mtimeMs, ctimeMs: s.ctimeMs, birthtimeMs: s.birthtimeMs });
 	};
@@ -3161,10 +3921,25 @@ function createKernelSocketDuplex(
 	});
 
 	// Socket-like properties for Node http module
-	(duplex as any).remoteAddress = "127.0.0.1";
-	(duplex as any).remotePort = 0;
-	(duplex as any).localAddress = "127.0.0.1";
-	(duplex as any).localPort = 0;
+	const socket = socketTable.get(socketId);
+	const localAddr = socket?.localAddr;
+	const remoteAddr = socket?.remoteAddr;
+	(duplex as any).remoteAddress =
+		remoteAddr && typeof remoteAddr === "object" && "host" in remoteAddr
+			? remoteAddr.host
+			: "127.0.0.1";
+	(duplex as any).remotePort =
+		remoteAddr && typeof remoteAddr === "object" && "port" in remoteAddr
+			? remoteAddr.port
+			: 0;
+	(duplex as any).localAddress =
+		localAddr && typeof localAddr === "object" && "host" in localAddr
+			? localAddr.host
+			: "127.0.0.1";
+	(duplex as any).localPort =
+		localAddr && typeof localAddr === "object" && "port" in localAddr
+			? localAddr.port
+			: 0;
 	(duplex as any).encrypted = false;
 	(duplex as any).setNoDelay = () => duplex;
 	(duplex as any).setKeepAlive = () => duplex;
@@ -3226,15 +4001,213 @@ export function buildNetworkBridgeHandlers(deps: NetworkBridgeDeps): NetworkBrid
 	const adapter = deps.networkAdapter;
 	const jsonLimit = deps.isolateJsonPayloadLimitBytes;
 	const ownedHttpServers = new Set<number>();
+	const ownedHttp2Servers = new Set<number>();
 	const { socketTable, pid } = deps;
 
 	// Track kernel HTTP servers for cleanup
 	const kernelHttpServers = new Map<number, KernelHttpServerState>();
+	type KernelHttp2ServerState = {
+		listenSocketId: number;
+		server: http2.Http2Server | http2.Http2SecureServer;
+		sessions: Set<http2.ServerHttp2Session>;
+		acceptLoopActive: boolean;
+		closedPromise: Promise<void>;
+		resolveClosed: () => void;
+	};
+	type SerializedHttp2SocketState = {
+		encrypted?: boolean;
+		allowHalfOpen?: boolean;
+		localAddress?: string;
+		localPort?: number;
+		localFamily?: string;
+		remoteAddress?: string;
+		remotePort?: number;
+		remoteFamily?: string;
+		servername?: string;
+		alpnProtocol?: string | false;
+	};
+	type SerializedHttp2SessionState = {
+		encrypted?: boolean;
+		alpnProtocol?: string | false;
+		originSet?: string[];
+		localSettings?: Record<string, boolean | number | Record<number, number>>;
+		remoteSettings?: Record<string, boolean | number | Record<number, number>>;
+		state?: {
+			effectiveLocalWindowSize?: number;
+			localWindowSize?: number;
+			remoteWindowSize?: number;
+			nextStreamID?: number;
+			outboundQueueSize?: number;
+			deflateDynamicTableSize?: number;
+			inflateDynamicTableSize?: number;
+		};
+		socket?: SerializedHttp2SocketState;
+	};
+	type SerializedTlsDataValue =
+		| { kind: "buffer"; data: string }
+		| { kind: "string"; data: string };
+	type SerializedTlsMaterial = SerializedTlsDataValue | SerializedTlsDataValue[];
+	type SerializedTlsBridgeOptions = {
+		isServer?: boolean;
+		servername?: string;
+		rejectUnauthorized?: boolean;
+		requestCert?: boolean;
+		session?: string;
+		key?: SerializedTlsMaterial;
+		cert?: SerializedTlsMaterial;
+		ca?: SerializedTlsMaterial;
+		passphrase?: string;
+		ciphers?: string;
+		ALPNProtocols?: string[];
+		minVersion?: tls.SecureVersion;
+		maxVersion?: tls.SecureVersion;
+	};
+	const kernelHttp2Servers = new Map<number, KernelHttp2ServerState>();
+	type KernelHttp2ClientSessionState = {
+		session: http2.ClientHttp2Session;
+		closedPromise: Promise<void>;
+		resolveClosed: () => void;
+	};
+	const kernelHttp2ClientSessions = new Map<number, KernelHttp2ClientSessionState>();
+	const http2Sessions = new Map<number, http2.ClientHttp2Session | http2.ServerHttp2Session>();
+	const http2Streams = new Map<number, http2.ClientHttp2Stream | http2.ServerHttp2Stream>();
+	const http2ServerSessionIds = new WeakMap<http2.ServerHttp2Session, number>();
+	let nextHttp2SessionId = 1;
+	let nextHttp2StreamId = 1;
 	const kernelUpgradeSockets = new Map<number, Duplex>();
 	let nextKernelUpgradeSocketId = 1;
 	const loopbackAwareAdapter = adapter as NetworkAdapter & {
 		__setLoopbackPortChecker?: (checker: (hostname: string, port: number) => boolean) => void;
 	};
+
+	const decodeTlsMaterial = (
+		value: SerializedTlsMaterial | undefined,
+	): string | Buffer | Array<string | Buffer> | undefined => {
+		if (value === undefined) {
+			return undefined;
+		}
+		const decodeOne = (entry: SerializedTlsDataValue): string | Buffer =>
+			entry.kind === "buffer" ? Buffer.from(entry.data, "base64") : entry.data;
+		return Array.isArray(value) ? value.map(decodeOne) : decodeOne(value);
+	};
+
+	const buildHostTlsOptions = (
+		options: SerializedTlsBridgeOptions | undefined,
+	): Record<string, unknown> => {
+		if (!options) {
+			return {};
+		}
+		const hostOptions: Record<string, unknown> = {};
+		const key = decodeTlsMaterial(options.key);
+		const cert = decodeTlsMaterial(options.cert);
+		const ca = decodeTlsMaterial(options.ca);
+		if (key !== undefined) hostOptions.key = key;
+		if (cert !== undefined) hostOptions.cert = cert;
+		if (ca !== undefined) hostOptions.ca = ca;
+		if (typeof options.passphrase === "string") hostOptions.passphrase = options.passphrase;
+		if (typeof options.ciphers === "string") hostOptions.ciphers = options.ciphers;
+		if (typeof options.session === "string") hostOptions.session = Buffer.from(options.session, "base64");
+		if (Array.isArray(options.ALPNProtocols) && options.ALPNProtocols.length > 0) {
+			hostOptions.ALPNProtocols = [...options.ALPNProtocols];
+		}
+		if (typeof options.minVersion === "string") hostOptions.minVersion = options.minVersion;
+		if (typeof options.maxVersion === "string") hostOptions.maxVersion = options.maxVersion;
+		if (typeof options.servername === "string") hostOptions.servername = options.servername;
+		if (typeof options.requestCert === "boolean") hostOptions.requestCert = options.requestCert;
+		if (typeof options.rejectUnauthorized === "boolean") {
+			hostOptions.rejectUnauthorized = options.rejectUnauthorized;
+		}
+		return hostOptions;
+	};
+
+	const debugHttp2Bridge = (...args: unknown[]): void => {
+		if (process.env.SECURE_EXEC_DEBUG_HTTP2_BRIDGE === "1") {
+			console.error("[secure-exec http2 bridge]", ...args);
+		}
+	};
+
+	const emitHttp2Event = (...fields: Array<string | number | undefined>): void => {
+		const [kind, id, data, extra, extraNumber, extraHeaders, flags] = fields;
+		debugHttp2Bridge("emit", kind, id);
+		deps.sendStreamEvent("http2", Buffer.from(JSON.stringify({
+			kind,
+			id,
+			data,
+			extra,
+			extraNumber,
+			extraHeaders,
+			flags,
+		})));
+	};
+
+	const serializeHttp2SocketState = (
+		socket: Pick<net.Socket, "localAddress" | "localPort" | "remoteAddress" | "remotePort" | "allowHalfOpen"> &
+			Partial<tls.TLSSocket>,
+	): string => JSON.stringify({
+		encrypted: socket.encrypted === true,
+		allowHalfOpen: socket.allowHalfOpen === true,
+		localAddress: socket.localAddress,
+		localPort: socket.localPort,
+		localFamily: socket.localAddress?.includes(":") ? "IPv6" : "IPv4",
+		remoteAddress: socket.remoteAddress,
+		remotePort: socket.remotePort,
+		remoteFamily: socket.remoteAddress?.includes(":") ? "IPv6" : "IPv4",
+		servername:
+			typeof (socket as tls.TLSSocket & { servername?: string }).servername === "string"
+				? (socket as tls.TLSSocket & { servername?: string }).servername
+				: undefined,
+		alpnProtocol: socket.alpnProtocol || false,
+	} satisfies SerializedHttp2SocketState);
+
+	const serializeHttp2SessionState = (
+		session: http2.ClientHttp2Session | http2.ServerHttp2Session,
+	): string => JSON.stringify({
+		encrypted: session.encrypted === true,
+		alpnProtocol: session.alpnProtocol || (session.encrypted ? "h2" : "h2c"),
+		originSet: Array.isArray(session.originSet) ? [...session.originSet] : undefined,
+		localSettings:
+			session.localSettings && typeof session.localSettings === "object"
+				? session.localSettings as Record<string, boolean | number | Record<number, number>>
+				: undefined,
+		remoteSettings:
+			session.remoteSettings && typeof session.remoteSettings === "object"
+				? session.remoteSettings as Record<string, boolean | number | Record<number, number>>
+				: undefined,
+		state:
+			session.state && typeof session.state === "object"
+				? {
+						effectiveLocalWindowSize:
+							typeof session.state.effectiveLocalWindowSize === "number"
+								? session.state.effectiveLocalWindowSize
+								: undefined,
+						localWindowSize:
+							typeof session.state.localWindowSize === "number"
+								? session.state.localWindowSize
+								: undefined,
+						remoteWindowSize:
+							typeof session.state.remoteWindowSize === "number"
+								? session.state.remoteWindowSize
+								: undefined,
+						nextStreamID:
+							typeof session.state.nextStreamID === "number"
+								? session.state.nextStreamID
+								: undefined,
+						outboundQueueSize:
+							typeof session.state.outboundQueueSize === "number"
+								? session.state.outboundQueueSize
+								: undefined,
+						deflateDynamicTableSize:
+							typeof session.state.deflateDynamicTableSize === "number"
+								? session.state.deflateDynamicTableSize
+								: undefined,
+						inflateDynamicTableSize:
+							typeof session.state.inflateDynamicTableSize === "number"
+								? session.state.inflateDynamicTableSize
+								: undefined,
+					}
+				: undefined,
+		socket: session.socket ? JSON.parse(serializeHttp2SocketState(session.socket as net.Socket & tls.TLSSocket)) : undefined,
+	} satisfies SerializedHttp2SessionState);
 
 	// Let host-side runtime.network.fetch/httpRequest reach only the HTTP
 	// listeners owned by this execution.
@@ -3423,9 +4396,35 @@ export function buildNetworkBridgeHandlers(deps: NetworkBridgeDeps): NetworkBrid
 					const response = parseJsonWithLimit<{
 						status: number;
 						headers?: Array<[string, string]>;
+						rawHeaders?: string[];
+						informational?: Array<{
+							status: number;
+							statusText?: string;
+							headers?: Array<[string, string]>;
+							rawHeaders?: string[];
+						}>;
 						body?: string;
 						bodyEncoding?: "utf8" | "base64";
 					}>("network.httpServer response", responseJson, jsonLimit);
+
+					for (const informational of response.informational || []) {
+						const rawHeaderLines = informational.rawHeaders && informational.rawHeaders.length > 0
+							? informational.rawHeaders
+							: (informational.headers || []).flatMap(([key, value]) => [key, value]);
+						const statusText =
+							informational.statusText ||
+							http.STATUS_CODES[informational.status] ||
+							"";
+						const rawFrame =
+							`HTTP/1.1 ${informational.status} ${statusText}\r\n` +
+							rawHeaderLines.reduce((acc, entry, index) =>
+								index % 2 === 0
+									? `${acc}${entry}: ${rawHeaderLines[index + 1] ?? ""}\r\n`
+									: acc,
+							"") +
+							"\r\n";
+						(res as http.ServerResponse & { _writeRaw?: (chunk: string) => void })._writeRaw?.(rawFrame);
+					}
 
 					res.statusCode = response.status || 200;
 					for (const [key, value] of response.headers || []) {
@@ -3469,6 +4468,26 @@ export function buildNetworkBridgeHandlers(deps: NetworkBridgeDeps): NetworkBrid
 					}),
 					head: head.toString("base64"),
 					socketId: upgradeSocketId,
+				})));
+			});
+
+			httpServer.on("connect", (req, socket, head) => {
+				const connectHeaders: Record<string, string> = {};
+				Object.entries(req.headers).forEach(([key, value]) => {
+					if (typeof value === "string") connectHeaders[key] = value;
+					else if (Array.isArray(value)) connectHeaders[key] = value[0] ?? "";
+				});
+				const connectSocketId = registerKernelUpgradeSocket(socket as Duplex);
+				deps.sendStreamEvent("httpServerConnect", Buffer.from(JSON.stringify({
+					serverId: options.serverId,
+					request: JSON.stringify({
+						method: req.method || "CONNECT",
+						url: req.url || "/",
+						headers: connectHeaders,
+						rawHeaders: req.rawHeaders || [],
+					}),
+					head: head.toString("base64"),
+					socketId: connectSocketId,
 				})));
 			});
 
@@ -3520,6 +4539,716 @@ export function buildNetworkBridgeHandlers(deps: NetworkBridgeDeps): NetworkBrid
 		return closeKernelServer(id);
 	};
 
+	const closeKernelHttp2Server = async (serverId: number): Promise<void> => {
+		const state = kernelHttp2Servers.get(serverId);
+		if (!state) {
+			return;
+		}
+		state.acceptLoopActive = false;
+		try {
+			socketTable.close(state.listenSocketId, pid);
+		} catch {
+			// Listener already closed.
+		}
+		for (const session of [...state.sessions]) {
+			try {
+				session.close();
+			} catch {
+				// Ignore already-closing sessions.
+			}
+		}
+		await new Promise<void>((resolve) => {
+			try {
+				state.server.close(() => resolve());
+			} catch {
+				resolve();
+			}
+		});
+		kernelHttp2Servers.delete(serverId);
+		ownedHttp2Servers.delete(serverId);
+		deps.activeHttpServerIds.delete(serverId);
+		deps.activeHttpServerClosers.delete(serverId);
+		state.resolveClosed();
+	};
+
+	const startKernelHttp2AcceptLoop = async (
+		state: KernelHttp2ServerState,
+	): Promise<void> => {
+		try {
+			while (state.acceptLoopActive) {
+				const listenSocket = socketTable.get(state.listenSocketId);
+				if (!listenSocket || listenSocket.state !== "listening") {
+					break;
+				}
+
+				const acceptedId = socketTable.accept(state.listenSocketId);
+				if (acceptedId !== null) {
+					const duplex = createKernelSocketDuplex(acceptedId, socketTable, pid);
+					state.server.emit("connection", duplex);
+					continue;
+				}
+
+				const handle = listenSocket.acceptWaiters.enqueue();
+				const acceptedAfterEnqueue = socketTable.accept(state.listenSocketId);
+				if (acceptedAfterEnqueue !== null) {
+					handle.wake();
+					const duplex = createKernelSocketDuplex(acceptedAfterEnqueue, socketTable, pid);
+					state.server.emit("connection", duplex);
+					continue;
+				}
+
+				await handle.wait();
+			}
+		} catch {
+			// Listener closed.
+		}
+	};
+
+	const normalizeHttp2EventHeaders = (
+		headers: http2.IncomingHttpHeaders | http2.OutgoingHttpHeaders,
+	): Record<string, string | string[] | number> => {
+		const normalizedHeaders: Record<string, string | string[] | number> = {};
+		for (const [key, value] of Object.entries(headers)) {
+			if (value !== undefined) {
+				normalizedHeaders[key] = value as string | string[] | number;
+			}
+		}
+		return normalizedHeaders;
+	};
+
+	const emitHttp2SerializedError = (kind: string, id: number, error: unknown): void => {
+		const err = error instanceof Error ? error : new Error(String(error));
+		emitHttp2Event(kind, id, JSON.stringify({
+			message: err.message,
+			name: err.name,
+			code: (err as { code?: unknown }).code,
+		}));
+	};
+
+	const attachHttp2ClientStreamListeners = (
+		streamId: number,
+		stream: http2.ClientHttp2Stream,
+	): void => {
+		stream.on("response", (headers) => {
+			emitHttp2Event(
+				"clientResponseHeaders",
+				streamId,
+				JSON.stringify(normalizeHttp2EventHeaders(headers)),
+			);
+		});
+		stream.on("push", (headers, flags) => {
+			setImmediate(() => {
+				emitHttp2Event(
+					"clientPushHeaders",
+					streamId,
+					JSON.stringify(normalizeHttp2EventHeaders(headers)),
+					undefined,
+					String(flags ?? 0),
+				);
+			});
+		});
+		stream.on("data", (chunk) => {
+			emitHttp2Event(
+				"clientData",
+				streamId,
+				(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)).toString("base64"),
+			);
+		});
+		stream.on("end", () => {
+			debugHttp2Bridge("client response end", streamId);
+			setImmediate(() => {
+				emitHttp2Event("clientEnd", streamId);
+			});
+		});
+		stream.on("close", () => {
+			setImmediate(() => {
+				emitHttp2Event("clientClose", streamId, undefined, undefined, String(stream.rstCode ?? 0));
+				http2Streams.delete(streamId);
+			});
+		});
+		stream.on("error", (error) => {
+			emitHttp2SerializedError("clientError", streamId, error);
+		});
+		stream.resume();
+	};
+
+	const attachHttp2SessionListeners = (
+		sessionId: number,
+		session: http2.ClientHttp2Session | http2.ServerHttp2Session,
+		onClose?: () => void,
+	): void => {
+		session.on("close", () => {
+			debugHttp2Bridge("session close", sessionId);
+			emitHttp2Event("sessionClose", sessionId);
+			http2Sessions.delete(sessionId);
+			onClose?.();
+		});
+		session.on("error", (error) => {
+			debugHttp2Bridge("session error", sessionId, error instanceof Error ? error.message : String(error));
+			emitHttp2SerializedError("sessionError", sessionId, error);
+		});
+		session.on("localSettings", (settings) => {
+			emitHttp2Event("sessionLocalSettings", sessionId, JSON.stringify(settings));
+		});
+		session.on("remoteSettings", (settings) => {
+			emitHttp2Event("sessionRemoteSettings", sessionId, JSON.stringify(settings));
+		});
+		session.on("goaway", (errorCode, lastStreamID, opaqueData) => {
+			emitHttp2Event(
+				"sessionGoaway",
+				sessionId,
+				Buffer.isBuffer(opaqueData) ? opaqueData.toString("base64") : undefined,
+				undefined,
+				String(errorCode),
+				undefined,
+				String(lastStreamID),
+			);
+		});
+	};
+
+	handlers[K.networkHttp2ServerListenRaw] = (optionsJson: unknown): Promise<string> => {
+		const options = parseJsonWithLimit<{
+			serverId: number;
+			secure?: boolean;
+			port?: number;
+			host?: string;
+			backlog?: number;
+			allowHalfOpen?: boolean;
+			allowHTTP1?: boolean;
+			timeout?: number;
+			settings?: Record<string, unknown>;
+			remoteCustomSettings?: number[];
+			tls?: SerializedTlsBridgeOptions;
+		}>("network.http2Server.listen options", String(optionsJson), jsonLimit);
+
+		return (async () => {
+			debugHttp2Bridge("server listen start", options.serverId, options.secure, options.host, options.port);
+			const host = normalizeLoopbackHostname(options.host);
+			const listenSocketId = socketTable.create(AF_INET, SOCK_STREAM, 0, pid);
+			await socketTable.bind(listenSocketId, { host, port: options.port ?? 0 });
+			await socketTable.listen(listenSocketId, options.backlog ?? 128, { external: true });
+
+			const listenSocket = socketTable.get(listenSocketId);
+			const addr = listenSocket?.localAddr as { host: string; port: number } | undefined;
+			const address = addr ? {
+				address: addr.host,
+				family: addr.host.includes(":") ? "IPv6" : "IPv4",
+				port: addr.port,
+			} : null;
+
+			const server = options.secure
+				? http2.createSecureServer({
+						allowHTTP1: options.allowHTTP1 === true,
+						settings: options.settings as http2.Settings,
+						remoteCustomSettings: options.remoteCustomSettings,
+						...buildHostTlsOptions(options.tls),
+					} as http2.SecureServerOptions)
+				: http2.createServer({
+						allowHTTP1: options.allowHTTP1 === true,
+						settings: options.settings as http2.Settings,
+						remoteCustomSettings: options.remoteCustomSettings,
+					} as http2.ServerOptions);
+
+			if (typeof options.timeout === "number" && options.timeout > 0) {
+				server.setTimeout(options.timeout);
+			}
+
+			server.on("timeout", () => {
+				emitHttp2Event("serverTimeout", options.serverId);
+			});
+			server.on("connection", (socket) => {
+				emitHttp2Event("serverConnection", options.serverId, serializeHttp2SocketState(socket));
+			});
+			if (options.secure) {
+				server.on("secureConnection", (socket) => {
+					emitHttp2Event("serverSecureConnection", options.serverId, serializeHttp2SocketState(socket));
+				});
+			}
+			server.on("request", (req, res) => {
+				if (req.httpVersionMajor === 2) {
+					return;
+				}
+				void (async () => {
+					const chunks: Buffer[] = [];
+					for await (const chunk of req) {
+						chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+					}
+
+					const headers: Record<string, string> = {};
+					Object.entries(req.headers).forEach(([key, value]) => {
+						if (typeof value === "string") headers[key] = value;
+						else if (Array.isArray(value)) headers[key] = value[0] ?? "";
+					});
+
+					const requestJson = JSON.stringify({
+						method: req.method || "GET",
+						url: req.url || "/",
+						headers,
+						rawHeaders: req.rawHeaders || [],
+						bodyBase64: chunks.length > 0 ? Buffer.concat(chunks).toString("base64") : undefined,
+					});
+					const requestId = nextHttp2CompatRequestId++;
+					const responsePromise = new Promise<string>((resolve) => {
+						registerPendingHttp2CompatResponse(options.serverId, requestId, resolve);
+					});
+					emitHttp2Event("serverCompatRequest", options.serverId, requestJson, undefined, String(requestId));
+					const responseJson = await responsePromise;
+					const response = parseJsonWithLimit<{
+						status: number;
+						headers?: Array<[string, string]>;
+						body?: string;
+						bodyEncoding?: "utf8" | "base64";
+					}>("network.http2Server.compat response", responseJson, jsonLimit);
+					res.statusCode = response.status || 200;
+					for (const [key, value] of response.headers || []) {
+						res.setHeader(key, value);
+					}
+					if (response.bodyEncoding === "base64" && typeof response.body === "string") {
+						res.end(Buffer.from(response.body, "base64"));
+					} else if (typeof response.body === "string") {
+						res.end(response.body);
+					} else {
+						res.end();
+					}
+				})().catch((error) => {
+					try {
+						res.statusCode = 500;
+						res.end(error instanceof Error ? error.message : String(error));
+					} catch {
+						// Response already closed.
+					}
+				});
+			});
+			server.on("stream", (stream, headers, flags) => {
+				debugHttp2Bridge("server stream", options.serverId, flags);
+				const streamSession = stream.session as http2.ServerHttp2Session | undefined;
+				if (!streamSession) {
+					return;
+				}
+				let sessionId = http2ServerSessionIds.get(streamSession);
+				if (sessionId === undefined) {
+					sessionId = nextHttp2SessionId++;
+					http2ServerSessionIds.set(streamSession, sessionId);
+					http2Sessions.set(sessionId, streamSession);
+					attachHttp2SessionListeners(sessionId, streamSession);
+					emitHttp2Event("serverSession", options.serverId, serializeHttp2SessionState(streamSession), undefined, String(sessionId));
+				}
+
+				const streamId = nextHttp2StreamId++;
+				http2Streams.set(streamId, stream);
+				stream.pause();
+				stream.on("data", (chunk) => {
+					emitHttp2Event(
+						"serverStreamData",
+						streamId,
+						(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)).toString("base64"),
+					);
+				});
+				stream.on("end", () => {
+					emitHttp2Event("serverStreamEnd", streamId);
+				});
+				stream.on("drain", () => {
+					emitHttp2Event("serverStreamDrain", streamId);
+				});
+				stream.on("error", (error) => {
+					emitHttp2SerializedError("serverStreamError", streamId, error);
+				});
+				stream.on("close", () => {
+					emitHttp2Event("serverStreamClose", streamId, undefined, undefined, String(stream.rstCode ?? 0));
+					http2Streams.delete(streamId);
+				});
+				emitHttp2Event(
+					"serverStream",
+					options.serverId,
+					String(streamId),
+					serializeHttp2SessionState(streamSession),
+					String(sessionId),
+					JSON.stringify(normalizeHttp2EventHeaders(headers)),
+					String(flags ?? 0),
+				);
+			});
+			server.on("close", () => {
+				debugHttp2Bridge("server close", options.serverId);
+				emitHttp2Event("serverClose", options.serverId);
+			});
+
+			let resolveClosed!: () => void;
+			const closedPromise = new Promise<void>((resolve) => {
+				resolveClosed = resolve;
+			});
+			const state: KernelHttp2ServerState = {
+				listenSocketId,
+				server,
+				sessions: new Set<http2.ServerHttp2Session>(),
+				acceptLoopActive: true,
+				closedPromise,
+				resolveClosed,
+			};
+			server.on("session", (session) => {
+				state.sessions.add(session);
+				session.once("close", () => {
+					state.sessions.delete(session);
+				});
+			});
+			kernelHttp2Servers.set(options.serverId, state);
+			ownedHttp2Servers.add(options.serverId);
+			deps.activeHttpServerIds.add(options.serverId);
+			deps.activeHttpServerClosers.set(
+				options.serverId,
+				() => closeKernelHttp2Server(options.serverId),
+			);
+			void startKernelHttp2AcceptLoop(state);
+			return JSON.stringify({ address });
+		})();
+	};
+
+	handlers[K.networkHttp2ServerCloseRaw] = (serverId: unknown): Promise<void> => {
+		const id = Number(serverId);
+		if (!ownedHttp2Servers.has(id)) {
+			throw new Error(`Cannot close HTTP/2 server ${id}: not owned by this execution context`);
+		}
+		return closeKernelHttp2Server(id);
+	};
+
+	handlers[K.networkHttp2ServerWaitRaw] = (serverId: unknown): Promise<void> => {
+		const state = kernelHttp2Servers.get(Number(serverId));
+		return state?.closedPromise ?? Promise.resolve();
+	};
+
+	handlers[K.networkHttp2SessionConnectRaw] = (optionsJson: unknown): Promise<string> => {
+		const options = parseJsonWithLimit<{
+			authority: string;
+			protocol: string;
+			host?: string;
+			port?: number | string;
+			localAddress?: string;
+			family?: number;
+			socketId?: number;
+			settings?: Record<string, unknown>;
+			remoteCustomSettings?: number[];
+			tls?: SerializedTlsBridgeOptions;
+		}>("network.http2Session.connect options", String(optionsJson), jsonLimit);
+
+		return (async () => {
+			const authority = String(options.authority);
+			debugHttp2Bridge("session connect start", authority, options.socketId ?? null);
+			const sessionId = nextHttp2SessionId++;
+			let transport: Duplex;
+			if (typeof options.socketId === "number") {
+				transport = createKernelSocketDuplex(options.socketId, socketTable, pid);
+			} else {
+				const host = String(options.host ?? "127.0.0.1");
+				const port = Number(options.port ?? 0);
+				const socketId = socketTable.create(
+					host.includes(":") ? AF_INET6 : AF_INET,
+					SOCK_STREAM,
+					0,
+					pid,
+				);
+				if (typeof options.localAddress === "string" && options.localAddress.length > 0) {
+					await socketTable.bind(socketId, {
+						host: options.localAddress,
+						port: 0,
+					});
+				}
+				await socketTable.connect(socketId, { host, port });
+				transport = createKernelSocketDuplex(socketId, socketTable, pid);
+			}
+
+			const session = http2.connect(authority, {
+				settings: options.settings as http2.Settings,
+				remoteCustomSettings: options.remoteCustomSettings,
+				createConnection: () => {
+					debugHttp2Bridge("createConnection", authority, options.protocol);
+					if (options.protocol === "https:") {
+						return tls.connect({
+							socket: transport,
+							ALPNProtocols: ["h2"],
+							servername:
+								typeof options.tls?.servername === "string" && options.tls.servername.length > 0
+									? options.tls.servername
+									: undefined,
+							...buildHostTlsOptions(options.tls),
+						});
+					}
+					return transport;
+				},
+			});
+
+			let resolveClosed!: () => void;
+			const closedPromise = new Promise<void>((resolve) => {
+				resolveClosed = resolve;
+			});
+			http2Sessions.set(sessionId, session);
+			kernelHttp2ClientSessions.set(sessionId, {
+				session,
+				closedPromise,
+				resolveClosed,
+			});
+			session.on("connect", () => {
+				debugHttp2Bridge("session connect", sessionId, authority);
+				emitHttp2Event("sessionConnect", sessionId, serializeHttp2SessionState(session));
+			});
+			attachHttp2SessionListeners(sessionId, session, () => {
+				kernelHttp2ClientSessions.get(sessionId)?.resolveClosed();
+				kernelHttp2ClientSessions.delete(sessionId);
+			});
+			session.on("stream", (stream, headers, flags) => {
+				const streamId = nextHttp2StreamId++;
+				http2Streams.set(streamId, stream);
+				attachHttp2ClientStreamListeners(streamId, stream);
+				emitHttp2Event(
+					"clientPushStream",
+					sessionId,
+					String(streamId),
+					undefined,
+					undefined,
+					JSON.stringify(normalizeHttp2EventHeaders(headers)),
+					String(flags ?? 0),
+				);
+			});
+
+			return JSON.stringify({
+				sessionId,
+				state: serializeHttp2SessionState(session),
+			});
+		})();
+	};
+
+	handlers[K.networkHttp2SessionRequestRaw] = (
+		sessionId: unknown,
+		headersJson: unknown,
+		optionsJson: unknown,
+	): number => {
+		const session = http2Sessions.get(Number(sessionId)) as http2.ClientHttp2Session | undefined;
+		if (!session) {
+			throw new Error(`HTTP/2 session ${String(sessionId)} not found`);
+		}
+		const headers = parseJsonWithLimit<Record<string, string | string[] | number>>(
+			"network.http2Session.request headers",
+			String(headersJson),
+			jsonLimit,
+		);
+		const requestOptions = parseJsonWithLimit<Record<string, unknown>>(
+			"network.http2Session.request options",
+			String(optionsJson),
+			jsonLimit,
+		);
+		const stream = session.request(headers, requestOptions as http2.ClientSessionRequestOptions);
+		debugHttp2Bridge("session request", sessionId, stream.id);
+		const streamId = nextHttp2StreamId++;
+		http2Streams.set(streamId, stream);
+		attachHttp2ClientStreamListeners(streamId, stream);
+		return streamId;
+	};
+
+	handlers[K.networkHttp2SessionCloseRaw] = (sessionId: unknown): void => {
+		http2Sessions.get(Number(sessionId))?.close();
+	};
+
+	handlers[K.networkHttp2SessionSettingsRaw] = (
+		sessionId: unknown,
+		settingsJson: unknown,
+	): void => {
+		const session = http2Sessions.get(Number(sessionId));
+		if (!session) {
+			throw new Error(`HTTP/2 session ${String(sessionId)} not found`);
+		}
+		const settings = parseJsonWithLimit<Record<string, unknown>>(
+			"network.http2Session.settings settings",
+			String(settingsJson),
+			jsonLimit,
+		);
+		session.settings(settings as http2.Settings, () => {
+			emitHttp2Event("sessionSettingsAck", Number(sessionId));
+		});
+	};
+
+	handlers[K.networkHttp2SessionSetLocalWindowSizeRaw] = (
+		sessionId: unknown,
+		windowSize: unknown,
+	): string => {
+		const session = http2Sessions.get(Number(sessionId));
+		if (!session) {
+			throw new Error(`HTTP/2 session ${String(sessionId)} not found`);
+		}
+		session.setLocalWindowSize(Number(windowSize));
+		return serializeHttp2SessionState(session);
+	};
+
+	handlers[K.networkHttp2SessionGoawayRaw] = (
+		sessionId: unknown,
+		errorCode: unknown,
+		lastStreamID: unknown,
+		opaqueDataBase64: unknown,
+	): void => {
+		const session = http2Sessions.get(Number(sessionId));
+		if (!session) {
+			throw new Error(`HTTP/2 session ${String(sessionId)} not found`);
+		}
+		session.goaway(
+			Number(errorCode),
+			Number(lastStreamID),
+			typeof opaqueDataBase64 === "string" && opaqueDataBase64.length > 0
+				? Buffer.from(opaqueDataBase64, "base64")
+				: undefined,
+		);
+	};
+
+	handlers[K.networkHttp2SessionDestroyRaw] = (sessionId: unknown): void => {
+		http2Sessions.get(Number(sessionId))?.destroy();
+	};
+
+	handlers[K.networkHttp2SessionWaitRaw] = (sessionId: unknown): Promise<void> => {
+		const state = kernelHttp2ClientSessions.get(Number(sessionId));
+		return state?.closedPromise ?? Promise.resolve();
+	};
+
+	handlers[K.networkHttp2StreamRespondRaw] = (
+		streamId: unknown,
+		headersJson: unknown,
+	): void => {
+		const stream = http2Streams.get(Number(streamId)) as http2.ServerHttp2Stream | undefined;
+		if (!stream) {
+			throw new Error(`HTTP/2 stream ${String(streamId)} not found`);
+		}
+		const headers = parseJsonWithLimit<Record<string, string | string[] | number>>(
+			"network.http2Stream.respond headers",
+			String(headersJson),
+			jsonLimit,
+		);
+		stream.respond(headers);
+	};
+
+	handlers[K.networkHttp2StreamPushStreamRaw] = async (
+		streamId: unknown,
+		headersJson: unknown,
+		optionsJson: unknown,
+	): Promise<string> => {
+		const stream = http2Streams.get(Number(streamId)) as http2.ServerHttp2Stream | undefined;
+		if (!stream) {
+			throw new Error(`HTTP/2 stream ${String(streamId)} not found`);
+		}
+		const headers = parseJsonWithLimit<Record<string, string | string[] | number>>(
+			"network.http2Stream.pushStream headers",
+			String(headersJson),
+			jsonLimit,
+		);
+		const options = parseJsonWithLimit<Record<string, unknown>>(
+			"network.http2Stream.pushStream options",
+			String(optionsJson),
+			jsonLimit,
+		);
+		return await new Promise<string>((resolve, reject) => {
+			try {
+				stream.pushStream(
+					headers,
+					options as http2.StreamPriorityOptions,
+					(error, pushStream, pushHeaders) => {
+						if (error) {
+							resolve(JSON.stringify({
+								error: JSON.stringify({
+									message: error.message,
+									name: error.name,
+									code: (error as { code?: unknown }).code,
+								}),
+							}));
+							return;
+						}
+						if (!pushStream) {
+							reject(new Error("HTTP/2 push stream callback returned no stream"));
+							return;
+						}
+						const pushStreamId = nextHttp2StreamId++;
+						http2Streams.set(pushStreamId, pushStream);
+						pushStream.on("close", () => {
+							http2Streams.delete(pushStreamId);
+						});
+						resolve(JSON.stringify({
+							streamId: pushStreamId,
+							headers: JSON.stringify(normalizeHttp2EventHeaders(pushHeaders ?? {})),
+						}));
+					},
+				);
+			} catch (error) {
+				reject(error);
+			}
+		});
+	};
+
+	handlers[K.networkHttp2StreamWriteRaw] = (
+		streamId: unknown,
+		dataBase64: unknown,
+	): boolean => {
+		const stream = http2Streams.get(Number(streamId));
+		if (!stream) {
+			throw new Error(`HTTP/2 stream ${String(streamId)} not found`);
+		}
+		return stream.write(Buffer.from(String(dataBase64), "base64"));
+	};
+
+	handlers[K.networkHttp2StreamEndRaw] = (
+		streamId: unknown,
+		dataBase64: unknown,
+	): void => {
+		const stream = http2Streams.get(Number(streamId));
+		if (!stream) {
+			throw new Error(`HTTP/2 stream ${String(streamId)} not found`);
+		}
+		if (typeof dataBase64 === "string" && dataBase64.length > 0) {
+			stream.end(Buffer.from(dataBase64, "base64"));
+			return;
+		}
+		stream.end();
+	};
+
+	handlers[K.networkHttp2StreamPauseRaw] = (streamId: unknown): void => {
+		http2Streams.get(Number(streamId))?.pause();
+	};
+
+	handlers[K.networkHttp2StreamResumeRaw] = (streamId: unknown): void => {
+		http2Streams.get(Number(streamId))?.resume();
+	};
+
+	handlers[K.networkHttp2StreamRespondWithFileRaw] = (
+		streamId: unknown,
+		filePath: unknown,
+		headersJson: unknown,
+		optionsJson: unknown,
+	): void => {
+		const stream = http2Streams.get(Number(streamId)) as http2.ServerHttp2Stream | undefined;
+		if (!stream) {
+			throw new Error(`HTTP/2 stream ${String(streamId)} not found`);
+		}
+		const headers = parseJsonWithLimit<Record<string, unknown>>(
+			"network.http2Stream.respondWithFile headers",
+			String(headersJson),
+			jsonLimit,
+		);
+		const options = parseJsonWithLimit<Record<string, unknown>>(
+			"network.http2Stream.respondWithFile options",
+			String(optionsJson),
+			jsonLimit,
+		);
+		stream.respondWithFile(
+			String(filePath),
+			headers as http2.OutgoingHttpHeaders,
+			options as http2.ServerStreamFileResponseOptionsWithError,
+		);
+	};
+
+	handlers[K.networkHttp2ServerRespondRaw] = (
+		serverId: unknown,
+		requestId: unknown,
+		responseJson: unknown,
+	): void => {
+		resolveHttp2CompatResponse({
+			serverId: Number(serverId),
+			requestId: Number(requestId),
+			responseJson: String(responseJson),
+		});
+	};
+
 	handlers[K.upgradeSocketWriteRaw] = (
 		socketId: unknown,
 		dataBase64: unknown,
@@ -3569,6 +5298,19 @@ export function buildNetworkBridgeHandlers(deps: NetworkBridgeDeps): NetworkBrid
 		for (const serverId of Array.from(kernelHttpServers.keys())) {
 			await closeKernelServer(serverId);
 		}
+		for (const serverId of Array.from(kernelHttp2Servers.keys())) {
+			await closeKernelHttp2Server(serverId);
+		}
+		for (const session of http2Sessions.values()) {
+			try {
+				session.destroy();
+			} catch {
+				// Session already closed.
+			}
+		}
+		kernelHttp2ClientSessions.clear();
+		http2Sessions.clear();
+		http2Streams.clear();
 		for (const socket of kernelUpgradeSockets.values()) {
 			socket.destroy();
 		}
@@ -3626,11 +5368,19 @@ type PendingHttpResponse = {
 	resolve: (response: string) => void;
 };
 
+type PendingHttp2CompatResponse = {
+	serverId: number;
+	resolve: (response: string) => void;
+};
+
 // Track request IDs directly, but also keep per-server FIFO queues so older
 // callbacks that only report serverId still resolve the correct pending waiters.
 const pendingHttpResponses = new Map<number, PendingHttpResponse>();
 const pendingHttpResponsesByServer = new Map<number, number[]>();
 let nextHttpRequestId = 1;
+const pendingHttp2CompatResponses = new Map<number, PendingHttp2CompatResponse>();
+const pendingHttp2CompatResponsesByServer = new Map<number, number[]>();
+let nextHttp2CompatRequestId = 1;
 
 function registerPendingHttpResponse(
 	serverId: number,
@@ -3677,6 +5427,56 @@ function takePendingHttpResponseByServer(serverId: number): PendingHttpResponse 
 	return pending;
 }
 
+function registerPendingHttp2CompatResponse(
+	serverId: number,
+	requestId: number,
+	resolve: (response: string) => void,
+): void {
+	pendingHttp2CompatResponses.set(requestId, { serverId, resolve });
+	const queue = pendingHttp2CompatResponsesByServer.get(serverId);
+	if (queue) {
+		queue.push(requestId);
+	} else {
+		pendingHttp2CompatResponsesByServer.set(serverId, [requestId]);
+	}
+}
+
+function removePendingHttp2CompatResponse(
+	serverId: number,
+	requestId: number,
+): PendingHttp2CompatResponse | undefined {
+	const pending = pendingHttp2CompatResponses.get(requestId);
+	if (!pending) return undefined;
+
+	pendingHttp2CompatResponses.delete(requestId);
+
+	const queue = pendingHttp2CompatResponsesByServer.get(serverId);
+	if (queue) {
+		const index = queue.indexOf(requestId);
+		if (index !== -1) queue.splice(index, 1);
+		if (queue.length === 0) pendingHttp2CompatResponsesByServer.delete(serverId);
+	}
+
+	return pending;
+}
+
+function takePendingHttp2CompatResponseByServer(
+	serverId: number,
+): PendingHttp2CompatResponse | undefined {
+	const queue = pendingHttp2CompatResponsesByServer.get(serverId);
+	if (!queue || queue.length === 0) return undefined;
+
+	const requestId = queue.shift()!;
+	if (queue.length === 0) pendingHttp2CompatResponsesByServer.delete(serverId);
+
+	const pending = pendingHttp2CompatResponses.get(requestId);
+	if (pending) {
+		pendingHttp2CompatResponses.delete(requestId);
+	}
+
+	return pending;
+}
+
 /** Resolve a pending HTTP server response (called from stream callback handler). */
 export function resolveHttpServerResponse(options: {
 	requestId?: number;
@@ -3691,6 +5491,23 @@ export function resolveHttpServerResponse(options: {
 			)
 			: options.serverId !== undefined
 				? takePendingHttpResponseByServer(options.serverId)
+				: undefined;
+	pending?.resolve(options.responseJson);
+}
+
+export function resolveHttp2CompatResponse(options: {
+	requestId?: number;
+	serverId?: number;
+	responseJson: string;
+}): void {
+	const pending =
+		options.requestId !== undefined
+			? removePendingHttp2CompatResponse(
+				options.serverId ?? pendingHttp2CompatResponses.get(options.requestId)?.serverId ?? -1,
+				options.requestId,
+			)
+			: options.serverId !== undefined
+				? takePendingHttp2CompatResponseByServer(options.serverId)
 				: undefined;
 	pending?.resolve(options.responseJson);
 }
@@ -3740,6 +5557,82 @@ function canWrite(flags: number): boolean {
 	return access === O_WRONLY || access === O_RDWR;
 }
 
+const PROC_SYS_KERNEL_HOSTNAME_PATH = "/proc/sys/kernel/hostname";
+
+function getStandaloneProcFileContent(path: string): Uint8Array | null {
+	if (path === PROC_SYS_KERNEL_HOSTNAME_PATH) {
+		return Buffer.from("sandbox\n", "utf8");
+	}
+	return null;
+}
+
+function getStandaloneProcFileStat(
+	path: string,
+): import("@secure-exec/core").VirtualStat | null {
+	const content = getStandaloneProcFileContent(path);
+	if (!content) return null;
+	const now = Date.now();
+	return {
+		mode: 0o100444,
+		size: content.length,
+		isDirectory: false,
+		isSymbolicLink: false,
+		atimeMs: now,
+		mtimeMs: now,
+		ctimeMs: now,
+		birthtimeMs: now,
+		ino: 0xfffe0001,
+		nlink: 1,
+		uid: 0,
+		gid: 0,
+	};
+}
+
+async function readStandaloneProcAwareFile(
+	vfs: VirtualFileSystem,
+	path: string,
+): Promise<Uint8Array> {
+	return getStandaloneProcFileContent(path) ?? vfs.readFile(path);
+}
+
+async function readStandaloneProcAwareTextFile(
+	vfs: VirtualFileSystem,
+	path: string,
+): Promise<string> {
+	const content = getStandaloneProcFileContent(path);
+	if (content) return new TextDecoder().decode(content);
+	return vfs.readTextFile(path);
+}
+
+async function standaloneProcAwareExists(
+	vfs: VirtualFileSystem,
+	path: string,
+): Promise<boolean> {
+	if (getStandaloneProcFileContent(path)) return true;
+	return vfs.exists(path);
+}
+
+async function standaloneProcAwareStat(
+	vfs: VirtualFileSystem,
+	path: string,
+): Promise<import("@secure-exec/core").VirtualStat> {
+	return getStandaloneProcFileStat(path) ?? vfs.stat(path);
+}
+
+async function standaloneProcAwarePread(
+	vfs: VirtualFileSystem,
+	path: string,
+	offset: number,
+	length: number,
+): Promise<Uint8Array> {
+	const content = getStandaloneProcFileContent(path);
+	if (content) {
+		if (offset >= content.length) return new Uint8Array(0);
+		return content.slice(offset, offset + length);
+	}
+	return vfs.pread(path, offset, length);
+}
+
 /**
  * Build kernel FD table bridge handlers.
  *
@@ -3765,7 +5658,7 @@ export function buildKernelFdBridgeHandlers(deps: KernelFdBridgeDeps): KernelFdB
 		const numFlags = Number(flags);
 		const numMode = mode !== undefined && mode !== null ? Number(mode) : undefined;
 
-		const exists = await vfs.exists(pathStr);
+		const exists = await standaloneProcAwareExists(vfs, pathStr);
 
 		// O_CREAT: create if doesn't exist
 		if ((numFlags & O_CREAT) && !exists) {
@@ -3810,7 +5703,7 @@ export function buildKernelFdBridgeHandlers(deps: KernelFdBridgeDeps): KernelFdB
 			? Number(position)
 			: Number(entry.description.cursor);
 
-		const data = await vfs.pread(entry.description.path, pos, len);
+		const data = await standaloneProcAwarePread(vfs, entry.description.path, pos, len);
 
 		// Update cursor only when no explicit position
 		if (position === null || position === undefined) {
@@ -3833,7 +5726,7 @@ export function buildKernelFdBridgeHandlers(deps: KernelFdBridgeDeps): KernelFdB
 		// Read existing content
 		let content: Uint8Array;
 		try {
-			content = await vfs.readFile(entry.description.path);
+			content = await readStandaloneProcAwareFile(vfs, entry.description.path);
 		} catch {
 			content = new Uint8Array(0);
 		}
@@ -3870,7 +5763,7 @@ export function buildKernelFdBridgeHandlers(deps: KernelFdBridgeDeps): KernelFdB
 		const entry = fdTable.get(fdNum);
 		if (!entry) throw new Error("EBADF: bad file descriptor, fstat");
 
-		const stat = await vfs.stat(entry.description.path);
+		const stat = await standaloneProcAwareStat(vfs, entry.description.path);
 		return JSON.stringify({
 			dev: 0,
 			ino: stat.ino ?? 0,
@@ -3899,7 +5792,7 @@ export function buildKernelFdBridgeHandlers(deps: KernelFdBridgeDeps): KernelFdB
 		const newLen = (len !== undefined && len !== null) ? Number(len) : 0;
 		let content: Uint8Array;
 		try {
-			content = await vfs.readFile(entry.description.path);
+			content = await readStandaloneProcAwareFile(vfs, entry.description.path);
 		} catch {
 			content = new Uint8Array(0);
 		}

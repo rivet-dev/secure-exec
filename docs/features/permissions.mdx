@@ -12,15 +12,13 @@ All host capabilities are **deny-by-default**. Sandboxed code cannot access the 
 
 ## Runnable example
 
-Source file: `examples/features/src/permissions.ts`
-
 ```ts
 import {
 	NodeRuntime,
 	createInMemoryFileSystem,
 	createNodeDriver,
 	createNodeRuntimeDriverFactory,
-} from "secure-exec";
+} from "../../../packages/secure-exec/src/index.ts";
 
 const filesystem = createInMemoryFileSystem();
 await filesystem.writeFile("/secret.txt", "top secret");
@@ -70,6 +68,8 @@ console.log(
 	}),
 );
 ```
+
+Source: [examples/features/src/permissions.ts](https://github.com/rivet-dev/secure-exec/blob/main/examples/features/src/permissions.ts)
 
 ## Permission helpers
 

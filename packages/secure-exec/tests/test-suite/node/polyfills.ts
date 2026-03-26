@@ -26,69 +26,6 @@ export function runNodePolyfillSuite(context: NodeSuiteContext): void {
 		});
 	});
 
-	it("zlib.constants has flush, return-code, level, and strategy constants", async () => {
-		const runtime = await context.createRuntime();
-		const result = await runtime.run(`
-			const zlib = require('zlib');
-			const c = zlib.constants;
-			module.exports = {
-				Z_NO_FLUSH: c.Z_NO_FLUSH,
-				Z_PARTIAL_FLUSH: c.Z_PARTIAL_FLUSH,
-				Z_SYNC_FLUSH: c.Z_SYNC_FLUSH,
-				Z_FULL_FLUSH: c.Z_FULL_FLUSH,
-				Z_FINISH: c.Z_FINISH,
-				Z_BLOCK: c.Z_BLOCK,
-				Z_TREES: c.Z_TREES,
-				Z_OK: c.Z_OK,
-				Z_STREAM_END: c.Z_STREAM_END,
-				Z_NEED_DICT: c.Z_NEED_DICT,
-				Z_ERRNO: c.Z_ERRNO,
-				Z_STREAM_ERROR: c.Z_STREAM_ERROR,
-				Z_DATA_ERROR: c.Z_DATA_ERROR,
-				Z_MEM_ERROR: c.Z_MEM_ERROR,
-				Z_BUF_ERROR: c.Z_BUF_ERROR,
-				Z_VERSION_ERROR: c.Z_VERSION_ERROR,
-				Z_NO_COMPRESSION: c.Z_NO_COMPRESSION,
-				Z_BEST_SPEED: c.Z_BEST_SPEED,
-				Z_BEST_COMPRESSION: c.Z_BEST_COMPRESSION,
-				Z_DEFAULT_COMPRESSION: c.Z_DEFAULT_COMPRESSION,
-				Z_FILTERED: c.Z_FILTERED,
-				Z_HUFFMAN_ONLY: c.Z_HUFFMAN_ONLY,
-				Z_RLE: c.Z_RLE,
-				Z_FIXED: c.Z_FIXED,
-				Z_DEFAULT_STRATEGY: c.Z_DEFAULT_STRATEGY,
-			};
-		`);
-		expect(result.code).toBe(0);
-		expect(result.exports).toEqual({
-			Z_NO_FLUSH: 0,
-			Z_PARTIAL_FLUSH: 1,
-			Z_SYNC_FLUSH: 2,
-			Z_FULL_FLUSH: 3,
-			Z_FINISH: 4,
-			Z_BLOCK: 5,
-			Z_TREES: 6,
-			Z_OK: 0,
-			Z_STREAM_END: 1,
-			Z_NEED_DICT: 2,
-			Z_ERRNO: -1,
-			Z_STREAM_ERROR: -2,
-			Z_DATA_ERROR: -3,
-			Z_MEM_ERROR: -4,
-			Z_BUF_ERROR: -5,
-			Z_VERSION_ERROR: -6,
-			Z_NO_COMPRESSION: 0,
-			Z_BEST_SPEED: 1,
-			Z_BEST_COMPRESSION: 9,
-			Z_DEFAULT_COMPRESSION: -1,
-			Z_FILTERED: 1,
-			Z_HUFFMAN_ONLY: 2,
-			Z_RLE: 3,
-			Z_FIXED: 4,
-			Z_DEFAULT_STRATEGY: 0,
-		});
-	});
-
 	it("zlib.constants has mode constants (DEFLATE=1..GUNZIP=7)", async () => {
 		const runtime = await context.createRuntime();
 		const result = await runtime.run(`

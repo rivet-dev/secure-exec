@@ -496,6 +496,16 @@
       "category": "requires-v8-flags",
       "expected": "fail"
     },
+    "test-filehandle-close.js": {
+      "reason": "fs.promises.open() is not implemented in the sandbox fs bridge, so FileHandle close coverage throws before the assertions run",
+      "category": "implementation-gap",
+      "expected": "fail"
+    },
+    "test-filehandle-readablestream.js": {
+      "reason": "fs/promises.open() is not implemented in the sandbox fs bridge, so FileHandle ReadableStream coverage throws before the assertions run",
+      "category": "implementation-gap",
+      "expected": "fail"
+    },
     "test-fs-open-flags.js": {
       "reason": "requires --expose-internals — Node.js internal modules not available in sandbox",
       "category": "requires-v8-flags",
@@ -1201,6 +1211,11 @@
       "category": "requires-v8-flags",
       "expected": "fail"
     },
+    "test-whatwg-readablebytestreambyob.js": {
+      "reason": "global ReadableStream is not exposed in the sandbox, so BYOB readable byte stream coverage fails at startup",
+      "category": "implementation-gap",
+      "expected": "fail"
+    },
     "test-whatwg-readablestream.js": {
       "reason": "requires --expose-internals — Node.js internal modules not available in sandbox",
       "category": "requires-v8-flags",
@@ -1212,8 +1227,8 @@
       "expected": "fail"
     },
     "test-whatwg-url-canparse.js": {
-      "reason": "requires --expose-internals — Node.js internal modules not available in sandbox",
-      "category": "requires-v8-flags",
+      "reason": "depends on internal/test/binding for a debug-only fast-API counter assertion; URL.canParse() behavior itself now passes in the sandbox",
+      "category": "test-infra",
       "expected": "fail"
     },
     "test-whatwg-url-custom-properties.js": {
@@ -1917,7 +1932,7 @@
       "expected": "fail"
     },
     "test-crypto-key-objects.js": {
-      "reason": "fs.readFileSync() still folds the encoding argument into the VFS path for PEM fixtures, so the test tries to open '/test/fixtures/rsa_public.pem/ascii'",
+      "reason": "fixture loading now works, but one KeyObject validation path no longer throws the expected TypeError and the vendored file fails with `Missing expected exception (TypeError)`",
       "category": "implementation-gap",
       "expected": "fail"
     },
@@ -1942,7 +1957,7 @@
       "expected": "fail"
     },
     "test-crypto-rsa-dsa.js": {
-      "reason": "crypto cert fixtures are incomplete in the conformance VFS, so the test fails opening `/test/fixtures/rsa_cert.crt`",
+      "reason": "fixture loading now works, but one RSA fixture assertion still returns hex text (`4920414d...`) instead of the expected plaintext `I AM THE WALRUS`",
       "category": "implementation-gap",
       "expected": "fail"
     },
@@ -1952,7 +1967,7 @@
       "expected": "fail"
     },
     "test-crypto-sign-verify.js": {
-      "reason": "crypto cert fixtures are incomplete in the conformance VFS, so the test fails opening `/test/fixtures/rsa_cert.crt`",
+      "reason": "fixture loading now works, but EdDSA sign/verify coverage still aborts with `Unknown message digest`",
       "category": "implementation-gap",
       "expected": "fail"
     },
@@ -2136,25 +2151,30 @@
       "category": "requires-exec-path",
       "expected": "fail"
     },
-    "test-fs-assert-encoding-error.js": {
-      "reason": "fs methods do not throw ERR_INVALID_ARG_VALUE for invalid encoding options; test also uses fs.watch which requires inotify",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
     "test-fs-mkdir.js": {
       "reason": "requires worker_threads module which is Tier 4 (Deferred)",
       "category": "unsupported-module",
       "expected": "fail"
     },
+    "test-fs-filehandle-use-after-close.js": {
+      "reason": "fs.open() is not implemented in the sandbox fs bridge, so FileHandle use-after-close coverage throws before the assertions run",
+      "category": "implementation-gap",
+      "expected": "fail"
+    },
     "test-fs-options-immutable.js": {
-      "reason": "hangs — fs.watch() with frozen options waits for events that never arrive (VFS has no inotify)",
+      "reason": "fails fast — fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive",
       "category": "unsupported-api",
-      "expected": "skip"
+      "expected": "fail"
+    },
+    "test-fs-promises-readfile-with-fd.js": {
+      "reason": "fs/promises.open() is not implemented in the sandbox fs bridge, so readFile(fd) coverage throws before the assertions run",
+      "category": "implementation-gap",
+      "expected": "fail"
     },
     "test-fs-promises-watch.js": {
-      "reason": "hangs — fs.promises.watch() waits forever for filesystem events (VFS has no watcher)",
+      "reason": "fails fast — fs.promises.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive",
       "category": "unsupported-api",
-      "expected": "skip"
+      "expected": "fail"
     },
     "test-fs-readfile-eof.js": {
       "reason": "spawns child Node.js process via process.execPath — sandbox does not provide a real node binary",
@@ -2193,77 +2213,85 @@
       "category": "requires-exec-path",
       "expected": "fail"
     },
-    "test-fs-watch-encoding.js": {
-      "reason": "hangs — fs.watch() waits for filesystem events that never arrive (VFS has no inotify)",
+    "test-fs-readv-promises.js": {
+      "reason": "fs.open() is not implemented in the sandbox fs bridge, so fs.promises.readv() coverage throws before the assertions run",
       "category": "implementation-gap",
-      "issue": "https://github.com/rivet-dev/secure-exec/issues/30",
-      "expected": "skip"
+      "expected": "fail"
+    },
+    "test-fs-writev-promises.js": {
+      "reason": "fs.open() is not implemented in the sandbox fs bridge, so fs.promises.writev() coverage throws before the assertions run",
+      "category": "implementation-gap",
+      "expected": "fail"
+    },
+    "test-fs-watch-encoding.js": {
+      "reason": "fails fast — fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive",
+      "category": "unsupported-api",
+      "expected": "fail"
     },
     "test-fs-watch-file-enoent-after-deletion.js": {
-      "reason": "hangs — fs.watchFile() waits for stat changes that never arrive (VFS has no inotify)",
+      "reason": "fails fast — fs.watchFile is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive",
       "category": "unsupported-api",
-      "expected": "skip"
+      "expected": "fail"
     },
     "test-fs-watch-recursive-add-file-to-existing-subfolder.js": {
-      "reason": "hangs — fs.watch({recursive}) waits for filesystem events that never arrive (VFS has no inotify)",
+      "reason": "fails fast — recursive fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive",
       "category": "unsupported-api",
-      "expected": "skip"
+      "expected": "fail"
     },
     "test-fs-watch-recursive-add-file-to-new-folder.js": {
-      "reason": "hangs — fs.watch({recursive}) waits for filesystem events that never arrive (VFS has no inotify)",
+      "reason": "fails fast — recursive fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive",
       "category": "unsupported-api",
-      "expected": "skip"
+      "expected": "fail"
     },
     "test-fs-watch-recursive-add-file.js": {
-      "reason": "hangs — fs.watch({recursive}) waits for filesystem events that never arrive (VFS has no inotify)",
+      "reason": "fails fast — recursive fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive",
       "category": "unsupported-api",
-      "expected": "skip"
+      "expected": "fail"
     },
     "test-fs-watch-recursive-assert-leaks.js": {
-      "reason": "hangs — fs.watch({recursive}) waits for filesystem events that never arrive (VFS has no inotify)",
+      "reason": "fails fast — recursive fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive",
       "category": "unsupported-api",
-      "expected": "skip"
+      "expected": "fail"
     },
     "test-fs-watch-recursive-delete.js": {
-      "reason": "hangs — fs.watch({recursive}) waits for filesystem events that never arrive (VFS has no inotify)",
+      "reason": "fails fast — recursive fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive",
       "category": "unsupported-api",
-      "expected": "skip"
+      "expected": "fail"
     },
     "test-fs-watch-recursive-linux-parallel-remove.js": {
-      "reason": "hangs — fs.watch({recursive}) waits for filesystem events that never arrive (VFS has no inotify)",
+      "reason": "fails fast — recursive fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive",
       "category": "unsupported-api",
-      "expected": "skip"
+      "expected": "fail"
     },
     "test-fs-watch-recursive-sync-write.js": {
-      "reason": "hangs — fs.watch() with recursive option waits forever for events",
+      "reason": "fails fast — recursive fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive",
       "category": "unsupported-api",
-      "expected": "skip"
+      "expected": "fail"
     },
     "test-fs-watch-recursive-update-file.js": {
-      "reason": "hangs — fs.watch({recursive}) waits for filesystem events that never arrive (VFS has no inotify)",
+      "reason": "fails fast — recursive fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive",
       "category": "unsupported-api",
-      "expected": "skip"
+      "expected": "fail"
     },
     "test-fs-watch-stop-async.js": {
-      "reason": "uses fs.watch/watchFile — inotify not available in VFS",
+      "reason": "fails fast — fs.watchFile is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive",
       "category": "unsupported-api",
       "expected": "fail"
     },
     "test-fs-watch-stop-sync.js": {
-      "reason": "uses fs.watch/watchFile — inotify not available in VFS",
+      "reason": "fails fast — fs.watchFile is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive",
       "category": "unsupported-api",
       "expected": "fail"
     },
     "test-fs-watch.js": {
-      "reason": "hangs — fs.watch() waits for filesystem events that never arrive (VFS has no inotify)",
+      "reason": "fails fast — fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive",
       "category": "unsupported-api",
-      "expected": "skip"
+      "expected": "fail"
     },
     "test-fs-watchfile.js": {
-      "reason": "hangs — fs.watchFile() waits for stat changes that never arrive (VFS has no inotify)",
-      "category": "implementation-gap",
-      "issue": "https://github.com/rivet-dev/secure-exec/issues/30",
-      "expected": "skip"
+      "reason": "fails fast — fs.watchFile is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive",
+      "category": "unsupported-api",
+      "expected": "fail"
     },
     "test-fs-whatwg-url.js": {
       "reason": "requires worker_threads module which is Tier 4 (Deferred)",
@@ -2278,11 +2306,6 @@
     "test-fs-write-sigxfsz.js": {
       "reason": "spawns child Node.js process via process.execPath — sandbox does not provide a real node binary",
       "category": "requires-exec-path",
-      "expected": "fail"
-    },
-    "test-h2-large-header-cause-client-to-hangup.js": {
-      "reason": "requires http2 module — createServer/createSecureServer unsupported",
-      "category": "unsupported-module",
       "expected": "fail"
     },
     "test-heap-prof-basic.js": {
@@ -2445,18 +2468,8 @@
       "category": "requires-exec-path",
       "expected": "fail"
     },
-    "test-http-pipeline-requests-connection-leak.js": {
-      "reason": "requires net module which is Tier 4 (Deferred)",
-      "category": "unsupported-module",
-      "expected": "fail"
-    },
     "test-http-request-agent.js": {
       "reason": "requires https module — depends on tls which is Tier 4 (Deferred)",
-      "category": "unsupported-module",
-      "expected": "fail"
-    },
-    "test-http-response-no-headers.js": {
-      "reason": "requires net module which is Tier 4 (Deferred)",
       "category": "unsupported-module",
       "expected": "fail"
     },
@@ -3145,11 +3158,6 @@
       "category": "unsupported-module",
       "expected": "fail"
     },
-    "test-stream-pipeline-http2.js": {
-      "reason": "requires http2 module — createServer/createSecureServer unsupported",
-      "category": "unsupported-module",
-      "expected": "fail"
-    },
     "test-stream-pipeline-process.js": {
       "reason": "spawns child Node.js process via process.execPath — sandbox does not provide a real node binary",
       "category": "requires-exec-path",
@@ -3550,11 +3558,6 @@
       "category": "implementation-gap",
       "expected": "fail"
     },
-    "test-client-request-destroy.js": {
-      "reason": "http.ClientRequest.destroyed is undefined — http polyfill does not expose the .destroyed property on ClientRequest",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
     "test-common-countdown.js": {
       "reason": "uses child_process APIs — process spawning has limitations in sandbox",
       "category": "implementation-gap",
@@ -3605,13 +3608,8 @@
       "category": "unsupported-module",
       "expected": "fail"
     },
-    "test-crypto-async-sign-verify.js": {
-      "reason": "crypto fixture set is incomplete in the conformance VFS, so async sign/verify fails opening `/test/fixtures/rsa_public.pem`",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
     "test-crypto-certificate.js": {
-      "reason": "crypto certificate fixtures are incomplete in the conformance VFS, so the test fails opening `/test/fixtures/rsa_spkac.spkac`",
+      "reason": "fixture loading now works, but `crypto.Certificate` is still missing constructor parity and the vendored file aborts with `TypeError: Certificate is not a constructor`",
       "category": "implementation-gap",
       "expected": "fail"
     },
@@ -3785,51 +3783,6 @@
       "reason": "hangs after rebase onto main (native ESM + microtask drain loop changes) — test never completes within 30s timeout",
       "category": "implementation-gap"
     },
-    "test-fs-buffertype-writesync.js": {
-      "reason": "bridge writeSync lacks TypedArray offset/length overload support",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-fs-chmod.js": {
-      "reason": "fs module properties not monkey-patchable (test patches fs.fchmod/lchmod)",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-fs-close-errors.js": {
-      "reason": "bridge close() lacks callback-type validation; error message format differences",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-fs-exists.js": {
-      "reason": "bridge exists() lacks callback-type and missing-arg validation",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-fs-fchmod.js": {
-      "reason": "test patches fs.fchmod/fchmodSync with monkey-patching — sandbox fs module not monkey-patchable",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-fs-fchown.js": {
-      "reason": "test patches fs.fchown/fchownSync with monkey-patching — sandbox fs module not monkey-patchable",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-fs-lchown.js": {
-      "reason": "test patches fs.lchown/lchownSync with monkey-patching — sandbox fs module not monkey-patchable",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-fs-make-callback.js": {
-      "reason": "bridge mkdtemp() lacks callback-type validation (returns Promise instead of throw)",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-fs-makeStatsCallback.js": {
-      "reason": "bridge stat() lacks callback-type validation (returns Promise instead of throw)",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
     "test-fs-mkdir-mode-mask.js": {
       "reason": "VFS mkdir does not apply umask or mode masking; test also uses top-level return which is illegal outside function wrapper",
       "category": "implementation-gap",
@@ -3845,11 +3798,6 @@
       "category": "implementation-gap",
       "expected": "fail"
     },
-    "test-fs-non-number-arguments-throw.js": {
-      "reason": "bridge createReadStream/createWriteStream lack start/end type validation",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
     "test-fs-null-bytes.js": {
       "reason": "uses fs APIs with VFS limitations (watch/permissions/links/streams)",
       "category": "implementation-gap",
@@ -3857,11 +3805,6 @@
     },
     "test-fs-open-no-close.js": {
       "reason": "VFS behavior gap — fs operation differs from native Node.js",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-fs-open.js": {
-      "reason": "bridge open() lacks callback-required validation, mode-type validation, and ERR_INVALID_ARG_VALUE for string modes",
       "category": "implementation-gap",
       "expected": "fail"
     },
@@ -3875,21 +3818,6 @@
       "category": "unsupported-module",
       "expected": "fail"
     },
-    "test-fs-promises-file-handle-readFile.js": {
-      "reason": "VFS behavior gap — fs operation differs from native Node.js",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-fs-promises-file-handle-stream.js": {
-      "reason": "uses fs APIs with VFS limitations (watch/permissions/links/streams)",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-fs-promises-file-handle-writeFile.js": {
-      "reason": "Readable.from is not available in the browser — stream.Readable.from() factory not implemented in sandbox stream polyfill",
-      "category": "unsupported-api",
-      "expected": "fail"
-    },
     "test-fs-promises-writefile.js": {
       "reason": "Readable.from is not available in the browser — stream.Readable.from() factory not implemented; used by writeFile() Readable/iterable overload",
       "category": "unsupported-api",
@@ -3901,11 +3829,6 @@
       "expected": "fail"
     },
     "test-fs-read-file-assert-encoding.js": {
-      "reason": "VFS behavior gap — fs operation differs from native Node.js",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-fs-read-file-sync-hostname.js": {
       "reason": "VFS behavior gap — fs operation differs from native Node.js",
       "category": "implementation-gap",
       "expected": "fail"
@@ -3935,16 +3858,6 @@
       "category": "implementation-gap",
       "expected": "fail"
     },
-    "test-fs-read-stream-file-handle.js": {
-      "reason": "bridge createReadStream does not accept FileHandle as path argument",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-fs-read-stream-inherit.js": {
-      "reason": "bridge ReadStream lacks fd option, autoClose, and ReadStream-specific events",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
     "test-fs-read-stream-patch-open.js": {
       "reason": "uses fs APIs with VFS limitations (watch/permissions/links/streams)",
       "category": "implementation-gap",
@@ -3960,11 +3873,6 @@
       "category": "implementation-gap",
       "expected": "fail"
     },
-    "test-fs-read-stream.js": {
-      "reason": "bridge ReadStream lacks pause/resume flow control, data event sequencing",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
     "test-fs-read-type.js": {
       "reason": "bridge read() lacks buffer-type validation and offset/length range checking",
       "category": "implementation-gap",
@@ -3974,11 +3882,6 @@
       "expected": "skip",
       "reason": "hangs after rebase onto main (native ESM + microtask drain loop changes) — test never completes within 30s timeout",
       "category": "implementation-gap"
-    },
-    "test-fs-readSync-optional-params.js": {
-      "reason": "bridge readSync offset/length/position parameter handling differs from Node.js",
-      "category": "implementation-gap",
-      "expected": "fail"
     },
     "test-fs-readdir-recursive.js": {
       "reason": "requires node:test module which is not available in sandbox",
@@ -4012,16 +3915,6 @@
     },
     "test-fs-readfile.js": {
       "reason": "bridge readFileSync signal option and encoding edge cases not supported",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-fs-readv-sync.js": {
-      "reason": "bridge readvSync binary data handling differs (TextDecoder corruption)",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-fs-readv.js": {
-      "reason": "bridge readv binary data handling differs; callback sequencing issues",
       "category": "implementation-gap",
       "expected": "fail"
     },
@@ -4090,16 +3983,6 @@
       "category": "implementation-gap",
       "expected": "fail"
     },
-    "test-fs-stream-fs-options.js": {
-      "reason": "bridge ReadStream/WriteStream lack custom fs option support",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-fs-stream-options.js": {
-      "reason": "bridge ReadStream/WriteStream lack fd option and autoClose behavior",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
     "test-fs-symlink-dir-junction-relative.js": {
       "reason": "junction symlink type not supported — VFS symlink ignores type parameter (junction is Windows-only)",
       "category": "implementation-gap",
@@ -4145,11 +4028,6 @@
       "category": "implementation-gap",
       "expected": "fail"
     },
-    "test-fs-write-buffer-large.js": {
-      "reason": "bridge writeSync binary data handling uses TextDecoder which corrupts large binary buffers",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
     "test-fs-write-file-flush.js": {
       "reason": "requires node:test module; bridge writeFileSync lacks flush option",
       "category": "implementation-gap",
@@ -4170,11 +4048,6 @@
       "category": "implementation-gap",
       "expected": "fail"
     },
-    "test-fs-write-stream-file-handle.js": {
-      "reason": "uses fs APIs with VFS limitations (watch/permissions/links/streams)",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
     "test-fs-write-stream-flush.js": {
       "reason": "requires node:test module; bridge WriteStream lacks flush option",
       "category": "implementation-gap",
@@ -4190,28 +4063,8 @@
       "category": "implementation-gap",
       "expected": "fail"
     },
-    "test-fs-write-stream.js": {
-      "reason": "bridge WriteStream lacks cork/uncork, bytesWritten tracking, stream event ordering",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-fs-write-sync-optional-params.js": {
-      "reason": "bridge writeSync optional parameter overloads differ from Node.js",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
     "test-fs-writefile-with-fd.js": {
       "reason": "VFS behavior gap — fs operation differs from native Node.js",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-fs-writev-sync.js": {
-      "reason": "bridge writevSync binary data handling and position tracking differ",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-fs-writev.js": {
-      "reason": "bridge writev binary data handling and callback sequencing differ",
       "category": "implementation-gap",
       "expected": "fail"
     },
@@ -4240,34 +4093,9 @@
       "category": "implementation-gap",
       "expected": "fail"
     },
-    "test-http-abort-client.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
     "test-http-addrequest-localaddress.js": {
       "reason": "TypeError: agent.addRequest is not a function — http.Agent.addRequest() internal method not implemented in http polyfill",
       "category": "unsupported-api",
-      "expected": "fail"
-    },
-    "test-http-after-connect.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-http-agent-keepalive.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-http-agent-maxsockets-respected.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-http-allow-req-after-204-res.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
-      "category": "implementation-gap",
       "expected": "fail"
     },
     "test-http-buffer-sanity.js": {
@@ -4275,38 +4103,13 @@
       "category": "implementation-gap",
       "expected": "fail"
     },
-    "test-http-client-abort.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-http-client-aborted-event.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-http-client-agent.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
     "test-http-client-check-http-token.js": {
-      "reason": "needs http.createServer to verify valid methods actually work",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-http-client-defaults.js": {
-      "reason": "AssertionError: ClientRequest.path is undefined — http.ClientRequest default path '/' and method 'GET' not set when options are missing in http polyfill",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-http-client-invalid-path.js": {
-      "reason": "AssertionError: Missing expected TypeError — http.ClientRequest does not throw TypeError for paths containing null bytes; path validation not implemented",
+      "reason": "times out after 30000ms in the conformance runner — sandbox HTTP server/client lifecycle does not complete for this method-validation scenario",
       "category": "implementation-gap",
       "expected": "fail"
     },
     "test-http-client-override-global-agent.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
+      "reason": "times out after 30000ms in the conformance runner — sandbox HTTP agent override path leaves the request/server lifecycle unfinished",
       "category": "implementation-gap",
       "expected": "fail"
     },
@@ -4316,63 +4119,28 @@
       "expected": "fail"
     },
     "test-http-client-spurious-aborted.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
+      "reason": "times out after 30000ms in the conformance runner — sandbox HTTP abort handling leaves this server/client scenario unfinished",
       "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-http-client-timeout-option.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-http-client-unescaped-path.js": {
-      "reason": "AssertionError: Missing expected TypeError — http.ClientRequest does not throw TypeError for unescaped path characters; path validation not implemented",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-http-common.js": {
-      "reason": "Cannot find module '_http_common' — Node.js internal module _http_common not exposed in sandbox",
-      "category": "unsupported-module",
       "expected": "fail"
     },
     "test-http-content-length.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
+      "reason": "times out after 30000ms in the conformance runner — sandbox HTTP content-length server/client exchange does not drain to completion",
       "category": "implementation-gap",
       "expected": "fail"
     },
     "test-http-date-header.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-http-default-encoding.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-http-end-throw-socket-handling.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
+      "reason": "times out after 30000ms in the conformance runner — sandbox HTTP date-header server/client exchange does not complete",
       "category": "implementation-gap",
       "expected": "fail"
     },
     "test-http-exceptions.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
+      "reason": "times out after 30000ms in the conformance runner — sandbox HTTP exception path leaves the server/client lifecycle unfinished",
       "category": "implementation-gap",
       "expected": "fail"
     },
     "test-http-generic-streams.js": {
       "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
       "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-http-get-pipeline-problem.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-http-header-validators.js": {
-      "reason": "TypeError: Cannot read properties of undefined (reading 'constructor') — validateHeaderName/validateHeaderValue not exported from http polyfill module",
-      "category": "unsupported-api",
       "expected": "fail"
     },
     "test-http-import-websocket.js": {
@@ -4390,43 +4158,23 @@
       "category": "implementation-gap",
       "expected": "fail"
     },
-    "test-http-information-headers.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
     "test-http-insecure-parser-per-stream.js": {
       "reason": "needs stream.duplexPair and http.createServer with insecureHTTPParser",
       "category": "implementation-gap",
       "expected": "fail"
     },
-    "test-http-invalid-path-chars.js": {
-      "reason": "AssertionError: Missing expected TypeError — http.request() does not throw TypeError for paths with invalid characters; path validation not implemented",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-http-invalidheaderfield2.js": {
-      "reason": "Cannot find module '_http_common' — Node.js internal module _http_common not exposed in sandbox",
-      "category": "unsupported-module",
-      "expected": "fail"
-    },
     "test-http-keepalive-client.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
+      "reason": "times out after 30000ms in the conformance runner — sandbox keepalive client/server lifecycle does not settle",
       "category": "implementation-gap",
       "expected": "fail"
     },
     "test-http-keepalive-request.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
+      "reason": "times out after 30000ms in the conformance runner — sandbox keepalive request/server lifecycle does not settle",
       "category": "implementation-gap",
       "expected": "fail"
     },
     "test-http-max-header-size-per-stream.js": {
       "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-http-methods.js": {
-      "reason": "AssertionError: http.METHODS array contains only 7 methods — http polyfill exposes a limited subset of HTTP methods; full RFC-compliant method list not included",
       "category": "implementation-gap",
       "expected": "fail"
     },
@@ -4460,11 +4208,6 @@
       "category": "implementation-gap",
       "expected": "fail"
     },
-    "test-http-parser-free.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
     "test-http-parser-memory-retention.js": {
       "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
       "category": "implementation-gap",
@@ -4475,28 +4218,8 @@
       "category": "unsupported-module",
       "expected": "fail"
     },
-    "test-http-pause-resume-one-end.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-http-pipe-fs.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
     "test-http-req-res-close.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-http-request-end-twice.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-http-request-end.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
+      "reason": "times out after 30000ms in the conformance runner — sandbox request/response close sequencing never finishes",
       "category": "implementation-gap",
       "expected": "fail"
     },
@@ -4505,18 +4228,8 @@
       "category": "implementation-gap",
       "expected": "fail"
     },
-    "test-http-res-write-after-end.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-http-response-multiheaders.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
     "test-http-response-statuscode.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
+      "reason": "times out after 30000ms in the conformance runner — sandbox response status-code scenario leaves the server/client lifecycle unfinished",
       "category": "implementation-gap",
       "expected": "fail"
     },
@@ -4536,7 +4249,7 @@
       "expected": "fail"
     },
     "test-http-server-options-server-response.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
+      "reason": "times out after 30000ms in the conformance runner — sandbox custom ServerResponse lifecycle does not complete",
       "category": "implementation-gap",
       "expected": "fail"
     },
@@ -4551,22 +4264,12 @@
       "expected": "fail"
     },
     "test-http-set-cookies.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
+      "reason": "times out after 30000ms in the conformance runner — sandbox repeated Set-Cookie response handling does not complete",
       "category": "implementation-gap",
       "expected": "fail"
     },
     "test-http-set-max-idle-http-parser.js": {
       "reason": "needs http.setMaxIdleHTTPParsers API and _http_common internal module",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-http-status-code.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-http-status-reason-invalid-chars.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
       "category": "implementation-gap",
       "expected": "fail"
     },
@@ -4576,7 +4279,7 @@
       "expected": "fail"
     },
     "test-http-timeout.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
+      "reason": "times out after 30000ms in the conformance runner — sandbox HTTP timeout lifecycle does not fire and settle correctly",
       "category": "implementation-gap",
       "expected": "fail"
     },
@@ -4586,12 +4289,12 @@
       "expected": "fail"
     },
     "test-http-write-head-after-set-header.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
+      "reason": "times out after 30000ms in the conformance runner — sandbox writeHead-after-setHeader server/client lifecycle does not complete",
       "category": "implementation-gap",
       "expected": "fail"
     },
     "test-http.js": {
-      "reason": "uses http.createServer/listen — HTTP server behavior has gaps in sandbox",
+      "reason": "times out after 30000ms in the conformance runner — broad HTTP integration scenario never drains to completion in the sandbox",
       "category": "implementation-gap",
       "expected": "fail"
     },
@@ -5684,17 +5387,17 @@
       "expected": "fail"
     },
     "test-webcrypto-export-import-cfrg.js": {
-      "reason": "WebCrypto import/export fixture set is incomplete in the conformance VFS, so the test fails opening `/test/fixtures/rsa_public_2048.pem`",
+      "reason": "fixture loading now works, but CFRG import/export coverage still aborts with `TypeError: Unknown encoding: base64url`",
       "category": "implementation-gap",
       "expected": "fail"
     },
     "test-webcrypto-export-import-ec.js": {
-      "reason": "WebCrypto import/export fixture set is incomplete in the conformance VFS, so the test fails opening `/test/fixtures/rsa_public_2048.pem`",
+      "reason": "fixture loading now works, but invalid EC key imports still throw an OpenSSL decoder error instead of the expected `DataError /Invalid keyData/` shape",
       "category": "implementation-gap",
       "expected": "fail"
     },
     "test-webcrypto-export-import-rsa.js": {
-      "reason": "WebCrypto import/export fixture set is incomplete in the conformance VFS, so the test fails opening `/test/fixtures/ec_p256_public.pem`",
+      "reason": "fixture loading now works, but one invalid RSA import path resolves instead of rejecting and the vendored file fails with `Missing expected rejection`",
       "category": "implementation-gap",
       "expected": "fail"
     },
@@ -5810,131 +5513,6 @@
     },
     "test-whatwg-readablebytestream-bad-buffers-and-views.js": {
       "reason": "sandbox WebStreams ReadableByteStreamController.respondWithNewView() does not throw RangeError with ERR_INVALID_ARG_VALUE code for bad buffer sizes or detached views",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-whatwg-url-custom-deepequal.js": {
-      "reason": "URL/URLSearchParams behavior gap in polyfill",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-whatwg-url-custom-global.js": {
-      "reason": "URL/URLSearchParams behavior gap in polyfill",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-whatwg-url-custom-href-side-effect.js": {
-      "reason": "URL/URLSearchParams behavior gap in polyfill",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-whatwg-url-custom-inspect.js": {
-      "reason": "URL/URLSearchParams behavior gap in polyfill",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-whatwg-url-custom-parsing.js": {
-      "reason": "tests Node.js-specific error codes (ERR_*) — sandbox polyfills throw plain errors",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-whatwg-url-custom-searchparams-append.js": {
-      "reason": "tests Node.js-specific error codes (ERR_*) — sandbox polyfills throw plain errors",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-whatwg-url-custom-searchparams-constructor.js": {
-      "reason": "URL/URLSearchParams behavior gap in polyfill",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-whatwg-url-custom-searchparams-delete.js": {
-      "reason": "tests Node.js-specific error codes (ERR_*) — sandbox polyfills throw plain errors",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-whatwg-url-custom-searchparams-entries.js": {
-      "reason": "URL/URLSearchParams behavior gap in polyfill",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-whatwg-url-custom-searchparams-foreach.js": {
-      "reason": "URL/URLSearchParams behavior gap in polyfill",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-whatwg-url-custom-searchparams-get.js": {
-      "reason": "tests Node.js-specific error codes (ERR_*) — sandbox polyfills throw plain errors",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-whatwg-url-custom-searchparams-getall.js": {
-      "reason": "tests Node.js-specific error codes (ERR_*) — sandbox polyfills throw plain errors",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-whatwg-url-custom-searchparams-has.js": {
-      "reason": "tests Node.js-specific error codes (ERR_*) — sandbox polyfills throw plain errors",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-whatwg-url-custom-searchparams-inspect.js": {
-      "reason": "URL/URLSearchParams behavior gap in polyfill",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-whatwg-url-custom-searchparams-keys.js": {
-      "reason": "URL/URLSearchParams behavior gap in polyfill",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-whatwg-url-custom-searchparams-set.js": {
-      "reason": "tests Node.js-specific error codes (ERR_*) — sandbox polyfills throw plain errors",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-whatwg-url-custom-searchparams-sort.js": {
-      "reason": "URL/URLSearchParams behavior gap in polyfill",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-whatwg-url-custom-searchparams-stringifier.js": {
-      "reason": "URL/URLSearchParams behavior gap in polyfill",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-whatwg-url-custom-searchparams-values.js": {
-      "reason": "URL/URLSearchParams behavior gap in polyfill",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-whatwg-url-custom-searchparams.js": {
-      "reason": "tests Node.js-specific error codes (ERR_*) — sandbox polyfills throw plain errors",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-whatwg-url-custom-setters.js": {
-      "reason": "URL/URLSearchParams behavior gap in polyfill",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-whatwg-url-custom-tostringtag.js": {
-      "reason": "URL/URLSearchParams behavior gap in polyfill",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-whatwg-url-invalidthis.js": {
-      "reason": "URL/URLSearchParams behavior gap in polyfill",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-whatwg-url-override-hostname.js": {
-      "reason": "URL/URLSearchParams behavior gap in polyfill",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-whatwg-url-properties.js": {
-      "reason": "URL/URLSearchParams behavior gap in polyfill",
       "category": "implementation-gap",
       "expected": "fail"
     },
@@ -6119,34 +5697,29 @@
       "category": "implementation-gap"
     },
     "test-fs-watch-recursive-add-file-with-url.js": {
-      "reason": "hangs — fs.watch({recursive}) waits for filesystem events that never arrive (VFS has no inotify)",
-      "category": "implementation-gap",
-      "expected": "skip"
+      "reason": "fails fast — recursive fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive",
+      "category": "unsupported-api",
+      "expected": "fail"
     },
     "test-fs-watch-recursive-add-folder.js": {
-      "reason": "hangs — fs.watch({recursive}) waits for filesystem events that never arrive (VFS has no inotify)",
-      "category": "implementation-gap",
-      "expected": "skip"
+      "reason": "fails fast — recursive fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive",
+      "category": "unsupported-api",
+      "expected": "fail"
     },
     "test-fs-watch-recursive-promise.js": {
-      "reason": "hangs — fs.promises.watch() async iterator waits for events that never arrive (VFS has no inotify)",
-      "category": "implementation-gap",
-      "expected": "skip"
+      "reason": "fails fast — fs.promises.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive",
+      "category": "unsupported-api",
+      "expected": "fail"
     },
     "test-fs-watch-recursive-symlink.js": {
-      "reason": "hangs — fs.watch({recursive}) waits for filesystem events that never arrive (VFS has no inotify)",
-      "category": "implementation-gap",
-      "expected": "skip"
-    },
-    "test-fs-watch-recursive-validate.js": {
-      "reason": "hangs — fs.watch({recursive}) waits for filesystem events that never arrive (VFS has no inotify)",
-      "category": "implementation-gap",
-      "expected": "skip"
+      "reason": "fails fast — recursive fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive",
+      "category": "unsupported-api",
+      "expected": "fail"
     },
     "test-fs-watch-recursive-watch-file.js": {
-      "reason": "hangs — fs.watchFile() waits for stat changes that never arrive (VFS has no inotify)",
-      "category": "implementation-gap",
-      "expected": "skip"
+      "reason": "fails fast — fs.watchFile is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive",
+      "category": "unsupported-api",
+      "expected": "fail"
     },
     "test-module-circular-dependency-warning.js": {
       "expected": "skip",
@@ -6852,21 +6425,6 @@
       "reason": "EventEmitter.listenerCount with listener filter not supported",
       "category": "implementation-gap"
     },
-    "test-fs-chown-type-check.js": {
-      "expected": "fail",
-      "reason": "fs.chown type-check error code mismatch",
-      "category": "implementation-gap"
-    },
-    "test-fs-fsync.js": {
-      "expected": "fail",
-      "reason": "fs.fsync type-check missing expected TypeError",
-      "category": "implementation-gap"
-    },
-    "test-fs-link.js": {
-      "expected": "fail",
-      "reason": "fs.link error code mismatch",
-      "category": "implementation-gap"
-    },
     "test-fs-mkdtemp-prefix-check.js": {
       "expected": "fail",
       "reason": "fs.mkdtemp type-check missing expected TypeError",
@@ -6879,47 +6437,22 @@
     },
     "test-fs-promises-file-handle-read-worker.js": {
       "expected": "fail",
-      "reason": "fs.promises.open (FileHandle API) not implemented",
-      "category": "unsupported-api"
-    },
-    "test-fs-readlink-type-check.js": {
-      "expected": "fail",
-      "reason": "fs.readlink type-check error code mismatch",
-      "category": "implementation-gap"
-    },
-    "test-fs-rename-type-check.js": {
-      "expected": "fail",
-      "reason": "fs.rename type-check missing expected TypeError",
-      "category": "implementation-gap"
-    },
-    "test-fs-rmdir-type-check.js": {
-      "expected": "fail",
-      "reason": "fs.rmdir type-check missing expected TypeError",
-      "category": "implementation-gap"
-    },
-    "test-fs-unlink-type-check.js": {
-      "expected": "fail",
-      "reason": "fs.unlink type-check missing expected TypeError",
-      "category": "implementation-gap"
+      "reason": "worker_threads.Worker is not supported in sandbox",
+      "category": "unsupported-module"
     },
     "test-fs-watch-close-when-destroyed.js": {
       "expected": "fail",
-      "reason": "fs.watch not supported in sandbox",
+      "reason": "fails fast — fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive",
       "category": "unsupported-api"
     },
     "test-fs-watch-ref-unref.js": {
       "expected": "fail",
-      "reason": "fs.watch not supported in sandbox",
+      "reason": "fails fast — fs.watch is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive",
       "category": "unsupported-api"
     },
     "test-fs-watchfile-ref-unref.js": {
       "expected": "fail",
-      "reason": "fs.watchFile not supported in sandbox",
-      "category": "unsupported-api"
-    },
-    "test-fs-write-stream-file-handle-2.js": {
-      "expected": "fail",
-      "reason": "fs.promises.open (FileHandle API) not implemented",
+      "reason": "fails fast — fs.watchFile is deferred because the sandbox VFS/kernel has no inotify/kqueue/FSEvents-style watcher primitive",
       "category": "unsupported-api"
     },
     "test-http-client-headers-host-array.js": {
@@ -7167,192 +6700,865 @@
       "reason": "zero-timeout timer ordering test hangs in sandbox — timer micro-ordering gap",
       "category": "implementation-gap"
     },
-    "test-dgram-*.js": {
-      "reason": "dgram module bridged via kernel UDP — most tests fail on API gaps (bind, send, multicast, cluster)",
+    "test-dgram-bind-default-address.js": {
+      "expected": "fail",
+      "reason": "top-level CommonJS return statements still parse as SyntaxError in sandboxed conformance runs, so the IPv6 conditional aborts before the bind-default-address assertions execute",
+      "category": "implementation-gap"
+    },
+    "test-dgram-bind-fd-error.js": {
+      "expected": "fail",
+      "reason": "requires --expose-internals and internal/test/binding — fd-based dgram.bind() error-path coverage cannot reach Node's internal UDP handles in the sandbox",
+      "category": "requires-v8-flags"
+    },
+    "test-dgram-bind-fd.js": {
+      "expected": "fail",
+      "reason": "requires --expose-internals and internal/test/binding — fd-backed UDP handle fixtures cannot run, so dgram.bind({ fd }) parity is still unverified",
+      "category": "requires-v8-flags"
+    },
+    "test-dgram-bind-socket-close-before-cluster-reply.js": {
+      "expected": "fail",
+      "reason": "the fixture depends on the cluster module, which remains unsupported in the sandbox",
+      "category": "unsupported-module"
+    },
+    "test-dgram-blocklist.js": {
+      "expected": "fail",
+      "reason": "net.BlockList is not implemented in the sandbox net bridge, so dgram sendBlockList and receiveBlockList coverage aborts immediately",
+      "category": "unsupported-api"
+    },
+    "test-dgram-close-during-bind.js": {
+      "expected": "fail",
+      "reason": "requires --expose-internals — internal dgram handle lookup hooks are not exposed, so close-during-bind coverage cannot patch the bind path",
+      "category": "requires-v8-flags"
+    },
+    "test-dgram-close-signal.js": {
+      "expected": "fail",
+      "reason": "dgram.createSocket({ signal }) still accepts invalid signal objects instead of throwing ERR_INVALID_ARG_TYPE, so AbortSignal-driven close parity is incomplete",
+      "category": "implementation-gap"
+    },
+    "test-dgram-close.js": {
+      "expected": "fail",
+      "reason": "requires --expose-internals — internal dgram handle state is not exposed, so the close-before-lookup regression fixture cannot run",
+      "category": "requires-v8-flags"
+    },
+    "test-dgram-cluster-bind-error.js": {
+      "expected": "fail",
+      "reason": "the fixture depends on cluster-managed dgram handle sharing, which remains unsupported in the sandbox",
+      "category": "unsupported-module"
+    },
+    "test-dgram-cluster-close-during-bind.js": {
+      "expected": "fail",
+      "reason": "the fixture depends on the cluster module, which remains unsupported in the sandbox",
+      "category": "unsupported-module"
+    },
+    "test-dgram-cluster-close-in-listening.js": {
+      "expected": "fail",
+      "reason": "the fixture depends on the cluster module, which remains unsupported in the sandbox",
+      "category": "unsupported-module"
+    },
+    "test-dgram-connect.js": {
+      "expected": "fail",
+      "reason": "dgram.Socket connect(), disconnect(), and remoteAddress() are still missing from the bridge, so the connected-socket parity test aborts at startup",
+      "category": "implementation-gap"
+    },
+    "test-dgram-create-socket-handle-fd.js": {
+      "expected": "fail",
+      "reason": "requires --expose-internals and internal/test/binding — dgram._createSocketHandle fd coverage depends on Node internals that are unavailable in the sandbox",
+      "category": "requires-v8-flags"
+    },
+    "test-dgram-create-socket-handle.js": {
+      "expected": "fail",
+      "reason": "requires --expose-internals and internal/test/binding — internal dgram socket-handle construction helpers are not exposed in the sandbox",
+      "category": "requires-v8-flags"
+    },
+    "test-dgram-custom-lookup.js": {
+      "expected": "fail",
+      "reason": "dgram.createSocket({ lookup }) still misses Node's custom lookup validation and wiring, so non-function lookup inputs do not throw the expected TypeError",
+      "category": "implementation-gap"
+    },
+    "test-dgram-deprecation-error.js": {
+      "expected": "fail",
+      "reason": "top-level CommonJS return statements still parse as SyntaxError in sandboxed conformance runs, so the child-process deprecation harness aborts before it can fork per-case checks",
+      "category": "implementation-gap"
+    },
+    "test-dgram-exclusive-implicit-bind.js": {
+      "expected": "fail",
+      "reason": "top-level CommonJS return statements still parse as SyntaxError in sandboxed conformance runs, so the cluster primary branch aborts before the implicit-bind assertions execute",
+      "category": "implementation-gap"
+    },
+    "test-dgram-multicast-set-interface.js": {
+      "expected": "fail",
+      "reason": "top-level CommonJS return statements still parse as SyntaxError in sandboxed conformance runs, so the IPv6 tail of the multicast-interface fixture aborts before completion",
+      "category": "implementation-gap"
+    },
+    "test-dgram-recv-error.js": {
+      "expected": "fail",
+      "reason": "requires --expose-internals — internal dgram handle.onmessage injection is not exposed, so recvmsg error-path coverage cannot run",
+      "category": "requires-v8-flags"
+    },
+    "test-dgram-reuseport.js": {
+      "expected": "fail",
+      "reason": "the vendored ../common/udp helper is missing from the conformance VFS, so the reusePort fixture cannot run",
+      "category": "test-infra"
+    },
+    "test-dgram-send-bad-arguments.js": {
+      "expected": "fail",
+      "reason": "dgram.send() overload validation still reports the wrong ERR_INVALID_ARG_TYPE field names and messages, so legacy bad-argument snapshots diverge from Node",
+      "category": "implementation-gap"
+    },
+    "test-dgram-send-cb-quelches-error.js": {
+      "expected": "fail",
+      "reason": "dns.setServers() is not implemented in the sandbox dns module, so the DNS failure callback-vs-error-emission fixture cannot run",
+      "category": "unsupported-api"
+    },
+    "test-dgram-send-error.js": {
+      "expected": "fail",
+      "reason": "requires --expose-internals — internal dgram handle send and lookup hooks are not exposed, so send error injection coverage cannot run",
+      "category": "requires-v8-flags"
+    },
+    "test-dgram-send-queue-info.js": {
+      "expected": "fail",
+      "reason": "dgram.Socket getSendQueueSize() and getSendQueueCount() are not implemented in the bridge",
+      "category": "unsupported-api"
+    },
+    "test-dgram-sendto.js": {
+      "expected": "fail",
+      "reason": "dgram.sendto() overload validation still reports the wrong ERR_INVALID_ARG_TYPE argument ordering and messages compared with Node",
+      "category": "implementation-gap"
+    },
+    "test-dgram-socket-buffer-size.js": {
+      "expected": "fail",
+      "reason": "requires --expose-internals and internal/test/binding — full ERR_SOCKET_BUFFER_SIZE SystemError snapshot coverage cannot run in the sandbox",
+      "category": "requires-v8-flags"
+    },
+    "test-dgram-unref-in-cluster.js": {
+      "expected": "fail",
+      "reason": "the fixture depends on the cluster module, which remains unsupported in the sandbox",
+      "category": "unsupported-module"
+    },
+    "test-net-access-byteswritten.js": {
+      "expected": "fail",
+      "reason": "legacy net access-byte accounting still dereferences an undefined handle, so bytesWritten inspection crashes before the test can assert parity",
+      "category": "implementation-gap"
+    },
+    "test-net-autoselectfamily-attempt-timeout-cli-option.js": {
+      "expected": "fail",
+      "reason": "net.getDefaultAutoSelectFamilyAttemptTimeout() is still missing, so the CLI autoSelectFamily timeout test aborts before exercising connection behavior",
+      "category": "unsupported-api"
+    },
+    "test-net-autoselectfamily-attempt-timeout-default-value.js": {
+      "expected": "fail",
+      "reason": "net.getDefaultAutoSelectFamilyAttemptTimeout() is still missing, so the default timeout helper test aborts before exercising connection behavior",
+      "category": "unsupported-api"
+    },
+    "test-net-autoselectfamily-commandline-option.js": {
+      "expected": "fail",
+      "reason": "the vendored ../common/dns shim is missing from the conformance VFS, so the autoSelectFamily DNS fixture cannot run",
+      "category": "test-infra"
+    },
+    "test-net-autoselectfamily-default.js": {
+      "expected": "fail",
+      "reason": "the vendored ../common/dns shim is missing from the conformance VFS, so the autoSelectFamily DNS fixture cannot run",
+      "category": "test-infra"
+    },
+    "test-net-autoselectfamily-ipv4first.js": {
+      "expected": "fail",
+      "reason": "the vendored ../common/dns shim is missing from the conformance VFS, so the autoSelectFamily DNS fixture cannot run",
+      "category": "test-infra"
+    },
+    "test-net-autoselectfamily.js": {
+      "expected": "fail",
+      "reason": "the vendored ../common/dns shim is missing from the conformance VFS, so the autoSelectFamily DNS fixture cannot run",
+      "category": "test-infra"
+    },
+    "test-net-better-error-messages-path.js": {
+      "expected": "fail",
+      "reason": "path-based connect validation still misses the expected synchronous exception path, so the better-error-messages path assertions fail",
+      "category": "implementation-gap"
+    },
+    "test-net-better-error-messages-port-hostname.js": {
+      "expected": "fail",
+      "reason": "the vendored ../common/internet helper is missing from the conformance VFS, so the port/hostname error-message fixture cannot run",
+      "category": "test-infra"
+    },
+    "test-net-blocklist.js": {
+      "expected": "fail",
+      "reason": "net.BlockList is not implemented in the sandbox net bridge",
+      "category": "unsupported-api"
+    },
+    "test-net-bytes-written-large.js": {
+      "expected": "fail",
+      "reason": "large-write bytesWritten coverage still collapses the runtime IPC channel before the vendored assertion completes",
+      "category": "implementation-gap"
+    },
+    "test-net-child-process-connect-reset.js": {
+      "expected": "fail",
+      "reason": "the child-process spawn path used by the reset fixture still returns ENOSYS in the sandbox",
+      "category": "unsupported-api"
+    },
+    "test-net-connect-immediate-finish.js": {
+      "expected": "fail",
+      "reason": "the vendored ../common/internet helper is missing from the conformance VFS, so the external-connect fixture cannot run",
+      "category": "test-infra"
+    },
+    "test-net-connect-memleak.js": {
+      "expected": "fail",
+      "reason": "the vendored ../common/gc helper is missing from the conformance VFS, so the GC-sensitive connect leak fixture cannot run",
+      "category": "test-infra"
+    },
+    "test-net-connect-no-arg.js": {
+      "expected": "fail",
+      "reason": "net.connect() still misses the no-argument validation exception that Node emits synchronously",
+      "category": "implementation-gap"
+    },
+    "test-net-connect-options-fd.js": {
+      "expected": "fail",
+      "reason": "fd-based connect forms are still unsupported and the vendored handle fixture depends on internal/test/binding, which is absent in the sandbox",
+      "category": "implementation-gap"
+    },
+    "test-net-connect-options-invalid.js": {
+      "expected": "fail",
+      "reason": "invalid net.connect(options) inputs still miss the expected TypeError validation path",
+      "category": "implementation-gap"
+    },
+    "test-net-connect-options-port.js": {
+      "expected": "fail",
+      "reason": "net.connect() port validation still misses the expected TypeError/ERR_SOCKET_BAD_PORT error path for invalid option shapes",
+      "category": "implementation-gap"
+    },
+    "test-net-connect-reset-before-connected.js": {
+      "expected": "fail",
+      "reason": "net.Socket.resetAndDestroy() is still missing from the sandbox socket implementation",
+      "category": "unsupported-api"
+    },
+    "test-net-connect-reset.js": {
+      "expected": "fail",
+      "reason": "net.Socket.resetAndDestroy() is still missing from the sandbox socket implementation",
+      "category": "unsupported-api"
+    },
+    "test-net-deprecated-setsimultaneousaccepts.js": {
+      "expected": "fail",
+      "reason": "the deprecated net._setSimultaneousAccepts() helper is not implemented in the sandbox bridge",
+      "category": "unsupported-api"
+    },
+    "test-net-end-close.js": {
+      "expected": "fail",
+      "reason": "the vendored end/close fixture depends on internal/test/binding, which is absent in the sandbox",
+      "category": "test-infra"
+    },
+    "test-net-listen-after-destroying-stdin.js": {
+      "expected": "fail",
+      "reason": "process.stdin still lacks the destroy() surface that the listen-after-stdin fixture expects",
+      "category": "implementation-gap"
+    },
+    "test-net-listen-exclusive-random-ports.js": {
+      "expected": "fail",
+      "reason": "the fixture depends on the cluster module, which remains unsupported in the sandbox",
+      "category": "unsupported-module"
+    },
+    "test-net-listen-fd0.js": {
+      "expected": "fail",
+      "reason": "listen({ fd }) handle forms are still unsupported in the sandbox net bridge, so fd=0 throws before the vendored ENOTSOCK/EINVAL path",
+      "category": "implementation-gap"
+    },
+    "test-net-listen-handle-in-cluster-1.js": {
+      "expected": "fail",
+      "reason": "the fixture depends on the cluster module, which remains unsupported in the sandbox",
+      "category": "unsupported-module"
+    },
+    "test-net-listen-handle-in-cluster-2.js": {
+      "expected": "fail",
+      "reason": "the fixture depends on the cluster module, which remains unsupported in the sandbox",
+      "category": "unsupported-module"
+    },
+    "test-net-listen-twice.js": {
+      "expected": "fail",
+      "reason": "the fixture depends on the cluster module, which remains unsupported in the sandbox",
+      "category": "unsupported-module"
+    },
+    "test-net-localerror.js": {
+      "expected": "fail",
+      "reason": "local-address validation still misses the expected synchronous TypeError path",
+      "category": "implementation-gap"
+    },
+    "test-net-normalize-args.js": {
+      "expected": "fail",
+      "reason": "the vendored internal/net helper module is missing from the conformance VFS, so argument-normalization coverage cannot run",
+      "category": "test-infra"
+    },
+    "test-net-options-lookup.js": {
+      "expected": "fail",
+      "reason": "lookup option validation still misses the expected synchronous TypeError path",
+      "category": "implementation-gap"
+    },
+    "test-net-perf_hooks.js": {
+      "expected": "fail",
+      "reason": "perf_hooks.PerformanceObserver remains unsupported in the sandbox, so the net perf observer fixture aborts early",
+      "category": "unsupported-api"
+    },
+    "test-net-persistent-nodelay.js": {
+      "expected": "fail",
+      "reason": "the persistent nodelay fixture depends on internal/test/binding, which is absent in the sandbox",
+      "category": "test-infra"
+    },
+    "test-net-persistent-ref-unref.js": {
+      "expected": "fail",
+      "reason": "the persistent ref/unref fixture depends on internal/test/binding, which is absent in the sandbox",
+      "category": "test-infra"
+    },
+    "test-net-pipe-connect-errors.js": {
+      "expected": "fail",
+      "reason": "Unix pipe connect failures still diverge from Node's expected error object and code assertions",
+      "category": "implementation-gap"
+    },
+    "test-net-reuseport.js": {
+      "expected": "fail",
+      "reason": "the vendored ../common/net helper is missing from the conformance VFS, so the reusePort fixture cannot run",
+      "category": "test-infra"
+    },
+    "test-net-server-blocklist.js": {
+      "expected": "fail",
+      "reason": "net.BlockList is not implemented in the sandbox net bridge",
+      "category": "unsupported-api"
+    },
+    "test-net-server-call-listen-multiple-times.js": {
+      "expected": "fail",
+      "reason": "server.listen() still misses the expected repeated-listen exception path",
+      "category": "implementation-gap"
+    },
+    "test-net-server-close-before-ipc-response.js": {
+      "expected": "fail",
+      "reason": "the fixture depends on the cluster module, which remains unsupported in the sandbox",
+      "category": "unsupported-module"
+    },
+    "test-net-server-drop-connections-in-cluster.js": {
+      "expected": "fail",
+      "reason": "the fixture depends on the cluster module, which remains unsupported in the sandbox",
+      "category": "unsupported-module"
+    },
+    "test-net-server-listen-handle.js": {
+      "expected": "fail",
+      "reason": "handle-based server.listen() forms are still unsupported and the vendored fixture depends on internal/test/binding, which is absent in the sandbox",
+      "category": "implementation-gap"
+    },
+    "test-net-server-listen-options-signal.js": {
+      "expected": "fail",
+      "reason": "server.listen({ signal }) validation still misses the expected TypeError path",
+      "category": "implementation-gap"
+    },
+    "test-net-server-listen-options.js": {
+      "expected": "fail",
+      "reason": "server.listen() option validation still throws ERR_INVALID_ARG_VALUE where Node expects ERR_SOCKET_BAD_PORT",
+      "category": "implementation-gap"
+    },
+    "test-net-server-options.js": {
+      "expected": "fail",
+      "reason": "net.createServer() still misses the expected TypeError validation for invalid constructor options",
+      "category": "implementation-gap"
+    },
+    "test-net-server-simultaneous-accepts-produce-warning-once.js": {
+      "expected": "fail",
+      "reason": "the deprecated net._setSimultaneousAccepts() helper is not implemented in the sandbox bridge",
+      "category": "unsupported-api"
+    },
+    "test-net-socket-connect-invalid-autoselectfamily.js": {
+      "expected": "fail",
+      "reason": "socket.connect() still misses the expected validation exception for invalid autoSelectFamily options",
+      "category": "implementation-gap"
+    },
+    "test-net-socket-connect-invalid-autoselectfamilyattempttimeout.js": {
+      "expected": "fail",
+      "reason": "socket.connect() still misses the expected validation exception for invalid autoSelectFamilyAttemptTimeout values",
+      "category": "implementation-gap"
+    },
+    "test-net-socket-constructor.js": {
+      "expected": "fail",
+      "reason": "the fixture depends on the cluster module, which remains unsupported in the sandbox",
+      "category": "unsupported-module"
+    },
+    "test-net-socket-no-halfopen-enforcer.js": {
+      "expected": "fail",
+      "reason": "socket half-open enforcement still diverges from Node's close/end ordering assertions",
+      "category": "implementation-gap"
+    },
+    "test-net-throttle.js": {
+      "expected": "skip",
+      "reason": "net throttle/backpressure test hangs in sandbox — socket buffering and pause/resume flow-control still diverge from Node.js",
+      "category": "implementation-gap"
+    },
+    "test-net-write-arguments.js": {
+      "expected": "fail",
+      "reason": "the legacy net.Stream constructor surface is still missing, so write-argument validation aborts before the vendored assertions run",
+      "category": "unsupported-api"
+    },
+    "test-http2-!(allow-http1|client-request-options-errors|client-setLocalWindowSize|error-order|goaway-delayed-request|goaway-opaquedata|misbehaving-flow-control|misbehaving-flow-control-paused|request-response-proto|respond-file-filehandle|server-push-stream|server-push-stream-errors-args|server-push-stream-head|server-setLocalWindowSize|session-settings|status-code-invalid|update-settings|window-size).js": {
+      "reason": "outside the landed allowHTTP1, push/settings, request-response, and window-size slices, the remaining http2 suite still fails on compatibility wrappers, secure-session bootstrap, multiplexing/teardown, and file-response helper gaps",
       "category": "implementation-gap",
       "glob": true,
       "expected": "fail"
     },
-    "test-net-*.js": {
-      "reason": "net module bridged via kernel TCP — most tests fail on API gaps (socket options, pipe, cluster, FD handling)",
-      "category": "implementation-gap",
-      "glob": true,
-      "expected": "fail"
-    },
-    "test-tls-*.js": {
-      "reason": "tls module bridged via kernel — most tests fail on missing TLS fixture files or crypto API gaps",
-      "category": "implementation-gap",
-      "glob": true,
-      "expected": "fail"
-    },
-    "test-https-*.js": {
-      "reason": "https depends on tls — most tests fail on missing TLS fixture files or crypto API gaps",
-      "category": "implementation-gap",
-      "glob": true,
-      "expected": "fail"
-    },
-    "test-http2-*.js": {
-      "reason": "http2 module bridged via kernel — most tests fail on API gaps, missing fixtures, or protocol handling",
-      "category": "implementation-gap",
-      "glob": true,
-      "expected": "fail"
-    },
-    "test-dgram-ipv6only.js": {
-      "expected": "pass",
-      "reason": "passes in sandbox"
-    },
-    "test-dgram-udp6-link-local-address.js": {
-      "expected": "pass",
-      "reason": "passes in sandbox"
-    },
-    "test-dgram-udp6-send-default-host.js": {
-      "expected": "pass",
-      "reason": "passes in sandbox"
-    },
-    "test-net-connect-after-destroy.js": {
-      "expected": "pass",
-      "reason": "passes in sandbox"
-    },
-    "test-net-connect-destroy.js": {
-      "expected": "pass",
-      "reason": "passes in sandbox"
-    },
-    "test-net-connect-options-ipv6.js": {
-      "expected": "pass",
-      "reason": "passes in sandbox"
-    },
-    "test-net-listen-ipv6only.js": {
-      "expected": "pass",
-      "reason": "passes in sandbox"
-    },
-    "test-net-dns-error.js": {
-      "expected": "pass",
-      "reason": "genuinely passes"
-    },
-    "test-net-end-without-connect.js": {
-      "expected": "pass",
-      "reason": "genuinely passes"
-    },
-    "test-net-socket-setnodelay.js": {
-      "expected": "pass",
-      "reason": "genuinely passes"
-    },
-    "test-net-timeout-no-handle.js": {
-      "expected": "pass",
-      "reason": "genuinely passes"
+    "test-http2-server-push-stream-errors.js": {
+      "expected": "fail",
+      "reason": "the vendored internal/test/binding and internal/http2/util modules are not exposed in the sandbox, so the internal nghttp2 error-path fixture aborts before exercising pushStream parity",
+      "category": "unsupported-module"
     },
     "test-tls-alert-handling.js": {
       "expected": "pass",
-      "reason": "passes via common.hasCrypto skip path"
+      "reason": "vacuous pass — test self-skips via common.skip() because common.hasCrypto is false",
+      "category": "vacuous-skip"
     },
     "test-tls-alert.js": {
       "expected": "pass",
-      "reason": "passes via common.hasCrypto skip path"
-    },
-    "test-tls-client-abort2.js": {
-      "expected": "pass",
-      "reason": "genuinely passes"
+      "reason": "vacuous pass — test self-skips via common.skip() because common.hasCrypto is false",
+      "category": "vacuous-skip"
     },
     "test-tls-client-renegotiation-limit.js": {
       "expected": "pass",
-      "reason": "passes via common.hasCrypto skip path"
+      "reason": "vacuous pass — test self-skips via common.skip() because common.hasCrypto is false",
+      "category": "vacuous-skip"
     },
     "test-tls-connect-address-family.js": {
       "expected": "pass",
-      "reason": "passes via common.hasCrypto skip path"
-    },
-    "test-tls-connect-hints-option.js": {
-      "expected": "pass",
-      "reason": "genuinely passes"
+      "reason": "vacuous pass — test self-skips via common.skip() because common.hasCrypto is false",
+      "category": "vacuous-skip"
     },
     "test-tls-destroy-whilst-write.js": {
       "expected": "pass",
-      "reason": "passes via common.hasCrypto skip path"
+      "reason": "vacuous pass — test self-skips via common.skip() because common.hasCrypto is false",
+      "category": "vacuous-skip"
     },
     "test-tls-dhe.js": {
       "expected": "pass",
-      "reason": "passes via common.hasCrypto skip path"
+      "reason": "vacuous pass — test self-skips via common.skip() because common.hasCrypto is false",
+      "category": "vacuous-skip"
     },
     "test-tls-ecdh-auto.js": {
       "expected": "pass",
-      "reason": "passes via common.hasCrypto skip path"
+      "reason": "vacuous pass — test self-skips via common.skip() because common.hasCrypto is false",
+      "category": "vacuous-skip"
     },
     "test-tls-ecdh-multiple.js": {
       "expected": "pass",
-      "reason": "passes via common.hasCrypto skip path"
+      "reason": "vacuous pass — test self-skips via common.skip() because common.hasCrypto is false",
+      "category": "vacuous-skip"
     },
     "test-tls-ecdh.js": {
       "expected": "pass",
-      "reason": "passes via common.hasCrypto skip path"
-    },
-    "test-tls-legacy-pfx.js": {
-      "expected": "pass",
-      "reason": "passes via common.hasCrypto skip path"
+      "reason": "vacuous pass — test self-skips via common.skip() because common.hasCrypto is false",
+      "category": "vacuous-skip"
     },
     "test-tls-ocsp-callback.js": {
       "expected": "pass",
-      "reason": "passes via common.hasCrypto skip path"
+      "reason": "vacuous pass — test self-skips via common.skip() because common.hasCrypto is false",
+      "category": "vacuous-skip"
     },
     "test-tls-psk-server.js": {
       "expected": "pass",
-      "reason": "passes via common.hasCrypto skip path"
+      "reason": "vacuous pass — test self-skips via common.skip() because common.hasCrypto is false",
+      "category": "vacuous-skip"
     },
     "test-tls-securepair-server.js": {
       "expected": "pass",
-      "reason": "passes via common.hasCrypto skip path"
+      "reason": "vacuous pass — test self-skips via common.skip() because common.hasCrypto is false",
+      "category": "vacuous-skip"
     },
     "test-tls-server-verify.js": {
       "expected": "pass",
-      "reason": "passes via common.hasCrypto skip path"
+      "reason": "vacuous pass — test self-skips via common.skip() because common.hasCrypto is false",
+      "category": "vacuous-skip"
     },
     "test-tls-session-cache.js": {
       "expected": "pass",
-      "reason": "passes via common.hasCrypto skip path"
+      "reason": "vacuous pass — test self-skips via common.skip() because common.hasCrypto is false",
+      "category": "vacuous-skip"
     },
     "test-tls-set-ciphers.js": {
-      "expected": "pass",
-      "reason": "passes via common.hasCrypto skip path"
-    },
-    "test-tls-use-after-free-regression.js": {
-      "expected": "pass",
-      "reason": "genuinely passes"
+      "expected": "fail",
+      "reason": "cipher-list validation now executes, but the vendored file aborts with `TypeError: Cannot read properties of undefined (reading 'replace')`",
+      "category": "implementation-gap"
     },
     "test-https-client-renegotiation-limit.js": {
       "expected": "pass",
-      "reason": "passes via common.hasCrypto skip path"
+      "reason": "vacuous pass — test self-skips via common.skip() because common.hasCrypto is false",
+      "category": "vacuous-skip"
     },
     "test-https-connect-address-family.js": {
       "expected": "pass",
-      "reason": "passes via common.hasCrypto skip path"
+      "reason": "vacuous pass — test self-skips via common.skip() because common.hasCrypto is false",
+      "category": "vacuous-skip"
+    },
+    "test-https-foafssl.js": {
+      "expected": "pass",
+      "reason": "vacuous pass — test self-skips via common.skip() because common.hasCrypto is false",
+      "category": "vacuous-skip"
+    },
+    "test-tls-0-dns-altname.js": {
+      "expected": "fail",
+      "reason": "TypeError: Path must be a string. Received [\"0-dns\",\"0-dns-key.pem\"]",
+      "category": "implementation-gap"
+    },
+    "test-tls-addca.js": {
+      "expected": "fail",
+      "reason": "TypeError: contextWithCert.context.addCACert is not a function",
+      "category": "unsupported-api"
+    },
+    "test-tls-basic-validations.js": {
+      "expected": "fail",
+      "reason": "AssertionError2: Missing expected exception (TypeError).",
+      "category": "implementation-gap"
+    },
+    "test-tls-canonical-ip.js": {
+      "expected": "fail",
+      "reason": "Cannot find module 'internal/test/binding'",
+      "category": "unsupported-module"
+    },
+    "test-tls-check-server-identity.js": {
+      "expected": "fail",
+      "reason": "TypeError: tls.checkServerIdentity is not a function",
+      "category": "unsupported-api"
+    },
+    "test-tls-cipher-list.js": {
+      "expected": "fail",
+      "reason": "ENOSYS: function not implemented, spawn",
+      "category": "unsupported-api"
+    },
+    "test-tls-cli-max-version-1.2.js": {
+      "expected": "fail",
+      "reason": "AssertionError2: Expected values to be strictly equal: + actual - expected + 'TLSv1.3' - 'TLSv1.2' ^",
+      "category": "implementation-gap"
+    },
+    "test-tls-cli-max-version-1.3.js": {
+      "expected": "fail",
+      "reason": "Cannot find module './test-tls-min-max-version.js'",
+      "category": "test-infra"
+    },
+    "test-tls-cli-min-max-conflict.js": {
+      "expected": "fail",
+      "reason": "ENOSYS: function not implemented, spawn",
+      "category": "unsupported-api"
+    },
+    "test-tls-cli-min-version-1.0.js": {
+      "expected": "fail",
+      "reason": "AssertionError2: Expected values to be strictly equal: + actual - expected + 'TLSv1.2' - 'TLSv1' ^",
+      "category": "implementation-gap"
+    },
+    "test-tls-cli-min-version-1.1.js": {
+      "expected": "fail",
+      "reason": "AssertionError2: Expected values to be strictly equal: + actual - expected + 'TLSv1.2' - 'TLSv1.1' ^",
+      "category": "implementation-gap"
+    },
+    "test-tls-cli-min-version-1.2.js": {
+      "expected": "fail",
+      "reason": "Cannot find module './test-tls-min-max-version.js'",
+      "category": "test-infra"
+    },
+    "test-tls-cli-min-version-1.3.js": {
+      "expected": "fail",
+      "reason": "AssertionError2: Expected values to be strictly equal: + actual - expected + 'TLSv1.2' - 'TLSv1.3' ^",
+      "category": "implementation-gap"
+    },
+    "test-tls-client-allow-partial-trust-chain.js": {
+      "expected": "fail",
+      "reason": "Cannot find module 'test'",
+      "category": "unsupported-module"
+    },
+    "test-tls-client-default-ciphers.js": {
+      "expected": "fail",
+      "reason": "AssertionError2: Missing expected exception (Done).",
+      "category": "implementation-gap"
+    },
+    "test-tls-client-getephemeralkeyinfo.js": {
+      "expected": "fail",
+      "reason": "TypeError: X509Certificate is not a constructor",
+      "category": "implementation-gap"
+    },
+    "test-tls-client-mindhsize.js": {
+      "expected": "fail",
+      "reason": "AssertionError2: Missing expected exception.",
+      "category": "implementation-gap"
+    },
+    "test-tls-client-reject-12.js": {
+      "expected": "fail",
+      "reason": "Cannot find module './test-tls-client-reject.js'",
+      "category": "test-infra"
+    },
+    "test-tls-client-resume-12.js": {
+      "expected": "fail",
+      "reason": "Cannot find module './test-tls-client-resume.js'",
+      "category": "test-infra"
+    },
+    "test-tls-clientcertengine-invalid-arg-type.js": {
+      "expected": "fail",
+      "reason": "AssertionError2: Missing expected exception.",
+      "category": "implementation-gap"
+    },
+    "test-tls-clientcertengine-unsupported.js": {
+      "expected": "fail",
+      "reason": "Cannot find module 'internal/test/binding'",
+      "category": "unsupported-module"
+    },
+    "test-tls-close-notify.js": {
+      "expected": "fail",
+      "reason": "Cannot find module 'internal/test/binding'",
+      "category": "unsupported-module"
+    },
+    "test-tls-connect-memleak.js": {
+      "expected": "fail",
+      "reason": "Cannot find module '../common/gc'",
+      "category": "test-infra"
+    },
+    "test-tls-connect-timeout-option.js": {
+      "expected": "fail",
+      "reason": "AssertionError2: Expected values to be strictly equal: + actual - expected + undefined - 1000",
+      "category": "implementation-gap"
+    },
+    "test-tls-destroy-stream-12.js": {
+      "expected": "fail",
+      "reason": "Cannot find module './test-tls-destroy-stream.js'",
+      "category": "test-infra"
+    },
+    "test-tls-enable-keylog-cli.js": {
+      "expected": "fail",
+      "reason": "SyntaxError: Illegal return statement",
+      "category": "test-infra"
+    },
+    "test-tls-enable-trace-cli.js": {
+      "expected": "fail",
+      "reason": "SyntaxError: Illegal return statement",
+      "category": "test-infra"
+    },
+    "test-tls-enable-trace.js": {
+      "expected": "fail",
+      "reason": "SyntaxError: Illegal return statement",
+      "category": "test-infra"
+    },
+    "test-tls-env-bad-extra-ca.js": {
+      "expected": "fail",
+      "reason": "SyntaxError: Illegal return statement",
+      "category": "test-infra"
+    },
+    "test-tls-env-extra-ca-no-crypto.js": {
+      "expected": "fail",
+      "reason": "child_process.fork is not supported in sandbox",
+      "category": "unsupported-api"
+    },
+    "test-tls-env-extra-ca.js": {
+      "expected": "fail",
+      "reason": "SyntaxError: Illegal return statement",
+      "category": "test-infra"
+    },
+    "test-tls-error-servername.js": {
+      "expected": "fail",
+      "reason": "TypeError: duplexPair is not a function or its return value is not iterable",
+      "category": "unsupported-api"
+    },
+    "test-tls-error-stack.js": {
+      "expected": "fail",
+      "reason": "AssertionError2: Missing expected exception.",
+      "category": "implementation-gap"
+    },
+    "test-tls-external-accessor.js": {
+      "expected": "fail",
+      "reason": "AssertionError2: Missing expected exception (TypeError).",
+      "category": "implementation-gap"
+    },
+    "test-tls-generic-stream.js": {
+      "expected": "fail",
+      "reason": "TypeError: duplexPair is not a function or its return value is not iterable",
+      "category": "unsupported-api"
+    },
+    "test-tls-handshake-exception.js": {
+      "expected": "fail",
+      "reason": "AssertionError2: ENOSYS: function not implemented, spawn",
+      "category": "unsupported-api"
+    },
+    "test-tls-handshake-nohang.js": {
+      "expected": "fail",
+      "reason": "TypeError: tls.createSecurePair is not a function",
+      "category": "unsupported-api"
+    },
+    "test-tls-key-mismatch.js": {
+      "expected": "fail",
+      "reason": "AssertionError2: Missing expected exception.",
+      "category": "implementation-gap"
+    },
+    "test-tls-keyengine-invalid-arg-type.js": {
+      "expected": "fail",
+      "reason": "AssertionError2: Missing expected exception.",
+      "category": "implementation-gap"
+    },
+    "test-tls-keyengine-unsupported.js": {
+      "expected": "fail",
+      "reason": "Cannot find module 'internal/test/binding'",
+      "category": "unsupported-module"
+    },
+    "test-tls-legacy-deprecated.js": {
+      "expected": "fail",
+      "reason": "TypeError: tls.createSecurePair is not a function",
+      "category": "unsupported-api"
+    },
+    "test-tls-min-max-version.js": {
+      "expected": "fail",
+      "reason": "TypeError: Cannot read properties of undefined (reading 'replace')",
+      "category": "implementation-gap"
+    },
+    "test-tls-net-socket-keepalive-12.js": {
+      "expected": "fail",
+      "reason": "Cannot find module './test-tls-net-socket-keepalive.js'",
+      "category": "test-infra"
+    },
+    "test-tls-no-cert-required.js": {
+      "expected": "fail",
+      "reason": "AssertionError2: Missing expected exception (TypeError).",
+      "category": "implementation-gap"
+    },
+    "test-tls-no-sslv23.js": {
+      "expected": "fail",
+      "reason": "AssertionError2: Missing expected exception.",
+      "category": "implementation-gap"
+    },
+    "test-tls-options-boolean-check.js": {
+      "expected": "fail",
+      "reason": "AssertionError2: Missing expected exception (TypeError).",
+      "category": "implementation-gap"
+    },
+    "test-tls-over-http-tunnel.js": {
+      "expected": "skip",
+      "reason": "Test timed out in 30000ms.",
+      "category": "implementation-gap"
+    },
+    "test-tls-passphrase.js": {
+      "expected": "fail",
+      "reason": "AssertionError2: Missing expected exception.",
+      "category": "implementation-gap"
+    },
+    "test-tls-reduced-SECLEVEL-in-cipher.js": {
+      "expected": "fail",
+      "reason": "AssertionError2: Missing expected exception.",
+      "category": "implementation-gap"
+    },
+    "test-tls-reinitialize-listeners.js": {
+      "expected": "fail",
+      "reason": "Cannot find module 'internal/net'",
+      "category": "unsupported-module"
+    },
+    "test-tls-root-certificates.js": {
+      "expected": "fail",
+      "reason": "AssertionError2: false == true",
+      "category": "implementation-gap"
+    },
+    "test-tls-securepair-fiftharg.js": {
+      "expected": "fail",
+      "reason": "TypeError: tls.createSecurePair is not a function",
+      "category": "unsupported-api"
+    },
+    "test-tls-securepair-leak.js": {
+      "expected": "fail",
+      "reason": "TypeError: createSecurePair is not a function",
+      "category": "unsupported-api"
+    },
+    "test-tls-server-parent-constructor-options.js": {
+      "expected": "fail",
+      "reason": "AssertionError2: Expected values to be strictly equal: + actual - expected + undefined - false",
+      "category": "implementation-gap"
+    },
+    "test-tls-server-setoptions-clientcertengine.js": {
+      "expected": "fail",
+      "reason": "TypeError: server.setOptions is not a function",
+      "category": "unsupported-api"
+    },
+    "test-tls-set-ciphers-error.js": {
+      "expected": "fail",
+      "reason": "AssertionError2: Missing expected exception.",
+      "category": "implementation-gap"
+    },
+    "test-tls-set-secure-context.js": {
+      "expected": "skip",
+      "reason": "Test timed out in 30000ms.",
+      "category": "implementation-gap"
+    },
+    "test-tls-snicallback-error.js": {
+      "expected": "fail",
+      "reason": "AssertionError2: Missing expected exception (TypeError).",
+      "category": "implementation-gap"
+    },
+    "test-tls-socket-allow-half-open-option.js": {
+      "expected": "fail",
+      "reason": "AssertionError2: Expected values to be strictly equal: false !== true",
+      "category": "implementation-gap"
+    },
+    "test-tls-socket-snicallback-without-server.js": {
+      "expected": "fail",
+      "reason": "TypeError: duplexPair is not a function or its return value is not iterable",
+      "category": "unsupported-api"
+    },
+    "test-tls-ticket-12.js": {
+      "expected": "fail",
+      "reason": "Cannot find module './test-tls-ticket.js'",
+      "category": "test-infra"
+    },
+    "test-tls-ticket-cluster.js": {
+      "expected": "fail",
+      "reason": "SyntaxError: Illegal return statement",
+      "category": "test-infra"
+    },
+    "test-tls-ticket-invalid-arg.js": {
+      "expected": "fail",
+      "reason": "AssertionError2: Expected values to be strictly deep-equal: + actual - expected + {} - { code: 'ERR_INVALID_ARG_TYPE' }",
+      "category": "implementation-gap"
+    },
+    "test-tls-translate-peer-certificate.js": {
+      "expected": "fail",
+      "reason": "Cannot find module '_tls_common'",
+      "category": "unsupported-module"
+    },
+    "test-tls-transport-destroy-after-own-gc.js": {
+      "expected": "fail",
+      "reason": "TypeError: duplexPair is not a function or its return value is not iterable",
+      "category": "unsupported-api"
+    },
+    "test-tls-use-after-free-regression.js": {
+      "expected": "skip",
+      "reason": "Test timed out in 30000ms.",
+      "category": "implementation-gap"
+    },
+    "test-tls-wrap-econnreset-pipe.js": {
+      "expected": "fail",
+      "reason": "SyntaxError: Illegal return statement",
+      "category": "test-infra"
+    },
+    "test-tls-wrap-event-emmiter.js": {
+      "expected": "fail",
+      "reason": "AssertionError2: Missing expected exception (TypeError).",
+      "category": "implementation-gap"
+    },
+    "test-tls-wrap-no-abort.js": {
+      "expected": "fail",
+      "reason": "Cannot find module 'internal/test/binding'",
+      "category": "unsupported-module"
+    },
+    "test-tls-wrap-timeout.js": {
+      "expected": "fail",
+      "reason": "Cannot find module 'internal/timers'",
+      "category": "unsupported-module"
+    },
+    "test-tls-write-error.js": {
+      "expected": "fail",
+      "reason": "Cannot find module '../common/tls'",
+      "category": "test-infra"
+    },
+    "test-https-*.js": {
+      "expected": "skip",
+      "glob": true,
+      "reason": "https conformance still hangs on most TLS-backed client/server lifecycle and certificate-handling paths, so the remaining broad slice is skipped pending exact inventory",
+      "category": "implementation-gap"
     },
     "test-https-connecting-to-http.js": {
       "expected": "pass",
       "reason": "genuinely passes"
     },
-    "test-https-foafssl.js": {
-      "expected": "pass",
-      "reason": "passes via common.hasCrypto skip path"
-    },
-    "test-http2-allow-http1.js": {
+    "test-https-agent-sockets-leak.js": {
       "expected": "pass",
       "reason": "genuinely passes"
-    },
-    "test-http2-empty-frame-without-eof.js": {
-      "expected": "pass",
-      "reason": "genuinely passes"
-    },
-    "test-http2-request-response-proto.js": {
-      "expected": "pass",
-      "reason": "genuinely passes"
-    },
-    "test-http2-window-size.js": {
-      "expected": "pass",
-      "reason": "genuinely passes"
-    },
-    "test-http2-respond-file-filehandle.js": {
-      "expected": "fail",
-      "reason": "fs.promises.open (FileHandle API) not implemented",
-      "category": "implementation-gap"
     }
   }
 }

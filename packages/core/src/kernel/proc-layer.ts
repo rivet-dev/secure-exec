@@ -8,16 +8,30 @@ const S_IFDIR = 0o040000;
 const S_IFLNK = 0o120000;
 const PROC_INO_BASE = 0xfffe_0000;
 const PROC_SELF_PREFIX = "/proc/self";
+const PROC_SYS_PREFIX = "/proc/sys";
+const PROC_SYS_KERNEL_PREFIX = "/proc/sys/kernel";
+const PROC_SYS_KERNEL_HOSTNAME_PATH = "/proc/sys/kernel/hostname";
 const PROC_PID_ENTRIES: VirtualDirEntry[] = [
 	{ name: "fd", isDirectory: true },
 	{ name: "cwd", isDirectory: false, isSymbolicLink: true },
 	{ name: "exe", isDirectory: false, isSymbolicLink: true },
 	{ name: "environ", isDirectory: false },
 ];
+const PROC_ROOT_ENTRIES: VirtualDirEntry[] = [
+	{ name: "self", isDirectory: false, isSymbolicLink: true },
+	{ name: "sys", isDirectory: true },
+];
+const PROC_SYS_ENTRIES: VirtualDirEntry[] = [
+	{ name: "kernel", isDirectory: true },
+];
+const PROC_SYS_KERNEL_ENTRIES: VirtualDirEntry[] = [
+	{ name: "hostname", isDirectory: false },
+];
 
 export interface ProcLayerOptions {
 	processTable: ProcessTable;
 	fdTableManager: FDTableManager;
+	hostname?: string;
 }
 
 function normalizePath(path: string): string {
@@ -190,6 +204,7 @@ export function createProcLayer(vfs: VirtualFileSystem, options: ProcLayerOption
 	const syncVfs = vfs as VirtualFileSystem & {
 		prepareOpenSync?: (path: string, flags: number) => boolean;
 	};
+	const kernelHostname = encodeText(`${options.hostname ?? "sandbox"}\n`);
 
 	const getProcess = (pid: number) => {
 		const entry = options.processTable.get(pid);
@@ -235,6 +250,11 @@ export function createProcLayer(vfs: VirtualFileSystem, options: ProcLayerOption
 	const getProcStat = async (path: string, followSymlinks: boolean): Promise<VirtualStat> => {
 		const normalized = normalizePath(path);
 		if (normalized === "/proc") return dirStat("proc");
+		if (normalized === PROC_SYS_PREFIX) return dirStat("proc:sys");
+		if (normalized === PROC_SYS_KERNEL_PREFIX) return dirStat("proc:sys:kernel");
+		if (normalized === PROC_SYS_KERNEL_HOSTNAME_PATH) {
+			return fileStat("proc:sys:kernel:hostname", kernelHostname.length);
+		}
 		if (normalized === PROC_SELF_PREFIX) {
 			return followSymlinks ? dirStat("proc-self") : linkStat("proc-self-link", PROC_SELF_PREFIX);
 		}
@@ -286,6 +306,12 @@ export function createProcLayer(vfs: VirtualFileSystem, options: ProcLayerOption
 			if (normalized === "/proc" || normalized === PROC_SELF_PREFIX) {
 				throw new KernelError("EISDIR", `illegal operation on a directory, read '${normalized}'`);
 			}
+			if (normalized === PROC_SYS_PREFIX || normalized === PROC_SYS_KERNEL_PREFIX) {
+				throw new KernelError("EISDIR", `illegal operation on a directory, read '${normalized}'`);
+			}
+			if (normalized === PROC_SYS_KERNEL_HOSTNAME_PATH) {
+				return kernelHostname;
+			}
 			const parsed = parseProcPath(normalized);
 			if (!parsed) throw new KernelError("ENOENT", `no such file or directory: ${normalized}`);
 			const { pid, tail } = parsed;
@@ -315,9 +341,15 @@ export function createProcLayer(vfs: VirtualFileSystem, options: ProcLayerOption
 			if (!isProcPath(normalized)) return vfs.readDirWithTypes(clonePathArg(path, normalized));
 			if (normalized === "/proc") {
 				return [
-					{ name: "self", isDirectory: false, isSymbolicLink: true },
+					...PROC_ROOT_ENTRIES,
 					...listPids().map((pid) => ({ name: String(pid), isDirectory: true })),
 				];
+			}
+			if (normalized === PROC_SYS_PREFIX) {
+				return PROC_SYS_ENTRIES;
+			}
+			if (normalized === PROC_SYS_KERNEL_PREFIX) {
+				return PROC_SYS_KERNEL_ENTRIES;
 			}
 			if (normalized === PROC_SELF_PREFIX) {
 				throw new KernelError("ENOENT", `no such file or directory: ${normalized}`);
@@ -354,7 +386,15 @@ export function createProcLayer(vfs: VirtualFileSystem, options: ProcLayerOption
 		async exists(path) {
 			const normalized = normalizePath(path);
 			if (!isProcPath(normalized)) return vfs.exists(clonePathArg(path, normalized));
-			if (normalized === "/proc" || normalized === PROC_SELF_PREFIX) return true;
+			if (
+				normalized === "/proc" ||
+				normalized === PROC_SELF_PREFIX ||
+				normalized === PROC_SYS_PREFIX ||
+				normalized === PROC_SYS_KERNEL_PREFIX ||
+				normalized === PROC_SYS_KERNEL_HOSTNAME_PATH
+			) {
+				return true;
+			}
 			const parsed = parseProcPath(normalized);
 			if (!parsed) return false;
 			const { pid, tail } = parsed;
@@ -397,7 +437,15 @@ export function createProcLayer(vfs: VirtualFileSystem, options: ProcLayerOption
 		async realpath(path) {
 			const normalized = normalizePath(path);
 			if (!isProcPath(normalized)) return vfs.realpath(clonePathArg(path, normalized));
-			if (normalized === "/proc" || normalized === PROC_SELF_PREFIX) return normalized;
+			if (
+				normalized === "/proc" ||
+				normalized === PROC_SELF_PREFIX ||
+				normalized === PROC_SYS_PREFIX ||
+				normalized === PROC_SYS_KERNEL_PREFIX ||
+				normalized === PROC_SYS_KERNEL_HOSTNAME_PATH
+			) {
+				return normalized;
+			}
 			const parsed = parseProcPath(normalized);
 			if (!parsed) throw new KernelError("ENOENT", `no such file or directory: ${normalized}`);
 			const { pid, tail } = parsed;

@@ -14,26 +14,57 @@
 
       if (
         typeof globalThis.AbortController === 'undefined' ||
-        typeof globalThis.AbortSignal === 'undefined'
+        typeof globalThis.AbortSignal === 'undefined' ||
+        typeof globalThis.AbortSignal?.prototype?.addEventListener !== 'function' ||
+        typeof globalThis.AbortSignal?.prototype?.removeEventListener !== 'function'
       ) {
+        const abortSignalState = new WeakMap();
+        function getAbortSignalState(signal) {
+          const state = abortSignalState.get(signal);
+          if (!state) {
+            throw new Error('Invalid AbortSignal');
+          }
+          return state;
+        }
+
         class AbortSignal {
           constructor() {
-            this.aborted = false;
-            this.reason = undefined;
             this.onabort = null;
-            this._listeners = [];
+            abortSignalState.set(this, {
+              aborted: false,
+              reason: undefined,
+              listeners: [],
+            });
+          }
+
+          get aborted() {
+            return getAbortSignalState(this).aborted;
+          }
+
+          get reason() {
+            return getAbortSignalState(this).reason;
+          }
+
+          get _listeners() {
+            return getAbortSignalState(this).listeners.slice();
+          }
+
+          getEventListeners(type) {
+            if (type !== 'abort') return [];
+            return getAbortSignalState(this).listeners.slice();
           }
 
           addEventListener(type, listener) {
             if (type !== 'abort' || typeof listener !== 'function') return;
-            this._listeners.push(listener);
+            getAbortSignalState(this).listeners.push(listener);
           }
 
           removeEventListener(type, listener) {
             if (type !== 'abort' || typeof listener !== 'function') return;
-            const index = this._listeners.indexOf(listener);
+            const listeners = getAbortSignalState(this).listeners;
+            const index = listeners.indexOf(listener);
             if (index !== -1) {
-              this._listeners.splice(index, 1);
+              listeners.splice(index, 1);
             }
           }
 
@@ -44,7 +75,7 @@
                 this.onabort.call(this, event);
               } catch {}
             }
-            const listeners = this._listeners.slice();
+            const listeners = getAbortSignalState(this).listeners.slice();
             for (const listener of listeners) {
               try {
                 listener.call(this, event);
@@ -60,15 +91,28 @@
           }
 
           abort(reason) {
-            if (this.signal.aborted) return;
-            this.signal.aborted = true;
-            this.signal.reason = reason;
+            const state = getAbortSignalState(this.signal);
+            if (state.aborted) return;
+            state.aborted = true;
+            state.reason = reason;
             this.signal.dispatchEvent({ type: 'abort' });
           }
         }
 
         __requireExposeCustomGlobal('AbortSignal', AbortSignal);
         __requireExposeCustomGlobal('AbortController', AbortController);
+      }
+
+      if (
+        typeof globalThis.AbortSignal === 'function' &&
+        typeof globalThis.AbortController === 'function' &&
+        typeof globalThis.AbortSignal.abort !== 'function'
+      ) {
+        globalThis.AbortSignal.abort = function abort(reason) {
+          const controller = new globalThis.AbortController();
+          controller.abort(reason);
+          return controller.signal;
+        };
       }
 
       if (typeof globalThis.structuredClone !== 'function') {
@@ -213,6 +257,26 @@
                 })(enc);
               }
             }
+
+            if (typeof BufferCtor.allocUnsafe === 'function' && !BufferCtor.allocUnsafe._secureExecPatched) {
+              var _origAllocUnsafe = BufferCtor.allocUnsafe;
+              BufferCtor.allocUnsafe = function(size) {
+                try {
+                  return _origAllocUnsafe.apply(this, arguments);
+                } catch (error) {
+                  if (
+                    error &&
+                    error.name === 'RangeError' &&
+                    typeof size === 'number' &&
+                    size > maxLength
+                  ) {
+                    throw new Error('Array buffer allocation failed');
+                  }
+                  throw error;
+                }
+              };
+              BufferCtor.allocUnsafe._secureExecPatched = true;
+            }
           }
 
           return result;
@@ -229,6 +293,177 @@
         }
 
         if (name === 'util') {
+          if (
+            typeof result.inspect === 'function' &&
+            typeof result.inspect.custom === 'undefined'
+          ) {
+            result.inspect.custom = Symbol.for('nodejs.util.inspect.custom');
+          }
+          if (
+            typeof result.inspect === 'function' &&
+            !result.inspect._secureExecPatchedCustomInspect
+          ) {
+            const customInspectSymbol = result.inspect.custom || Symbol.for('nodejs.util.inspect.custom');
+            const originalInspect = result.inspect;
+            const formatObjectKey = function(key) {
+              return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key)
+                ? key
+                : originalInspect(key);
+            };
+            const containsCustomInspectable = function(value, depth, seen) {
+              if (value === null) {
+                return false;
+              }
+              if (typeof value !== 'object' && typeof value !== 'function') {
+                return false;
+              }
+              if (typeof value[customInspectSymbol] === 'function') {
+                return true;
+              }
+              if (depth < 0 || seen.has(value)) {
+                return false;
+              }
+              seen.add(value);
+              if (Array.isArray(value)) {
+                for (const entry of value) {
+                  if (containsCustomInspectable(entry, depth - 1, seen)) {
+                    seen.delete(value);
+                    return true;
+                  }
+                }
+                seen.delete(value);
+                return false;
+              }
+              for (const key of Object.keys(value)) {
+                if (containsCustomInspectable(value[key], depth - 1, seen)) {
+                  seen.delete(value);
+                  return true;
+                }
+              }
+              seen.delete(value);
+              return false;
+            };
+            const inspectWithCustom = function(value, depth, options, seen) {
+              if (value === null || (typeof value !== 'object' && typeof value !== 'function')) {
+                return originalInspect(value, options);
+              }
+              if (seen.has(value)) {
+                return '[Circular]';
+              }
+              if (typeof value[customInspectSymbol] === 'function') {
+                return value[customInspectSymbol](depth, options, result.inspect);
+              }
+              if (depth < 0) {
+                return originalInspect(value, options);
+              }
+              seen.add(value);
+              if (Array.isArray(value)) {
+                const items = value.map((entry) => inspectWithCustom(entry, depth - 1, options, seen));
+                seen.delete(value);
+                return `[ ${items.join(', ')} ]`;
+              }
+              const proto = Object.getPrototypeOf(value);
+              if (proto === Object.prototype || proto === null) {
+                const entries = Object.keys(value).map(
+                  (key) => `${formatObjectKey(key)}: ${inspectWithCustom(value[key], depth - 1, options, seen)}`
+                );
+                seen.delete(value);
+                return `{ ${entries.join(', ')} }`;
+              }
+              seen.delete(value);
+              return originalInspect(value, options);
+            };
+            result.inspect = function inspect(value, options) {
+              const inspectOptions =
+                typeof options === 'object' && options !== null ? options : {};
+              const depth =
+                typeof inspectOptions.depth === 'number' ? inspectOptions.depth : 2;
+              if (!containsCustomInspectable(value, depth, new Set())) {
+                return originalInspect.call(this, value, options);
+              }
+              return inspectWithCustom(value, depth, inspectOptions, new Set());
+            };
+            result.inspect.custom = customInspectSymbol;
+            result.inspect._secureExecPatchedCustomInspect = true;
+          }
+          return result;
+        }
+
+        if (name === 'events') {
+          if (typeof result.getEventListeners !== 'function') {
+            result.getEventListeners = function getEventListeners(target, eventName) {
+              if (target && typeof target.listeners === 'function') {
+                return target.listeners(eventName);
+              }
+              if (
+                target &&
+                typeof target.getEventListeners === 'function'
+              ) {
+                return target.getEventListeners(eventName);
+              }
+              if (
+                target &&
+                eventName === 'abort' &&
+                Array.isArray(target._listeners)
+              ) {
+                return target._listeners.slice();
+              }
+              return [];
+            };
+          }
+          return result;
+        }
+
+        if (name === 'stream') {
+          const ReadableCtor = result.Readable;
+          const readableFrom =
+            typeof ReadableCtor === 'function' ? ReadableCtor.from : undefined;
+          const readableFromSource =
+            typeof readableFrom === 'function'
+              ? Function.prototype.toString.call(readableFrom)
+              : '';
+          const hasBrowserReadableFromStub =
+            readableFromSource.indexOf(
+              'Readable.from is not available in the browser',
+            ) !== -1 ||
+            readableFromSource.indexOf('require_from_browser') !== -1;
+          if (
+            typeof ReadableCtor === 'function' &&
+            (typeof readableFrom !== 'function' || hasBrowserReadableFromStub)
+          ) {
+            ReadableCtor.from = function from(iterable, options) {
+              const readable = new ReadableCtor(Object.assign({ read() {} }, options || {}));
+              Promise.resolve().then(async function() {
+                try {
+                  if (
+                    iterable &&
+                    typeof iterable[Symbol.asyncIterator] === 'function'
+                  ) {
+                    for await (const chunk of iterable) {
+                      readable.push(chunk);
+                    }
+                  } else if (
+                    iterable &&
+                    typeof iterable[Symbol.iterator] === 'function'
+                  ) {
+                    for (const chunk of iterable) {
+                      readable.push(chunk);
+                    }
+                  } else {
+                    readable.push(iterable);
+                  }
+                  readable.push(null);
+                } catch (error) {
+                  if (typeof readable.destroy === 'function') {
+                    readable.destroy(error);
+                  } else {
+                    readable.emit('error', error);
+                  }
+                }
+              });
+              return readable;
+            };
+          }
           return result;
         }
 
@@ -300,10 +535,8 @@
           // constants object. Node.js zlib.constants bundles all Z_ values plus
           // DEFLATE (1), INFLATE (2), GZIP (3), DEFLATERAW (4), INFLATERAW (5),
           // UNZIP (6), GUNZIP (7). Packages like ssh2 destructure constants.
-          var zlibConstants = typeof result.constants === 'object' && result.constants !== null
-            ? result.constants
-            : {};
           if (typeof result.constants !== 'object' || result.constants === null) {
+            var zlibConstants = {};
             var constKeys = Object.keys(result);
             for (var ci = 0; ci < constKeys.length; ci++) {
               var ck = constKeys[ci];
@@ -311,32 +544,6 @@
                 zlibConstants[ck] = result[ck];
               }
             }
-            // Add Z_* constants that esbuild may strip from the browserify-zlib bundle.
-            if (typeof zlibConstants.Z_NO_FLUSH !== 'number') zlibConstants.Z_NO_FLUSH = 0;
-            if (typeof zlibConstants.Z_PARTIAL_FLUSH !== 'number') zlibConstants.Z_PARTIAL_FLUSH = 1;
-            if (typeof zlibConstants.Z_SYNC_FLUSH !== 'number') zlibConstants.Z_SYNC_FLUSH = 2;
-            if (typeof zlibConstants.Z_FULL_FLUSH !== 'number') zlibConstants.Z_FULL_FLUSH = 3;
-            if (typeof zlibConstants.Z_FINISH !== 'number') zlibConstants.Z_FINISH = 4;
-            if (typeof zlibConstants.Z_BLOCK !== 'number') zlibConstants.Z_BLOCK = 5;
-            if (typeof zlibConstants.Z_TREES !== 'number') zlibConstants.Z_TREES = 6;
-            if (typeof zlibConstants.Z_OK !== 'number') zlibConstants.Z_OK = 0;
-            if (typeof zlibConstants.Z_STREAM_END !== 'number') zlibConstants.Z_STREAM_END = 1;
-            if (typeof zlibConstants.Z_NEED_DICT !== 'number') zlibConstants.Z_NEED_DICT = 2;
-            if (typeof zlibConstants.Z_ERRNO !== 'number') zlibConstants.Z_ERRNO = -1;
-            if (typeof zlibConstants.Z_STREAM_ERROR !== 'number') zlibConstants.Z_STREAM_ERROR = -2;
-            if (typeof zlibConstants.Z_DATA_ERROR !== 'number') zlibConstants.Z_DATA_ERROR = -3;
-            if (typeof zlibConstants.Z_MEM_ERROR !== 'number') zlibConstants.Z_MEM_ERROR = -4;
-            if (typeof zlibConstants.Z_BUF_ERROR !== 'number') zlibConstants.Z_BUF_ERROR = -5;
-            if (typeof zlibConstants.Z_VERSION_ERROR !== 'number') zlibConstants.Z_VERSION_ERROR = -6;
-            if (typeof zlibConstants.Z_NO_COMPRESSION !== 'number') zlibConstants.Z_NO_COMPRESSION = 0;
-            if (typeof zlibConstants.Z_BEST_SPEED !== 'number') zlibConstants.Z_BEST_SPEED = 1;
-            if (typeof zlibConstants.Z_BEST_COMPRESSION !== 'number') zlibConstants.Z_BEST_COMPRESSION = 9;
-            if (typeof zlibConstants.Z_DEFAULT_COMPRESSION !== 'number') zlibConstants.Z_DEFAULT_COMPRESSION = -1;
-            if (typeof zlibConstants.Z_FILTERED !== 'number') zlibConstants.Z_FILTERED = 1;
-            if (typeof zlibConstants.Z_HUFFMAN_ONLY !== 'number') zlibConstants.Z_HUFFMAN_ONLY = 2;
-            if (typeof zlibConstants.Z_RLE !== 'number') zlibConstants.Z_RLE = 3;
-            if (typeof zlibConstants.Z_FIXED !== 'number') zlibConstants.Z_FIXED = 4;
-            if (typeof zlibConstants.Z_DEFAULT_STRATEGY !== 'number') zlibConstants.Z_DEFAULT_STRATEGY = 0;
             // Add mode constants that Node.js exposes but browserify-zlib does not.
             if (typeof zlibConstants.DEFLATE !== 'number') zlibConstants.DEFLATE = 1;
             if (typeof zlibConstants.INFLATE !== 'number') zlibConstants.INFLATE = 2;
@@ -345,8 +552,8 @@
             if (typeof zlibConstants.INFLATERAW !== 'number') zlibConstants.INFLATERAW = 5;
             if (typeof zlibConstants.UNZIP !== 'number') zlibConstants.UNZIP = 6;
             if (typeof zlibConstants.GUNZIP !== 'number') zlibConstants.GUNZIP = 7;
+            result.constants = zlibConstants;
           }
-          result.constants = zlibConstants;
           return result;
         }
 
@@ -535,8 +742,6 @@
               this._algorithm = algorithm;
               if (typeof key === 'string') {
                 this._key = Buffer.from(key, 'utf8');
-              } else if (key && typeof key === 'object' && key._raw !== undefined) {
-                this._key = Buffer.from(key._raw, 'base64');
               } else if (key && typeof key === 'object' && key._pem !== undefined) {
                 // SandboxKeyObject — extract underlying key material
                 this._key = Buffer.from(key._pem, 'utf8');
@@ -1623,18 +1828,9 @@
             }
 
             function scheduleCryptoCallback(callback, args) {
-              var invoke = function() {
+              setTimeout(function() {
                 callback.apply(undefined, args);
-              };
-              if (typeof process !== 'undefined' && process && typeof process.nextTick === 'function') {
-                process.nextTick(invoke);
-                return;
-              }
-              if (typeof queueMicrotask === 'function') {
-                queueMicrotask(invoke);
-                return;
-              }
-              Promise.resolve().then(invoke);
+              }, 0);
             }
 
             function shouldThrowCryptoValidationError(error) {
@@ -2467,7 +2663,6 @@
         'diagnostics_channel',
       ]);
       const _unsupportedCoreModules = new Set([
-        'dgram',
         'cluster',
         'wasi',
         'inspector',
@@ -2658,6 +2853,56 @@
           return promisesModule;
         }
 
+        if (name === 'stream/consumers') {
+          if (__internalModuleCache['stream/consumers']) return __internalModuleCache['stream/consumers'];
+          const consumersModule = {};
+          consumersModule.buffer = async function buffer(stream) {
+            const chunks = [];
+            const pushChunk = function(chunk) {
+              if (typeof chunk === 'string') {
+                chunks.push(Buffer.from(chunk));
+              } else if (Buffer.isBuffer(chunk)) {
+                chunks.push(chunk);
+              } else if (ArrayBuffer.isView(chunk)) {
+                chunks.push(Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength));
+              } else if (chunk instanceof ArrayBuffer) {
+                chunks.push(Buffer.from(new Uint8Array(chunk)));
+              } else {
+                chunks.push(Buffer.from(String(chunk)));
+              }
+            };
+            if (stream && typeof stream[Symbol.asyncIterator] === 'function') {
+              for await (const chunk of stream) {
+                pushChunk(chunk);
+              }
+              return Buffer.concat(chunks);
+            }
+            return new Promise(function(resolve, reject) {
+              stream.on('data', pushChunk);
+              stream.on('end', function() {
+                resolve(Buffer.concat(chunks));
+              });
+              stream.on('error', reject);
+            });
+          };
+          consumersModule.text = async function text(stream) {
+            return (await consumersModule.buffer(stream)).toString('utf8');
+          };
+          consumersModule.json = async function json(stream) {
+            return JSON.parse(await consumersModule.text(stream));
+          };
+          consumersModule.arrayBuffer = async function arrayBuffer(stream) {
+            const buffer = await consumersModule.buffer(stream);
+            return buffer.buffer.slice(
+              buffer.byteOffset,
+              buffer.byteOffset + buffer.byteLength,
+            );
+          };
+          __internalModuleCache['stream/consumers'] = consumersModule;
+          _debugRequire('loaded', name, 'stream-consumers-special');
+          return consumersModule;
+        }
+
         // Special handling for child_process module
         if (name === 'child_process') {
           if (__internalModuleCache['child_process']) return __internalModuleCache['child_process'];
@@ -2701,6 +2946,17 @@
           return httpAgentModule;
         }
 
+        if (name === '_http_common') {
+          if (__internalModuleCache['_http_common']) return __internalModuleCache['_http_common'];
+          const httpCommonModule = {
+            _checkIsHttpToken: _httpModule._checkIsHttpToken,
+            _checkInvalidHeaderChar: _httpModule._checkInvalidHeaderChar,
+          };
+          __internalModuleCache['_http_common'] = httpCommonModule;
+          _debugRequire('loaded', name, 'http-common-special');
+          return httpCommonModule;
+        }
+
         // Special handling for https module
         if (name === 'https') {
           if (__internalModuleCache['https']) return __internalModuleCache['https'];
@@ -2717,12 +2973,38 @@
           return _http2Module;
         }
 
+        if (name === 'internal/http2/util') {
+          if (__internalModuleCache[name]) return __internalModuleCache[name];
+          class NghttpError extends Error {
+            constructor(message) {
+              super(message);
+              this.name = 'Error';
+              this.code = 'ERR_HTTP2_ERROR';
+            }
+          }
+          const utilModule = {
+            kSocket: Symbol.for('secure-exec.http2.kSocket'),
+            NghttpError,
+          };
+          __internalModuleCache[name] = utilModule;
+          _debugRequire('loaded', name, 'http2-util-special');
+          return utilModule;
+        }
+
         // Special handling for dns module
         if (name === 'dns') {
           if (__internalModuleCache['dns']) return __internalModuleCache['dns'];
           __internalModuleCache['dns'] = _dnsModule;
           _debugRequire('loaded', name, 'dns-special');
           return _dnsModule;
+        }
+
+        // Special handling for dgram module
+        if (name === 'dgram') {
+          if (__internalModuleCache['dgram']) return __internalModuleCache['dgram'];
+          __internalModuleCache['dgram'] = _dgramModule;
+          _debugRequire('loaded', name, 'dgram-special');
+          return _dgramModule;
         }
 
         // Special handling for os module

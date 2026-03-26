@@ -264,6 +264,12 @@ function printSkipMessage(msg) {
   process.stdout.write(`1..0 # Skipped: ${msg}\n`);
 }
 
+function skipIf32Bits() {
+  if (process.arch === 'ia32') {
+    skip('requires 64-bit build');
+  }
+}
+
 // canCreateSymLink - in sandbox VFS, symlinks are generally supported
 function canCreateSymLink() {
   return true;
@@ -309,6 +315,9 @@ function mustNotMutateObjectDeep(original) {
     if (obj === null || typeof obj !== 'object') return obj;
     if (seen.has(obj)) return obj;
     seen.add(obj);
+    if (ArrayBuffer.isView(obj) && obj.byteLength > 0) {
+      return obj;
+    }
     const names = Object.getOwnPropertyNames(obj);
     for (const name of names) {
       const descriptor = Object.getOwnPropertyDescriptor(obj, name);
@@ -385,6 +394,7 @@ const common = module.exports = {
 
   // Test control
   skip,
+  skipIf32Bits,
   printSkipMessage,
   platformTimeout,
   allowGlobals,

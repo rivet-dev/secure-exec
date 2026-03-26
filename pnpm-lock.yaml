@@ -51,9 +51,6 @@ importers:
         specifier: ^3.24.0
         version: 3.25.76
     devDependencies:
-      '@secure-exec/docs-gen':
-        specifier: workspace:*
-        version: link:../../scripts/docs-gen
       '@types/node':
         specifier: ^22.10.2
         version: 22.19.3
@@ -107,9 +104,6 @@ importers:
         specifier: ^3.24.0
         version: 3.25.76
     devDependencies:
-      '@secure-exec/docs-gen':
-        specifier: workspace:*
-        version: link:../../scripts/docs-gen
       '@types/node':
         specifier: ^22.10.2
         version: 22.19.3
@@ -139,9 +133,6 @@ importers:
         specifier: workspace:*
         version: link:../../packages/secure-exec
     devDependencies:
-      '@secure-exec/docs-gen':
-        specifier: workspace:*
-        version: link:../../scripts/docs-gen
       '@types/node':
         specifier: ^22.10.2
         version: 22.19.3
@@ -161,9 +152,6 @@ importers:
         specifier: workspace:*
         version: link:../../packages/secure-exec
     devDependencies:
-      '@secure-exec/docs-gen':
-        specifier: workspace:*
-        version: link:../../scripts/docs-gen
       '@types/node':
         specifier: ^22.10.2
         version: 22.19.3
@@ -206,7 +194,23 @@ importers:
         specifier: ^4.19.2
         version: 4.21.0
 
-  examples/kitchen-sink:
+  examples/plugin-system:
+    dependencies:
+      secure-exec:
+        specifier: workspace:*
+        version: link:../../packages/secure-exec
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.19.3
+      tsx:
+        specifier: ^4.19.2
+        version: 4.21.0
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
+  examples/quickstart:
     dependencies:
       '@hono/node-server':
         specifier: ^1.13.8
@@ -221,31 +225,9 @@ importers:
         specifier: workspace:*
         version: link:../../packages/secure-exec
     devDependencies:
-      '@secure-exec/docs-gen':
-        specifier: workspace:*
-        version: link:../../scripts/docs-gen
       '@types/node':
         specifier: ^22.10.2
         version: 22.19.3
-      typescript:
-        specifier: ^5.7.2
-        version: 5.9.3
-
-  examples/plugin-system:
-    dependencies:
-      secure-exec:
-        specifier: workspace:*
-        version: link:../../packages/secure-exec
-    devDependencies:
-      '@secure-exec/docs-gen':
-        specifier: workspace:*
-        version: link:../../scripts/docs-gen
-      '@types/node':
-        specifier: ^22.10.2
-        version: 22.19.3
-      tsx:
-        specifier: ^4.19.2
-        version: 4.21.0
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
@@ -539,19 +521,6 @@ importers:
       vite:
         specifier: ^6.4.1
         version: 6.4.1(@types/node@22.19.3)(tsx@4.21.0)
-
-  scripts/docs-gen:
-    dependencies:
-      tsx:
-        specifier: ^4.19.2
-        version: 4.21.0
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.2
-        version: 22.19.3
-      typescript:
-        specifier: ^5.7.2
-        version: 5.9.3
 
 packages:
 

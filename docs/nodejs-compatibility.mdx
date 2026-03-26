@@ -1,6 +1,7 @@
 ---
 title: Node.js Compatibility
 description: Target Node.js version and standard-library compatibility matrix for secure-exec.
+icon: "list-check"
 ---
 
 ## Target Node Version
@@ -59,7 +60,7 @@ Unsupported modules use: `"<module> is not supported in sandbox"`.
 
 | Module | Tier | Status |
 | --- | --- | --- |
-| `fs` | 1 (Bridge) + 4 (Deferred APIs) | Implemented: `readFile`, `writeFile`, `appendFile`, `open`, `read`, `write`, `close`, `readdir`, `mkdir`, `rmdir`, `rm`, `unlink`, `stat`, `lstat`, `rename`, `copyFile`, `exists`, `createReadStream`, `createWriteStream`, `writev`, `access`, `realpath`, `chmod`, `chown`, `link`, `symlink`, `readlink`, `truncate`, `utimes`, `cp`, `mkdtemp`, `opendir`, `glob`, `statfs`, `readv`, `fdatasync`, `fsync`. Metadata-sensitive operations (`stat`, `exists`, `readdir` with `withFileTypes`) use metadata-native driver paths instead of content probing. `rename` delegates to driver semantics (atomic where supported; explicit limitation errors where not). Deferred: `watch`, `watchFile`. |
+| `fs` | 1 (Bridge) + 4 (Deferred APIs) | Implemented: `readFile`, `writeFile`, `appendFile`, `open`, `read`, `write`, `close`, `readdir`, `mkdir`, `rmdir`, `rm`, `unlink`, `stat`, `lstat`, `rename`, `copyFile`, `exists`, `createReadStream`, `createWriteStream`, `writev`, `access`, `realpath`, `chmod`, `chown`, `link`, `symlink`, `readlink`, `truncate`, `utimes`, `cp`, `mkdtemp`, `opendir`, `glob`, `statfs`, `readv`, `fdatasync`, `fsync`. Metadata-sensitive operations (`stat`, `exists`, `readdir` with `withFileTypes`) use metadata-native driver paths instead of content probing. `rename` delegates to driver semantics (atomic where supported; explicit limitation errors where not). Deferred watcher APIs: `watch`, `watchFile`, `fs.promises.watch`. |
 | `process` | 1 (Bridge) | Env access (permission-gated), cwd/chdir, exit semantics, timers, stdio, eventing, and basic usage/system metadata APIs. |
 | `os` | 1 (Bridge) | Platform/arch/version, user/system info, and `os.constants`. |
 | `child_process` | 1 (Bridge) + 5 (`fork`) | Implemented: `spawn`, `spawnSync`, `exec`, `execSync`, `execFile`, `execFileSync`; `fork` is intentionally unsupported. |
@@ -131,7 +132,7 @@ Some Node.js features cannot be supported in secure-exec due to fundamental arch
 | Behavior | Reason |
 | --- | --- |
 | Real OS signals (`SIGTERM`, `SIGUSR1`, etc.) | The sandbox is not an OS process — it's a V8 isolate within a host process. There are no real POSIX signals to deliver. `process.on('SIGINT')` may be emulated in the future. |
-| Real file system watchers (`fs.watch`) | The VFS (virtual file system) has no inotify/kqueue equivalent. `fs.watch()` returns a stub that never emits events. Writes to VFS do not trigger watcher notifications. |
+| Real file system watchers (`fs.watch`, `fs.watchFile`, `fs.promises.watch`) | The VFS (virtual file system) has no inotify/kqueue/FSEvents-equivalent primitive. These APIs fail fast with deterministic unsupported errors instead of hanging while waiting for events that the sandbox cannot produce. |
 | Multi-context execution | The sandbox runs one V8 context per isolate. Features requiring context isolation (ShadowRealm, `vm.createContext`) cannot work. |
 | QUIC protocol | Experimental in Node.js, depends on `tls` + `net` + OpenSSL QUIC support. Not planned. |
 

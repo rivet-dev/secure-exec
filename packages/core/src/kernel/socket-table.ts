@@ -259,7 +259,7 @@ export class SocketTable {
 	 * For Unix domain sockets (UnixAddr), creates a socket file in the
 	 * VFS if one is configured.
 	 */
-	async bind(socketId: number, addr: SockAddr): Promise<void> {
+	async bind(socketId: number, addr: SockAddr, options?: { mode?: number }): Promise<void> {
 		const socket = this.requireSocket(socketId);
 		if (socket.state !== "created") {
 			throw new KernelError("EINVAL", "socket must be in created state to bind");
@@ -283,7 +283,7 @@ export class SocketTable {
 			this.udpBindings.set(addrKey(boundAddr), socketId);
 			// Create socket file in VFS for Unix dgram sockets
 			if (isUnixAddr(boundAddr) && this.vfs) {
-				await this.createSocketFile(boundAddr.path);
+				await this.createSocketFile(boundAddr.path, options?.mode);
 			}
 			return;
 		}
@@ -298,7 +298,7 @@ export class SocketTable {
 
 		// Create socket file in VFS for Unix stream sockets
 		if (isUnixAddr(boundAddr) && this.vfs) {
-			await this.createSocketFile(boundAddr.path);
+			await this.createSocketFile(boundAddr.path, options?.mode);
 		}
 	}
 
@@ -544,6 +544,18 @@ export class SocketTable {
 			throw new KernelError("EINVAL", "socket must be in created or bound state to connect");
 		}
 
+		// Mirror POSIX auto-bind behavior so connected client sockets always
+		// expose a concrete local address/port to both peers.
+		if (!socket.localAddr && isInetAddr(addr)) {
+			socket.localAddr = this.assignEphemeralPort(
+				{
+					host: addr.host.includes(":") ? "::1" : "127.0.0.1",
+					port: 0,
+				},
+				socket,
+			);
+		}
+
 		// Unix domain sockets: check VFS for socket file existence
 		if (isUnixAddr(addr) && this.vfs) {
 			if (!await this.vfs.exists(addr.path)) {
@@ -763,7 +775,7 @@ export class SocketTable {
 			if (target.datagramQueue.length >= MAX_UDP_QUEUE_DEPTH) {
 				return data.length; // Silently drop
 			}
-			const srcAddr: SockAddr = socket.localAddr ?? { host: "127.0.0.1", port: 0 };
+			const srcAddr: SockAddr = this.getUdpSourceAddr(socket, destAddr);
 			target.datagramQueue.push({ data: new Uint8Array(data), srcAddr });
 			target.readWaiters.wakeOne();
 			return data.length;
@@ -782,6 +794,28 @@ export class SocketTable {
 
 		// No loopback target, no host adapter — silently drop (UDP semantics)
 		return data.length;
+	}
+
+	private getUdpSourceAddr(socket: KernelSocket, destAddr: SockAddr): SockAddr {
+		if (!socket.localAddr) {
+			return isInetAddr(destAddr)
+				? {
+						host: destAddr.host.includes(":") ? "::1" : "127.0.0.1",
+						port: 0,
+					}
+				: { path: destAddr.path };
+		}
+		if (
+			isInetAddr(socket.localAddr) &&
+			isInetAddr(destAddr) &&
+			(socket.localAddr.host === "0.0.0.0" || socket.localAddr.host === "::")
+		) {
+			return {
+				host: destAddr.host,
+				port: socket.localAddr.port,
+			};
+		}
+		return socket.localAddr;
 	}
 
 	/**
@@ -942,10 +976,10 @@ export class SocketTable {
 	// -----------------------------------------------------------------------
 
 	/** Create a socket file in the VFS with S_IFSOCK mode. */
-	private async createSocketFile(path: string): Promise<void> {
+	private async createSocketFile(path: string, mode: number = 0o755): Promise<void> {
 		if (!this.vfs) return;
 		await this.vfs.writeFile(path, new Uint8Array(0));
-		await this.vfs.chmod(path, S_IFSOCK | 0o755);
+		await this.vfs.chmod(path, S_IFSOCK | (mode & 0o777));
 	}
 
 	private requireSocket(socketId: number): KernelSocket {

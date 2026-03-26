@@ -12,14 +12,12 @@ Console output from sandboxed code is **not buffered** into result fields. `exec
 
 ## Runnable example
 
-Source file: `examples/features/src/output-capture.ts`
-
 ```ts
 import {
   NodeRuntime,
   createNodeDriver,
   createNodeRuntimeDriverFactory,
-} from "secure-exec";
+} from "../../../packages/secure-exec/src/index.ts";
 
 const events: string[] = [];
 
@@ -65,6 +63,8 @@ try {
   runtime.dispose();
 }
 ```
+
+Source: [examples/features/src/output-capture.ts](https://github.com/rivet-dev/secure-exec/blob/main/examples/features/src/output-capture.ts)
 
 ## Default hook
 

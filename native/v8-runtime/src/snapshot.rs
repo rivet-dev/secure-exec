@@ -768,7 +768,8 @@ mod tests {
                     var asyncFns = ['_dynamicImport', '_scheduleTimer',
                         '_networkFetchRaw', '_networkDnsLookupRaw',
                         '_networkHttpRequestRaw', '_networkHttpServerListenRaw',
-                        '_networkHttpServerCloseRaw'];
+                        '_networkHttpServerCloseRaw', '_networkHttpServerWaitRaw',
+                        '_networkHttp2ServerWaitRaw', '_networkHttp2SessionWaitRaw'];
                     for (var i = 0; i < asyncFns.length; i++) {
                         if (typeof globalThis[asyncFns[i]] !== 'function') {
                             throw new Error('Missing async stub: ' + asyncFns[i] +

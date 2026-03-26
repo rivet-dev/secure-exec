@@ -1,4 +1,5 @@
 import * as nodeHttp from "node:http";
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	allowAllEnv,
@@ -26,6 +27,19 @@ const allowFsNetworkEnv = {
 	...allowAllNetwork,
 	...allowAllEnv,
 };
+
+const HTTP2_TEST_KEY = readFileSync(
+	new URL("../../node-conformance/fixtures/keys/agent8-key.pem", import.meta.url),
+	"utf8",
+);
+const HTTP2_TEST_CERT = readFileSync(
+	new URL("../../node-conformance/fixtures/keys/agent8-cert.pem", import.meta.url),
+	"utf8",
+);
+const HTTP2_TEST_CA = readFileSync(
+	new URL("../../node-conformance/fixtures/keys/fake-startcom-root-cert.pem", import.meta.url),
+	"utf8",
+);
 
 type CapturedConsoleEvent = {
 	channel: "stdout" | "stderr";
@@ -1832,6 +1846,507 @@ describe("NodeRuntime", () => {
 		expect(result.code).not.toBe(-999);
 	});
 
+	it("serves a basic bridged http2 request/response over plaintext", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			onStdio: capture.onStdio,
+			driver: createNodeDriver({
+				filesystem: new NodeFileSystem(),
+				networkAdapter: createDefaultNetworkAdapter(),
+				permissions: allowFsNetworkEnv,
+			}),
+		});
+
+		const result = await proc.exec(`
+			const http2 = require('http2');
+			const server = http2.createServer();
+			server.on('stream', (stream, headers, flags) => {
+				console.log('server', headers[':method'], headers[':scheme'], flags);
+				stream.respond({ ':status': 200, 'content-type': 'text/plain' });
+				stream.write('alpha');
+				stream.end('beta');
+			});
+			server.listen(0, () => {
+				const client = http2.connect('http://localhost:' + server.address().port);
+				const req = client.request();
+				let body = '';
+				client.on('connect', () => {
+					console.log('client-connect', client.encrypted, client.alpnProtocol);
+				});
+				req.setEncoding('utf8');
+				req.on('response', (headers) => {
+					console.log('response', headers[':status'], headers['content-type']);
+				});
+				req.on('data', (chunk) => body += chunk);
+				req.on('end', () => {
+					console.log('body', body);
+					client.close();
+					server.close();
+				});
+				req.end();
+			});
+		`);
+
+		expect(result.code).toBe(0);
+		expect(capture.stdout()).toContain("server GET http 5");
+		expect(capture.stdout()).toContain("client-connect false h2c");
+		expect(capture.stdout()).toContain("response 200 text/plain");
+		expect(capture.stdout()).toContain("body alphabeta");
+	});
+
+	it("serves a basic bridged http2 request/response over tls", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			onStdio: capture.onStdio,
+			driver: createNodeDriver({
+				filesystem: new NodeFileSystem(),
+				networkAdapter: createDefaultNetworkAdapter(),
+				permissions: allowFsNetworkEnv,
+			}),
+		});
+
+		const result = await proc.exec(
+			`
+			const http2 = require('http2');
+			const tls = require('tls');
+			const { kSocket } = require('internal/http2/util');
+			const key = ${JSON.stringify(HTTP2_TEST_KEY)};
+			const cert = ${JSON.stringify(HTTP2_TEST_CERT)};
+			const ca = ${JSON.stringify(HTTP2_TEST_CA)};
+			const server = http2.createSecureServer({ key, cert });
+			server.on('stream', (stream) => {
+				stream.respond({ ':status': 200, 'content-type': 'application/json' });
+				stream.end(JSON.stringify({
+					servername: stream.session[kSocket].servername,
+					alpnProtocol: stream.session.alpnProtocol,
+				}));
+			});
+			server.listen(0, () => {
+				const secureContext = tls.createSecureContext({ ca });
+				const client = http2.connect('https://localhost:' + server.address().port, { secureContext });
+				console.log('secure-listeners', client.socket.listenerCount('secureConnect'));
+				client.on('connect', () => {
+					console.log('secure-connect', client.encrypted, client.alpnProtocol, client.originSet.length);
+					const req = client.request();
+					let body = '';
+					req.setEncoding('utf8');
+					req.on('data', (chunk) => body += chunk);
+					req.on('end', () => {
+						console.log('secure-body', body);
+						client[kSocket].destroy();
+						server.close();
+					});
+					req.end();
+				});
+			});
+		`,
+		);
+
+		expect(result.code).toBe(0);
+		expect(capture.stdout()).toContain("secure-listeners 1");
+		expect(capture.stdout()).toContain("secure-connect true h2 1");
+		expect(capture.stdout()).toContain('"alpnProtocol":"h2"');
+	});
+
+	it("supports bridged http2 push streams and nested-push errors", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			onStdio: capture.onStdio,
+			driver: createNodeDriver({
+				filesystem: new NodeFileSystem(),
+				networkAdapter: createDefaultNetworkAdapter(),
+				permissions: allowFsNetworkEnv,
+			}),
+		});
+
+		const result = await proc.exec(`
+			const assert = require('assert');
+			const http2 = require('http2');
+			const server = http2.createServer();
+			server.on('stream', (stream, headers) => {
+				if (headers[':path'] !== '/') return;
+				const port = server.address().port;
+				stream.pushStream({
+					':scheme': 'http',
+					':path': '/pushed',
+					':authority': 'localhost:' + port,
+				}, (err, push, pushHeaders) => {
+					assert.ifError(err);
+					console.log('push-callback', pushHeaders[':path']);
+					push.respond({ ':status': 200, 'x-push': 'yes' });
+					push.end('pushed-body');
+					try {
+						push.pushStream({}, () => {});
+					} catch (error) {
+						console.log('nested-push', error.code);
+					}
+					stream.end('main-body');
+				});
+				stream.respond({ ':status': 200 });
+			});
+			server.listen(0, () => {
+				const client = http2.connect('http://localhost:' + server.address().port);
+				client.on('stream', (stream, headers) => {
+					console.log('client-stream', headers[':path']);
+					let body = '';
+					stream.setEncoding('utf8');
+					stream.on('push', (pushHeaders, flags) => {
+						console.log('push-headers', pushHeaders[':status'], pushHeaders['x-push'], typeof flags);
+					});
+					stream.on('data', (chunk) => body += chunk);
+					stream.on('end', () => {
+						console.log('push-body', body);
+						client.close();
+						server.close();
+					});
+					stream.resume();
+				});
+				const req = client.request({ ':path': '/' });
+				let body = '';
+				req.setEncoding('utf8');
+				req.on('data', (chunk) => body += chunk);
+				req.on('end', () => {
+					console.log('main-body', body);
+				});
+				req.end();
+			});
+		`);
+
+		expect(result.code).toBe(0);
+		expect(capture.stdout()).toContain("push-callback /pushed");
+		expect(capture.stdout()).toContain("nested-push ERR_HTTP2_NESTED_PUSH");
+		expect(capture.stdout()).toContain("client-stream /pushed");
+		expect(capture.stdout()).toContain("push-headers 200 yes number");
+		expect(capture.stdout()).toContain("push-body pushed-body");
+		expect(capture.stdout()).toContain("main-body main-body");
+	});
+
+	it("marks HEAD push streams ended before writes", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			onStdio: capture.onStdio,
+			driver: createNodeDriver({
+				filesystem: new NodeFileSystem(),
+				networkAdapter: createDefaultNetworkAdapter(),
+				permissions: allowFsNetworkEnv,
+			}),
+		});
+
+			const result = await proc.exec(`
+				const assert = require('assert');
+				const http2 = require('http2');
+				const server = http2.createServer();
+				let pendingCloses = 2;
+				const closeWhenSettled = (client) => {
+					pendingCloses -= 1;
+					if (pendingCloses === 0) {
+						server.close();
+						client.close();
+					}
+				};
+				server.on('stream', (stream) => {
+					stream.pushStream({
+						':scheme': 'http',
+						':method': 'HEAD',
+					':path': '/',
+					':authority': 'localhost:' + server.address().port,
+				}, (err, push, headers) => {
+					assert.ifError(err);
+					console.log('head-ended', push._writableState.ended, headers[':method']);
+					push.respond();
+					push.on('error', (error) => console.log('head-error', error.code));
+					console.log('head-write', push.write('ignored'));
+					stream.end('done');
+				});
+				stream.respond({ ':status': 200 });
+				});
+				server.listen(0, () => {
+					const client = http2.connect('http://localhost:' + server.address().port);
+					client.on('stream', (stream, headers) => {
+						console.log('head-stream', headers[':method']);
+						stream.on('push', () => {
+							console.log('head-push');
+							stream.on('data', () => console.log('head-data'));
+							stream.on('end', () => console.log('head-push-end'));
+						});
+						stream.on('close', () => closeWhenSettled(client));
+						stream.resume();
+					});
+					const req = client.request();
+					req.setEncoding('utf8');
+					let body = '';
+					req.on('data', (chunk) => body += chunk);
+					req.on('end', () => console.log('head-main-end', body));
+					req.on('close', () => closeWhenSettled(client));
+					req.end();
+				});
+			`);
+
+		expect(result.code).toBe(0);
+		expect(capture.stdout()).toContain("head-ended true HEAD");
+		expect(capture.stdout()).toContain("head-write false");
+			expect(capture.stdout()).toContain("head-error ERR_STREAM_WRITE_AFTER_END");
+			expect(capture.stdout()).toContain("head-stream HEAD");
+			expect(capture.stdout()).toContain("head-push");
+			expect(capture.stdout()).toContain("head-push-end");
+			expect(capture.stdout()).toContain("head-main-end done");
+		});
+
+	it("tracks bridged http2 settings state and goaway events", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			onStdio: capture.onStdio,
+			driver: createNodeDriver({
+				filesystem: new NodeFileSystem(),
+				networkAdapter: createDefaultNetworkAdapter(),
+				permissions: allowFsNetworkEnv,
+			}),
+		});
+
+		const result = await proc.exec(`
+			const assert = require('assert');
+			const http2 = require('http2');
+			const server = http2.createServer({
+				settings: { customSettings: { 1244: 456 } },
+				remoteCustomSettings: [55],
+			});
+			const optionsSymbol = Object.getOwnPropertySymbols(server).find((symbol) => String(symbol) === 'Symbol(options)');
+			server.updateSettings({ enablePush: false, maxFrameSize: 16385 });
+			console.log('server-settings', server[optionsSymbol].settings.enablePush, server[optionsSymbol].settings.maxFrameSize);
+			server.on('session', (session) => {
+				console.log('server-session', session.localSettings.customSettings[1244], session.remoteSettings.maxConcurrentStreams);
+				session.settings({ maxConcurrentStreams: 2 }, () => console.log('server-settings-ack'));
+			});
+			server.on('stream', (stream) => {
+				console.log('server-remote-settings', stream.session.remoteSettings.enablePush, stream.session.remoteSettings.customSettings[55]);
+				stream.session.goaway(0, 0, Buffer.from([1, 2, 3]));
+				stream.respond({ ':status': 200 });
+				stream.end('ok');
+			});
+			server.listen(0, () => {
+				const client = http2.connect('http://localhost:' + server.address().port, {
+					settings: {
+						enablePush: false,
+						initialWindowSize: 123456,
+						customSettings: { 55: 12 },
+					},
+					remoteCustomSettings: [1244],
+				});
+				client.on('localSettings', (settings) => console.log('client-local', settings.enablePush, settings.initialWindowSize, settings.customSettings[55]));
+				client.on('remoteSettings', (settings) => console.log('client-remote', settings.maxConcurrentStreams, settings.customSettings[1244]));
+				client.on('goaway', (code, lastStreamID, buf) => console.log('client-goaway', code, lastStreamID, Buffer.from(buf).toString('hex')));
+				const req = client.request({ ':path': '/' });
+				req.on('ready', () => {
+					console.log('pending-settings', client.pendingSettingsAck);
+					client.settings({ maxHeaderListSize: 1 }, () => console.log('client-settings-ack'));
+				});
+				req.resume();
+				req.on('end', () => {
+					client.close();
+					server.close();
+				});
+				req.end();
+			});
+		`);
+
+			expect(result.code).toBe(0);
+			expect(capture.stdout()).toContain("server-settings false 16385");
+			expect(capture.stdout()).toContain("server-session 456 4294967295");
+			expect(capture.stdout()).toContain("server-remote-settings false 12");
+			expect(capture.stdout()).toContain("pending-settings true");
+			expect(capture.stdout()).toContain("client-local false 123456 12");
+			expect(capture.stdout()).toContain("client-remote 2 456");
+		expect(capture.stdout()).toContain("client-goaway 0 1 010203");
+		expect(capture.stdout()).toContain("client-settings-ack");
+	});
+
+	it("tracks bridged http2 session state after setLocalWindowSize", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			onStdio: capture.onStdio,
+			driver: createNodeDriver({
+				filesystem: new NodeFileSystem(),
+				networkAdapter: createDefaultNetworkAdapter(),
+				permissions: allowFsNetworkEnv,
+			}),
+		});
+
+		const result = await proc.exec(`
+			const http2 = require('http2');
+			const server = http2.createServer();
+			server.on('stream', (stream) => {
+				stream.respond({ ':status': 200 });
+				stream.end('ok');
+			});
+			server.on('session', (session) => {
+				session.setLocalWindowSize(1024 * 1024);
+				console.log('server-state', session.state.effectiveLocalWindowSize, session.state.localWindowSize, session.state.remoteWindowSize);
+			});
+			server.listen(0, () => {
+				const client = http2.connect('http://localhost:' + server.address().port);
+				client.on('connect', () => {
+					client.setLocalWindowSize(20);
+					console.log('client-state', client.state.effectiveLocalWindowSize, client.state.localWindowSize, client.state.remoteWindowSize);
+					const req = client.request({ ':path': '/' });
+					req.resume();
+					req.on('end', () => {
+						client.close();
+						server.close();
+					});
+					req.end();
+				});
+			});
+		`);
+
+		expect(result.code).toBe(0);
+		expect(capture.stdout()).toContain("server-state 1048576 1048576 65535");
+		expect(capture.stdout()).toContain("client-state 20 65535 65535");
+	});
+
+	it("serves a bridged http2 response from a sandbox FileHandle", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			onStdio: capture.onStdio,
+			filesystem: new NodeFileSystem(),
+			driver: createNodeDriver({
+				filesystem: new NodeFileSystem(),
+				networkAdapter: createDefaultNetworkAdapter(),
+				permissions: allowFsNetworkEnv,
+			}),
+		});
+
+		const result = await proc.exec(`
+			const fs = require('fs');
+			const http2 = require('http2');
+			fs.writeFileSync('/tmp/http2-filehandle.txt', 'file-handle-body');
+			const handlePromise = fs.promises.open('/tmp/http2-filehandle.txt', 'r');
+			handlePromise.then((handle) => {
+				const server = http2.createServer();
+				server.on('stream', (stream) => {
+					stream.respondWithFD(handle, {
+						'content-type': 'text/plain',
+						'content-length': 16,
+					});
+				});
+				server.on('close', () => handle.close());
+				server.listen(0, () => {
+					const client = http2.connect('http://localhost:' + server.address().port);
+					const req = client.request();
+					let body = '';
+					req.setEncoding('utf8');
+					req.on('response', (headers) => {
+						console.log('headers', headers['content-type'], headers['content-length']);
+					});
+					req.on('data', (chunk) => body += chunk);
+					req.on('end', () => {
+						console.log('body', body);
+						client.close();
+						server.close();
+					});
+					req.end();
+				});
+			});
+		`);
+
+		expect(result.code).toBe(0);
+		expect(capture.stdout()).toContain("headers text/plain 16");
+		expect(capture.stdout()).toContain("body file-handle-body");
+	});
+
+	it("handles bridged secure http2 allowHTTP1 fallback requests", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			onStdio: capture.onStdio,
+			driver: createNodeDriver({
+				filesystem: new NodeFileSystem(),
+				networkAdapter: createDefaultNetworkAdapter(),
+				permissions: allowFsNetworkEnv,
+			}),
+		});
+
+		const result = await proc.exec(`
+			const http2 = require('http2');
+			const https = require('https');
+			const key = ${JSON.stringify(HTTP2_TEST_KEY)};
+			const cert = ${JSON.stringify(HTTP2_TEST_CERT)};
+			const server = http2.createSecureServer({ key, cert, allowHTTP1: true }, (req, res) => {
+				console.log('compat-request', req.httpVersion, req.method, req.url);
+				res.writeHead(200, { 'content-type': 'text/plain' });
+				res.end('compat-ok');
+			});
+			server.listen(0, () => {
+				https.get(
+					'https://localhost:' + server.address().port,
+					{ rejectUnauthorized: false },
+					(res) => {
+						let body = '';
+						res.setEncoding('utf8');
+						res.on('data', (chunk) => body += chunk);
+						res.on('end', () => {
+							console.log('compat-response', res.statusCode, body);
+							server.close();
+						});
+					},
+				);
+			});
+		`);
+
+		expect(result.code).toBe(0);
+		expect(capture.stdout()).toContain("compat-request 1.1 GET /");
+		expect(capture.stdout()).toContain("compat-response 200 compat-ok");
+	});
+
+	it("streams bridged http2 request bodies through pipeline callbacks without hanging", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			onStdio: capture.onStdio,
+			driver: createNodeDriver({
+				filesystem: new NodeFileSystem(),
+				networkAdapter: createDefaultNetworkAdapter(),
+				permissions: allowFsNetworkEnv,
+			}),
+		});
+
+		const result = await proc.exec(`
+			const { Readable, pipeline } = require('stream');
+			const http2 = require('http2');
+
+			const server = http2.createServer((req, res) => {
+				pipeline(req, res, () => {});
+			});
+			server.on('close', () => console.log('server-close'));
+			server.listen(0, () => {
+				const client = http2.connect('http://localhost:' + server.address().port);
+				client.on('close', () => console.log('client-close'));
+				const req = client.request({ ':method': 'POST' });
+				const source = new Readable({
+					read() {
+						source.push('hello');
+					},
+				});
+				let count = 0;
+				req.on('data', () => {
+					count += 1;
+					if (count === 10) {
+						console.log('client-count', count);
+						source.destroy();
+					}
+				});
+				pipeline(source, req, (err) => {
+					console.log('pipeline-cb', err ? 'err' : 'ok');
+					server.close();
+					client.close();
+				});
+			});
+		`);
+
+		expect(result.code).toBe(0);
+		expect(capture.stdout()).toContain("client-count 10");
+		expect(capture.stdout()).toContain("pipeline-cb err");
+		expect(capture.stdout()).toContain("server-close");
+		expect(capture.stdout()).toContain("client-close");
+	});
+
 	// http.Agent pooling — maxSockets limits concurrency through bridged server
 	it("http.Agent with maxSockets=1 serializes concurrent requests", async () => {
 		const driver = createNodeDriver({
@@ -2074,6 +2589,172 @@ describe("NodeRuntime", () => {
 		expect(capture.stdout()).toContain("ABORT_BOOKKEEPING_OK");
 	});
 
+	it("http.ClientRequest abort emits request close and loopback server aborted events", async () => {
+		const driver = createNodeDriver({
+			filesystem: new NodeFileSystem(),
+			networkAdapter: createDefaultNetworkAdapter(),
+			permissions: allowFsNetworkEnv,
+		});
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			driver,
+			processConfig: { cwd: "/" },
+			onStdio: capture.onStdio,
+		});
+
+		const result = await proc.exec(
+			`
+			(async () => {
+				const assert = require('node:assert');
+				const http = require('http');
+
+				const server = http.createServer((req, res) => {
+					req.on('aborted', () => {
+						assert.strictEqual(req.aborted, true);
+						console.log('SERVER_ABORTED');
+						server.close();
+					});
+					req.on('error', (err) => {
+						assert.strictEqual(err.code, 'ECONNRESET');
+						assert.strictEqual(err.message, 'aborted');
+						console.log('SERVER_ABORT_ERROR');
+					});
+					res.write('hello');
+				});
+
+				await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+				await new Promise((resolve, reject) => {
+					const req = http.get({ port: server.address().port }, (res) => {
+						res.resume();
+						req.abort();
+					});
+
+					req.on('abort', () => console.log('REQ_ABORT'));
+					req.on('close', () => {
+						assert.strictEqual(req.destroyed, true);
+						console.log('REQ_CLOSE');
+						resolve();
+					});
+					req.on('error', reject);
+				});
+			})();
+		`,
+		);
+
+		expect(result.code).toBe(0);
+		expect(capture.stdout()).toContain("REQ_ABORT");
+		expect(capture.stdout()).toContain("REQ_CLOSE");
+		expect(capture.stdout()).toContain("SERVER_ABORTED");
+		expect(capture.stdout()).toContain("SERVER_ABORT_ERROR");
+	});
+
+	it("http.ClientRequest abort closes a custom createConnection socket before dispatch", async () => {
+		const driver = createNodeDriver({
+			filesystem: new NodeFileSystem(),
+			networkAdapter: createDefaultNetworkAdapter(),
+			permissions: allowFsNetworkEnv,
+		});
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			driver,
+			processConfig: { cwd: "/" },
+			onStdio: capture.onStdio,
+		});
+
+		const result = await proc.exec(
+			`
+			(async () => {
+				const http = require('http');
+				const net = require('net');
+
+				const server = http.createServer(() => {
+					throw new Error('request should not reach the server');
+				});
+
+				await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+				await new Promise((resolve, reject) => {
+					const req = http.get({
+						port: server.address().port,
+						createConnection(options, oncreate) {
+							const socket = net.createConnection(options, oncreate);
+							socket.once('close', () => {
+								console.log('CUSTOM_SOCKET_CLOSE');
+								server.close(resolve);
+							});
+							return socket;
+						},
+					});
+
+					req.on('error', reject);
+					req.abort();
+				});
+			})();
+		`,
+		);
+
+		expect(result.code).toBe(0);
+		expect(capture.stdout()).toContain("CUSTOM_SOCKET_CLOSE");
+	});
+
+	it("http.ClientRequest AbortSignal destroys the request with AbortError", async () => {
+		const driver = createNodeDriver({
+			filesystem: new NodeFileSystem(),
+			networkAdapter: createDefaultNetworkAdapter(),
+			permissions: allowFsNetworkEnv,
+		});
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			driver,
+			processConfig: { cwd: "/" },
+			onStdio: capture.onStdio,
+		});
+
+		const result = await proc.exec(
+			`
+			(async () => {
+				const assert = require('node:assert');
+				const http = require('http');
+
+				const controller = new AbortController();
+				const server = http.createServer(() => {
+					throw new Error('request should not reach the server');
+				});
+
+				await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+				await new Promise((resolve) => {
+					const req = http.get({
+						port: server.address().port,
+						signal: controller.signal,
+					});
+
+					req.on('error', (err) => {
+						assert.strictEqual(err.name, 'AbortError');
+						assert.strictEqual(err.code, 'ABORT_ERR');
+						console.log('ABORT_SIGNAL_ERROR');
+					});
+
+					req.on('close', () => {
+						assert.strictEqual(req.aborted, false);
+						assert.strictEqual(req.destroyed, true);
+						console.log('ABORT_SIGNAL_CLOSE');
+						server.close();
+						resolve();
+					});
+
+					controller.abort();
+				});
+			})();
+		`,
+		);
+
+		expect(result.code).toBe(0);
+		expect(capture.stdout()).toContain("ABORT_SIGNAL_ERROR");
+		expect(capture.stdout()).toContain("ABORT_SIGNAL_CLOSE");
+	});
+
 	it("http fake sockets remove once listeners via the original callback", async () => {
 		const driver = createNodeDriver({
 			filesystem: new NodeFileSystem(),
@@ -2282,6 +2963,1032 @@ describe("NodeRuntime", () => {
 				testServer.close(() => resolve()),
 			);
 		}
+	});
+
+	it("loopback CONNECT requests fire the server connect event", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			permissions: allowFsNetworkEnv,
+			onStdio: capture.onStdio,
+		});
+
+		const result = await proc.exec(`
+			(async () => {
+				const assert = require('node:assert');
+				const http = require('http');
+
+				const server = http.createServer((_req, res) => {
+					res.end('unexpected');
+				});
+
+				server.on('connect', (req, socket) => {
+					assert.strictEqual(req.method, 'CONNECT');
+					assert.strictEqual(req.url, 'example.com:80');
+					socket.write('HTTP/1.1 200 Connection established\\r\\n\\r\\n');
+					socket.end('tunnel-ok');
+				});
+
+				await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+				const connectResult = await new Promise((resolve, reject) => {
+					const req = http.request({
+						host: '127.0.0.1',
+						port: server.address().port,
+						method: 'CONNECT',
+						path: 'example.com:80',
+						agent: false,
+					});
+
+					req.on('connect', (res, socket, head) => {
+						socket.destroy();
+						resolve({ statusCode: res.statusCode, body: head.toString() });
+					});
+					req.on('error', reject);
+					req.end();
+				});
+
+				await new Promise((resolve, reject) => server.close((err) => err ? reject(err) : resolve()));
+				console.log('CONNECT:' + JSON.stringify(connectResult));
+			})();
+		`);
+
+		expect(result.code).toBe(0);
+		const match = capture.stdout().match(/CONNECT:(.+)/);
+		expect(match).toBeTruthy();
+		expect(JSON.parse(match![1])).toEqual({
+			statusCode: 200,
+			body: "",
+		});
+	});
+
+	it("loopback requests preserve timer-delayed responses after CONNECT tunnel teardown", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			permissions: allowFsNetworkEnv,
+			onStdio: capture.onStdio,
+		});
+
+		const result = await proc.exec(`
+			(async () => {
+				const assert = require('node:assert');
+				const http = require('http');
+
+				const server = http.createServer((req, res) => {
+					req.resume();
+					res.writeHead(200);
+					setTimeout(() => res.end(req.url), 50);
+				});
+
+				server.on('connect', (_req, socket) => {
+					socket.write('HTTP/1.1 200 Connection established\\r\\n\\r\\n');
+					socket.on('end', () => socket.end());
+				});
+
+				await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+				await new Promise((resolve, reject) => {
+					const req = http.request({
+						host: '127.0.0.1',
+						port: server.address().port,
+						method: 'CONNECT',
+						path: 'example.com:80',
+					});
+
+					req.on('connect', (_res, socket) => {
+						socket.on('end', resolve);
+						socket.end();
+						socket.resume();
+					});
+					req.on('error', reject);
+					req.end();
+				});
+
+				const bodies = await Promise.all([0, 1].map((index) => new Promise((resolve, reject) => {
+					http.get({
+						host: '127.0.0.1',
+						port: server.address().port,
+						path: '/request' + index,
+					}, (res) => {
+						let body = '';
+						res.setEncoding('utf8');
+						res.on('data', (chunk) => {
+							body += chunk;
+						});
+						res.on('end', () => resolve(body));
+					}).on('error', reject);
+				})));
+
+				assert.deepStrictEqual(bodies, ['/request0', '/request1']);
+				await new Promise((resolve, reject) => server.close((err) => err ? reject(err) : resolve()));
+				console.log('CONNECT-TIMER:' + JSON.stringify(bodies));
+			})();
+		`);
+
+		expect(result.code).toBe(0);
+		const match = capture.stdout().match(/CONNECT-TIMER:(.+)/);
+		expect(match).toBeTruthy();
+		expect(JSON.parse(match![1])).toEqual(["/request0", "/request1"]);
+	});
+
+	it("http server listen callbacks receive the server as this", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			permissions: allowFsNetworkEnv,
+			onStdio: capture.onStdio,
+		});
+
+		const result = await proc.exec(`
+			(async () => {
+				const assert = require('node:assert');
+				const http = require('http');
+
+				const server = http.createServer((_req, res) => {
+					res.end('ok');
+				});
+
+				server.listen(0, function() {
+					assert.strictEqual(this, server);
+					console.log('LISTEN-THIS:' + JSON.stringify({
+						port: this.address().port,
+						sameServer: this === server,
+					}));
+					server.close();
+				});
+			})();
+		`);
+
+		expect(result.code).toBe(0);
+		const match = capture.stdout().match(/LISTEN-THIS:(.+)/);
+		expect(match).toBeTruthy();
+		expect(JSON.parse(match![1])).toEqual({
+			port: expect.any(Number),
+			sameServer: true,
+		});
+	});
+
+	it("loopback informational responses emit information before the final response", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			permissions: allowFsNetworkEnv,
+			onStdio: capture.onStdio,
+		});
+
+		const result = await proc.exec(`
+			(async () => {
+				const assert = require('node:assert');
+				const http = require('http');
+				let rawCallbackCount = 0;
+
+				const server = http.createServer((_req, res) => {
+					res._writeRaw('HTTP/1.1 102 Processing\\r\\n');
+					res._writeRaw('Foo: Bar\\r\\n');
+					res._writeRaw('\\r\\n', () => {
+						rawCallbackCount += 1;
+					});
+					res.writeHead(103, { Link: '</main.css>; rel=preload; as=style' });
+					res.writeHead(200, { 'Content-Type': 'text/plain', 'ABCD': '1' });
+					res.end('done');
+				});
+
+				await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+				const events = [];
+				const responseResult = await new Promise((resolve, reject) => {
+					const req = http.request({
+						host: '127.0.0.1',
+						port: server.address().port,
+						path: '/',
+						agent: false,
+					});
+
+					req.on('information', (res) => {
+						events.push({
+							statusCode: res.statusCode,
+							statusMessage: res.statusMessage,
+							httpVersion: res.httpVersion,
+							httpVersionMajor: res.httpVersionMajor,
+							httpVersionMinor: res.httpVersionMinor,
+							headers: res.headers,
+							rawHeaders: res.rawHeaders,
+						});
+					});
+
+					req.on('response', (res) => {
+						let body = '';
+						res.setEncoding('utf8');
+						res.on('data', (chunk) => {
+							body += chunk;
+						});
+						res.on('end', () => resolve({
+							statusCode: res.statusCode,
+							body,
+							eventCountAtResponse: events.length,
+							rawCallbackCount,
+							headers: res.headers,
+						}));
+					});
+					req.on('error', reject);
+					req.end();
+				});
+
+				await new Promise((resolve, reject) => server.close((err) => err ? reject(err) : resolve()));
+				console.log('INFO:' + JSON.stringify({ events, responseResult }));
+			})();
+		`);
+
+		expect(result.code).toBe(0);
+		const match = capture.stdout().match(/INFO:(.+)/);
+		expect(match).toBeTruthy();
+		const payload = JSON.parse(match![1]);
+		expect(payload.events).toEqual([
+			{
+				statusCode: 102,
+				statusMessage: "Processing",
+				httpVersion: "1.1",
+				httpVersionMajor: 1,
+				httpVersionMinor: 1,
+				headers: { foo: "Bar" },
+				rawHeaders: ["Foo", "Bar"],
+			},
+			{
+				statusCode: 103,
+				statusMessage: "Early Hints",
+				httpVersion: "1.1",
+				httpVersionMajor: 1,
+				httpVersionMinor: 1,
+				headers: { link: "</main.css>; rel=preload; as=style" },
+				rawHeaders: ["Link", "</main.css>; rel=preload; as=style"],
+			},
+		]);
+		expect(payload.responseResult).toEqual({
+			statusCode: 200,
+			body: "done",
+			eventCountAtResponse: 2,
+			rawCallbackCount: 1,
+			headers: {
+				abcd: "1",
+				"content-type": "text/plain",
+			},
+		});
+	});
+
+	it("http bridge validates methods headers and request paths like Node", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			permissions: allowFsNetworkEnv,
+			onStdio: capture.onStdio,
+		});
+
+		const result = await proc.exec(`
+			(() => {
+				const assert = require('node:assert');
+				const common = require('_http_common');
+				const http = require('http');
+
+				assert.deepStrictEqual(http.METHODS, [
+					'ACL', 'BIND', 'CHECKOUT', 'CONNECT', 'COPY', 'DELETE', 'GET',
+					'HEAD', 'LINK', 'LOCK', 'M-SEARCH', 'MERGE', 'MKACTIVITY',
+					'MKCALENDAR', 'MKCOL', 'MOVE', 'NOTIFY', 'OPTIONS', 'PATCH',
+					'POST', 'PROPFIND', 'PROPPATCH', 'PURGE', 'PUT', 'QUERY',
+					'REBIND', 'REPORT', 'SEARCH', 'SOURCE', 'SUBSCRIBE', 'TRACE',
+					'UNBIND', 'UNLINK', 'UNLOCK', 'UNSUBSCRIBE',
+				]);
+
+				assert.strictEqual(common._checkIsHttpToken('Content-Type'), true);
+				assert.strictEqual(common._checkIsHttpToken('bad name'), false);
+				assert.strictEqual(common._checkInvalidHeaderChar('ok\\tvalue'), false);
+				assert.strictEqual(common._checkInvalidHeaderChar('bad\\u0000value'), true);
+
+				http.validateHeaderName('x-test');
+				http.validateHeaderValue('x-test', '1');
+				assert.throws(() => http.validateHeaderName('bad name'), { code: 'ERR_INVALID_HTTP_TOKEN' });
+				assert.throws(() => http.validateHeaderValue('x-test', undefined), { code: 'ERR_HTTP_INVALID_HEADER_VALUE' });
+				assert.throws(() => http.validateHeaderValue('x-test', 'לא תקין'), { code: 'ERR_INVALID_CHAR' });
+
+				assert.throws(() => http.request({ method: '\\u0000', createConnection: () => ({}) }), {
+					code: 'ERR_INVALID_HTTP_TOKEN',
+				});
+				assert.throws(() => http.request({ method: true, createConnection: () => ({}) }), {
+					code: 'ERR_INVALID_ARG_TYPE',
+				});
+				assert.throws(() => http.request({ path: '/bad\\u0000path', createConnection: () => ({}) }), {
+					code: 'ERR_UNESCAPED_CHARACTERS',
+				});
+				assert.throws(() => http.request({ path: '/bad\\uffe2', createConnection: () => ({}) }), {
+					code: 'ERR_UNESCAPED_CHARACTERS',
+				});
+
+				console.log('HTTP-VALIDATION:ok');
+			})();
+		`);
+
+		expect(result.code).toBe(0);
+		expect(capture.stdout()).toContain("HTTP-VALIDATION:ok");
+	});
+
+	it("http bridge preserves request defaults and duplicate set-cookie headers", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			permissions: allowFsNetworkEnv,
+			onStdio: capture.onStdio,
+		});
+
+		const result = await proc.exec(`
+			(async () => {
+				const assert = require('node:assert');
+				const http = require('http');
+
+				const server = http.createServer((req, res) => {
+					res.setHeader('set-cookie', ['a=b', 'c=d']);
+					res.setHeader('x-test-array-header', [1, 2, 3]);
+					res.end('ok');
+				});
+
+				await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+				const payload = await new Promise((resolve, reject) => {
+					const req = http.get({
+						host: '127.0.0.1',
+						port: server.address().port,
+						headers: { 'X-foo': 'bar' },
+					}, (res) => {
+						res.resume();
+						res.on('end', () => resolve({
+							method: req.method,
+							path: req.path,
+							headerNames: req.getHeaderNames(),
+							rawHeaderNames: req.getRawHeaderNames(),
+							headers: res.headers,
+						}));
+					});
+					req.on('error', reject);
+				});
+
+				await new Promise((resolve, reject) => server.close((err) => err ? reject(err) : resolve()));
+
+				assert.deepStrictEqual(payload, {
+					method: 'GET',
+					path: '/',
+					headerNames: ['x-foo', 'host'],
+					rawHeaderNames: ['X-foo', 'Host'],
+					headers: {
+						'set-cookie': ['a=b', 'c=d'],
+						'x-test-array-header': '1, 2, 3',
+					},
+				});
+				console.log('HTTP-HEADERS:' + JSON.stringify(payload));
+			})();
+		`);
+
+		expect(result.code).toBe(0);
+		const match = capture.stdout().match(/HTTP-HEADERS:(.+)/);
+		expect(match).toBeTruthy();
+		expect(JSON.parse(match![1])).toEqual({
+			method: "GET",
+			path: "/",
+			headerNames: ["x-foo", "host"],
+			rawHeaderNames: ["X-foo", "Host"],
+			headers: {
+				"set-cookie": ["a=b", "c=d"],
+				"x-test-array-header": "1, 2, 3",
+			},
+		});
+	});
+
+	it("raw loopback upgrade errors surface through uncaughtException", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			permissions: allowFsNetworkEnv,
+			onStdio: capture.onStdio,
+		});
+
+		const result = await proc.exec(`
+			(() => {
+				const http = require('http');
+				const net = require('net');
+
+				const server = http.createServer((_req, _res) => {});
+				server.on('upgrade', () => {
+					throw new Error('upgrade error');
+				});
+
+				process.on('uncaughtException', (error) => {
+					process.stdout.write('UPGRADE-ERROR:' + error.message + '\\n');
+					process.exit(0);
+				});
+
+				server.listen(0, function() {
+					const socket = net.createConnection(this.address().port);
+					socket.on('connect', () => {
+						socket.write(
+							'GET /blah HTTP/1.1\\r\\n' +
+							'Upgrade: WebSocket\\r\\n' +
+							'Connection: Upgrade\\r\\n' +
+							'\\r\\n\\r\\nhello world',
+						);
+					});
+				});
+			})();
+		`);
+
+		expect(result.code).toBe(0);
+		expect(capture.stdout()).toContain("UPGRADE-ERROR:upgrade error");
+	});
+
+	it("raw loopback net clients reject repeated chunked transfer-encoding", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			permissions: allowFsNetworkEnv,
+			onStdio: capture.onStdio,
+		});
+
+		const result = await proc.exec(`
+			(() => {
+				const assert = require('node:assert');
+				const http = require('http');
+				const net = require('net');
+
+				const server = http.createServer(() => {
+					throw new Error('unexpected request dispatch');
+				});
+
+				server.listen(0, () => {
+					const client = net.connect(server.address().port, '127.0.0.1');
+					let response = '';
+					client.setEncoding('utf8');
+					client.on('data', (chunk) => {
+						response += chunk;
+					});
+					client.on('end', () => {
+						console.log('RAW-400:' + JSON.stringify(response));
+						server.close();
+					});
+					client.on('error', (error) => {
+						throw error;
+					});
+					client.write([
+						'POST / HTTP/1.1',
+						'Host: 127.0.0.1',
+						'Transfer-Encoding: chunkedchunked',
+						'',
+						'1',
+						'A',
+						'0',
+						'',
+					].join('\\r\\n'));
+					client.resume();
+				});
+			})();
+		`);
+
+			expect(result.code).toBe(0);
+			const match = capture.stdout().match(/RAW-400:(.+)/);
+			expect(match).toBeTruthy();
+			expect(JSON.parse(match![1])).toBe(
+				"HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n",
+			);
+	});
+
+	it("raw loopback net clients pipeline requests separated by extra CRLF", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			permissions: allowFsNetworkEnv,
+			onStdio: capture.onStdio,
+		});
+
+		const result = await proc.exec(`
+			(() => {
+				const assert = require('node:assert');
+				const http = require('http');
+				const net = require('net');
+
+				const seen = [];
+				const server = http.createServer((req, res) => {
+					seen.push(req.url);
+					res.end(req.url);
+				});
+
+				server.listen(0, () => {
+					const client = net.connect(server.address().port, '127.0.0.1');
+					let response = '';
+					client.setEncoding('utf8');
+					client.on('data', (chunk) => {
+						response += chunk;
+					});
+					client.on('end', () => {
+						console.log('PIPELINE:' + JSON.stringify({ seen, response }));
+						server.close();
+					});
+					client.on('error', (error) => {
+						throw error;
+					});
+					client.write(
+						'GET /first HTTP/1.1\\r\\nHost: localhost\\r\\n\\r\\n\\r\\n' +
+						'GET /second HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n',
+					);
+					client.resume();
+				});
+			})();
+		`);
+
+		expect(result.code).toBe(0);
+		const match = capture.stdout().match(/PIPELINE:(.+)/);
+			expect(match).toBeTruthy();
+			expect(JSON.parse(match![1])).toEqual({
+				seen: ["/first", "/second"],
+				response:
+					"HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\n/first" +
+					"HTTP/1.1 200 OK\r\nContent-Length: 7\r\nConnection: close\r\n\r\n/second",
+			});
+	});
+
+	it("net servers preserve keepalive hooks and socket address metadata", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			permissions: allowFsNetworkEnv,
+			onStdio: capture.onStdio,
+		});
+
+		const result = await proc.exec(`
+			(() => {
+				const net = require('net');
+
+				const calls = {
+					client: [],
+					serverHandle: [],
+					serverSocket: [],
+					clientInfo: null,
+					serverInfo: null,
+				};
+
+				const server = net.createServer({
+					keepAlive: true,
+					keepAliveInitialDelay: 1000,
+				}, (socket) => {
+					const original = socket._handle.setKeepAlive;
+					socket._handle.setKeepAlive = (enable, delay) => {
+						calls.serverSocket.push([enable, delay]);
+						return original.call(socket._handle, enable, delay);
+					};
+					calls.serverInfo = {
+						localAddress: socket.localAddress,
+						localPort: socket.localPort,
+						remoteAddress: socket.remoteAddress,
+						remotePort: socket.remotePort,
+						remoteFamily: socket.remoteFamily,
+						address: socket.address(),
+					};
+					socket.setKeepAlive(true, 1000);
+					socket.setKeepAlive(true, 2000);
+					socket.setKeepAlive(true, 3000);
+					socket.end('done');
+					server.close();
+				});
+
+				const originalOnConnection = server._handle.onconnection;
+				server._handle.onconnection = (err, clientHandle) => {
+					const original = clientHandle.setKeepAlive;
+					clientHandle.setKeepAlive = (enable, delay) => {
+						calls.serverHandle.push([enable, delay]);
+						return original.call(clientHandle, enable, delay);
+					};
+					return originalOnConnection.call(server._handle, err, clientHandle);
+				};
+
+				server.listen(0, '127.0.0.1', () => {
+					const client = net.connect({
+						port: server.address().port,
+						host: '127.0.0.1',
+						keepAlive: true,
+						keepAliveInitialDelay: 456123,
+					}, () => client.end());
+
+					const original = client._handle.setKeepAlive;
+					client._handle.setKeepAlive = (enable, delay) => {
+						calls.client.push([enable, delay]);
+						return original.call(client._handle, enable, delay);
+					};
+
+					client.on('connect', () => {
+						calls.clientInfo = {
+							localAddress: client.localAddress,
+							localPort: client.localPort,
+							remoteAddress: client.remoteAddress,
+							remotePort: client.remotePort,
+							remoteFamily: client.remoteFamily,
+							address: client.address(),
+						};
+					});
+
+					client.on('close', () => {
+						console.log('NET-SOCKET:' + JSON.stringify(calls));
+					});
+				});
+			})();
+		`);
+
+		expect(result.code).toBe(0);
+		const match = capture.stdout().match(/NET-SOCKET:(.+)/);
+		expect(match).toBeTruthy();
+		expect(JSON.parse(match![1])).toEqual({
+			client: [[true, 456]],
+			serverHandle: [[true, 1000]],
+			serverSocket: [[true, 2], [true, 3]],
+			clientInfo: {
+				localAddress: "127.0.0.1",
+				localPort: expect.any(Number),
+				remoteAddress: "127.0.0.1",
+				remotePort: expect.any(Number),
+				remoteFamily: "IPv4",
+				address: {
+					address: "127.0.0.1",
+					family: "IPv4",
+					port: expect.any(Number),
+				},
+			},
+			serverInfo: {
+				localAddress: "127.0.0.1",
+				localPort: expect.any(Number),
+				remoteAddress: "127.0.0.1",
+				remotePort: expect.any(Number),
+				remoteFamily: "IPv4",
+				address: {
+					address: "127.0.0.1",
+					family: "IPv4",
+					port: expect.any(Number),
+				},
+			},
+		});
+	});
+
+	it("net listen exposes address immediately and validates socket timeouts", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			permissions: allowFsNetworkEnv,
+			onStdio: capture.onStdio,
+		});
+
+		const result = await proc.exec(`
+			(() => {
+				const net = require('net');
+
+				const invalidValues = ['100', true, false, undefined, null, '', {}, () => {}, []];
+				const rangeValues = [-0.001, -1, -Infinity, Infinity, NaN];
+				const invalidCallbacks = [1, '100', true, false, null, {}, [], Symbol('test')];
+
+				const invalidCodes = invalidValues.map((value) => {
+					try {
+						new net.Socket().setTimeout(value, () => {});
+						return 'ok';
+					} catch (error) {
+						return error.code;
+					}
+				});
+
+				const rangeCodes = rangeValues.map((value) => {
+					try {
+						new net.Socket().setTimeout(value, () => {});
+						return 'ok';
+					} catch (error) {
+						return error.code;
+					}
+				});
+
+				const callbackCodes = invalidCallbacks.map((value) => {
+					try {
+						new net.Socket().setTimeout(1, value);
+						return 'ok';
+					} catch (error) {
+						return error.code;
+					}
+				});
+
+				const server = net.createServer(() => {});
+				server.listen(0, '127.0.0.1', () => {
+					console.log('NET-TIMEOUT-VALIDATION:' + JSON.stringify({
+						invalidCodes,
+						rangeCodes,
+						callbackCodes,
+						immediateAddress,
+					}));
+					server.close();
+				});
+
+				const immediateAddress = server.address();
+			})();
+		`);
+
+		expect(result.code).toBe(0);
+		const match = capture.stdout().match(/NET-TIMEOUT-VALIDATION:(.+)/);
+		expect(match).toBeTruthy();
+		expect(JSON.parse(match![1])).toEqual({
+			invalidCodes: Array(9).fill("ERR_INVALID_ARG_TYPE"),
+			rangeCodes: Array(5).fill("ERR_OUT_OF_RANGE"),
+			callbackCodes: Array(8).fill("ERR_INVALID_ARG_TYPE"),
+			immediateAddress: {
+				address: "127.0.0.1",
+				family: "IPv4",
+				port: expect.any(Number),
+			},
+		});
+	});
+
+	it("net listen validates invalid server options like Node", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			permissions: allowFsNetworkEnv,
+			onStdio: capture.onStdio,
+		});
+
+		const result = await proc.exec(`
+			(() => {
+				const net = require('net');
+
+				function captureError(run) {
+					try {
+						run();
+						return null;
+					} catch (error) {
+						return {
+							name: error.name,
+							code: error.code,
+							message: error.message,
+						};
+					}
+				}
+
+				const validation = {
+					booleanListen: captureError(() => net.createServer().listen(false)),
+					exclusiveOnly: captureError(() => net.createServer().listen({ exclusive: true })),
+					booleanPort: captureError(() => net.createServer().listen({ port: false })),
+					invalidFd: captureError(() => net.createServer().listen({ fd: -1 })),
+					badPort: captureError(() => net.createServer().listen(-1)),
+				};
+
+				const server = net.createServer(() => {});
+				server.listen('0', () => {
+					console.log('NET-LISTEN-VALIDATION:' + JSON.stringify({
+						validation,
+						address: server.address(),
+					}));
+					server.close();
+				});
+			})();
+		`);
+
+		expect(result.code).toBe(0);
+		const match = capture.stdout().match(/NET-LISTEN-VALIDATION:(.+)/);
+		expect(match).toBeTruthy();
+		expect(JSON.parse(match![1])).toEqual({
+			validation: {
+				booleanListen: {
+					name: "TypeError",
+					code: "ERR_INVALID_ARG_VALUE",
+					message: expect.stringContaining("The argument 'options' is invalid."),
+				},
+				exclusiveOnly: {
+					name: "TypeError",
+					code: "ERR_INVALID_ARG_VALUE",
+					message: expect.stringContaining('must have the property "port" or "path"'),
+				},
+				booleanPort: {
+					name: "TypeError",
+					code: "ERR_INVALID_ARG_VALUE",
+					message: expect.stringContaining("The argument 'options' is invalid."),
+				},
+				invalidFd: {
+					name: "TypeError",
+					code: "ERR_INVALID_ARG_VALUE",
+					message: expect.stringContaining('must have the property "port" or "path"'),
+				},
+				badPort: {
+					name: "RangeError",
+					code: "ERR_SOCKET_BAD_PORT",
+					message: expect.stringContaining("options.port should be >= 0 and < 65536"),
+				},
+			},
+			address: {
+				address: "127.0.0.1",
+				family: "IPv4",
+				port: expect.any(Number),
+			},
+		});
+	});
+
+	it("net supports Unix path listeners and socket file modes", async () => {
+		const fs = createFs();
+		await fs.mkdir("/tmp");
+		proc = createTestNodeRuntime({
+			filesystem: fs,
+			permissions: allowFsNetworkEnv,
+		});
+
+		const result = await proc.exec(`
+			const assert = require('assert');
+			const fs = require('fs');
+			const net = require('net');
+			const path = '/tmp/runtime-driver-net.sock';
+			const server = net.createServer(() => {});
+			const timeout = setTimeout(() => {
+				throw new Error('net path listen callback did not fire');
+			}, 1000);
+			server.on('error', (error) => {
+				throw error;
+			});
+			server.listen({ path, readableAll: true, writableAll: true }, () => {
+				const mode = fs.statSync(path).mode & 0o777;
+				clearTimeout(timeout);
+				assert.strictEqual(server.address(), path);
+				assert.strictEqual(mode, 0o666);
+				process.exit(0);
+			});
+		`);
+
+		expect(result.code).toBe(0);
+	});
+
+	it("net validates IPv4 and IPv6 addresses like Node", async () => {
+		proc = createTestNodeRuntime({
+			permissions: allowFsNetworkEnv,
+		});
+
+		const result = await proc.run(`
+			const net = require('net');
+			module.exports = {
+				ipv4: net.isIP('127.0.0.1'),
+				badIpv4: net.isIP('999.0.0.1'),
+				ipv6: net.isIP('::1'),
+				zonedIpv6: net.isIP('fe80::2008%eth0'),
+				badIpv6: net.isIP('::anything'),
+				objectIpv4: net.isIPv4({ toString: () => '127.0.0.1' }),
+				objectIpv6: net.isIPv6({ toString: () => '2001:db8::1' }),
+				badObjectIpv6: net.isIPv6({ toString: () => 'bla' }),
+			};
+		`);
+
+		expect(result.exports).toEqual({
+			ipv4: 4,
+			badIpv4: 0,
+			ipv6: 6,
+			zonedIpv6: 6,
+			badIpv6: 0,
+			objectIpv4: true,
+			objectIpv6: true,
+			badObjectIpv6: false,
+		});
+	});
+
+	it("net servers expose getConnections and drop sockets above maxConnections", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			permissions: allowFsNetworkEnv,
+			onStdio: capture.onStdio,
+		});
+
+		const result = await proc.exec(`
+			(() => {
+				const net = require('net');
+
+				const state = {
+					accepted: 0,
+					getConnectionsCounts: [],
+					returnedServer: null,
+					serverMatches: [],
+					drops: [],
+					address: null,
+					dropCount: null,
+				};
+
+				function connectClient(port) {
+					const client = net.createConnection({ port, host: '127.0.0.1' });
+					client.on('error', () => {});
+					return client;
+				}
+
+				const server = net.createServer({ allowHalfOpen: true }, (socket) => {
+					state.accepted += 1;
+					state.serverMatches.push(socket.server === server);
+					state.returnedServer = server === server.getConnections((error, count) => {
+						state.getConnectionsCounts.push({
+							error: error ? error.message : null,
+							count,
+						});
+					});
+					socket.end('accepted-' + state.accepted);
+				});
+
+				server.maxConnections = 1;
+				server.on('drop', (info) => {
+					state.drops.push({
+						localAddress: info.localAddress,
+						localPort: info.localPort,
+						remoteAddress: info.remoteAddress,
+						remotePort: info.remotePort,
+						remoteFamily: info.remoteFamily,
+					});
+					server.getConnections((error, count) => {
+						state.dropCount = {
+							error: error ? error.message : null,
+							count,
+						};
+						process.stdout.write(
+							'NET-SERVER-BOOKKEEPING:' + JSON.stringify(state) + '\\n',
+						);
+						process.exit(0);
+					});
+				});
+
+				server.listen({ port: 0, host: '127.0.0.1', backlog: 4 }, async () => {
+					state.address = server.address();
+					connectClient(server.address().port);
+					connectClient(server.address().port);
+				});
+			})();
+		`);
+
+		expect(result.code).toBe(0);
+		const match = capture.stdout().match(/NET-SERVER-BOOKKEEPING:(.+)/);
+		expect(match).toBeTruthy();
+		expect(JSON.parse(match![1])).toEqual({
+			accepted: 1,
+			getConnectionsCounts: [{ error: null, count: 1 }],
+			returnedServer: true,
+			serverMatches: [true],
+			drops: [
+				{
+					localAddress: "127.0.0.1",
+					localPort: expect.any(Number),
+					remoteAddress: "127.0.0.1",
+					remotePort: expect.any(Number),
+					remoteFamily: "IPv4",
+				},
+			],
+			address: {
+				address: "127.0.0.1",
+				family: "IPv4",
+				port: expect.any(Number),
+			},
+			dropCount: {
+				error: null,
+				count: 1,
+			},
+		});
+	});
+
+	it("unrefed net socket timeouts do not keep the runtime alive", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			permissions: allowFsNetworkEnv,
+			onStdio: capture.onStdio,
+		});
+
+		const result = await proc.exec(`
+			(() => {
+				const net = require('net');
+
+				const server = net.createServer((socket) => {
+					socket.write('hello');
+					socket.unref();
+				});
+				server.listen(0, '127.0.0.1');
+				const port = server.address().port;
+				server.unref();
+
+				const client = net.createConnection(port, '127.0.0.1');
+				client.on('connect', () => {
+					client.setTimeout(500, () => {
+						throw new Error('timeout fired unexpectedly');
+					});
+					client.unref();
+					console.log('NET-TIMEOUT-UNREF:' + port);
+				});
+			})();
+		`);
+
+		expect(result.code).toBe(0);
+		expect(capture.stdout()).toContain("NET-TIMEOUT-UNREF:");
+	});
+
+	it("unrefed net servers do not keep the runtime alive", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			permissions: allowFsNetworkEnv,
+			onStdio: capture.onStdio,
+		});
+
+		const result = await proc.exec(`
+			(() => {
+				const net = require('net');
+				const server = net.createServer(() => {});
+				server.listen(0, '127.0.0.1', () => {
+					console.log('NET-UNREF:' + server.address().port);
+					server.unref();
+				});
+			})();
+		`);
+
+		expect(result.code).toBe(0);
+		expect(capture.stdout()).toContain("NET-UNREF:");
 	});
 
 	// fs.cpSync / fs.cp — recursive directory copy
@@ -2531,6 +4238,123 @@ describe("NodeRuntime", () => {
 			})();
 		`);
 		expect(result.exports).toEqual(["x.txt", "y.txt"]);
+	});
+
+	it("fs.promises.open returns FileHandle helpers for reads, writes, and streams", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data");
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			(async () => {
+				const closeEvents = [];
+
+				const writeHandle = await fs.promises.open('/data/file.txt', 'w+');
+				writeHandle.on('close', () => closeEvents.push('write'));
+				await writeHandle.writeFile(Buffer.from('hello'));
+				await writeHandle.close();
+
+				const readHandle = await fs.promises.open('/data/file.txt', 'r');
+				const readText = await fs.promises.readFile(readHandle, 'utf8');
+				await readHandle.close();
+
+				const streamWriteHandle = await fs.promises.open('/data/stream.txt', 'w+');
+				streamWriteHandle.on('close', () => closeEvents.push('stream-write'));
+				await new Promise((resolve, reject) => {
+					const stream = streamWriteHandle.createWriteStream();
+					stream.on('error', reject);
+					stream.on('close', resolve);
+					stream.end('world');
+				});
+
+				const streamReadHandle = await fs.promises.open('/data/stream.txt', 'r');
+				streamReadHandle.on('close', () => closeEvents.push('stream-read'));
+				const streamed = await new Promise((resolve, reject) => {
+					let text = '';
+					const stream = fs.createReadStream(null, { fd: streamReadHandle });
+					stream.setEncoding('utf8');
+					stream.on('error', reject);
+					stream.on('data', (chunk) => text += chunk);
+					stream.on('close', () => resolve(text));
+				});
+
+				module.exports = {
+					readText,
+					streamed,
+					closedFds: [writeHandle.fd, readHandle.fd, streamWriteHandle.fd, streamReadHandle.fd],
+					closeEvents,
+				};
+			})();
+		`);
+		expect(result.exports).toEqual({
+			readText: "hello",
+			streamed: "world",
+			closedFds: [-1, -1, -1, -1],
+			closeEvents: ["write", "stream-write", "stream-read"],
+		});
+	});
+
+	it("supports Readable.from, stream/consumers, and abort semantics for FileHandle streams", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data");
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			const { Readable } = require('stream');
+			const { buffer } = require('stream/consumers');
+			(async () => {
+				const writeHandle = await fs.promises.open('/data/from.txt', 'w+');
+				await writeHandle.writeFile(Readable.from(['a', 'b', 'c']));
+				await writeHandle.close();
+
+				const readHandle = await fs.promises.open('/data/from.txt', 'r');
+				const consumed = (await buffer(readHandle.createReadStream())).toString('utf8');
+				await readHandle.close();
+
+				const abortHandle = await fs.promises.open('/data/from.txt', 'r');
+				const controller = new AbortController();
+				const abortState = await new Promise((resolve, reject) => {
+					const stream = abortHandle.createReadStream({ signal: controller.signal });
+					stream.on('error', (error) => {
+						if (error && error.name !== 'AbortError') {
+							reject(error);
+						}
+					});
+					stream.on('close', () => {
+						resolve({
+							closedBeforeManualClose: abortHandle.closed,
+							fdBeforeManualClose: abortHandle.fd,
+						});
+					});
+					controller.abort(new Error('stop'));
+				});
+				await abortHandle.close();
+
+				module.exports = {
+					consumed,
+					abortState,
+					finalAbortFd: abortHandle.fd,
+					readHandleClosed: readHandle.closed,
+				};
+			})();
+		`);
+		expect(result.exports).toEqual({
+			consumed: "abc",
+			abortState: {
+				closedBeforeManualClose: false,
+				fdBeforeManualClose: expect.any(Number),
+			},
+			finalAbortFd: -1,
+			readHandleClosed: true,
+		});
 	});
 
 	it("opendirSync throws ENOENT for missing directory", async () => {
@@ -3158,22 +4982,37 @@ describe("NodeRuntime", () => {
 		expect(result.exports).toBe(true);
 	});
 
-	it("fs.watch still throws with clear message", async () => {
+	it("deferred fs watcher APIs throw clear unsupported errors", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data");
+		await vfs.writeFile("/data/f.txt", "x");
+
 		proc = createTestNodeRuntime({
-			filesystem: createFs(),
+			filesystem: vfs,
 			permissions: allowAllFs,
 		});
 		const result = await proc.run(`
 			const fs = require('fs');
-			try {
-				fs.watch('/data');
-				module.exports = 'no error';
-			} catch (e) {
-				module.exports = e.message;
-			}
+			const fsPromises = require('fs/promises');
+			(async () => {
+				const outcomes = {};
+				try { fs.watch('/data/f.txt'); } catch (err) { outcomes.watch = err.message; }
+				try { fs.watchFile('/data/f.txt', () => {}); } catch (err) { outcomes.watchFile = err.message; }
+				try {
+					for await (const _ of fsPromises.watch('/data/f.txt')) {
+						throw new Error('unexpected watch event');
+					}
+				} catch (err) {
+					outcomes.promisesWatch = err.message;
+				}
+				module.exports = outcomes;
+			})();
 		`);
-		expect(result.exports).toContain("not supported");
-		expect(result.exports).toContain("polling");
+		expect(result.exports).toEqual({
+			watch: "fs.watch is not supported in sandbox — use polling",
+			watchFile: "fs.watchFile is not supported in sandbox — use polling",
+			promisesWatch: "fs.promises.watch is not supported in sandbox — use polling",
+		});
 	});
 
 	it("fs.promises.chmod works", async () => {
@@ -3265,6 +5104,294 @@ describe("NodeRuntime", () => {
 		]);
 	});
 
+	it("throws synchronously for callback-style fs validation paths and preserves exists semantics", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data");
+		await vfs.writeFile("/data/f.txt", "x");
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			const errors = {};
+			try { fs.exists('/data/f.txt'); } catch (err) { errors.exists = err.code; }
+			try { fs.open('/data/f.txt'); } catch (err) { errors.open = err.code; }
+			try { fs.close(1); } catch (err) { errors.close = err.code; }
+			try { fs.stat('/data/f.txt', null); } catch (err) { errors.stat = err.code; }
+			try { fs.mkdtemp('/tmp/fs-', {}, null); } catch (err) { errors.mkdtemp = err.code; }
+			try { fs.lchown('/data/f.txt', 1, 1, false); } catch (err) { errors.lchown = err.code; }
+			fs.exists({}, (value) => {
+				module.exports = { errors, invalidExists: value };
+			});
+		`);
+		expect(result.exports).toEqual({
+			errors: {
+				exists: "ERR_INVALID_ARG_TYPE",
+				open: "ERR_INVALID_ARG_TYPE",
+				close: "ERR_INVALID_ARG_TYPE",
+				stat: "ERR_INVALID_ARG_TYPE",
+				mkdtemp: "ERR_INVALID_ARG_TYPE",
+				lchown: "ERR_INVALID_ARG_TYPE",
+			},
+			invalidExists: false,
+		});
+	});
+
+	it("reports Node-style fs validation codes for encodings, stream ranges, and fd-backed metadata helpers", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data");
+		await vfs.writeFile("/data/f.txt", "hello");
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			const codes = {};
+			try { fs.readFileSync('/data/f.txt', 'test'); } catch (err) { codes.readFile = err.code; }
+			try { fs.watch('/data/f.txt', 'test', () => {}); } catch (err) { codes.watch = err.code; }
+			try { fs.createReadStream('/data/f.txt', { start: '4' }); } catch (err) { codes.readStream = err.code; }
+			try { fs.createWriteStream('/data/f.txt', { start: '4' }); } catch (err) { codes.writeStream = err.code; }
+			try { fs.fchmodSync(false, 0o600); } catch (err) { codes.fchmod = err.code; }
+			try { fs.fchownSync(false, 1, 1); } catch (err) { codes.fchown = err.code; }
+			module.exports = codes;
+		`);
+		expect(result.exports).toEqual({
+			readFile: "ERR_INVALID_ARG_VALUE",
+			watch: "ERR_INVALID_ARG_VALUE",
+			readStream: "ERR_INVALID_ARG_TYPE",
+			writeStream: "ERR_INVALID_ARG_TYPE",
+			fchmod: "ERR_INVALID_ARG_TYPE",
+			fchown: "ERR_INVALID_ARG_TYPE",
+		});
+	});
+
+	it("fs.promises.watch preserves validation and abort errors before deferred unsupported failures", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data");
+		await vfs.writeFile("/data/f.txt", "hello");
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const watch = require('fs/promises').watch;
+			(async () => {
+				const outcomes = {};
+				try {
+					for await (const _ of watch(1)) {}
+				} catch (err) {
+					outcomes.path = err.code;
+				}
+				try {
+					for await (const _ of watch('/data/f.txt', 1)) {}
+				} catch (err) {
+					outcomes.options = err.code;
+				}
+				try {
+					for await (const _ of watch('/data/f.txt', { recursive: 1 })) {}
+				} catch (err) {
+					outcomes.recursive = err.code;
+				}
+				try {
+					for await (const _ of watch('/data/f.txt', { encoding: 1 })) {}
+				} catch (err) {
+					outcomes.encoding = err.code;
+				}
+				try {
+					for await (const _ of watch('/data/f.txt', { signal: 1 })) {}
+				} catch (err) {
+					outcomes.signal = err.code;
+				}
+				try {
+					const ac = new AbortController();
+					ac.abort('reason');
+					for await (const _ of watch('/data/f.txt', { signal: ac.signal })) {}
+				} catch (err) {
+					outcomes.aborted = { name: err.name, code: err.code };
+				}
+				module.exports = outcomes;
+			})();
+		`);
+		expect(result.exports).toEqual({
+			path: "ERR_INVALID_ARG_TYPE",
+			options: "ERR_INVALID_ARG_TYPE",
+			recursive: "ERR_INVALID_ARG_TYPE",
+			encoding: "ERR_INVALID_ARG_VALUE",
+			signal: "ERR_INVALID_ARG_TYPE",
+			aborted: { name: "AbortError", code: "ABORT_ERR" },
+		});
+	});
+
+	it("exposes Node-style URL globals and prototype descriptors", async () => {
+		proc = createTestNodeRuntime();
+		const result = await proc.run(`
+			const util = require('util');
+			const globalUrl = Object.getOwnPropertyDescriptor(globalThis, 'URL');
+			const globalSearchParams = Object.getOwnPropertyDescriptor(globalThis, 'URLSearchParams');
+			const hrefDescriptor = Object.getOwnPropertyDescriptor(URL.prototype, 'href');
+			const appendDescriptor = Object.getOwnPropertyDescriptor(URLSearchParams.prototype, 'append');
+			const url = new URL('https://username:password@host.name:8080/path/name/?que=ry#hash');
+			module.exports = {
+				globals: {
+					url: {
+						same: globalUrl.value === URL,
+						writable: globalUrl.writable,
+						configurable: globalUrl.configurable,
+						enumerable: globalUrl.enumerable,
+					},
+					searchParams: {
+						same: globalSearchParams.value === URLSearchParams,
+						writable: globalSearchParams.writable,
+						configurable: globalSearchParams.configurable,
+						enumerable: globalSearchParams.enumerable,
+					},
+				},
+				descriptors: {
+					hrefEnumerable: hrefDescriptor.enumerable,
+					appendEnumerable: appendDescriptor.enumerable,
+				},
+				inspect: util.inspect(url),
+				searchValue: url.searchParams.get('que'),
+			};
+		`);
+		expect(result.exports).toEqual({
+			globals: {
+				url: {
+					same: true,
+					writable: true,
+					configurable: true,
+					enumerable: false,
+				},
+				searchParams: {
+					same: true,
+					writable: true,
+					configurable: true,
+					enumerable: false,
+				},
+			},
+			descriptors: {
+				hrefEnumerable: true,
+				appendEnumerable: true,
+			},
+			inspect:
+				"URL {\n" +
+				"  href: 'https://username:password@host.name:8080/path/name/?que=ry#hash',\n" +
+				"  origin: 'https://host.name:8080',\n" +
+				"  protocol: 'https:',\n" +
+				"  username: 'username',\n" +
+				"  password: 'password',\n" +
+				"  host: 'host.name:8080',\n" +
+				"  hostname: 'host.name',\n" +
+				"  port: '8080',\n" +
+				"  pathname: '/path/name/',\n" +
+				"  search: '?que=ry',\n" +
+				"  searchParams: URLSearchParams { 'que' => 'ry' },\n" +
+				"  hash: '#hash'\n" +
+				"}",
+			searchValue: "ry",
+		});
+	});
+
+	it("preserves Node-style WHATWG URL validation and iterator errors", async () => {
+		proc = createTestNodeRuntime();
+		const result = await proc.run(`
+			const outcomes = {};
+			try {
+				new URL();
+			} catch (err) {
+				outcomes.urlMissing = { code: err.code, message: err.message };
+			}
+			try {
+				new URL('test');
+			} catch (err) {
+				outcomes.urlInvalid = { code: err.code, message: err.message };
+			}
+			const params = new URLSearchParams('a=b&c=d');
+			const iterator = params.keys();
+			try {
+				params.get();
+			} catch (err) {
+				outcomes.getMissing = { code: err.code, message: err.message };
+			}
+			try {
+				params.entries.call(undefined);
+			} catch (err) {
+				outcomes.badReceiver = { code: err.code, message: err.message };
+			}
+			try {
+				iterator.next.call(undefined);
+			} catch (err) {
+				outcomes.badIterator = { code: err.code, message: err.message };
+			}
+			try {
+				new URLSearchParams({ [Symbol.iterator]: 42 });
+			} catch (err) {
+				outcomes.notIterable = { code: err.code, message: err.message };
+			}
+			try {
+				new URLSearchParams([[1]]);
+			} catch (err) {
+				outcomes.invalidTuple = { code: err.code, message: err.message };
+			}
+			module.exports = outcomes;
+		`);
+		expect(result.exports).toEqual({
+			urlMissing: {
+				code: "ERR_MISSING_ARGS",
+				message: 'The "url" argument must be specified',
+			},
+			urlInvalid: {
+				code: "ERR_INVALID_URL",
+				message: "Invalid URL",
+			},
+			getMissing: {
+				code: "ERR_MISSING_ARGS",
+				message: 'The "name" argument must be specified',
+			},
+			badReceiver: {
+				code: "ERR_INVALID_THIS",
+				message: 'Value of "this" must be of type URLSearchParams',
+			},
+			badIterator: {
+				code: "ERR_INVALID_THIS",
+				message: 'Value of "this" must be of type URLSearchParamsIterator',
+			},
+			notIterable: {
+				code: "ERR_ARG_NOT_ITERABLE",
+				message: "Query pairs must be iterable",
+			},
+			invalidTuple: {
+				code: "ERR_INVALID_TUPLE",
+				message: "Each query pair must be an iterable [name, value] tuple",
+			},
+		});
+	});
+
+	it("preserves scalar-value UTF-8 encoding for WHATWG URL inputs", async () => {
+		proc = createTestNodeRuntime();
+		const result = await proc.run(`
+			const url = new URL('https://example.com/nodejs/\\uD83D\\uDE00node?emoji=\\uD83D\\uDE00');
+			url.username = '\\uD83D\\uDE00';
+			module.exports = {
+				href: url.href,
+				pathname: url.pathname,
+				search: url.search,
+				searchParams: url.searchParams.toString(),
+			};
+		`);
+		expect(result.exports).toEqual({
+			href: "https://%F0%9F%98%80@example.com/nodejs/%F0%9F%98%80node?emoji=%F0%9F%98%80",
+			pathname: "/nodejs/%F0%9F%98%80node",
+			search: "?emoji=%F0%9F%98%80",
+			searchParams: "emoji=%F0%9F%98%80",
+		});
+	});
+
 	it("deferred fs APIs respect permission deny", async () => {
 		const vfs = createFs();
 		await vfs.mkdir("/data");
@@ -3291,6 +5418,201 @@ describe("NodeRuntime", () => {
 		expect(result.exports).toEqual([
 			"EACCES", "EACCES", "EACCES", "EACCES", "EACCES", "EACCES", "EACCES",
 		]);
+	});
+
+	it("bridges dgram bind, address, and socket buffer getters", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			onStdio: capture.onStdio,
+			permissions: allowFsNetworkEnv,
+		});
+		const result = await proc.run(`
+			import dgram from 'node:dgram';
+			await new Promise((resolve, reject) => {
+				const socket = dgram.createSocket({
+					type: 'udp4',
+					recvBufferSize: 10000,
+					sendBufferSize: 15000,
+				});
+				socket.once('error', reject);
+				socket.bind(0, '127.0.0.1', function() {
+					const address = socket.address();
+					const recv = socket.getRecvBufferSize();
+					const send = socket.getSendBufferSize();
+					socket.close(() => {
+						console.log(JSON.stringify({
+							address: address.address,
+							family: address.family,
+							portIsPositive: address.port > 0,
+							recv,
+							send,
+						}));
+						resolve();
+					});
+				});
+			});
+		`, "/entry.mjs");
+		expect(result.code).toBe(0);
+		expect(JSON.parse(capture.stdout().trim())).toEqual({
+			address: "127.0.0.1",
+			family: "IPv4",
+			portIsPositive: true,
+			recv: process.platform === "linux" ? 20000 : 10000,
+			send: process.platform === "linux" ? 30000 : 15000,
+		});
+	});
+
+	it("bridges dgram multicast and membership socket options", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			onStdio: capture.onStdio,
+			permissions: allowFsNetworkEnv,
+		});
+		const result = await proc.run(`
+			import dgram from 'node:dgram';
+			await new Promise((resolve, reject) => {
+				const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+				socket.once('error', reject);
+				socket.bind(0, '127.0.0.1', () => {
+					const report = {
+						unboundBroadcastError: '',
+						loopbackEnabled: socket.setMulticastLoopback(16),
+						loopbackDisabled: socket.setMulticastLoopback(0),
+						ttl: socket.setTTL(16),
+						multicastTtl: socket.setMulticastTTL(8),
+						closedMembershipError: '',
+					};
+
+					const unbound = dgram.createSocket('udp4');
+					try {
+						unbound.setBroadcast(true);
+					} catch (error) {
+						report.unboundBroadcastError = String(error);
+					} finally {
+						unbound.close();
+					}
+
+					socket.addMembership('224.0.0.114');
+					socket.dropMembership('224.0.0.114');
+					socket.setMulticastInterface('0.0.0.0');
+					socket.close(() => {
+						try {
+							socket.addMembership('224.0.0.114');
+						} catch (error) {
+							report.closedMembershipError = String(error && error.code);
+						}
+						console.log(JSON.stringify(report));
+						resolve();
+					});
+				});
+			});
+		`, "/entry.mjs");
+		expect(result.code).toBe(0);
+		expect(JSON.parse(capture.stdout().trim())).toEqual({
+			unboundBroadcastError: "Error: setBroadcast EBADF",
+			loopbackEnabled: 16,
+			loopbackDisabled: 0,
+			ttl: 16,
+			multicastTtl: 8,
+			closedMembershipError: "ERR_SOCKET_DGRAM_NOT_RUNNING",
+		});
+	});
+
+	it("matches dgram socket buffer error semantics", async () => {
+		proc = createTestNodeRuntime({
+			permissions: allowFsNetworkEnv,
+		});
+		const result = await proc.run(`
+			import dgram from 'node:dgram';
+
+			const socket = dgram.createSocket('udp4');
+			let unboundCode = '';
+			let invalidCode = '';
+			let overflowCode = '';
+
+			try {
+				socket.getSendBufferSize();
+			} catch (error) {
+				unboundCode = [error.name, error.code, error.info?.code, error.info?.syscall].join('|');
+			}
+
+			await new Promise((resolve, reject) => {
+				socket.once('error', reject);
+				socket.bind(0, '127.0.0.1', () => {
+					try {
+						socket.setRecvBufferSize(-1);
+					} catch (error) {
+						invalidCode = [error.name, error.code, error.message].join('|');
+					}
+					try {
+						socket.setSendBufferSize(2147483648);
+					} catch (error) {
+						overflowCode = [error.name, error.code, error.info?.code, error.info?.syscall].join('|');
+					}
+					socket.close(resolve);
+				});
+			});
+
+			export default { unboundCode, invalidCode, overflowCode };
+		`, "/entry.mjs");
+		expect(result.code).toBe(0);
+		expect((result.exports as { default: Record<string, string> }).default).toEqual({
+			unboundCode: "SystemError [ERR_SOCKET_BUFFER_SIZE]|ERR_SOCKET_BUFFER_SIZE|EBADF|uv_send_buffer_size",
+			invalidCode: "TypeError|ERR_SOCKET_BAD_BUFFER_SIZE|Buffer size must be a positive integer",
+			overflowCode: "SystemError [ERR_SOCKET_BUFFER_SIZE]|ERR_SOCKET_BUFFER_SIZE|EINVAL|uv_send_buffer_size",
+		});
+	});
+
+	it("bridges dgram implicit bind, send callback bytes, and message delivery", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			onStdio: capture.onStdio,
+			permissions: allowFsNetworkEnv,
+		});
+		const result = await proc.run(`
+			import dgram from 'node:dgram';
+			await new Promise((resolve, reject) => {
+				const server = dgram.createSocket('udp4');
+				const client = dgram.createSocket('udp4');
+				let bytesSent = 0;
+				server.once('error', reject);
+				client.once('error', reject);
+				server.on('message', (message, rinfo) => {
+					server.send(message, rinfo.port, rinfo.address);
+				});
+				server.bind(0, '127.0.0.1', () => {
+					client.on('message', (message, rinfo) => {
+						console.log(JSON.stringify({
+							bytesSent,
+							message: message.toString(),
+							address: rinfo.address,
+							family: rinfo.family,
+							portMatches: rinfo.port === server.address().port,
+							size: rinfo.size,
+						}));
+						client.close(() => {
+							server.close(() => resolve());
+						});
+					});
+					client.send(Buffer.from('ping'), server.address().port, '127.0.0.1', (err, bytes) => {
+						if (err) {
+							reject(err);
+							return;
+						}
+						bytesSent = bytes;
+					});
+				});
+			});
+		`, "/entry.mjs");
+		expect(result.code).toBe(0);
+		expect(JSON.parse(capture.stdout().trim())).toEqual({
+			bytesSent: 4,
+			message: "ping",
+			address: "127.0.0.1",
+			family: "IPv4",
+			portMatches: true,
+			size: 4,
+		});
 	});
 
 	it("blocks fetch to real URLs when network permissions are absent", async () => {

@@ -12,8 +12,6 @@ Network access is deny-by-default. Enable it by setting `useDefaultNetwork: true
 
 ## Runnable example
 
-Source file: `examples/features/src/networking.ts`
-
 ```ts
 import * as http from "node:http";
 import {
@@ -22,7 +20,7 @@ import {
 	createDefaultNetworkAdapter,
 	createNodeDriver,
 	createNodeRuntimeDriverFactory,
-} from "secure-exec";
+} from "../../../packages/secure-exec/src/index.ts";
 
 const logs: string[] = [];
 const server = http.createServer((_req, res) => {
@@ -53,19 +51,23 @@ const runtime = new NodeRuntime({
 try {
 	const result = await runtime.exec(
 		`
-			const response = await fetch("http://127.0.0.1:${address.port}/");
-			const body = await response.text();
+			(async () => {
+				const response = await fetch("http://127.0.0.1:${address.port}/");
+				const body = await response.text();
 
-			if (!response.ok || response.status !== 200 || body !== "network-ok") {
-				throw new Error(
-					"unexpected response: " + response.status + " " + body,
-				);
-			}
+				if (!response.ok || response.status !== 200 || body !== "network-ok") {
+					throw new Error(
+						"unexpected response: " + response.status + " " + body,
+					);
+				}
 
-			console.log(JSON.stringify({ status: response.status, body }));
+				console.log(JSON.stringify({ status: response.status, body }));
+			})().catch((error) => {
+				console.error(error instanceof Error ? error.message : String(error));
+				process.exitCode = 1;
+			});
 		`,
 		{
-			filePath: "/entry.mjs",
 			onStdio: (event) => {
 				logs.push(`[${event.channel}] ${event.message}`);
 			},
@@ -104,6 +106,8 @@ try {
 	});
 }
 ```
+
+Source: [examples/features/src/networking.ts](https://github.com/rivet-dev/secure-exec/blob/main/examples/features/src/networking.ts)
 
 ## Quick setup
 

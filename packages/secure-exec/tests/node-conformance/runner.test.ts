@@ -247,6 +247,32 @@ describe("node.js conformance tests", () => {
 		expect(testFiles.length).toBeGreaterThan(0);
 	});
 
+	it("loads TLS fixtures into the sandbox VFS and resolves them through common/fixtures", async () => {
+		const result = await runTestInSandbox(
+			[
+				"const assert = require('assert');",
+				"const fs = require('fs');",
+				"const fixtures = require('../common/fixtures');",
+				"const certPath = fixtures.path('keys', 'agent1-cert.pem');",
+				"assert.strictEqual(certPath, '/test/fixtures/keys/agent1-cert.pem');",
+				"const certPem = fs.readFileSync('/test/fixtures/keys/agent1-cert.pem', 'utf8');",
+				"assert.ok(certPem.includes('BEGIN CERTIFICATE'));",
+				"assert.ok(fixtures.readKey('agent1-cert.pem', 'utf8').includes('BEGIN CERTIFICATE'));",
+				"assert.ok(fixtures.readKey('agent1-cert.pem', 'binary').includes('BEGIN CERTIFICATE'));",
+				"assert.ok(",
+				"  fixtures.readKey('selfsigned-no-keycertsign/key.pem', 'utf8').includes(",
+				"    'PRIVATE KEY',",
+				"  ),",
+				");",
+			].join("\n"),
+			"fixture-loader-smoke.js",
+			commonFiles,
+			await getFixtureFiles(),
+		);
+
+		expect(result.code, result.stderr || result.stdout).toBe(0);
+	});
+
 	if (testFiles.length === 0) {
 		it.skip("no vendored tests found - run import-tests.ts first", () => {});
 		return;

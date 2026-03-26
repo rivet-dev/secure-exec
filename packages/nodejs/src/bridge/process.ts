@@ -6,8 +6,11 @@ import type * as nodeProcess from "process";
 // Re-export TextEncoder/TextDecoder from polyfills (polyfills.ts is imported first in index.ts)
 import { TextEncoder, TextDecoder } from "./polyfills.js";
 
-// Use whatwg-url for spec-compliant URL implementation
-import { URL as WhatwgURL, URLSearchParams as WhatwgURLSearchParams } from "whatwg-url";
+import {
+	URL,
+	URLSearchParams,
+	installWhatwgUrlGlobals,
+} from "./whatwg-url.js";
 
 // Use buffer package for spec-compliant Buffer implementation
 import { Buffer as BufferPolyfill } from "buffer";
@@ -168,6 +171,34 @@ if (typeof bufferProto.utf8Slice !== "function") {
       };
     }
   }
+}
+
+const bufferCtorMutable = BufferPolyfill as typeof BufferPolyfill & {
+  allocUnsafe?: typeof BufferPolyfill.allocUnsafe & { _secureExecPatched?: boolean };
+};
+if (
+  typeof bufferCtorMutable.allocUnsafe === "function" &&
+  !bufferCtorMutable.allocUnsafe._secureExecPatched
+) {
+  const originalAllocUnsafe = bufferCtorMutable.allocUnsafe;
+  bufferCtorMutable.allocUnsafe = function patchedAllocUnsafe(
+    this: typeof BufferPolyfill,
+    size: number,
+  ): Buffer {
+    try {
+      return originalAllocUnsafe.call(this, size);
+    } catch (error) {
+      if (
+        error instanceof RangeError &&
+        typeof size === "number" &&
+        size > BUFFER_MAX_LENGTH
+      ) {
+        throw new Error("Array buffer allocation failed");
+      }
+      throw error;
+    }
+  } as typeof BufferPolyfill.allocUnsafe & { _secureExecPatched?: boolean };
+  bufferCtorMutable.allocUnsafe._secureExecPatched = true;
 }
 
 // Exit code tracking
@@ -1148,11 +1179,8 @@ export function clearImmediate(id: TimerHandle | number | undefined): void {
   clearTimeout(id);
 }
 
-// URL and URLSearchParams - use whatwg-url for spec-compliant implementation
-export const URL = WhatwgURL;
-export const URLSearchParams = WhatwgURLSearchParams;
-
 // TextEncoder and TextDecoder - re-export from polyfills
+export { URL, URLSearchParams };
 export { TextEncoder, TextDecoder };
 
 // Buffer - use buffer package polyfill
@@ -1767,14 +1795,8 @@ export function setupGlobals(): void {
     g.queueMicrotask = _queueMicrotask;
   }
 
-  // URL
-  if (typeof g.URL === "undefined") {
-    g.URL = URL;
-  }
-
-  if (typeof g.URLSearchParams === "undefined") {
-    g.URLSearchParams = URLSearchParams;
-  }
+  // URL globals must override bootstrap fallbacks and stay non-enumerable.
+  installWhatwgUrlGlobals(g as typeof globalThis);
 
   // TextEncoder/TextDecoder
   if (typeof g.TextEncoder === "undefined") {
