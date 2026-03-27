@@ -1,22 +1,23 @@
 import {
-  createKernel,
-  createInMemoryFileSystem,
-  createNodeRuntime,
+  NodeRuntime,
+  createNodeDriver,
+  createNodeRuntimeDriverFactory,
+  allowAllChildProcess,
 } from "secure-exec";
 
-const kernel = createKernel({
-  filesystem: createInMemoryFileSystem(),
-  permissions: {
-    childProcess: () => ({ allow: true }),
+const runtime = new NodeRuntime({
+  systemDriver: createNodeDriver({
+    permissions: { ...allowAllChildProcess },
+  }),
+  runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+  onStdio: (event) => {
+    process.stdout.write(event.message);
   },
 });
-await kernel.mount(createNodeRuntime());
 
-const result = await kernel.exec(`node -e "
-  const { execSync } = require('node:child_process');
-  console.log(execSync('node --version', { encoding: 'utf8' }).trim());
-"`);
+await runtime.exec(`
+  import { execSync } from "node:child_process";
+  console.log(execSync("node --version", { encoding: "utf8" }).trim());
+`, { filePath: "/entry.mjs" });
 
-console.log(result.stdout); // e.g. "v22.x.x\n"
-
-await kernel.dispose();
+runtime.dispose();

@@ -1,18 +1,18 @@
 import {
-  createKernel,
-  createInMemoryFileSystem,
-  createNodeRuntime,
+  NodeRuntime,
+  createNodeDriver,
+  createNodeRuntimeDriverFactory,
 } from "secure-exec";
 
-const kernel = createKernel({
-  filesystem: createInMemoryFileSystem(),
+const runtime = new NodeRuntime({
+  systemDriver: createNodeDriver(),
+  runtimeDriverFactory: createNodeRuntimeDriverFactory(),
 });
-await kernel.mount(createNodeRuntime());
 
-const result = await kernel.exec(
-  "node -e \"console.log('hello from secure-exec')\""
+const result = await runtime.run<{ message: string }>(
+  `export const message = "hello from secure-exec";`
 );
 
-console.log(result.stdout); // "hello from secure-exec\n"
+console.log(result.exports?.message); // "hello from secure-exec"
 
-await kernel.dispose();
+runtime.dispose();

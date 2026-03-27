@@ -8,12 +8,10 @@ const docsPath = path.join(repoRoot, "docs/quickstart.mdx");
 
 const expectedFiles = new Map([
   ["Simple", "src/simple.ts"],
-  ["TypeScript", "src/typescript.ts"],
   ["Logging", "src/logging.ts"],
   ["Filesystem", "src/filesystem.ts"],
   ["Fetch", "src/fetch.ts"],
-  ["HTTP Server (Hono)", "src/http-server-hono.ts"],
-  ["Run Command", "src/run-command.ts"],
+  ["Multi-File", "src/multi-file.ts"],
 ]);
 
 function normalizeTitle(title) {

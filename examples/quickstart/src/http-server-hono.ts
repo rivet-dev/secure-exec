@@ -18,17 +18,15 @@ const runtime = new NodeRuntime({
 
 // Start a Hono server inside the sandbox
 const execPromise = runtime.exec(`
-  (async () => {
-    const { Hono } = require("hono");
-    const { serve } = require("@hono/node-server");
+  import { Hono } from "hono";
+  import { serve } from "@hono/node-server";
 
-    const app = new Hono();
-    app.get("/", (c) => c.text("hello from hono"));
+  const app = new Hono();
+  app.get("/", (c) => c.text("hello from hono"));
 
-    serve({ fetch: app.fetch, port: ${port}, hostname: "127.0.0.1" });
-    await new Promise(() => {});
-  })();
-`);
+  serve({ fetch: app.fetch, port: ${port}, hostname: "127.0.0.1" });
+  await new Promise(() => {});
+`, { filePath: "/app/server.mjs" });
 
 // Wait for the server to be ready, then fetch from the host
 const url = "http://127.0.0.1:" + port + "/";

@@ -46,7 +46,7 @@ icon: "rocket"
     Use `runtime.run()` to execute JavaScript and get back exported values. Use `runtime.exec()` for scripts that produce console output.
 
     <CodeGroup>
-      ```ts Run & Get Exports
+      ```ts Simple
       import {
         NodeRuntime,
         createNodeDriver,
@@ -59,7 +59,7 @@ icon: "rocket"
       });
 
       const result = await runtime.run<{ message: string }>(
-        `module.exports = { message: "hello from secure-exec" };`
+        `export const message = "hello from secure-exec";`
       );
 
       console.log(result.exports?.message); // "hello from secure-exec"
@@ -67,7 +67,7 @@ icon: "rocket"
       runtime.dispose();
       ```
 
-      ```ts Execute & Capture Output
+      ```ts Logging
       import {
         NodeRuntime,
         createNodeDriver,
@@ -105,16 +105,16 @@ icon: "rocket"
       const runtime = new NodeRuntime({
         systemDriver: createNodeDriver({
           filesystem,
-          permissions: { fs: allowAllFs },
+          permissions: { ...allowAllFs },
         }),
         runtimeDriverFactory: createNodeRuntimeDriverFactory(),
       });
 
       await runtime.exec(`
-        const fs = require("node:fs");
+        import fs from "node:fs";
         fs.mkdirSync("/workspace", { recursive: true });
         fs.writeFileSync("/workspace/hello.txt", "hello from the sandbox");
-      `);
+      `, { filePath: "/entry.mjs" });
 
       const bytes = await filesystem.readFile("/workspace/hello.txt");
       console.log(new TextDecoder().decode(bytes)); // "hello from the sandbox"
@@ -122,7 +122,7 @@ icon: "rocket"
       runtime.dispose();
       ```
 
-      ```ts Network Access
+      ```ts Fetch
       import {
         NodeRuntime,
         createNodeDriver,
@@ -132,7 +132,7 @@ icon: "rocket"
 
       const runtime = new NodeRuntime({
         systemDriver: createNodeDriver({
-          permissions: { network: allowAllNetwork },
+          permissions: { ...allowAllNetwork },
         }),
         runtimeDriverFactory: createNodeRuntimeDriverFactory(),
         onStdio: (event) => {
@@ -148,24 +148,48 @@ icon: "rocket"
       runtime.dispose();
       ```
 
-      ```ts ESM Modules
+      ```ts Multi-File
       import {
         NodeRuntime,
         createNodeDriver,
         createNodeRuntimeDriverFactory,
+        createInMemoryFileSystem,
+        allowAllFs,
       } from "secure-exec";
 
+      const filesystem = createInMemoryFileSystem();
+
+      // Write module files to the virtual filesystem
+      await filesystem.writeFile(
+        "/app/math.mjs",
+        `export function add(a, b) { return a + b; }`
+      );
+      await filesystem.writeFile(
+        "/app/greet.mjs",
+        `export function greet(name) { return "hello, " + name; }`
+      );
+
       const runtime = new NodeRuntime({
-        systemDriver: createNodeDriver(),
+        systemDriver: createNodeDriver({
+          filesystem,
+          permissions: { ...allowAllFs },
+        }),
         runtimeDriverFactory: createNodeRuntimeDriverFactory(),
       });
 
-      const result = await runtime.run<{ answer: number }>(
-        `export const answer = 42;`,
-        "/entry.mjs" // .mjs extension triggers ESM mode
+      const result = await runtime.run<{ sum: number; greeting: string }>(
+        `
+        import { add } from "./math.mjs";
+        import { greet } from "./greet.mjs";
+
+        export const sum = add(1, 2);
+        export const greeting = greet("secure-exec");
+        `,
+        "/app/entry.mjs"
       );
 
-      console.log(result.exports?.answer); // 42
+      console.log(result.exports?.sum);      // 3
+      console.log(result.exports?.greeting); // "hello, secure-exec"
 
       runtime.dispose();
       ```

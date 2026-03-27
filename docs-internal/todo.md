@@ -169,6 +169,8 @@ docs-internal/specs/cli-tool-e2e.md
 
 - [x] Define the minimal driver surface needed for Rivet integration. *(done — `RuntimeDriver` interface in `packages/kernel/src/types.ts`)*
 
+- [ ] Support long-running processes (e.g. dev servers) without `await new Promise(() => {})` — sandbox should keep exec alive while active handles (listeners, timers) exist, matching Node's event loop semantics.
+
 - [ ] Add a codemode example.
   - Provide a focused example that demonstrates secure-exec usage in a realistic tool flow.
   - Files: `examples/`

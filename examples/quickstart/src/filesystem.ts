@@ -1,25 +1,28 @@
 import {
-  createKernel,
+  NodeRuntime,
+  createNodeDriver,
+  createNodeRuntimeDriverFactory,
   createInMemoryFileSystem,
-  createNodeRuntime,
+  allowAllFs,
 } from "secure-exec";
 
 const filesystem = createInMemoryFileSystem();
-const kernel = createKernel({
-  filesystem,
-  permissions: {
-    fs: () => ({ allow: true }),
-  },
-});
-await kernel.mount(createNodeRuntime());
 
-await kernel.exec(`node -e "
-  const fs = require('node:fs');
-  fs.mkdirSync('/workspace', { recursive: true });
-  fs.writeFileSync('/workspace/hello.txt', 'hello from the sandbox');
-"`);
+const runtime = new NodeRuntime({
+  systemDriver: createNodeDriver({
+    filesystem,
+    permissions: { ...allowAllFs },
+  }),
+  runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+});
+
+await runtime.exec(`
+  import fs from "node:fs";
+  fs.mkdirSync("/workspace", { recursive: true });
+  fs.writeFileSync("/workspace/hello.txt", "hello from the sandbox");
+`, { filePath: "/entry.mjs" });
 
 const bytes = await filesystem.readFile("/workspace/hello.txt");
 console.log(new TextDecoder().decode(bytes)); // "hello from the sandbox"
 
-await kernel.dispose();
+runtime.dispose();
