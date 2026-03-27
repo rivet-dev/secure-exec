@@ -1286,6 +1286,120 @@
       "priority": 58,
       "passes": false,
       "notes": "Current OpenCode PTY coverage uses a custom host-binary driver plus script wrapper. This story is specifically to prove the policy-compliant sandbox PTY path with real credentials."
+    },
+    {
+      "id": "US-072",
+      "title": "Make localhost RPC exemptions a supported createNodeDriver SSRF configuration path",
+      "description": "As a developer embedding SecureExec tool loops, I need a supported way to allow sandbox fetches to specific loopback RPC ports without disabling SSRF protection or constructing private adapters by guesswork.",
+      "acceptanceCriteria": [
+        "Add a regression that reproduces the current failure mode: sandbox code calling `fetch('http://127.0.0.1:<rpcPort>')` against a host-side RPC server fails under the default SSRF guard with a private-host rejection",
+        "Define and implement the supported configuration path for exempting specific localhost or loopback ports when using `createNodeDriver`, rather than requiring embedders to import `createDefaultNetworkAdapter` directly unless that direct-construction path is explicitly documented as the intended public API",
+        "The final API keeps SSRF protection enabled by default and only exempts explicitly configured ports",
+        "Add coverage proving that an allowed loopback RPC port succeeds while a different unlisted loopback port still fails the SSRF guard",
+        "Update the relevant public docs for `createNodeDriver` / Node system-driver configuration so embedders know how to wire localhost RPC safely",
+        "If the recommended answer is to construct and pass a custom `networkAdapter`, document that as the supported pattern and make the option surface explicit and tested",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 59,
+      "passes": false,
+      "notes": "External embedder report: sandbox code needs to call host-side tool RPC over `fetch('http://127.0.0.1:<port>')`, but the default adapter's `assertNotPrivateHost` blocks loopback. The adapter already supports `initialExemptPorts`, yet the intended way to thread that through `createNodeDriver` is unclear, so the current workaround is to import `createDefaultNetworkAdapter` manually and pass it via `createNodeDriver({ networkAdapter })`."
+    },
+    {
+      "id": "US-073",
+      "title": "Validate and document NodeRuntime reuse across multi-step exec loops",
+      "description": "As a developer running AI SDK tool loops, I need clear supported lifecycle guidance for `NodeRuntime` across repeated executions so sequential `.exec()` calls do not fail with disposed-isolate errors.",
+      "acceptanceCriteria": [
+        "Add a focused reproduction for the reported lifecycle confusion in a multi-step tool loop shape where code executes multiple times in sequence against the same logical session",
+        "Determine whether reusing one `NodeRuntime` across many `.exec()` calls is the supported pattern, and encode that answer in regression coverage and public docs",
+        "If there is a real runtime bug around disposal, recreation, or stale execution-driver state, fix it in the runtime/driver layer and cover the exact repro",
+        "If the existing behavior is correct and the issue is lifecycle misuse, document the required ownership model clearly, including when a runtime may be disposed and when it must be kept alive",
+        "Include at least one regression proving that the supported repeated-execution pattern works across multiple `.exec()` calls in sequence without `Isolate is disposed` errors",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 60,
+      "passes": false,
+      "notes": "External embedder report: in an AI SDK tool loop, `execute()` is invoked once per model step. Disposing and recreating the `NodeRuntime` between calls led to `Isolate is disposed` failures, while keeping one runtime alive and reusing it across sequential `.exec()` calls worked. This story should turn that anecdote into a supported contract or a runtime fix."
+    },
+    {
+      "id": "US-074",
+      "title": "Clarify NodeRuntime exec() versus run() for automation and export-based flows",
+      "description": "As a developer embedding SecureExec, I need the `NodeRuntime` API docs and examples to make it obvious when to use `run()` versus `exec()` so stdout-driven automation and export-driven evaluation are not confused.",
+      "acceptanceCriteria": [
+        "Audit the current NodeRuntime docs, examples, and test-facing guidance for places that imply `run()` is the default answer when an embedder actually needs `exec()` and `onStdio`",
+        "Update the relevant public docs and examples to explain the intended split: `run()` for returned exports/results and `exec()` for process-style execution with stdout/stderr observation",
+        "Include at least one concise example of each API in the docs, using the same domain/problem where practical so the difference is obvious",
+        "If any existing example or guide currently nudges code-mode or CLI-style integrations toward the wrong API, correct it",
+        "Typecheck passes"
+      ],
+      "priority": 61,
+      "passes": false,
+      "notes": "External embedder report: code originally followed a `runtime.run()` example that returns exports, but the real integration needed `runtime.exec()` plus `onStdio` to capture stdout/stderr in code mode. This is not a correctness bug, but it is a documentation/usability gap that keeps surfacing during tool integration work."
+    },
+    {
+      "id": "US-075",
+      "title": "Fix WasmVM path-based command dispatch for /bin stubs and child-process shell launches",
+      "description": "As a developer using the shell or sandboxed CLI tools, I need path-based command execution like `/bin/ls` and `/bin/bash` to resolve to the correct Wasm binary instead of failing with an empty-path compile error.",
+      "acceptanceCriteria": [
+        "Add a focused regression proving that `kernel.spawn('/bin/printf', ...)` and similar path-based dispatch resolves through the WasmVM command registry to the real command binary",
+        "Add a shell-facing regression proving that brush-shell PATH resolution through `/bin/<cmd>` works for standard commands such as `ls` and `printf`",
+        "Add a Pi-facing regression proving that the Pi SDK's bash tool path no longer surfaces `wasmvm: failed to compile module for '/bin/bash' at : ENOENT: no such file or directory, open ''` during sandbox execution",
+        "The fix normalizes path-style commands before WasmVM binary lookup instead of relying on bare command names only",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 62,
+      "passes": false,
+      "notes": "Discovered during dev-shell and Pi SDK testing. `CommandRegistry.resolve('/bin/ls')` correctly returned the WasmVM driver, but the driver was looking up the literal `/bin/ls` key instead of the basename `ls`, so `_resolveBinaryPath()` fell back to an empty path and failed compilation. The same failure shape appeared in Pi tool execution as `/bin/bash`."
+    },
+    {
+      "id": "US-076",
+      "title": "Fix interactive Wasm shell cwd propagation to spawned child commands",
+      "description": "As a developer using the interactive sandbox shell, I need the shell's current working directory to be honored consistently by spawned commands, not just by shell builtins.",
+      "acceptanceCriteria": [
+        "Add an interactive PTY regression proving that opening the shell with a non-root cwd and then running `pwd` reports that cwd",
+        "Add a regression proving that after `cd /some/path`, both shell builtins and spawned commands like `pwd`, `ls`, and `/bin/pwd` execute in `/some/path` rather than `/`",
+        "Verify the same cwd behavior through the `just dev-shell` wrapper with `--work-dir <path>`",
+        "Document whether the bug is in brush-shell's proc_spawn cwd forwarding, the WASI spawn bridge, or kernel cwd bookkeeping, and fix the responsible layer rather than papering over it in the wrapper",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 63,
+      "passes": false,
+      "notes": "Discovered while validating `just dev-shell -- sh` end to end. The shell banner and wrapper reported the requested work dir, but commands run from the interactive Wasm shell still executed in `/`. For example, `pwd` inside the shell returned `/`, and `ls` listed root unless given an absolute target path."
+    },
+    {
+      "id": "US-077",
+      "title": "Fix PTY resize handling for interactive Wasm shell sessions",
+      "description": "As a developer using the interactive sandbox shell or TUI apps, I need terminal resize handling to work without killing the foreground shell session.",
+      "acceptanceCriteria": [
+        "Add a regression that reproduces the current failure mode where the initial PTY resize path causes an interactive Wasm shell session to exit before the first prompt",
+        "Re-enable resize forwarding in `connectTerminal()` only after the PTY and signal-delivery path is fixed end to end",
+        "Verify that interactive shells and PTY apps stay alive across initial attach and subsequent resize events",
+        "Verify that foreground-process `SIGWINCH` delivery still occurs after the fix",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 64,
+      "passes": false,
+      "notes": "Discovered during real `just dev-shell` PTY verification. `openShell()` alone stayed alive, but the `connectTerminal()` path exited with code 28 when it forwarded the initial resize event. Current behavior was mitigated by disabling resize forwarding; this story is to restore the intended POSIX behavior properly."
+    },
+    {
+      "id": "US-078",
+      "title": "Clarify or fix Pi SDK tool_execution_end error semantics in sandbox tool loops",
+      "description": "As a developer integrating the Pi SDK programmatically, I need `tool_execution_end` events in sandbox runs to distinguish real tool failures from successful executions that still produce expected output.",
+      "acceptanceCriteria": [
+        "Add a focused Pi SDK sandbox regression that records `tool_execution_start` and `tool_execution_end` for a simple successful tool call such as `bash: pwd`",
+        "Determine whether `tool_execution_end.isError === true` for that successful path is expected Pi semantics or a sandbox integration bug",
+        "If it is a sandbox or bridge bug, fix it and assert `isError === false` for successful tool execution",
+        "If it is expected upstream Pi behavior, document that clearly in the test and PRD notes so downstream consumers do not treat the current flag as a trustworthy success signal without inspecting the result payload",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 65,
+      "passes": false,
+      "notes": "Discovered while adding a sandboxed Pi SDK regression for the `/bin/bash` failure path. After the bash-command dispatch bug was fixed, Pi still emitted `tool_execution_end` with `isError: true` even though the mock-provider run completed, returned the expected `pwd` output, and no `/bin/bash` compile failure occurred. This may be a separate Pi SDK event-contract issue rather than a shell-dispatch bug."
     }
   ]
 }

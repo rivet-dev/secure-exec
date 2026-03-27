@@ -49,7 +49,7 @@ import { resolvePermissionTier } from './permission-check.js';
 import { ModuleCache } from './module-cache.js';
 import { readdir, stat } from 'node:fs/promises';
 import { existsSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { type Socket } from 'node:net';
 import { connect as tlsConnect, type TLSSocket } from 'node:tls';
 import { lookup } from 'node:dns/promises';
@@ -557,8 +557,10 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
 
   /** Resolve binary path for a command. */
   private _resolveBinaryPath(command: string): string {
+    const commandName = command.includes('/') ? basename(command) : command;
+
     // commandDirs mode: look up per-command binary path
-    const perCommand = this._commandPaths.get(command);
+    const perCommand = this._commandPaths.get(commandName);
     if (perCommand) return perCommand;
 
     // Legacy mode: all commands use a single binary

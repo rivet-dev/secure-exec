@@ -662,6 +662,16 @@ describe('WasmVM RuntimeDriver', () => {
       expect(result.stdout).toBe('hello\n');
     });
 
+    it('path-based /bin command lookups resolve to the discovered WASM binary', async () => {
+      const vfs = new SimpleVFS();
+      kernel = createKernel({ filesystem: vfs as any });
+      await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
+
+      const result = await kernel.exec('/bin/printf path-lookup-ok');
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('path-lookup-ok');
+    });
+
     it('module cache is populated after first spawn and reused for subsequent spawns', async () => {
       const vfs = new SimpleVFS();
       kernel = createKernel({ filesystem: vfs as any });

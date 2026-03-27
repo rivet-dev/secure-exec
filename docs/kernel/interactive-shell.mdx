@@ -94,13 +94,15 @@ This is the fastest way to drop into a kernel shell from Node.js. It handles:
 
 ### CLI entry point
 
-The repository includes a ready-made CLI at `scripts/shell.ts`:
+The repository includes a ready-made developer shell in `packages/dev-shell/`:
 
 ```bash
-npx tsx scripts/shell.ts
-npx tsx scripts/shell.ts --no-node          # WasmVM only
-npx tsx scripts/shell.ts --wasm-path ./path  # Custom WASM binary
+just dev-shell
+just dev-shell --work-dir /tmp/demo
+pnpm --filter @secure-exec/dev-shell dev-shell -- --work-dir .
 ```
+
+It boots a sandbox-only developer shell for manual testing: WasmVM shell commands, `node`/`npm`/`npx`, `python`/`python3`, host network access, repo credentials from `~/misc/env.txt`, and sandbox-native tool integrations such as Pi when those paths are implemented. The dev shell must not silently fall back to host-backed command overrides.
 
 ## PTY internals
 

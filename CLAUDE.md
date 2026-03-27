@@ -79,6 +79,14 @@
 - check GitHub Actions test/typecheck status per commit to identify when a failure first appeared
 - do not use `contract` in test filenames; use names like `suite`, `behavior`, `parity`, `integration`, or `policy` instead
 
+## Dev Shell
+
+- `packages/dev-shell/` is the canonical interactive sandbox for manual validation of the runtime surface
+- VERY IMPORTANT: the dev shell must never use host-backed command overrides or host-binary fallbacks for manual validation; if a tool is present there, it must run through the sandbox-native runtime path
+- if a tested tool does not yet have a real sandbox-native path, leave it unavailable in the dev shell and track the gap instead of silently routing to the host
+- when adding a new tested CLI tool or runtime surface, update `packages/dev-shell/` in the same change so developers can reproduce and inspect it interactively inside the sandbox
+- keep the dev shell honest with focused end-to-end coverage, including at least one interactive PTY/TUI path that runs entirely inside the sandbox
+
 ## GitHub Issues
 
 - when fixing a bug or implementation gap tracked by a GitHub issue, close the issue in the same PR using `gh issue close <number> --comment "Fixed in <commit-hash>"`

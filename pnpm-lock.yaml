@@ -295,6 +295,40 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.3)(@vitest/browser@2.1.9)
 
+  packages/dev-shell:
+    dependencies:
+      '@secure-exec/core':
+        specifier: workspace:*
+        version: link:../core
+      '@secure-exec/nodejs':
+        specifier: workspace:*
+        version: link:../nodejs
+      '@secure-exec/python':
+        specifier: workspace:*
+        version: link:../python
+      '@secure-exec/wasmvm':
+        specifier: workspace:*
+        version: link:../wasmvm
+      pyodide:
+        specifier: ^0.28.3
+        version: 0.28.3
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.19.3
+      '@xterm/headless':
+        specifier: ^6.0.0
+        version: 6.0.0
+      tsx:
+        specifier: ^4.19.2
+        version: 4.21.0
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.3)(@vitest/browser@2.1.9)
+
   packages/nodejs:
     dependencies:
       '@secure-exec/core':

@@ -470,16 +470,11 @@ class KernelImpl implements Kernel {
 				?? ((data: Uint8Array) => { stdout.write(data); });
 			shell.onData = outputHandler;
 
-			// Handle terminal resize
-			onResize = () => {
-				shell.resize(stdout.columns || 80, stdout.rows || 24);
-			};
-			if (stdout.isTTY) stdout.on("resize", onResize);
-
-			// Set initial terminal size
-			if (stdout.isTTY) {
-				shell.resize(stdout.columns || 80, stdout.rows || 24);
-			}
+			// PTY resize forwarding is currently unsafe for Wasm shell sessions:
+			// an early resize can terminate the shell before the first prompt.
+			// Keep interactive stdin/stdout working and leave resize disabled
+			// until the PTY/SIGWINCH path is fixed end-to-end.
+			onResize = undefined;
 
 			return await shell.wait();
 		} finally {

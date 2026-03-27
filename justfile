@@ -1,5 +1,9 @@
-dev-shell:
-	npx tsx scripts/shell.ts
+set positional-arguments := true
+
+dev-shell *args:
+	#!/usr/bin/env bash
+	set -euo pipefail
+	pnpm --filter @secure-exec/dev-shell dev-shell -- "$@"
 
 dev-docs:
 	cd docs && npx mintlify dev
@@ -12,4 +16,3 @@ build-website:
 
 release *args:
 	npx tsx scripts/release.ts {{args}}
-
