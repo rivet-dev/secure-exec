@@ -521,6 +521,9 @@ class KernelImpl implements Kernel {
 	readdir(path: string): Promise<string[]> { return this.vfs.readDir(path); }
 	stat(path: string): Promise<VirtualStat> { return this.vfs.stat(path); }
 	exists(path: string): Promise<boolean> { return this.vfs.exists(path); }
+	removeFile(path: string): Promise<void> { return this.vfs.removeFile(path); }
+	removeDir(path: string): Promise<void> { return this.vfs.removeDir(path); }
+	rename(oldPath: string, newPath: string): Promise<void> { return this.vfs.rename(oldPath, newPath); }
 
 	// Introspection
 	get commands(): ReadonlyMap<string, string> {

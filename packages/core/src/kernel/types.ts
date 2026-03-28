@@ -102,6 +102,9 @@ export interface Kernel {
 	readdir(path: string): Promise<string[]>;
 	stat(path: string): Promise<import("./vfs.js").VirtualStat>;
 	exists(path: string): Promise<boolean>;
+	removeFile(path: string): Promise<void>;
+	removeDir(path: string): Promise<void>;
+	rename(oldPath: string, newPath: string): Promise<void>;
 
 	// Socket table
 	readonly socketTable: import("./socket-table.js").SocketTable;
