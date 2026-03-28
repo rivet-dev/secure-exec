@@ -1,11 +1,10 @@
 /**
- * Shared schema for posix-exclusions.json.
+ * Shared schema for conformance exclusion files.
  *
  * Single source of truth for valid categories, expected values,
  * and the ExclusionEntry interface. Used by:
- *   - validate-posix-exclusions.ts
- *   - generate-posix-report.ts
- *   - posix-conformance.test.ts
+ *   - os-test-conformance.test.ts / validate-os-test-exclusions.ts / generate-os-test-report.ts
+ *   - libc-test-conformance.test.ts / validate-libc-test-exclusions.ts / generate-libc-test-report.ts
  */
 
 export const VALID_EXPECTED = ['fail', 'skip'] as const;
@@ -29,10 +28,10 @@ export interface ExclusionEntry {
 }
 
 export interface ExclusionsFile {
-  osTestVersion: string;
   sourceCommit: string;
   lastUpdated: string;
   exclusions: Record<string, ExclusionEntry>;
+  [key: string]: unknown;
 }
 
 /** Category metadata for report generation (ordered for display). */

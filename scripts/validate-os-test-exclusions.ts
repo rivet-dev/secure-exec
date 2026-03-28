@@ -1,6 +1,6 @@
 #!/usr/bin/env -S npx tsx
 /**
- * Validates posix-exclusions.json for integrity.
+ * Validates os-test-exclusions.json for integrity.
  *
  * Checks:
  * 1. Every exclusion key matches a compiled test binary
@@ -9,20 +9,20 @@
  * 4. Every entry has a valid category from the fixed set
  * 5. Every entry has a valid expected value (fail or skip)
  *
- * Usage: pnpm tsx scripts/validate-posix-exclusions.ts
+ * Usage: pnpm tsx scripts/validate-os-test-exclusions.ts
  */
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { VALID_EXPECTED, VALID_CATEGORIES } from './posix-exclusion-schema.js';
-import type { ExclusionEntry } from './posix-exclusion-schema.js';
+import { VALID_EXPECTED, VALID_CATEGORIES } from './conformance-exclusion-schema.js';
+import type { ExclusionEntry } from './conformance-exclusion-schema.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // ── Paths ──────────────────────────────────────────────────────────────
 
-const EXCLUSIONS_PATH = resolve(__dirname, '../packages/wasmvm/test/posix-exclusions.json');
+const EXCLUSIONS_PATH = resolve(__dirname, '../packages/wasmvm/test/os-test-exclusions.json');
 const OS_TEST_WASM_DIR = resolve(__dirname, '../native/wasmvm/c/build/os-test');
 
 // ── Test discovery ─────────────────────────────────────────────────────
@@ -94,7 +94,7 @@ const entryCount = Object.keys(exclusions).length;
 const skipCount = Object.values(exclusions).filter((e) => e.expected === 'skip').length;
 const failCount = Object.values(exclusions).filter((e) => e.expected === 'fail').length;
 
-console.log(`\nPOSIX Exclusion List Validation`);
+console.log(`\nos-test Exclusion List Validation`);
 console.log('─'.repeat(50));
 console.log(`Entries:          ${entryCount}`);
 console.log(`Expected fail:    ${failCount}`);

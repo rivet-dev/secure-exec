@@ -1,10 +1,10 @@
 #!/usr/bin/env -S npx tsx
 /**
- * Pulls a new os-test release and replaces the local source.
+ * Pulls musl libc-test from the Bytecode Alliance mirror and replaces the local source.
  *
- * Usage: pnpm tsx scripts/import-os-test.ts --version 0.1.0
- *   Downloads the specified os-test release from GitLab and replaces
- *   native/wasmvm/c/os-test/ with the new source. Prints a diff summary
+ * Usage: pnpm tsx scripts/import-libc-test.ts --version master
+ *   Downloads the specified branch/tag from GitHub and replaces
+ *   native/wasmvm/c/libc-test/ with the new source. Prints a diff summary
  *   of added/removed/changed files.
  */
 
@@ -34,30 +34,29 @@ const { values } = parseArgs({
 });
 
 if (!values.version) {
-  console.error('Usage: pnpm tsx scripts/import-os-test.ts --version <version>');
-  console.error('  e.g. --version 0.1.0  or  --version main');
+  console.error('Usage: pnpm tsx scripts/import-libc-test.ts --version <version>');
+  console.error('  e.g. --version master  or  --version v1.0.0');
   process.exit(1);
 }
 
 const version = values.version;
 
-// Validate version format: semver (e.g. 0.1.0) or branch/tag name (alphanumeric, dash, dot, slash)
+// Validate version format
 const VERSION_RE = /^[a-zA-Z0-9][a-zA-Z0-9._\-/]*$/;
 if (!VERSION_RE.test(version)) {
   console.error(`Invalid version format: "${version}"`);
-  console.error('  Expected: semver (e.g. 0.1.0), branch name (e.g. main), or tag');
   process.exit(1);
 }
 
 // ── Paths ───────────────────────────────────────────────────────────────
 
 const C_DIR = resolve(__dirname, '../native/wasmvm/c');
-const OS_TEST_DIR = join(C_DIR, 'os-test');
+const LIBC_TEST_DIR = join(C_DIR, 'libc-test');
 const CACHE_DIR = join(C_DIR, '.cache/libs');
-const ARCHIVE_PATH = join(CACHE_DIR, 'os-test.tar.gz');
-const TEMP_DIR = join(C_DIR, 'os-test-incoming');
-const URL = `https://gitlab.com/sortix/os-test/-/archive/${version}/os-test-${version}.tar.gz`;
-const EXCLUSIONS_PATH = resolve(__dirname, '../packages/wasmvm/test/os-test-exclusions.json');
+const ARCHIVE_PATH = join(CACHE_DIR, 'libc-test.tar.gz');
+const TEMP_DIR = join(C_DIR, 'libc-test-incoming');
+const URL = `https://github.com/bytecodealliance/libc-test/archive/refs/heads/${version}.tar.gz`;
+const EXCLUSIONS_PATH = resolve(__dirname, '../packages/wasmvm/test/libc-test-exclusions.json');
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -80,16 +79,14 @@ function collectFiles(dir: string, prefix = ''): Set<string> {
 function resolveCommitHash(ref: string): string {
   try {
     const output = execSync(
-      `git ls-remote https://gitlab.com/sortix/os-test.git "${ref}"`,
+      `git ls-remote https://github.com/bytecodealliance/libc-test.git "${ref}"`,
       { stdio: 'pipe', encoding: 'utf-8' },
     ).trim();
-    // Output format: "<hash>\t<ref>"
     const match = output.match(/^([0-9a-f]{40})/m);
     if (match) return match[1];
   } catch {
     // Fall through
   }
-  // If it already looks like a commit hash, use as-is
   if (/^[0-9a-f]{40}$/.test(ref)) return ref;
   console.warn(`  Warning: could not resolve commit hash for "${ref}" — using as-is`);
   return ref;
@@ -97,11 +94,11 @@ function resolveCommitHash(ref: string): string {
 
 // ── Snapshot existing files ─────────────────────────────────────────────
 
-console.log(`Importing os-test ${version}`);
+console.log(`Importing musl libc-test ${version}`);
 console.log(`  URL: ${URL}`);
 console.log('');
 
-const oldFiles = collectFiles(OS_TEST_DIR);
+const oldFiles = collectFiles(LIBC_TEST_DIR);
 
 // ── Download ────────────────────────────────────────────────────────────
 
@@ -123,7 +120,6 @@ console.log(`  Downloaded ${(archiveSize / 1024 / 1024).toFixed(1)} MB`);
 
 console.log('Extracting to temp directory...');
 
-// Clean up any leftover temp dir from a previous failed run
 if (existsSync(TEMP_DIR)) {
   rmSync(TEMP_DIR, { recursive: true, force: true });
 }
@@ -135,17 +131,17 @@ try {
   });
 } catch (err) {
   rmSync(TEMP_DIR, { recursive: true, force: true });
-  console.error('Extraction failed — existing os-test/ is untouched.');
+  console.error('Extraction failed — existing libc-test/ is untouched.');
   process.exit(1);
 }
 
-// Validate: os-test has suite dirs at top level (basic/, io/, etc.) — check for at least one .c file
+// Validate: libc-test has src/ directory with .c files
 const tempFiles = collectFiles(TEMP_DIR);
 const tempCFiles = [...tempFiles].filter((f) => f.endsWith('.c'));
 if (tempCFiles.length === 0) {
   rmSync(TEMP_DIR, { recursive: true, force: true });
   console.error('Validation failed: extracted archive contains no .c files.');
-  console.error('  Existing os-test/ is untouched.');
+  console.error('  Existing libc-test/ is untouched.');
   process.exit(1);
 }
 
@@ -153,11 +149,11 @@ console.log(`  Validated: ${tempCFiles.length} .c files found`);
 
 // ── Swap: remove old, move new into place ───────────────────────────────
 
-console.log('Replacing os-test/ ...');
-if (existsSync(OS_TEST_DIR)) {
-  rmSync(OS_TEST_DIR, { recursive: true, force: true });
+console.log('Replacing libc-test/ ...');
+if (existsSync(LIBC_TEST_DIR)) {
+  rmSync(LIBC_TEST_DIR, { recursive: true, force: true });
 }
-renameSync(TEMP_DIR, OS_TEST_DIR);
+renameSync(TEMP_DIR, LIBC_TEST_DIR);
 
 // ── Resolve commit hash and update exclusions metadata ──────────────────
 
@@ -167,16 +163,16 @@ console.log(`  Commit: ${commitHash}`);
 
 if (existsSync(EXCLUSIONS_PATH)) {
   const exclusions = JSON.parse(readFileSync(EXCLUSIONS_PATH, 'utf-8'));
-  exclusions.osTestVersion = version;
+  exclusions.libcTestVersion = version;
   exclusions.sourceCommit = commitHash;
   exclusions.lastUpdated = new Date().toISOString().slice(0, 10);
   writeFileSync(EXCLUSIONS_PATH, JSON.stringify(exclusions, null, 2) + '\n');
-  console.log('  Updated os-test-exclusions.json metadata');
+  console.log('  Updated libc-test-exclusions.json metadata');
 }
 
 // ── Diff summary ────────────────────────────────────────────────────────
 
-const newFiles = collectFiles(OS_TEST_DIR);
+const newFiles = collectFiles(LIBC_TEST_DIR);
 
 const added: string[] = [];
 const removed: string[] = [];
@@ -188,7 +184,6 @@ for (const f of oldFiles) {
   if (!newFiles.has(f)) removed.push(f);
 }
 
-// Count files by extension
 const cFiles = [...newFiles].filter((f) => f.endsWith('.c'));
 
 console.log('');
@@ -221,8 +216,8 @@ if (added.length > 50 || removed.length > 50) {
 
 console.log('');
 console.log('Next steps:');
-console.log('  1. Rebuild:  make -C native/wasmvm/c os-test os-test-native');
-console.log('  2. Test:     pnpm vitest run packages/wasmvm/test/os-test-conformance.test.ts');
-console.log('  3. Update exclusions: review new failures and update os-test-exclusions.json');
-console.log('  4. Validate: pnpm tsx scripts/validate-os-test-exclusions.ts');
-console.log('  5. Report:   pnpm tsx scripts/generate-os-test-report.ts');
+console.log('  1. Rebuild:  make -C native/wasmvm/c libc-test libc-test-native');
+console.log('  2. Test:     pnpm vitest run packages/wasmvm/test/libc-test-conformance.test.ts');
+console.log('  3. Update exclusions: review new failures and update libc-test-exclusions.json');
+console.log('  4. Validate: pnpm tsx scripts/validate-libc-test-exclusions.ts');
+console.log('  5. Report:   pnpm tsx scripts/generate-libc-test-report.ts');

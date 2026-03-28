@@ -35,7 +35,7 @@
 ### POSIX Conformance Test Integrity
 
 - **no test-only workarounds** — if a C override fixes broken libc behavior (fcntl, realloc, strfmon, etc.), it MUST go in the patched sysroot (`native/wasmvm/patches/wasi-libc/`) so all WASM programs get the fix; never link overrides only into test binaries — that inflates conformance numbers while real users still hit the bug
-- **never replace upstream test source files** — if an os-test `.c` file fails due to a platform difference (e.g. `sizeof(long)`), exclude it via `posix-exclusions.json` with the real reason; do not swap in a rewritten version that changes what the test validates
+- **never replace upstream test source files** — if an os-test `.c` file fails due to a platform difference (e.g. `sizeof(long)`), exclude it via `os-test-exclusions.json` with the real reason; do not swap in a rewritten version that changes what the test validates
 - **kernel behavior belongs in the kernel, not the test runner** — if a test requires runtime state (POSIX directories like `/tmp`, `/usr`, device nodes, etc.), implement it in the kernel/device-layer so all users get it; the test runner should not create kernel state that real users won't have
 - **no suite-specific VFS special-casing** — the test runner must not branch on suite name to inject different filesystem state; if a test needs files to exist, either the kernel should provide them or the test should be excluded
 - **categorize exclusions honestly** — if a failure is fixable with a patch or build flag, it's `implementation-gap`, not `wasm-limitation`; reserve `wasm-limitation` for things genuinely impossible in wasm32-wasip1 (no 80-bit long double, no fork, no mmap)
@@ -90,7 +90,7 @@
 ## GitHub Issues
 
 - when fixing a bug or implementation gap tracked by a GitHub issue, close the issue in the same PR using `gh issue close <number> --comment "Fixed in <commit-hash>"`
-- when removing a test from `posix-exclusions.json` because the fix landed, close the linked issue
+- when removing a test from `os-test-exclusions.json` or `libc-test-exclusions.json` because the fix landed, close the linked issue
 - do not leave resolved issues open — verify with `gh issue view <number>` if unsure
 
 ## Tool Integration Policy

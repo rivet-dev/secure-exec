@@ -1,9 +1,13 @@
 /**
- * POSIX conformance tests — os-test suite
+ * Kernel behavior conformance tests — musl libc-test suite
  *
- * Discovers all compiled os-test WASM binaries, checks them against the
- * exclusion list, and runs everything not excluded through the WasmVM kernel.
- * Native binaries are run for parity comparison where available.
+ * Discovers all compiled libc-test WASM binaries (functional/ and regression/),
+ * checks them against the exclusion list, and runs everything not excluded
+ * through the WasmVM kernel. Native binaries are run for parity comparison.
+ *
+ * Unlike os-test (which tests libc function correctness), libc-test exercises
+ * kernel-level behavior: file locking, socket operations, stat edge cases,
+ * signal delivery, and process management.
  *
  * Tests skip gracefully when WASM binaries are not built.
  */
@@ -25,8 +29,8 @@ import { spawn } from 'node:child_process';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
-import type { ExclusionEntry } from '../../../scripts/posix-exclusion-schema.js';
-import exclusionsData from './posix-exclusions.json';
+import type { ExclusionEntry } from '../../../scripts/conformance-exclusion-schema.js';
+import exclusionsData from './libc-test-exclusions.json';
 
 // ── Paths ──────────────────────────────────────────────────────────────
 
@@ -36,23 +40,21 @@ const COMMANDS_DIR = resolve(
   '../../../native/wasmvm/target/wasm32-wasip1/release/commands',
 );
 const C_BUILD_DIR = resolve(__dirname, '../../../native/wasmvm/c/build');
-const C_SRC_DIR = resolve(__dirname, '../../../native/wasmvm/c');
-const OS_TEST_WASM_DIR = join(C_BUILD_DIR, 'os-test');
-const OS_TEST_NATIVE_DIR = join(C_BUILD_DIR, 'native', 'os-test');
-const OS_TEST_SRC_DIR = join(C_SRC_DIR, 'os-test');
-const REPORT_PATH = resolve(__dirname, '../../../posix-conformance-report.json');
+const LIBC_TEST_WASM_DIR = join(C_BUILD_DIR, 'libc-test');
+const LIBC_TEST_NATIVE_DIR = join(C_BUILD_DIR, 'native', 'libc-test');
+const REPORT_PATH = resolve(__dirname, '../../../libc-test-conformance-report.json');
 
 const TEST_TIMEOUT_MS = 30_000;
 const NATIVE_TIMEOUT_MS = 25_000;
 
 const hasWasmBinaries = existsSync(COMMANDS_DIR);
-const hasOsTestWasm = existsSync(OS_TEST_WASM_DIR);
+const hasLibcTestWasm = existsSync(LIBC_TEST_WASM_DIR);
 
 // ── Skip guard ─────────────────────────────────────────────────────────
 
 function skipReason(): string | false {
   if (!hasWasmBinaries) return 'WASM runtime binaries not built (run make wasm in native/wasmvm/)';
-  if (!hasOsTestWasm) return 'os-test WASM binaries not built (run make -C native/wasmvm/c os-test)';
+  if (!hasLibcTestWasm) return 'libc-test WASM binaries not built (run make -C native/wasmvm/c libc-test)';
   return false;
 }
 
@@ -96,97 +98,19 @@ function runNative(
   });
 }
 
-// ── VFS population from native build ──────────────────────────────────
-// Mirror the native build directory structure into the InMemoryFileSystem
-// so that os-test binaries that use opendir/readdir/scandir/nftw see the
-// expected directory layout at the VFS root.
-//
-// Entries are created at TWO levels:
-//   1. Root level (/<subdir>/<test>) — tests using relative paths from cwd /
-//   2. Suite level (/<suite>/<subdir>/<test>) — tests that navigate via ".."
-//      and reference entries by suite-qualified path (e.g., fstatat opens
-//      ".." then stats "basic/sys_stat/fstatat")
-
-async function populateVfsForSuite(
-  fs: ReturnType<typeof createInMemoryFileSystem>,
-  suite: string,
-): Promise<void> {
-  const suiteNativeDir = join(OS_TEST_NATIVE_DIR, suite);
-  if (!existsSync(suiteNativeDir)) return;
-
-  function collect(dir: string, prefix: string): { dirs: string[]; files: { vfsPath: string; hostPath: string }[] } {
-    const result: { dirs: string[]; files: { vfsPath: string; hostPath: string }[] } = { dirs: [], files: [] };
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-      if (entry.isDirectory()) {
-        result.dirs.push(`/${rel}`);
-        const sub = collect(join(dir, entry.name), rel);
-        result.dirs.push(...sub.dirs);
-        result.files.push(...sub.files);
-      } else {
-        result.files.push({ vfsPath: `/${rel}`, hostPath: join(dir, entry.name) });
-      }
-    }
-    return result;
-  }
-
-  /** Write a VFS file with non-zero content matching the host file size.
-   *  Tests like lseek(SEEK_END) and read() need non-zero file sizes. */
-  async function writeVfsFile(vfsPath: string, hostPath: string): Promise<void> {
-    const size = Math.max(statSync(hostPath).size, 1);
-    await fs.writeFile(vfsPath, new Uint8Array(size));
-  }
-
-  // Root level — keeps relative-path tests working (e.g., stat("sys_stat/stat"))
-  const rootEntries = collect(suiteNativeDir, '');
-  for (const d of rootEntries.dirs) {
-    await fs.mkdir(d);
-  }
-  for (const f of rootEntries.files) {
-    await writeVfsFile(f.vfsPath, f.hostPath);
-  }
-
-  // Suite level — enables parent-relative lookups (e.g., fstatat via "..")
-  await fs.mkdir(`/${suite}`);
-  const suiteEntries = collect(suiteNativeDir, suite);
-  for (const d of suiteEntries.dirs) {
-    await fs.mkdir(d);
-  }
-  for (const f of suiteEntries.files) {
-    await writeVfsFile(f.vfsPath, f.hostPath);
-  }
-
-  // Source tree — provides .c files for faccessat-style tests that check
-  // source file existence (e.g., faccessat(dir, "basic/unistd/faccessat.c"))
-  const suiteSrcDir = join(OS_TEST_SRC_DIR, suite);
-  if (existsSync(suiteSrcDir)) {
-    const srcEntries = collect(suiteSrcDir, suite);
-    for (const d of srcEntries.dirs) {
-      try { await fs.mkdir(d); } catch { /* already exists from native entries */ }
-    }
-    for (const f of srcEntries.files) {
-      try { await writeVfsFile(f.vfsPath, f.hostPath); } catch { /* already exists */ }
-    }
-  }
-}
-
 // ── Flat symlink directory for command resolution ──────────────────────
-// The kernel resolves commands by basename — nested paths like
-// "basic/arpa_inet/htonl" lose their directory context. We create a flat
-// temp directory with uniquely-named symlinks so every os-test binary
-// is addressable as a single command name (e.g., "basic--arpa_inet--htonl").
 
 function toFlatName(testName: string): string {
-  return testName.replaceAll('/', '--');
+  return 'libc-test--' + testName.replaceAll('/', '--');
 }
 
-const allTests = hasOsTestWasm ? discoverTests(OS_TEST_WASM_DIR) : [];
+const allTests = hasLibcTestWasm ? discoverTests(LIBC_TEST_WASM_DIR) : [];
 let FLAT_CMD_DIR: string | undefined;
 
 if (allTests.length > 0) {
-  FLAT_CMD_DIR = mkdtempSync(join(tmpdir(), 'os-test-'));
+  FLAT_CMD_DIR = mkdtempSync(join(tmpdir(), 'libc-test-'));
   for (const test of allTests) {
-    symlinkSync(join(OS_TEST_WASM_DIR, test), join(FLAT_CMD_DIR, toFlatName(test)));
+    symlinkSync(join(LIBC_TEST_WASM_DIR, test), join(FLAT_CMD_DIR, toFlatName(test)));
   }
 }
 
@@ -211,6 +135,8 @@ interface TestResult {
   status: 'pass' | 'fail' | 'skip';
   wasmExitCode?: number;
   nativeExitCode?: number;
+  wasmStdout?: string;
+  nativeStdout?: string;
   wasmStderr?: string;
   nativeStderr?: string;
   error?: string;
@@ -221,7 +147,6 @@ const testResults: TestResult[] = [];
 // ── Report generation ──────────────────────────────────────────────────
 
 function writeConformanceReport(results: TestResult[]): void {
-  // Per-suite breakdown
   const suites: Record<string, { total: number; pass: number; fail: number; skip: number }> = {};
   for (const r of results) {
     if (!suites[r.suite]) suites[r.suite] = { total: 0, pass: 0, fail: 0, skip: 0 };
@@ -237,14 +162,12 @@ function writeConformanceReport(results: TestResult[]): void {
     ? ((pass / (total - skip)) * 100).toFixed(1)
     : '0.0';
 
-  // Count passing tests that had a native binary available for output comparison.
-  // These tests were verified to produce the same stdout as the native binary.
   const nativeVerifiedCount = results.filter(
     (r) => r.status === 'pass' && r.nativeExitCode !== undefined,
   ).length;
 
   const report = {
-    osTestVersion: exclusionsData.osTestVersion,
+    libcTestVersion: exclusionsData.libcTestVersion,
     timestamp: new Date().toISOString(),
     total,
     pass,
@@ -275,7 +198,7 @@ function printSummary(results: TestResult[]): void {
   const passRate = mustPass > 0 ? ((pass / mustPass) * 100).toFixed(1) : '—';
 
   console.log('');
-  console.log(`POSIX Conformance Summary (os-test v${exclusionsData.osTestVersion})`);
+  console.log(`libc-test Conformance Summary (musl libc-test ${exclusionsData.libcTestVersion})`);
   console.log('─'.repeat(60));
   console.log(
     'Suite'.padEnd(20) +
@@ -310,50 +233,38 @@ function printSummary(results: TestResult[]): void {
     String(skip).padStart(8) +
     (passRate + (passRate !== '—' ? '%' : '')).padStart(10),
   );
-  const stderrWarnings = results.filter(
-    (r) => r.status === 'pass' && r.wasmStderr,
-  ).length;
 
   console.log(`Expected fail: ${fail}`);
   console.log(`Must-pass:     ${mustPass - fail} (${pass} passing)`);
-  if (stderrWarnings > 0) {
-    console.log(`Stderr warns:  ${stderrWarnings} passing tests have unexpected stderr`);
-  }
   console.log('');
 }
 
 // ── Test suite ─────────────────────────────────────────────────────────
 
-describe.skipIf(skipReason())('POSIX conformance (os-test)', () => {
+describe.skipIf(skipReason())('libc-test conformance (musl)', () => {
   afterAll(() => {
     if (testResults.length > 0) {
       writeConformanceReport(testResults);
       printSummary(testResults);
     }
-    // Clean up temp symlink directory
     if (FLAT_CMD_DIR) {
       try { rmSync(FLAT_CMD_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
     }
   });
 
   for (const [suite, tests] of bySuite) {
-    describe(`posix/${suite}`, () => {
+    describe(`libc-test/${suite}`, () => {
       let kernel: Kernel;
 
-      // Native cwd: run from the suite's native build directory so tests
-      // that use opendir/readdir/nftw find sibling directories (e.g.,
-      // basic/dirent/readdir expects to find "dirent" in cwd when run
-      // from basic/).
-      const nativeSuiteCwd = join(OS_TEST_NATIVE_DIR, suite);
+      const nativeSuiteCwd = join(LIBC_TEST_NATIVE_DIR, suite);
 
       beforeAll(async () => {
-        // Populate the VFS with directory structure mirroring the native
-        // build so WASM binaries see the same entries via opendir/readdir.
+        // libc-test functional tests mostly operate on files they create
+        // themselves (mkstemp, etc.), so a minimal VFS is sufficient
         const filesystem = createInMemoryFileSystem();
-        if (existsSync(nativeSuiteCwd)) {
-          await populateVfsForSuite(filesystem, suite);
-        }
-        kernel = createKernel({ filesystem, cwd: '/' });
+        // Create /tmp for tests that use mkstemp/mkdtemp
+        await filesystem.mkdir('/tmp');
+        kernel = createKernel({ filesystem, cwd: '/tmp' });
         await kernel.mount(
           createWasmVmRuntime({ commandDirs: [FLAT_CMD_DIR!, COMMANDS_DIR] }),
         );
@@ -375,13 +286,13 @@ describe.skipIf(skipReason())('POSIX conformance (os-test)', () => {
         it(testName, async () => {
           const flatName = toFlatName(testName);
 
-          // Run natively (if binary exists) from suite build directory
-          const nativePath = join(OS_TEST_NATIVE_DIR, testName);
+          // Run natively (if binary exists)
+          const nativePath = join(LIBC_TEST_NATIVE_DIR, testName);
           const nativeResult = existsSync(nativePath)
             ? await runNative(nativePath, existsSync(nativeSuiteCwd) ? nativeSuiteCwd : undefined)
             : null;
 
-          // Run in WASM via kernel.spawn() (bypasses sh -c wrapper to get real exit code)
+          // Run in WASM via kernel.spawn()
           const stdoutChunks: Uint8Array[] = [];
           const stderrChunks: Uint8Array[] = [];
           const proc = kernel.spawn(flatName, [], {
@@ -395,17 +306,11 @@ describe.skipIf(skipReason())('POSIX conformance (os-test)', () => {
           const wasmStderr = Buffer.concat(stderrChunks).toString();
           const wasmResult = { exitCode: wasmExitCode, stdout: wasmStdout, stderr: wasmStderr };
 
-          // Warn on unexpected stderr for passing WASM tests
-          const hasUnexpectedStderr = wasmResult.exitCode === 0
-            && wasmStderr.trim().length > 0
-            && nativeResult && nativeResult.stderr.trim().length === 0;
-
           if (exclusion?.expected === 'fail') {
-            // Known failure — must still fail (exit non-0 OR parity mismatch)
+            // Known failure — must still fail
             const exitOk = wasmResult.exitCode === 0;
             const parityOk = !nativeResult || nativeResult.exitCode !== 0 ||
               wasmResult.stdout.trim() === nativeResult.stdout.trim();
-            // Native parity: both fail identically (same exit code + stdout)
             const nativeParityPass = !!nativeResult &&
               nativeResult.exitCode !== 0 &&
               wasmResult.exitCode === nativeResult.exitCode &&
@@ -415,28 +320,26 @@ describe.skipIf(skipReason())('POSIX conformance (os-test)', () => {
               testResults.push({
                 name: testName, suite, status: 'pass',
                 wasmExitCode: 0, nativeExitCode: nativeResult?.exitCode,
+                wasmStdout: wasmStdout || undefined,
                 wasmStderr: wasmStderr || undefined,
-                nativeStderr: nativeResult?.stderr || undefined,
               });
               throw new Error(
                 `${testName} is excluded as "fail" but now passes! ` +
-                'Remove it from posix-exclusions.json to lock in this fix.',
+                'Remove it from libc-test-exclusions.json to lock in this fix.',
               );
             }
             testResults.push({
               name: testName, suite, status: 'fail',
               wasmExitCode: wasmResult.exitCode,
               nativeExitCode: nativeResult?.exitCode,
+              wasmStdout: wasmStdout || undefined,
               wasmStderr: wasmStderr || undefined,
-              nativeStderr: nativeResult?.stderr || undefined,
             });
           } else {
             // Not excluded — must pass (or match native failure exactly)
             try {
-              // Native parity: if native also fails with the same exit code
-              // and output, WASM matching that failure IS correct behavior
-              // (e.g., Sortix-specific paths like /dev/ptc that don't exist
-              // on real Linux either).
+              // libc-test pass = exit 0, no stdout output
+              // libc-test fail = exit 1, error messages on stdout
               if (nativeResult && nativeResult.exitCode !== 0 &&
                   wasmResult.exitCode === nativeResult.exitCode &&
                   wasmResult.stdout.trim() === nativeResult.stdout.trim()) {
@@ -449,7 +352,8 @@ describe.skipIf(skipReason())('POSIX conformance (os-test)', () => {
               } else {
                 expect(wasmResult.exitCode).toBe(0);
 
-                // Native parity check: if native passes, compare output
+                // Native parity: if native passes, output should match
+                // (libc-test passes produce no stdout)
                 if (nativeResult && nativeResult.exitCode === 0) {
                   expect(wasmResult.stdout.trim()).toBe(nativeResult.stdout.trim());
                 }
@@ -458,23 +362,15 @@ describe.skipIf(skipReason())('POSIX conformance (os-test)', () => {
                   name: testName, suite, status: 'pass',
                   wasmExitCode: wasmResult.exitCode,
                   nativeExitCode: nativeResult?.exitCode,
-                  wasmStderr: hasUnexpectedStderr ? wasmStderr : undefined,
-                  nativeStderr: hasUnexpectedStderr ? nativeResult?.stderr : undefined,
                 });
-
-                if (hasUnexpectedStderr) {
-                  console.warn(
-                    `⚠ ${testName}: passes but has unexpected stderr in WASM:\n  ${wasmStderr.trim().split('\n').join('\n  ')}`,
-                  );
-                }
               }
             } catch (err) {
               testResults.push({
                 name: testName, suite, status: 'fail',
                 wasmExitCode: wasmResult.exitCode,
                 nativeExitCode: nativeResult?.exitCode,
+                wasmStdout: wasmStdout || undefined,
                 wasmStderr: wasmStderr || undefined,
-                nativeStderr: nativeResult?.stderr || undefined,
                 error: (err as Error).message,
               });
               throw err;

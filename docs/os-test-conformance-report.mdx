@@ -1,10 +1,10 @@
 ---
-title: POSIX Conformance Report
+title: os-test Conformance Report
 description: os-test POSIX.1-2024 conformance results for WasmVM.
 icon: "chart-bar"
 ---
 
-{/* AUTO-GENERATED — do not edit. Run scripts/generate-posix-report.ts */}
+{/* AUTO-GENERATED — do not edit. Run scripts/generate-os-test-report.ts */}
 
 ## Summary
 
@@ -15,8 +15,8 @@ icon: "chart-bar"
 | Passing | 3347 (99.9%) |
 | Expected fail | 3 |
 | Skip | 0 |
-| Native parity | 98.4% |
-| Last updated | 2026-03-23 |
+| Native verified | 3295 of 3347 passing tests verified against native output (98.4%) |
+| Last updated | 2026-03-24 |
 
 ## Per-Suite Results
 
@@ -47,5 +47,5 @@ WASI Preview 1 lacks the required syscall.
 
 | Test | Reason | Issue |
 | --- | --- | --- |
-| `basic/sys_statvfs/fstatvfs` | fstatvfs() not part of WASI — no filesystem statistics interface | [#34](https://github.com/rivet-dev/secure-exec/issues/34) |
-| `basic/sys_statvfs/statvfs` | statvfs() not part of WASI — no filesystem statistics interface | [#34](https://github.com/rivet-dev/secure-exec/issues/34) |
+| `basic/sys_statvfs/fstatvfs` | fstatvfs() not part of WASI — no filesystem statistics interface | [#48](https://github.com/rivet-dev/secure-exec/issues/48) |
+| `basic/sys_statvfs/statvfs` | statvfs() not part of WASI — no filesystem statistics interface | [#48](https://github.com/rivet-dev/secure-exec/issues/48) |

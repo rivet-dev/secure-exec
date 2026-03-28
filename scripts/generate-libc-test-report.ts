@@ -1,19 +1,19 @@
 #!/usr/bin/env -S npx tsx
 /**
- * Generates docs/posix-conformance-report.mdx from test results and exclusion data.
+ * Generates docs/libc-test-conformance-report.mdx from test results and exclusion data.
  *
- * Usage: pnpm tsx scripts/generate-posix-report.ts
- *   --input posix-conformance-report.json
- *   --exclusions packages/wasmvm/test/posix-exclusions.json
- *   --output docs/posix-conformance-report.mdx
+ * Usage: pnpm tsx scripts/generate-libc-test-report.ts
+ *   --input libc-test-conformance-report.json
+ *   --exclusions packages/wasmvm/test/libc-test-exclusions.json
+ *   --output docs/libc-test-conformance-report.mdx
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { VALID_CATEGORIES, CATEGORY_META, CATEGORY_ORDER } from './posix-exclusion-schema.js';
-import type { ExclusionEntry, ExclusionsFile } from './posix-exclusion-schema.js';
+import { VALID_CATEGORIES, CATEGORY_META, CATEGORY_ORDER } from './conformance-exclusion-schema.js';
+import type { ExclusionEntry, ExclusionsFile } from './conformance-exclusion-schema.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -21,9 +21,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const { values } = parseArgs({
   options: {
-    input: { type: 'string', default: resolve(__dirname, '../posix-conformance-report.json') },
-    exclusions: { type: 'string', default: resolve(__dirname, '../packages/wasmvm/test/posix-exclusions.json') },
-    output: { type: 'string', default: resolve(__dirname, '../docs/posix-conformance-report.mdx') },
+    input: { type: 'string', default: resolve(__dirname, '../libc-test-conformance-report.json') },
+    exclusions: { type: 'string', default: resolve(__dirname, '../packages/wasmvm/test/libc-test-exclusions.json') },
+    output: { type: 'string', default: resolve(__dirname, '../docs/libc-test-conformance-report.mdx') },
   },
 });
 
@@ -41,7 +41,7 @@ interface SuiteStats {
 }
 
 interface Report {
-  osTestVersion: string;
+  libcTestVersion: string;
   timestamp: string;
   total: number;
   pass: number;
@@ -53,7 +53,7 @@ interface Report {
 }
 
 const report: Report = JSON.parse(readFileSync(inputPath, 'utf-8'));
-const exclusionsData: ExclusionsFile = JSON.parse(readFileSync(exclusionsPath, 'utf-8'));
+const exclusionsData: ExclusionsFile & { libcTestVersion: string } = JSON.parse(readFileSync(exclusionsPath, 'utf-8'));
 
 // ── Group exclusions by category ────────────────────────────────────────
 
@@ -73,7 +73,6 @@ for (const [key, entry] of Object.entries(exclusionsData.exclusions)) {
   byCategory.get(cat)!.push({ key, entry });
 }
 
-// Count total tests matched per exclusion (globs can match many)
 function formatExclusionKey(key: string): string {
   return `\`${key}\``;
 }
@@ -88,26 +87,28 @@ function line(s = '') {
 
 // Frontmatter
 line('---');
-line('title: POSIX Conformance Report');
-line('description: os-test POSIX.1-2024 conformance results for WasmVM.');
+line('title: libc-test Conformance Report');
+line('description: musl libc-test kernel behavior conformance results for WasmVM.');
 line('icon: "chart-bar"');
 line('---');
 line();
-line('{/* AUTO-GENERATED — do not edit. Run scripts/generate-posix-report.ts */}');
+line('{/* AUTO-GENERATED — do not edit. Run scripts/generate-libc-test-report.ts */}');
 line();
 
 // Summary table
-// nativeVerified = passing tests where a native binary was available and output was compared.
-// Denominator is report.pass (all passing tests), not total, to show "what % of passes had native verification".
 const nativeVerifiedPct = report.pass > 0 ? ((report.nativeVerified / report.pass) * 100).toFixed(1) : '0';
 const nativeVerifiedLabel = `${report.nativeVerified} of ${report.pass} passing tests verified against native output (${nativeVerifiedPct}%)`;
 const lastUpdated = report.timestamp ? report.timestamp.split('T')[0] : exclusionsData.lastUpdated;
 
 line('## Summary');
 line();
+line('musl libc-test tests actual kernel behavior — file locking, socket operations, stat edge cases,');
+line('and process management. Unlike os-test (which tests libc function correctness), these tests');
+line('exercise the runtime and kernel layer.');
+line();
 line('| Metric | Value |');
 line('| --- | --- |');
-line(`| os-test version | ${report.osTestVersion} |`);
+line(`| libc-test version | ${report.libcTestVersion} |`);
 line(`| Total tests | ${report.total} |`);
 line(`| Passing | ${report.pass} (${report.passRate}) |`);
 line(`| Expected fail | ${report.fail} |`);
@@ -136,42 +137,43 @@ line(`| **Total** | **${report.total}** | **${report.pass}** | **${report.fail}*
 line();
 
 // Exclusions by category
-line('## Exclusions by Category');
-line();
-
-// Order categories logically
-for (const cat of CATEGORY_ORDER) {
-  const entries = byCategory.get(cat);
-  if (!entries || entries.length === 0) continue;
-
-  const meta = CATEGORY_META[cat];
-  const totalExcluded = entries.length;
-
-  line(`### ${meta.title} (${totalExcluded} ${totalExcluded === 1 ? 'entry' : 'entries'})`);
-  line();
-  line(meta.description);
+const hasExclusions = [...byCategory.values()].some((entries) => entries.length > 0);
+if (hasExclusions) {
+  line('## Exclusions by Category');
   line();
 
-  // Use a table with issue column for fail/implementation-gap/patched-sysroot
-  const hasIssues = entries.some((e) => e.entry.issue);
+  for (const cat of CATEGORY_ORDER) {
+    const entries = byCategory.get(cat);
+    if (!entries || entries.length === 0) continue;
 
-  if (hasIssues) {
-    line('| Test | Reason | Issue |');
-    line('| --- | --- | --- |');
-    for (const { key, entry } of entries) {
-      const issueLink = entry.issue
-        ? `[${entry.issue.replace('https://github.com/rivet-dev/secure-exec/issues/', '#')}](${entry.issue})`
-        : '—';
-      line(`| ${formatExclusionKey(key)} | ${entry.reason} | ${issueLink} |`);
+    const meta = CATEGORY_META[cat];
+    const totalExcluded = entries.length;
+
+    line(`### ${meta.title} (${totalExcluded} ${totalExcluded === 1 ? 'entry' : 'entries'})`);
+    line();
+    line(meta.description);
+    line();
+
+    const hasIssues = entries.some((e) => e.entry.issue);
+
+    if (hasIssues) {
+      line('| Test | Reason | Issue |');
+      line('| --- | --- | --- |');
+      for (const { key, entry } of entries) {
+        const issueLink = entry.issue
+          ? `[${entry.issue.replace('https://github.com/rivet-dev/secure-exec/issues/', '#')}](${entry.issue})`
+          : '—';
+        line(`| ${formatExclusionKey(key)} | ${entry.reason} | ${issueLink} |`);
+      }
+    } else {
+      line('| Test | Reason |');
+      line('| --- | --- |');
+      for (const { key, entry } of entries) {
+        line(`| ${formatExclusionKey(key)} | ${entry.reason} |`);
+      }
     }
-  } else {
-    line('| Test | Reason |');
-    line('| --- | --- |');
-    for (const { key, entry } of entries) {
-      line(`| ${formatExclusionKey(key)} | ${entry.reason} |`);
-    }
+    line();
   }
-  line();
 }
 
 // ── Write output ────────────────────────────────────────────────────────
@@ -179,7 +181,7 @@ for (const cat of CATEGORY_ORDER) {
 const mdx = lines.join('\n');
 writeFileSync(outputPath, mdx, 'utf-8');
 
-console.log(`POSIX Conformance Report generated`);
+console.log(`libc-test Conformance Report generated`);
 console.log(`  Input:      ${inputPath}`);
 console.log(`  Exclusions: ${exclusionsPath}`);
 console.log(`  Output:     ${outputPath}`);

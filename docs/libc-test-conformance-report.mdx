@@ -1,0 +1,60 @@
+---
+title: libc-test Conformance Report
+description: musl libc-test kernel behavior conformance results for WasmVM.
+icon: "chart-bar"
+---
+
+{/* AUTO-GENERATED — do not edit. Run scripts/generate-libc-test-report.ts */}
+
+## Summary
+
+musl libc-test tests actual kernel behavior — file locking, socket operations, stat edge cases,
+and process management. Unlike os-test (which tests libc function correctness), these tests
+exercise the runtime and kernel layer.
+
+| Metric | Value |
+| --- | --- |
+| libc-test version | master |
+| Total tests | 75 |
+| Passing | 69 (92.0%) |
+| Expected fail | 6 |
+| Skip | 0 |
+| Native verified | 68 of 69 passing tests verified against native output (98.6%) |
+| Last updated | 2026-03-26 |
+
+## Per-Suite Results
+
+| Suite | Total | Pass | Fail | Skip | Pass Rate |
+| --- | --- | --- | --- | --- | --- |
+| functional | 41 | 37 | 4 | 0 | 90.2% |
+| regression | 34 | 32 | 2 | 0 | 94.1% |
+| **Total** | **75** | **69** | **6** | **0** | **100.0%** |
+
+## Exclusions by Category
+
+### WASM Limitations (4 entries)
+
+Features impossible in wasm32-wasip1.
+
+| Test | Reason | Issue |
+| --- | --- | --- |
+| `functional/dlopen_dso` | dlopen/dlsym not available in wasm32-wasip1 — no dynamic linking support | [#48](https://github.com/rivet-dev/secure-exec/issues/48) |
+| `functional/tls_align_dso` | Thread-local storage with dynamic shared objects requires dlopen — not available in WASM | [#48](https://github.com/rivet-dev/secure-exec/issues/48) |
+| `functional/tls_init_dso` | Thread-local storage initialization with DSOs requires dlopen — not available in WASM | [#48](https://github.com/rivet-dev/secure-exec/issues/48) |
+| `regression/tls_get_new-dtv_dso` | TLS dynamic thread vector with DSOs requires dlopen — not available in WASM | [#48](https://github.com/rivet-dev/secure-exec/issues/48) |
+
+### WASI Gaps (1 entry)
+
+WASI Preview 1 lacks the required syscall.
+
+| Test | Reason | Issue |
+| --- | --- | --- |
+| `regression/statvfs` | statvfs/fstatvfs not part of WASI — no filesystem statistics interface | [#48](https://github.com/rivet-dev/secure-exec/issues/48) |
+
+### Implementation Gaps (1 entry)
+
+Features we should support but don't yet. Each has a tracking issue.
+
+| Test | Reason | Issue |
+| --- | --- | --- |
+| `functional/strptime` | strptime fails on timezone-related format specifiers (%Z, %z) — musl timezone code is ifdef'd out for WASI | [#48](https://github.com/rivet-dev/secure-exec/issues/48) |

@@ -1,0 +1,552 @@
+{
+  "libcTestVersion": "master",
+  "timestamp": "2026-03-26T07:23:29.899Z",
+  "total": 75,
+  "pass": 69,
+  "fail": 6,
+  "skip": 0,
+  "passRate": "92.0%",
+  "nativeVerified": 68,
+  "suites": {
+    "functional": {
+      "total": 41,
+      "pass": 37,
+      "fail": 4,
+      "skip": 0
+    },
+    "regression": {
+      "total": 34,
+      "pass": 32,
+      "fail": 2,
+      "skip": 0
+    }
+  },
+  "tests": [
+    {
+      "name": "functional/argv",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "functional/basename",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "functional/clocale_mbfuncs",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 1
+    },
+    {
+      "name": "functional/clock_gettime",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "functional/crypt",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 1
+    },
+    {
+      "name": "functional/dirname",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "functional/dlopen_dso",
+      "suite": "functional",
+      "status": "fail",
+      "wasmExitCode": 1,
+      "wasmStderr": "unreachable\nunreachable\n"
+    },
+    {
+      "name": "functional/env",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "functional/fnmatch",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 1
+    },
+    {
+      "name": "functional/iconv_open",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "functional/mbc",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "functional/memstream",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "functional/random",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "functional/search_hsearch",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "functional/search_insque",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "functional/search_lsearch",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "functional/search_tsearch",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "functional/snprintf",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "functional/sscanf",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 1
+    },
+    {
+      "name": "functional/strftime",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 1
+    },
+    {
+      "name": "functional/string",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0
+    },
+    {
+      "name": "functional/string_memcpy",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "functional/string_memmem",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "functional/string_memset",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "functional/string_strchr",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "functional/string_strcspn",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "functional/string_strstr",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "functional/strptime",
+      "suite": "functional",
+      "status": "fail",
+      "wasmExitCode": 1,
+      "nativeExitCode": 0,
+      "wasmStdout": "libc-test/src/functional/strptime.c:23: \"%F\": failed to parse \"1856-07-10\"\nlibc-test/src/functional/strptime.c:23: \"%F\": failed to parse \"1856-07-10\"\nlibc-test/src/functional/strptime.c:23: \"%s\": failed to parse \"683078400\"\nlibc-test/src/functional/strptime.c:23: \"%s\": failed to parse \"683078400\"\nlibc-test/src/functional/strptime.c:47: \"%z\": failed to parse \"+0200\"\nlibc-test/src/functional/strptime.c:47: \"%z\": failed to parse \"+0200\"\nlibc-test/src/functional/strptime.c:47: \"%z\": failed to parse \"-0530\"\nlibc-test/src/functional/strptime.c:47: \"%z\": failed to parse \"-0530\"\nlibc-test/src/functional/strptime.c:47: \"%z\": failed to parse \"-06\"\nlibc-test/src/functional/strptime.c:47: \"%z\": failed to parse \"-06\"\n"
+    },
+    {
+      "name": "functional/strtod",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "functional/strtod_long",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "functional/strtod_simple",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "functional/strtof",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "functional/strtol",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 1
+    },
+    {
+      "name": "functional/strtold",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "functional/swprintf",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 1
+    },
+    {
+      "name": "functional/tgmath",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "functional/tls_align_dso",
+      "suite": "functional",
+      "status": "fail",
+      "wasmExitCode": 1,
+      "wasmStderr": "unreachable\nunreachable\n"
+    },
+    {
+      "name": "functional/tls_init_dso",
+      "suite": "functional",
+      "status": "fail",
+      "wasmExitCode": 1,
+      "wasmStderr": "unreachable\nunreachable\n"
+    },
+    {
+      "name": "functional/udiv",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "functional/wcsstr",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "functional/wcstol",
+      "suite": "functional",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 1
+    },
+    {
+      "name": "regression/fgets-eof",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "regression/fpclassify-invalid-ld80",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 1
+    },
+    {
+      "name": "regression/iconv-roundtrips",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "regression/inet_ntop-v4mapped",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "regression/inet_pton-empty-last-field",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "regression/iswspace-null",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "regression/lrand48-signextend",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "regression/malloc-0",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "regression/mbsrtowcs-overflow",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "regression/memmem-oob",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "regression/memmem-oob-read",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "regression/printf-1e9-oob",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "regression/printf-fmt-g-round",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "regression/printf-fmt-g-zeros",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "regression/printf-fmt-n",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "regression/putenv-doublefree",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "regression/regex-backref-0",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "regression/regex-bracket-icase",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "regression/regex-ere-backref",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 1
+    },
+    {
+      "name": "regression/regex-escaped-high-byte",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 1
+    },
+    {
+      "name": "regression/regex-negated-range",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "regression/regexec-nosub",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "regression/rewind-clear-error",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "regression/scanf-bytes-consumed",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "regression/scanf-match-literal-eof",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "regression/scanf-nullbyte-char",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "regression/setvbuf-unget",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 1
+    },
+    {
+      "name": "regression/sscanf-eof",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "regression/statvfs",
+      "suite": "regression",
+      "status": "fail",
+      "wasmExitCode": 1,
+      "nativeExitCode": 0,
+      "wasmStdout": "libc-test/src/regression/statvfs.c:14: statvfs(\"/\") failed: Function not implemented\nlibc-test/src/regression/statvfs.c:14: statvfs(\"/\") failed: Function not implemented\nlibc-test/src/regression/statvfs.c:16: / has bogus f_bsize: 0\nlibc-test/src/regression/statvfs.c:16: / has bogus f_bsize: 0\nlibc-test/src/regression/statvfs.c:18: / has 0 blocks\nlibc-test/src/regression/statvfs.c:18: / has 0 blocks\nlibc-test/src/regression/statvfs.c:26: / has 0 file nodes\nlibc-test/src/regression/statvfs.c:26: / has 0 file nodes\nlibc-test/src/regression/statvfs.c:34: / has bogus f_namemax: 0\nlibc-test/src/regression/statvfs.c:34: / has bogus f_namemax: 0\n"
+    },
+    {
+      "name": "regression/strverscmp",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "regression/tls_get_new-dtv_dso",
+      "suite": "regression",
+      "status": "fail",
+      "wasmExitCode": 1,
+      "wasmStderr": "unreachable\nunreachable\n"
+    },
+    {
+      "name": "regression/uselocale-0",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "regression/wcsncpy-read-overflow",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    },
+    {
+      "name": "regression/wcsstr-false-negative",
+      "suite": "regression",
+      "status": "pass",
+      "wasmExitCode": 0,
+      "nativeExitCode": 0
+    }
+  ]
+}

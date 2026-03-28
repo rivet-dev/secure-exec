@@ -272,6 +272,100 @@ os-test-native: fetch-os-test
 	echo "Output:   $(OS_TEST_NATIVE_BUILD)/"; \
 	echo "=== Build complete ==="
 
+# --- musl libc-test conformance suite (downloaded at build time) ---
+# MIT-licensed test suite from musl (Bytecode Alliance mirror)
+
+LIBC_TEST_VERSION := master
+LIBC_TEST_URL     := https://github.com/bytecodealliance/libc-test/archive/refs/heads/$(LIBC_TEST_VERSION).tar.gz
+LIBC_TEST_DIR     := libc-test
+
+.PHONY: fetch-libc-test clean-libc-test
+
+fetch-libc-test: $(LIBC_TEST_DIR)/src
+$(LIBC_TEST_DIR)/src:
+	@echo "Fetching musl libc-test $(LIBC_TEST_VERSION)..."
+	@mkdir -p $(LIBS_CACHE)
+	@curl -fSL "$(LIBC_TEST_URL)" -o "$(LIBS_CACHE)/libc-test.tar.gz"
+	@mkdir -p $(LIBC_TEST_DIR)
+	@tar -xzf "$(LIBS_CACHE)/libc-test.tar.gz" --strip-components=1 -C $(LIBC_TEST_DIR)
+	@echo "libc-test $(LIBC_TEST_VERSION) extracted to $(LIBC_TEST_DIR)/"
+	@echo "  src/ : $$(find $(LIBC_TEST_DIR)/src -name '*.c' 2>/dev/null | wc -l) test programs"
+
+clean-libc-test:
+	rm -rf $(LIBC_TEST_DIR) $(LIBS_CACHE)/libc-test.tar.gz
+
+# --- musl libc-test build targets ---
+# Compile functional/ and regression/ tests to WASM and native binaries.
+# Tests requiring fork/exec/signals/pthreads will fail to compile for WASM — that's expected.
+# The test.h framework (src/common/) is compiled into a static library first.
+
+LIBC_TEST_BUILD        := $(BUILD_DIR)/libc-test
+LIBC_TEST_NATIVE_BUILD := $(NATIVE_DIR)/libc-test
+LIBC_TEST_WASM_CFLAGS  := --target=wasm32-wasip1 --sysroot=$(SYSROOT) -O0 \
+                           -D_GNU_SOURCE -D_BSD_SOURCE -D_ALL_SOURCE -D_DEFAULT_SOURCE \
+                           -I$(LIBC_TEST_DIR)/src/common
+LIBC_TEST_WASM_LDFLAGS := -lc-printscan-long-double -lm
+LIBC_TEST_NATIVE_CFLAGS := -O0 -g \
+                            -D_GNU_SOURCE -D_BSD_SOURCE -D_ALL_SOURCE -D_DEFAULT_SOURCE \
+                            -I$(LIBC_TEST_DIR)/src/common
+LIBC_TEST_NATIVE_LDFLAGS := -lm
+ifeq ($(UNAME_S),Linux)
+  LIBC_TEST_NATIVE_LDFLAGS += -lpthread -lrt -lcrypt -lresolv -lutil -ldl
+endif
+ifeq ($(UNAME_S),Darwin)
+  LIBC_TEST_NATIVE_LDFLAGS += -lpthread
+endif
+
+# Test framework sources compiled alongside each test
+LIBC_TEST_COMMON_SRCS := $(LIBC_TEST_DIR)/src/common/print.c
+
+.PHONY: libc-test libc-test-native
+
+libc-test: wasi-sdk fetch-libc-test
+	@total=0; pass=0; fail=0; \
+	for src in $$(find $(LIBC_TEST_DIR)/src/functional $(LIBC_TEST_DIR)/src/regression -name '*.c' 2>/dev/null | sort); do \
+		rel=$${src#$(LIBC_TEST_DIR)/src/}; \
+		name=$${rel%.c}; \
+		out=$(LIBC_TEST_BUILD)/$$name; \
+		mkdir -p "$$(dirname "$$out")"; \
+		total=$$((total + 1)); \
+		if $(CC) $(LIBC_TEST_WASM_CFLAGS) -o "$$out" "$$src" $(LIBC_TEST_COMMON_SRCS) $(LIBC_TEST_WASM_LDFLAGS) 2>/dev/null; then \
+			pass=$$((pass + 1)); \
+		else \
+			rm -f "$$out"; \
+			fail=$$((fail + 1)); \
+		fi; \
+	done; \
+	echo ""; \
+	echo "=== libc-test WASM Build Report ==="; \
+	echo "Total:    $$total"; \
+	echo "Compiled: $$pass"; \
+	echo "Failed:   $$fail"; \
+	echo "Output:   $(LIBC_TEST_BUILD)/"; \
+	echo "=== Build complete ==="
+
+libc-test-native: fetch-libc-test
+	@total=0; pass=0; fail=0; \
+	for src in $$(find $(LIBC_TEST_DIR)/src/functional $(LIBC_TEST_DIR)/src/regression -name '*.c' 2>/dev/null | sort); do \
+		rel=$${src#$(LIBC_TEST_DIR)/src/}; \
+		out=$(LIBC_TEST_NATIVE_BUILD)/$${rel%.c}; \
+		mkdir -p "$$(dirname "$$out")"; \
+		total=$$((total + 1)); \
+		if $(NATIVE_CC) $(LIBC_TEST_NATIVE_CFLAGS) -o "$$out" "$$src" $(LIBC_TEST_COMMON_SRCS) $(LIBC_TEST_NATIVE_LDFLAGS) 2>/dev/null; then \
+			pass=$$((pass + 1)); \
+		else \
+			rm -f "$$out"; \
+			fail=$$((fail + 1)); \
+		fi; \
+	done; \
+	echo ""; \
+	echo "=== libc-test Native Build Report ==="; \
+	echo "Total:    $$total"; \
+	echo "Compiled: $$pass"; \
+	echo "Failed:   $$fail"; \
+	echo "Output:   $(LIBC_TEST_NATIVE_BUILD)/"; \
+	echo "=== Build complete ==="
+
 # --- Patched sysroot (delegates to patch-wasi-libc.sh) ---
 
 sysroot: wasi-sdk

@@ -1,4 +1,4 @@
-name: POSIX Conformance
+name: libc-test Conformance
 
 on:
   push:
@@ -7,26 +7,26 @@ on:
     paths:
       - "native/wasmvm/**"
       - "packages/wasmvm/**"
-      - "scripts/validate-posix-exclusions.ts"
-      - "scripts/generate-posix-report.ts"
-      - "scripts/import-os-test.ts"
-      - "scripts/posix-exclusion-schema.ts"
-      - ".github/workflows/posix-conformance.yml"
+      - "scripts/validate-libc-test-exclusions.ts"
+      - "scripts/generate-libc-test-report.ts"
+      - "scripts/import-libc-test.ts"
+      - "scripts/conformance-exclusion-schema.ts"
+      - ".github/workflows/libc-test-conformance.yml"
   pull_request:
     branches:
       - main
     paths:
       - "native/wasmvm/**"
       - "packages/wasmvm/**"
-      - "scripts/validate-posix-exclusions.ts"
-      - "scripts/generate-posix-report.ts"
-      - "scripts/import-os-test.ts"
-      - "scripts/posix-exclusion-schema.ts"
-      - ".github/workflows/posix-conformance.yml"
+      - "scripts/validate-libc-test-exclusions.ts"
+      - "scripts/generate-libc-test-report.ts"
+      - "scripts/import-libc-test.ts"
+      - "scripts/conformance-exclusion-schema.ts"
+      - ".github/workflows/libc-test-conformance.yml"
 
 jobs:
-  posix-conformance:
-    name: POSIX Conformance (os-test)
+  libc-test-conformance:
+    name: libc-test Conformance (musl kernel behavior)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -79,9 +79,9 @@ jobs:
         if: steps.cache-sysroot.outputs.cache-hit != 'true'
         run: make -C native/wasmvm/c sysroot
 
-      # --- Build os-test (WASM + native) ---
-      - name: Build os-test binaries (WASM + native)
-        run: make -C native/wasmvm/c os-test os-test-native
+      # --- Build libc-test (WASM + native) ---
+      - name: Build libc-test binaries (WASM + native)
+        run: make -C native/wasmvm/c libc-test libc-test-native
 
       # --- Node.js / TypeScript ---
       - name: Set up pnpm
@@ -100,23 +100,23 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # --- Run conformance tests ---
-      - name: Run POSIX conformance tests
-        run: pnpm vitest run packages/wasmvm/test/posix-conformance.test.ts
+      - name: Run libc-test conformance tests
+        run: pnpm vitest run packages/wasmvm/test/libc-test-conformance.test.ts
 
       - name: Validate exclusion list
-        run: pnpm tsx scripts/validate-posix-exclusions.ts
+        run: pnpm tsx scripts/validate-libc-test-exclusions.ts
 
       # --- Generate report ---
       - name: Generate conformance report MDX
         if: always()
-        run: pnpm tsx scripts/generate-posix-report.ts
+        run: pnpm tsx scripts/generate-libc-test-report.ts
 
       # --- Upload artifacts ---
       - name: Upload conformance report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: posix-conformance-report
+          name: libc-test-conformance-report
           path: |
-            posix-conformance-report.json
-            docs/posix-conformance-report.mdx
+            libc-test-conformance-report.json
+            docs/libc-test-conformance-report.mdx
