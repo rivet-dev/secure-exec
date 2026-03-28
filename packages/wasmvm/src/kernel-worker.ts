@@ -605,10 +605,18 @@ function createHostProcessImports(getMemory: () => WebAssembly.Memory | null) {
         }
       }
 
-      // Parse cwd
-      const cwd = cwd_len > 0
-        ? decoder.decode(bytes.slice(cwd_ptr, cwd_ptr + cwd_len))
-        : init.cwd;
+      // Parse cwd — if the caller passed an explicit cwd, use it; otherwise
+      // query the kernel for the parent's current working directory so that
+      // chdir() changes in the parent are reflected in spawned children.
+      let cwd: string;
+      if (cwd_len > 0) {
+        cwd = decoder.decode(bytes.slice(cwd_ptr, cwd_ptr + cwd_len));
+      } else {
+        const cwdRes = rpcCall('getcwd', {});
+        cwd = cwdRes.data.length > 0
+          ? decoder.decode(cwdRes.data)
+          : init.cwd;
+      }
 
       // Convert local FDs to kernel FDs for pipe wiring
       const stdinFd = stdin_fd === -1 ? undefined : (localToKernelFd.get(stdin_fd) ?? stdin_fd);

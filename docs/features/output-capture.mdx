@@ -10,6 +10,8 @@ icon: "message-lines"
 
 Console output from sandboxed code is **not buffered** into result fields. `exec()` and `run()` do not return `stdout` or `stderr`. Use the `onStdio` hook to capture output.
 
+The per-execution `onStdio` option is available on `exec()` only. To capture output from `run()` calls, set a runtime-level hook when creating the `NodeRuntime` (see [Default hook](#default-hook) below).
+
 ## Runnable example
 
 ```ts

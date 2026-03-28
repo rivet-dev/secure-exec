@@ -24,13 +24,13 @@ export class TerminalHarness {
 	private typing = false;
 	private disposed = false;
 
-	constructor(kernel: Kernel, options?: { cols?: number; rows?: number; env?: Record<string, string> }) {
+	constructor(kernel: Kernel, options?: { cols?: number; rows?: number; env?: Record<string, string>; cwd?: string }) {
 		const cols = options?.cols ?? 80;
 		const rows = options?.rows ?? 24;
 
 		this.term = new Terminal({ cols, rows, allowProposedApi: true });
 
-		this.shell = kernel.openShell({ cols, rows, env: options?.env });
+		this.shell = kernel.openShell({ cols, rows, env: options?.env, cwd: options?.cwd });
 
 		// Wire shell output → xterm
 		this.shell.onData = (data: Uint8Array) => {

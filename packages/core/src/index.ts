@@ -4,6 +4,7 @@ export type {
 	Kernel,
 	KernelOptions,
 	KernelInterface,
+	KernelLogger,
 	ExecOptions as KernelExecOptions,
 	ExecResult as KernelExecResult,
 	SpawnOptions as KernelSpawnOptions,
@@ -31,7 +32,7 @@ export type {
 	ConnectTerminalOptions,
 	Permissions,
 } from "./kernel/types.js";
-export { KernelError, defaultTermios } from "./kernel/types.js";
+export { KernelError, defaultTermios, noopKernelLogger } from "./kernel/types.js";
 export type {
 	VirtualFileSystem,
 	VirtualDirEntry,

@@ -13,6 +13,7 @@ import type {
 	TimingMitigation,
 } from "@secure-exec/core";
 import type { ResourceBudgets } from "@secure-exec/core";
+import { createSandboxCommandExecutor } from "@secure-exec/nodejs";
 
 const DEFAULT_SANDBOX_CWD = "/root";
 const DEFAULT_SANDBOX_HOME = "/root";
@@ -45,7 +46,18 @@ export class NodeRuntime {
 	private readonly runtimeDriver: UnsafeRuntimeDriver;
 
 	constructor(options: NodeRuntimeOptions) {
-		const { systemDriver, runtimeDriverFactory } = options;
+		const { runtimeDriverFactory } = options;
+
+		// Auto-inject sandbox command executor when none is configured
+		const systemDriver: SystemDriver = options.systemDriver.commandExecutor
+			? options.systemDriver
+			: {
+					...options.systemDriver,
+					commandExecutor: createSandboxCommandExecutor(
+						runtimeDriverFactory,
+						options.systemDriver,
+					),
+				};
 
 		const processConfig = {
 			...(systemDriver.runtime.process ?? {}),

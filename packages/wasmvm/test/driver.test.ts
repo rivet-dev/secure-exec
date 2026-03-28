@@ -672,6 +672,25 @@ describe('WasmVM RuntimeDriver', () => {
       expect(result.stdout).toContain('path-lookup-ok');
     });
 
+    it('path-based /bin command gets correct permission tier from defaults', async () => {
+      const vfs = new SimpleVFS();
+      kernel = createKernel({ filesystem: vfs as any });
+      // Provide a non-empty permissions map (without catch-all) so defaults are consulted
+      const driver = createWasmVmRuntime({
+        commandDirs: [COMMANDS_DIR],
+        permissions: { 'ls': 'isolated' },
+      }) as any;
+      await kernel.mount(driver);
+
+      // basename 'printf' falls through to DEFAULT_FIRST_PARTY_TIERS → 'read-only'
+      // Without normalization, '/bin/printf' would miss the defaults and return 'read-write'
+      expect(driver._resolvePermissionTier('/bin/printf')).toBe('read-only');
+      expect(driver._resolvePermissionTier('printf')).toBe('read-only');
+      // Explicit user permission still takes priority
+      expect(driver._resolvePermissionTier('/bin/ls')).toBe('isolated');
+      expect(driver._resolvePermissionTier('ls')).toBe('isolated');
+    });
+
     it('module cache is populated after first spawn and reused for subsequent spawns', async () => {
       const vfs = new SimpleVFS();
       kernel = createKernel({ filesystem: vfs as any });

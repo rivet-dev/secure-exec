@@ -171,6 +171,7 @@ createNodeDriver(options?: NodeDriverOptions): SystemDriver
 | `commandExecutor` | `CommandExecutor` | Child process executor. |
 | `permissions` | `Permissions` | Access control rules. Deny-by-default. |
 | `useDefaultNetwork` | `boolean` | Enable default Node.js network adapter. |
+| `loopbackExemptPorts` | `number[]` | Loopback ports that bypass SSRF checks (with `useDefaultNetwork`). |
 | `processConfig` | `ProcessConfig` | Process metadata (cwd, env, argv, etc.). |
 | `osConfig` | `OSConfig` | OS metadata (platform, arch, homedir, etc.). |
 
@@ -265,6 +266,26 @@ type Permissions = {
 ```
 
 Each field accepts a `PermissionCheck`, which is either a boolean or a function `(request) => boolean | Promise<boolean>`.
+
+---
+
+## Execution Methods
+
+### `runtime.exec()`
+
+Process-style execution. Accepts per-call environment, working directory, stdin, and stdio hooks. Use for automation loops, output observation, and CLI-style integrations.
+
+```ts
+exec(code: string, options?: ExecOptions): Promise<ExecResult>
+```
+
+### `runtime.run()`
+
+Export-based evaluation. Returns the sandbox module's exports. Use when the sandbox should compute and return a value.
+
+```ts
+run<T = unknown>(code: string, filePath?: string): Promise<RunResult<T>>
+```
 
 ---
 

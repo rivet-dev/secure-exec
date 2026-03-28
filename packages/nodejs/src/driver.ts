@@ -10,6 +10,7 @@ import {
 	createDefaultNetworkAdapter,
 	isPrivateIp,
 } from "./default-network-adapter.js";
+export type { DefaultNetworkAdapterOptions } from "./default-network-adapter.js";
 import type {
 	OSConfig,
 	ProcessConfig,
@@ -35,6 +36,8 @@ export interface NodeDriverOptions {
 	commandExecutor?: CommandExecutor;
 	permissions?: Permissions;
 	useDefaultNetwork?: boolean;
+	/** Loopback ports that bypass SSRF checks when using the default network adapter (`useDefaultNetwork: true`). */
+	loopbackExemptPorts?: number[];
 	processConfig?: ProcessConfig;
 	osConfig?: OSConfig;
 }
@@ -229,7 +232,11 @@ export function createNodeDriver(options: NodeDriverOptions = {}): SystemDriver 
 	const networkAdapter = options.networkAdapter
 		? options.networkAdapter
 		: options.useDefaultNetwork
-			? createDefaultNetworkAdapter()
+			? createDefaultNetworkAdapter(
+					options.loopbackExemptPorts?.length
+						? { initialExemptPorts: options.loopbackExemptPorts }
+						: undefined,
+				)
 			: undefined;
 
 	return {

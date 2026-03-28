@@ -1458,11 +1458,14 @@ function buildPostRestoreScript(
 
 	// Inject TTY config separately — InjectGlobals overwrites _processConfig,
 	// so TTY flags need their own global that persists
-	if (processConfig.stdinIsTTY || processConfig.stdoutIsTTY || processConfig.stderrIsTTY) {
+	if (processConfig.stdinIsTTY || processConfig.stdoutIsTTY || processConfig.stderrIsTTY
+		|| processConfig.cols || processConfig.rows) {
 		parts.push(`globalThis.__runtimeTtyConfig = ${JSON.stringify({
 			stdinIsTTY: processConfig.stdinIsTTY,
 			stdoutIsTTY: processConfig.stdoutIsTTY,
 			stderrIsTTY: processConfig.stderrIsTTY,
+			cols: processConfig.cols,
+			rows: processConfig.rows,
 		})};`);
 	}
 

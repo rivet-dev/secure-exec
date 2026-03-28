@@ -7,12 +7,13 @@
  * Follows the same FileDescription/refCount pattern as PipeManager.
  */
 
-import type { FileDescription, Termios } from "./types.js";
+import type { FileDescription, Termios, KernelLogger } from "./types.js";
 import {
 	FILETYPE_CHARACTER_DEVICE,
 	O_RDWR,
 	KernelError,
 	defaultTermios,
+	noopKernelLogger,
 } from "./types.js";
 import type { ProcessFDTable } from "./fd-table.js";
 
@@ -72,9 +73,14 @@ export class PtyManager {
 	private onSignal: ((pgid: number, signal: number, excludeLeaders: boolean) => number) | null;
 	private nextPtyId = 0;
 	private nextPtyDescId = 200_000; // High range to avoid FD/pipe ID collisions
+	private log: KernelLogger;
 
-	constructor(onSignal?: (pgid: number, signal: number, excludeLeaders: boolean) => number) {
+	constructor(
+		onSignal?: (pgid: number, signal: number, excludeLeaders: boolean) => number,
+		logger?: KernelLogger,
+	) {
 		this.onSignal = onSignal ?? null;
+		this.log = logger ?? noopKernelLogger;
 	}
 
 	/**
@@ -120,6 +126,7 @@ export class PtyManager {
 		this.ptys.set(id, state);
 		this.descToPty.set(masterDesc.id, { ptyId: id, end: "master" });
 		this.descToPty.set(slaveDesc.id, { ptyId: id, end: "slave" });
+		this.log.debug({ ptyId: id, path, masterDescId: masterDesc.id, slaveDescId: slaveDesc.id }, "PTY created");
 
 		return {
 			master: { description: masterDesc, filetype: FILETYPE_CHARACTER_DEVICE },
@@ -221,9 +228,11 @@ export class PtyManager {
 
 		if (ref.end === "master") {
 			state.closed.master = true;
+			this.log.debug({ ptyId: ref.ptyId, fgPgid: state.foregroundPgid }, "PTY master closed");
 
 			// SIGHUP: when master closes, send SIGHUP to foreground process group
 			if (state.foregroundPgid > 0 && this.onSignal) {
+				this.log.debug({ ptyId: ref.ptyId, pgid: state.foregroundPgid, signal: 1 }, "PTY SIGHUP delivery");
 				try {
 					this.onSignal(state.foregroundPgid, 1 /* SIGHUP */, false);
 				} catch {
@@ -304,6 +313,7 @@ export class PtyManager {
 		const ptyId = this.getPtyId(descriptionId);
 		const state = this.ptys.get(ptyId);
 		if (!state) throw new KernelError("EBADF", "PTY not found");
+		this.log.trace({ ptyId, pgid, prev: state.foregroundPgid }, "PTY set foreground pgid");
 		state.foregroundPgid = pgid;
 	}
 
@@ -312,6 +322,7 @@ export class PtyManager {
 		const ptyId = this.getPtyId(descriptionId);
 		const state = this.ptys.get(ptyId);
 		if (!state) throw new KernelError("EBADF", "PTY not found");
+		this.log.trace({ ptyId, pgid }, "PTY set session leader");
 		state.sessionLeaderPgid = pgid;
 	}
 
@@ -336,6 +347,7 @@ export class PtyManager {
 		const ptyId = this.getPtyId(descriptionId);
 		const state = this.ptys.get(ptyId);
 		if (!state) throw new KernelError("EBADF", "PTY not found");
+		this.log.trace({ ptyId, termios }, "PTY setTermios");
 
 		if (termios.icrnl !== undefined) state.termios.icrnl = termios.icrnl;
 		if (termios.opost !== undefined) state.termios.opost = termios.opost;
@@ -419,6 +431,7 @@ export class PtyManager {
 			if (termios.isig) {
 				const signal = this.signalForByte(state, byte);
 				if (signal !== null) {
+					this.log.debug({ ptyId: state.id, signal, fgPgid: state.foregroundPgid, sessionLeader: state.sessionLeaderPgid }, "PTY signal char detected");
 					if (termios.icanon) state.lineBuffer.length = 0;
 
 					// Session-leader SIGINT interception: echo ^C, protect
@@ -444,6 +457,7 @@ export class PtyManager {
 								// Signal delivery failure must not break line discipline
 							}
 						}
+						this.log.debug({ ptyId: state.id, childrenKilled, pgid: state.foregroundPgid }, "PTY session-leader SIGINT interception");
 
 						// No children running → shell is at the prompt blocking on
 						// fdRead. Inject a newline to unblock it and trigger a
@@ -464,6 +478,7 @@ export class PtyManager {
 					}
 					// Normal signal delivery (non-SIGINT or non-session-leader)
 					if (state.foregroundPgid > 0) {
+						this.log.debug({ ptyId: state.id, signal, pgid: state.foregroundPgid }, "PTY signal delivery to foreground group");
 						try {
 							this.onSignal?.(state.foregroundPgid, signal, false);
 						} catch {

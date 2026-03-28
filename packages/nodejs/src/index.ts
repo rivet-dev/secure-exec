@@ -23,6 +23,7 @@ export {
 	isPrivateIp,
 } from "./driver.js";
 export type {
+	DefaultNetworkAdapterOptions,
 	NodeDriverOptions,
 	NodeRuntimeDriverFactoryOptions,
 } from "./driver.js";
@@ -56,6 +57,12 @@ export { HostNodeFileSystem } from "./os-filesystem.js";
 export type { HostNodeFileSystemOptions } from "./os-filesystem.js";
 export { NodeWorkerAdapter } from "./worker-adapter.js";
 export type { WorkerHandle } from "./worker-adapter.js";
+
+// Host command executor (CommandExecutor for standalone NodeRuntime)
+export { createNodeHostCommandExecutor } from "./host-command-executor.js";
+
+// Sandbox-native command executor (routes node commands through child V8 isolates)
+export { createSandboxCommandExecutor } from "./sandbox-command-executor.js";
 
 // Host network adapter (HostNetworkAdapter for kernel delegation)
 export { createNodeHostNetworkAdapter } from "./host-network-adapter.js";

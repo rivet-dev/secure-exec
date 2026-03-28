@@ -10,6 +10,7 @@ import type {
 	Kernel,
 	KernelInterface,
 	KernelOptions,
+	KernelLogger,
 	ExecOptions,
 	ExecResult,
 	SpawnOptions,
@@ -60,6 +61,7 @@ import {
 	F_DUPFD_CLOEXEC,
 	FD_CLOEXEC,
 	KernelError,
+	noopKernelLogger,
 } from "./types.js";
 
 export function createKernel(options: KernelOptions): Kernel {
@@ -70,17 +72,9 @@ class KernelImpl implements Kernel {
 	private vfs: VirtualFileSystem;
 	private rawInMemoryFs?: InMemoryFileSystem;
 	private fdTableManager = new FDTableManager();
-	private processTable = new ProcessTable();
+	private processTable!: ProcessTable;
 	private pipeManager = new PipeManager();
-	private ptyManager = new PtyManager((pgid, signal, excludeLeaders) => {
-		try {
-			if (excludeLeaders) {
-				return this.processTable.killGroupExcludeLeaders(pgid, signal);
-			}
-			this.processTable.kill(-pgid, signal);
-		} catch { /* no-op if pgid gone */ }
-		return 0;
-	});
+	private ptyManager!: PtyManager;
 	private fileLockManager = new FileLockManager();
 	private commandRegistry = new CommandRegistry();
 	readonly socketTable: SocketTable;
@@ -96,8 +90,23 @@ class KernelImpl implements Kernel {
 	private disposed = false;
 	private pendingBinEntries: Promise<void>[] = [];
 	private posixDirsReady: Promise<void>;
+	private log: KernelLogger;
 
 	constructor(options: KernelOptions) {
+		this.log = options.logger ?? noopKernelLogger;
+		this.processTable = new ProcessTable(this.log.child({ component: "process" }));
+		this.ptyManager = new PtyManager(
+			(pgid, signal, excludeLeaders) => {
+				try {
+					if (excludeLeaders) {
+						return this.processTable.killGroupExcludeLeaders(pgid, signal);
+					}
+					this.processTable.kill(-pgid, signal);
+				} catch { /* no-op if pgid gone */ }
+				return 0;
+			},
+			this.log.child({ component: "pty" }),
+		);
 		this.inodeTable = new InodeTable();
 		if (options.filesystem instanceof InMemoryFileSystem) {
 			options.filesystem.setInodeTable(this.inodeTable);
@@ -135,6 +144,7 @@ class KernelImpl implements Kernel {
 
 		// Clean up FD table and sockets when a process exits
 		this.processTable.onProcessExit = (pid) => {
+			this.log.debug({ pid }, "process exit cleanup");
 			this.cleanupProcessFDs(pid);
 			this.socketTable.closeAllForProcess(pid);
 			this.timerTable.clearAllForProcess(pid);
@@ -218,6 +228,7 @@ class KernelImpl implements Kernel {
 	async mount(driver: RuntimeDriver): Promise<void> {
 		this.assertNotDisposed();
 		await this.posixDirsReady;
+		this.log.debug({ driver: driver.name, commands: driver.commands }, "mounting runtime driver");
 
 		// Track PIDs owned by this driver
 		if (!this.driverPids.has(driver.name)) {
@@ -233,11 +244,13 @@ class KernelImpl implements Kernel {
 
 		// Populate /bin stubs for shell PATH lookup
 		await this.commandRegistry.populateBin(this.vfs);
+		this.log.info({ driver: driver.name, commands: driver.commands }, "runtime driver mounted");
 	}
 
 	async dispose(): Promise<void> {
 		if (this.disposed) return;
 		this.disposed = true;
+		this.log.info({}, "kernel disposing");
 
 		// Terminate all running processes
 		await this.processTable.terminateAll();
@@ -270,6 +283,7 @@ class KernelImpl implements Kernel {
 
 	async exec(command: string, options?: ExecOptions): Promise<ExecResult> {
 		this.assertNotDisposed();
+		this.log.debug({ command, timeout: options?.timeout, cwd: options?.cwd }, "exec start");
 
 		// Flush pending /bin stubs before shell PATH lookup
 		await this.flushPendingBinEntries();
@@ -320,6 +334,7 @@ class KernelImpl implements Kernel {
 					new Promise<number>((_, reject) => {
 						timer = setTimeout(() => {
 							// Kill process and detach output callbacks
+							this.log.warn({ command, timeout: options.timeout }, "exec timeout, sending SIGTERM");
 							proc.onStdout = null;
 							proc.onStderr = null;
 							proc.kill(SIGTERM);
@@ -356,6 +371,7 @@ class KernelImpl implements Kernel {
 
 		const command = options?.command ?? "sh";
 		const args = options?.args ?? [];
+		this.log.debug({ command, args, cols: options?.cols, rows: options?.rows, cwd: options?.cwd }, "openShell start");
 
 		// Allocate a controller PID with an FD table to hold the PTY master
 		const controllerPid = this.processTable.allocatePid();
@@ -366,8 +382,15 @@ class KernelImpl implements Kernel {
 		const masterDescId = controllerTable.get(masterFd)!.description.id;
 
 		// Spawn shell with PTY slave as stdin/stdout/stderr
+		// Propagate terminal dimensions as POSIX COLUMNS/LINES env vars
+		const cols = options?.cols;
+		const rows = options?.rows;
+		const dimEnv: Record<string, string> = {};
+		if (cols !== undefined) dimEnv.COLUMNS = String(cols);
+		if (rows !== undefined) dimEnv.LINES = String(rows);
+
 		const proc = this.spawnInternal(command, args, {
-			env: options?.env,
+			env: { ...options?.env, ...dimEnv },
 			cwd: options?.cwd,
 			stdinFd: slaveFd,
 			stdoutFd: slaveFd,
@@ -378,6 +401,7 @@ class KernelImpl implements Kernel {
 		this.processTable.setpgid(proc.pid, proc.pid);
 		this.ptyManager.setForegroundPgid(masterDescId, proc.pid);
 		this.ptyManager.setSessionLeader(masterDescId, proc.pid);
+		this.log.debug({ shellPid: proc.pid, controllerPid, masterFd, masterDescId }, "openShell PTY attached");
 
 		// Close controller's copy of slave FD (child inherited its own copy via fork).
 		// Without this, slave refCount stays >0 after shell exits, preventing EOF on master.
@@ -433,6 +457,7 @@ class KernelImpl implements Kernel {
 			set onData(fn) { pump.onData = fn; },
 			resize: (_cols, _rows) => {
 				const fgPgid = this.ptyManager.getForegroundPgid(masterDescId);
+				this.log.trace({ shellPid: proc.pid, cols: _cols, rows: _rows, fgPgid }, "PTY resize");
 				if (fgPgid > 0) {
 					try { this.processTable.kill(-fgPgid, SIGWINCH); } catch { /* pgid may be gone */ }
 				}
@@ -446,6 +471,7 @@ class KernelImpl implements Kernel {
 
 	async connectTerminal(options?: ConnectTerminalOptions): Promise<number> {
 		this.assertNotDisposed();
+		this.log.debug({ command: options?.command, cols: options?.cols, rows: options?.rows }, "connectTerminal start");
 
 		const stdin = process.stdin;
 		const stdout = process.stdout;
@@ -470,11 +496,13 @@ class KernelImpl implements Kernel {
 				?? ((data: Uint8Array) => { stdout.write(data); });
 			shell.onData = outputHandler;
 
-			// PTY resize forwarding is currently unsafe for Wasm shell sessions:
-			// an early resize can terminate the shell before the first prompt.
-			// Keep interactive stdin/stdout working and leave resize disabled
-			// until the PTY/SIGWINCH path is fixed end-to-end.
-			onResize = undefined;
+			// Forward terminal resize → PTY SIGWINCH
+			if (stdout.isTTY) {
+				onResize = () => {
+					shell.resize(stdout.columns, stdout.rows);
+				};
+				stdout.on("resize", onResize);
+			}
 
 			return await shell.wait();
 		} finally {
@@ -517,6 +545,7 @@ class KernelImpl implements Kernel {
 		options?: SpawnOptions,
 		callerPid?: number,
 	): InternalProcess {
+		this.log.debug({ command, args, callerPid, cwd: options?.cwd }, "spawn start");
 		let driver = this.commandRegistry.resolve(command);
 
 		// On-demand discovery: ask mounted drivers to resolve unknown commands
@@ -543,14 +572,21 @@ class KernelImpl implements Kernel {
 		}
 
 		if (!driver) {
+			this.log.warn({ command }, "command not found");
 			throw new KernelError("ENOENT", `command not found: ${command}`);
 		}
 
 		// Check childProcess permission
-		checkChildProcess(this.permissions, command, args, options?.cwd);
+		try {
+			checkChildProcess(this.permissions, command, args, options?.cwd);
+		} catch (err) {
+			this.log.warn({ command, args }, "spawn permission denied");
+			throw err;
+		}
 
 		// Enforce maxProcesses budget
 		if (this.maxProcesses !== undefined && this.processTable.runningCount() >= this.maxProcesses) {
+			this.log.warn({ command, running: this.processTable.runningCount(), max: this.maxProcesses }, "process limit reached");
 			throw new KernelError("EAGAIN", "maximum process limit reached");
 		}
 
@@ -626,11 +662,12 @@ class KernelImpl implements Kernel {
 		const stderrIsTTY = this.isFdPtySlave(table, 2);
 
 		// Build process context with pre-wired callbacks
+		const resolvedCwd = options?.cwd ?? this.cwd;
 		const ctx: ProcessContext = {
 			pid,
 			ppid: callerPid ?? 0,
-			env: { ...baseEnv, ...options?.env },
-			cwd: options?.cwd ?? this.cwd,
+			env: { ...baseEnv, ...options?.env, PWD: resolvedCwd },
+			cwd: resolvedCwd,
 			fds: { stdin: 0, stdout: 1, stderr: 2 },
 			stdinIsTTY,
 			stdoutIsTTY,
@@ -641,6 +678,10 @@ class KernelImpl implements Kernel {
 
 		// Spawn via driver
 		const driverProcess = driver.spawn(command, args, ctx);
+		this.log.debug({
+			pid, command, driver: driver.name, callerPid,
+			stdinIsTTY, stdoutIsTTY, stderrIsTTY,
+		}, "process spawned");
 
 		// Capture data emitted via DriverProcess callbacks after spawn returns.
 		if (!stdoutPiped) {
@@ -1026,6 +1067,7 @@ class KernelImpl implements Kernel {
 			kill: (pid, signal) => {
 				// Negative PID = process group kill, handled by kernel directly
 				if (pid >= 0) assertOwns(pid);
+				this.log.debug({ pid, signal }, "signal delivery");
 				this.processTable.kill(pid, signal);
 			},
 			getpid: (pid) => {
@@ -1204,6 +1246,7 @@ class KernelImpl implements Kernel {
 				}
 
 				entry.cwd = path;
+				entry.env.PWD = path;
 			},
 
 			// Alarm (SIGALRM)

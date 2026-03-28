@@ -496,6 +496,123 @@ describe("SSRF protection", () => {
 	});
 
 	// ---------------------------------------------------------------
+	// createNodeDriver loopbackExemptPorts configuration path
+	// ---------------------------------------------------------------
+
+	describe("createNodeDriver loopbackExemptPorts", () => {
+		it("adapter blocks loopback port with no exemptions (regression)", async () => {
+			const server = http.createServer((_req, res) => {
+				res.writeHead(200, { "content-type": "text/plain" });
+				res.end("should-not-reach");
+			});
+
+			await new Promise<void>((resolve, reject) => {
+				server.once("error", reject);
+				server.listen(0, "127.0.0.1", () => resolve());
+			});
+
+			const address = server.address() as import("node:net").AddressInfo;
+
+			try {
+				// Default adapter with no exemptions blocks all loopback
+				const adapter = createDefaultNetworkAdapter();
+				await expect(
+					adapter.fetch(`http://127.0.0.1:${address.port}/rpc`, {}),
+				).rejects.toThrow(/SSRF blocked/);
+			} finally {
+				await new Promise<void>((resolve) => server.close(() => resolve()));
+			}
+		});
+
+		it("loopbackExemptPorts threads through to adapter and allows listed port", async () => {
+			const server = http.createServer((_req, res) => {
+				res.writeHead(200, { "content-type": "text/plain" });
+				res.end("rpc-ok");
+			});
+
+			await new Promise<void>((resolve, reject) => {
+				server.once("error", reject);
+				server.listen(0, "127.0.0.1", () => resolve());
+			});
+
+			const address = server.address() as import("node:net").AddressInfo;
+
+			const runtimes = new Set<NodeRuntime>();
+			try {
+				const events: StdioEvent[] = [];
+				const runtime = new NodeRuntime({
+					onStdio: (event) => events.push(event),
+					systemDriver: createNodeDriver({
+						useDefaultNetwork: true,
+						loopbackExemptPorts: [address.port],
+						permissions: allowAllNetwork,
+					}),
+					runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+				});
+				runtimes.add(runtime);
+
+				const result = await runtime.exec(`
+					(async () => {
+						const res = await fetch("http://127.0.0.1:${address.port}/rpc");
+						const body = await res.text();
+						console.log('status:' + res.status);
+						console.log('body:' + body);
+					})().catch(e => { console.error(e.message); process.exitCode = 1; });
+				`);
+
+				const stdout = events
+					.filter((e) => e.channel === "stdout")
+					.map((e) => e.message)
+					.join("");
+
+				if (result.code !== 0) {
+					const stderr = events.filter((e) => e.channel === "stderr").map((e) => e.message).join("");
+					throw new Error(`exec failed (code ${result.code}): ${result.errorMessage}\nstderr: ${stderr}`);
+				}
+
+				expect(stdout).toContain("status:200");
+				expect(stdout).toContain("body:rpc-ok");
+			} finally {
+				for (const runtime of runtimes) {
+					try { await runtime.terminate(); } catch { runtime.dispose(); }
+				}
+				await new Promise<void>((resolve) => server.close(() => resolve()));
+			}
+		}, 15_000);
+
+		it("adapter still blocks unlisted loopback port when exemptions are set", async () => {
+			const server = http.createServer((_req, res) => {
+				res.writeHead(200);
+				res.end("secret");
+			});
+
+			await new Promise<void>((resolve, reject) => {
+				server.once("error", reject);
+				server.listen(0, "127.0.0.1", () => resolve());
+			});
+
+			const address = server.address() as import("node:net").AddressInfo;
+
+			try {
+				// Adapter exempts port+1, so requests to the actual port are still blocked
+				const adapter = createDefaultNetworkAdapter({
+					initialExemptPorts: [address.port + 1],
+				});
+				await expect(
+					adapter.fetch(`http://127.0.0.1:${address.port}/secret`, {}),
+				).rejects.toThrow(/SSRF blocked/);
+
+				// Confirm the exempted port would pass the check (via httpRequest too)
+				await expect(
+					adapter.httpRequest(`http://127.0.0.1:${address.port}/secret`, {}),
+				).rejects.toThrow(/SSRF blocked/);
+			} finally {
+				await new Promise<void>((resolve) => server.close(() => resolve()));
+			}
+		});
+	});
+
+	// ---------------------------------------------------------------
 	// DNS rebinding — documented as known limitation
 	// ---------------------------------------------------------------
 

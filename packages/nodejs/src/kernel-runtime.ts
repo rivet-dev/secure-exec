@@ -526,6 +526,10 @@ class NodeRuntimeDriver implements RuntimeDriver {
       const stdoutIsTTY = ctx.stdoutIsTTY ?? false;
       const stderrIsTTY = ctx.stderrIsTTY ?? false;
 
+      // Read PTY dimensions from POSIX env vars set by openShell
+      const ptyCols = ctx.env.COLUMNS ? parseInt(ctx.env.COLUMNS, 10) : undefined;
+      const ptyRows = ctx.env.LINES ? parseInt(ctx.env.LINES, 10) : undefined;
+
       const systemDriver = createNodeDriver({
         filesystem,
         moduleAccess: { cwd: ctx.cwd },
@@ -541,6 +545,8 @@ class NodeRuntimeDriver implements RuntimeDriver {
           stdinIsTTY,
           stdoutIsTTY,
           stderrIsTTY,
+          ...(ptyCols !== undefined && !isNaN(ptyCols) ? { cols: ptyCols } : {}),
+          ...(ptyRows !== undefined && !isNaN(ptyRows) ? { rows: ptyRows } : {}),
         },
         osConfig: {
           homedir: ctx.env.HOME || '/root',

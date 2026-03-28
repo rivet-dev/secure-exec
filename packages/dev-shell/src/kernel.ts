@@ -27,6 +27,8 @@ import {
 } from "@secure-exec/nodejs";
 import { createPythonRuntime } from "@secure-exec/python";
 import { createWasmVmRuntime } from "@secure-exec/wasmvm";
+import type { DebugLogger } from "./debug-logger.js";
+import { createDebugLogger, createNoopLogger } from "./debug-logger.js";
 import type { WorkspacePaths } from "./shared.js";
 import { collectShellEnv, resolveWorkspacePaths } from "./shared.js";
 
@@ -37,6 +39,8 @@ export interface DevShellOptions {
 	mountPython?: boolean;
 	mountWasm?: boolean;
 	envFilePath?: string;
+	/** When set, structured pino debug logs are written to this file path. */
+	debugLogPath?: string;
 }
 
 export interface DevShellKernelResult {
@@ -45,6 +49,7 @@ export interface DevShellKernelResult {
 	env: Record<string, string>;
 	loadedCommands: string[];
 	paths: WorkspacePaths;
+	logger: DebugLogger;
 	dispose: () => Promise<void>;
 }
 
@@ -539,6 +544,12 @@ export async function createDevShellKernel(
 	const mountWasm = options.mountWasm !== false;
 	const mountPython = options.mountPython !== false;
 	const env = collectShellEnv(options.envFilePath ?? paths.realProviderEnvFile);
+
+	// Set up structured debug logger (file-only, never stdout/stderr).
+	const logger = options.debugLogPath
+		? createDebugLogger(options.debugLogPath)
+		: createNoopLogger();
+	logger.info({ workDir, mountWasm, mountPython }, "dev-shell session init");
 	env.HOME = workDir;
 	env.XDG_CONFIG_HOME = path.join(workDir, ".config");
 	env.XDG_CACHE_HOME = path.join(workDir, ".cache");
@@ -564,6 +575,7 @@ export async function createDevShellKernel(
 		permissions: allowAll,
 		env,
 		cwd: workDir,
+		logger,
 	});
 
 	const loadedCommands: string[] = [];
@@ -573,16 +585,19 @@ export async function createDevShellKernel(
 		const wasmRuntime = createWasmVmRuntime({ commandDirs: [paths.wasmCommandsDir] });
 		await kernel.mount(wasmRuntime);
 		loadedCommands.push(...wasmRuntime.commands);
+		logger.info({ commands: wasmRuntime.commands }, "mounted wasmvm runtime");
 	}
 
 	const nodeRuntime = createNodeRuntime({ permissions: allowAll });
 	await kernel.mount(nodeRuntime);
 	loadedCommands.push(...nodeRuntime.commands);
+	logger.info({ commands: nodeRuntime.commands }, "mounted node runtime");
 
 	if (mountPython) {
 		const pythonRuntime = createPythonRuntime();
 		await kernel.mount(pythonRuntime);
 		loadedCommands.push(...pythonRuntime.commands);
+		logger.info({ commands: pythonRuntime.commands }, "mounted python runtime");
 	}
 
 	const piCliPath = resolvePiCliPath(paths);
@@ -597,16 +612,25 @@ export async function createDevShellKernel(
 			),
 		);
 		loadedCommands.push("pi");
+		logger.info({ piCliPath }, "mounted pi driver");
 	}
+
+	const filteredCommands = Array.from(new Set(loadedCommands))
+		.filter((command) => command.trim().length > 0 && !command.startsWith("_"))
+		.sort();
+	logger.info({ loadedCommands: filteredCommands }, "dev-shell ready");
 
 	return {
 		kernel,
 		workDir,
 		env,
-		loadedCommands: Array.from(new Set(loadedCommands))
-			.filter((command) => command.trim().length > 0 && !command.startsWith("_"))
-			.sort(),
+		loadedCommands: filteredCommands,
 		paths,
-		dispose: () => kernel.dispose(),
+		logger,
+		dispose: async () => {
+			logger.info("dev-shell disposing");
+			await kernel.dispose();
+			await logger.close();
+		},
 	};
 }

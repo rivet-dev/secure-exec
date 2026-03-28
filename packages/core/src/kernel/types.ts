@@ -18,6 +18,30 @@ export type {
 // Kernel
 // ---------------------------------------------------------------------------
 
+/**
+ * Minimal structured logger interface for kernel diagnostics.
+ * Compatible with pino and any logger that supports child loggers.
+ * The kernel never depends on pino directly — embedders pass their own logger.
+ */
+export interface KernelLogger {
+	trace(obj: Record<string, unknown>, msg?: string): void;
+	debug(obj: Record<string, unknown>, msg?: string): void;
+	info(obj: Record<string, unknown>, msg?: string): void;
+	warn(obj: Record<string, unknown>, msg?: string): void;
+	error(obj: Record<string, unknown>, msg?: string): void;
+	child(bindings: Record<string, unknown>): KernelLogger;
+}
+
+/** No-op logger that discards all records. */
+export const noopKernelLogger: KernelLogger = {
+	trace() {},
+	debug() {},
+	info() {},
+	warn() {},
+	error() {},
+	child() { return noopKernelLogger; },
+};
+
 export interface KernelOptions {
 	filesystem: import("./vfs.js").VirtualFileSystem;
 	permissions?: Permissions;
@@ -27,6 +51,8 @@ export interface KernelOptions {
 	maxProcesses?: number;
 	/** Host network adapter for external socket routing (TCP, UDP, DNS). */
 	hostNetworkAdapter?: import("./host-adapter.js").HostNetworkAdapter;
+	/** Structured debug logger for kernel diagnostics. Defaults to silent no-op. */
+	logger?: KernelLogger;
 }
 
 export interface Kernel {

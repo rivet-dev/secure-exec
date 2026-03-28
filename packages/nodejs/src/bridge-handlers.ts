@@ -4067,7 +4067,18 @@ function createKernelSocketDuplex(
 				callback();
 			} catch (err) {
 				debugHttpBridge("socket write error", socketId, err);
-				callback(err instanceof Error ? err : new Error(String(err)));
+				// EBADF during TLS teardown: the kernel already closed this socket
+				// (e.g. process killed while TLS handshake in progress). Silently
+				// destroy the duplex instead of propagating the error through the
+				// callback, which can become an uncaught exception inside
+				// TLSSocket._start's synchronous uncork path.
+				const errObj = err instanceof Error ? err : new Error(String(err));
+				if ((errObj as any).code === "EBADF") {
+					duplex.destroy();
+					callback();
+					return;
+				}
+				callback(errObj);
 			}
 		},
 		final(callback: (error?: Error | null) => void) {
@@ -4109,6 +4120,14 @@ function createKernelSocketDuplex(
 	};
 	(duplex as any).ref = () => duplex;
 	(duplex as any).unref = () => duplex;
+
+	// Prevent uncaught exceptions from EBADF errors during TLS teardown.
+	// When the kernel disposes sockets before TLS finishes its handshake,
+	// the write callback propagates EBADF which becomes unhandled without this.
+	duplex.on("error", (err: Error & { code?: string }) => {
+		if (err.code === "EBADF") return;
+		debugHttpBridge("socket duplex error", socketId, err);
+	});
 
 	async function runReadPump(): Promise<void> {
 		try {

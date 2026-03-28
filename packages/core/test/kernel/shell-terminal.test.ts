@@ -109,6 +109,79 @@ class MockShellDriver implements RuntimeDriver {
 }
 
 // ---------------------------------------------------------------------------
+// Naive driver — kill() terminates on every signal (like real WasmVM driver).
+// Used to prove the kernel default-ignore disposition for SIGWINCH.
+// ---------------------------------------------------------------------------
+
+class NaiveKillDriver implements RuntimeDriver {
+	name = "naive-shell";
+	commands = ["sh"];
+	private ki: KernelInterface | null = null;
+
+	async init(ki: KernelInterface): Promise<void> {
+		this.ki = ki;
+	}
+
+	spawn(_command: string, _args: string[], ctx: ProcessContext): DriverProcess {
+		const ki = this.ki!;
+		const { pid } = ctx;
+		const stdinFd = ctx.fds.stdin;
+		const stdoutFd = ctx.fds.stdout;
+
+		let exitResolve: (code: number) => void;
+		const exitPromise = new Promise<number>((r) => {
+			exitResolve = r;
+		});
+
+		const enc = new TextEncoder();
+		const dec = new TextDecoder();
+
+		const proc: DriverProcess = {
+			writeStdin() {},
+			closeStdin() {},
+			kill(signal) {
+				// Terminates on ANY signal — no SIGWINCH exception.
+				// Before the kernel fix this killed the shell on resize.
+				exitResolve!(128 + signal);
+				proc.onExit?.(128 + signal);
+			},
+			wait() {
+				return exitPromise;
+			},
+			onStdout: null,
+			onStderr: null,
+			onExit: null,
+		};
+
+		(async () => {
+			ki.fdWrite(pid, stdoutFd, enc.encode("$ "));
+			while (true) {
+				const data = await ki.fdRead(pid, stdinFd, 4096);
+				if (data.length === 0) {
+					exitResolve!(0);
+					proc.onExit?.(0);
+					break;
+				}
+				const line = dec.decode(data).replace(/\n$/, "");
+				if (line.startsWith("echo ")) {
+					ki.fdWrite(pid, stdoutFd, enc.encode(line.slice(5) + "\r\n"));
+				} else if (line.length > 0) {
+					ki.fdWrite(pid, stdoutFd, enc.encode("\r\n"));
+				}
+				ki.fdWrite(pid, stdoutFd, enc.encode("$ "));
+			}
+		})().catch(() => {
+			exitResolve!(1);
+			proc.onExit?.(1);
+		});
+
+		return proc;
+	}
+
+	async dispose(): Promise<void> {}
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -273,6 +346,29 @@ describe("shell-terminal", () => {
 
 		expect(harness.screenshotTrimmed()).toBe(
 			["$ echo alive", "alive", "$ "].join("\n"),
+		);
+	});
+
+	it("SIGWINCH default-ignore — driver without explicit handler survives resize", async () => {
+		// Regression: a driver whose kill() terminates on any signal (like WasmVM)
+		// would die on SIGWINCH because applyDefaultAction forwarded it as a kill.
+		// The kernel must apply POSIX default-ignore for SIGWINCH so kill() is never called.
+		const driver = new NaiveKillDriver();
+		const { kernel } = await createTestKernel({ drivers: [driver] });
+		harness = new TerminalHarness(kernel);
+
+		await harness.waitFor("$");
+
+		// Resize — if kernel forwards SIGWINCH to NaiveKillDriver.kill(), the
+		// shell process terminates and the next type() hangs or gets no prompt.
+		harness.term.resize(40, 12);
+		harness.shell.resize(40, 12);
+
+		// Shell must survive — verify by typing a command
+		await harness.type("echo survived\n");
+
+		expect(harness.screenshotTrimmed()).toBe(
+			["$ echo survived", "survived", "$ "].join("\n"),
 		);
 	});
 

@@ -1,4 +1,5 @@
 import * as esbuild from "esbuild";
+import { createRequire } from "node:module";
 import stdLibBrowser from "node-stdlib-browser";
 import { fileURLToPath } from "node:url";
 
@@ -9,11 +10,9 @@ function resolveCustomPolyfillSource(fileName: string): string {
 	return fileURLToPath(new URL(`../src/polyfills/${fileName}`, import.meta.url));
 }
 
-const WEB_STREAMS_PONYFILL_PATH = fileURLToPath(
-	new URL(
-		"../../../node_modules/.pnpm/node_modules/web-streams-polyfill/dist/ponyfill.js",
-		import.meta.url,
-	),
+const require = createRequire(import.meta.url);
+const WEB_STREAMS_PONYFILL_PATH = require.resolve(
+	"web-streams-polyfill/dist/ponyfill.js",
 );
 
 const CUSTOM_POLYFILL_ENTRY_POINTS = new Map([

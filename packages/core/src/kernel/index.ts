@@ -14,6 +14,7 @@ export type {
 	Kernel,
 	KernelOptions,
 	KernelInterface,
+	KernelLogger,
 	ExecOptions,
 	ExecResult,
 	SpawnOptions,
@@ -45,8 +46,8 @@ export type {
 	ConnectTerminalOptions,
 } from "./types.js";
 
-// Structured kernel error and termios defaults
-export { KernelError, defaultTermios } from "./types.js";
+// Structured kernel error, termios defaults, and no-op logger
+export { KernelError, defaultTermios, noopKernelLogger } from "./types.js";
 
 // VFS types
 export type {

@@ -33,6 +33,10 @@ export interface ProcessConfig {
 	stdoutIsTTY?: boolean;
 	/** Whether stderr is a TTY (PTY slave attached) */
 	stderrIsTTY?: boolean;
+	/** Terminal columns (from PTY dimensions). */
+	cols?: number;
+	/** Terminal rows (from PTY dimensions). */
+	rows?: number;
 }
 
 export interface OSConfig {

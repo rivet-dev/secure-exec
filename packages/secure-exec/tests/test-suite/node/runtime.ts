@@ -81,6 +81,55 @@ export function runNodeSuite(context: NodeSuiteContext): void {
 		expect(result.exports).toEqual({ answer: 42, default: "ok" });
 	});
 
+	it("supports sequential exec() calls on the same runtime without disposal errors", async () => {
+		const events: StdioEvent[] = [];
+		const runtime = await context.createRuntime({
+			onStdio: (event) => events.push(event),
+		});
+
+		// Simulate an AI SDK tool loop: multiple exec() calls in sequence
+		for (let step = 1; step <= 5; step++) {
+			const result = await runtime.exec(`console.log("step-${step}");`);
+			expect(result.code).toBe(0);
+			expect(result.errorMessage).toBeUndefined();
+		}
+
+		// All five steps produced output
+		const stdout = events
+			.filter((e) => e.channel === "stdout")
+			.map((e) => e.message)
+			.join("");
+		for (let step = 1; step <= 5; step++) {
+			expect(stdout).toContain(`step-${step}`);
+		}
+	});
+
+	it("supports interleaved exec() and run() on the same runtime", async () => {
+		const runtime = await context.createRuntime();
+
+		const r1 = await runtime.exec(`console.log("warmup");`);
+		expect(r1.code).toBe(0);
+
+		const r2 = await runtime.run(`module.exports = { value: 42 };`);
+		expect(r2.code).toBe(0);
+		expect(r2.exports).toEqual({ value: 42 });
+
+		const r3 = await runtime.exec(`console.log("after-run");`);
+		expect(r3.code).toBe(0);
+	});
+
+	it("throws a clear error when exec() is called after dispose()", async () => {
+		const runtime = await context.createRuntime();
+		const r1 = await runtime.exec(`console.log("ok");`);
+		expect(r1.code).toBe(0);
+
+		runtime.dispose();
+
+		await expect(runtime.exec(`console.log("should-fail");`)).rejects.toThrow(
+			/disposed/i,
+		);
+	});
+
 	it("drops high-volume logs by default to avoid buffering amplification", async () => {
 		const events: StdioEvent[] = [];
 		const runtime = await context.createRuntime({

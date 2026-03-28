@@ -397,11 +397,13 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
   tryResolve(command: string): boolean {
     // Not applicable in legacy mode
     if (this._legacyMode) return false;
+    // Normalize path-based commands (/bin/ls → ls) so lookup matches basename keys
+    const commandName = command.includes('/') ? basename(command) : command;
     // Already known
-    if (this._commandPaths.has(command)) return true;
+    if (this._commandPaths.has(commandName)) return true;
 
     for (const dir of this._commandDirs) {
-      const fullPath = join(dir, command);
+      const fullPath = join(dir, commandName);
       try {
         if (!existsSync(fullPath)) continue;
         // Skip directories
@@ -414,8 +416,8 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
       // Sync 4-byte WASM magic check
       if (!isWasmBinarySync(fullPath)) continue;
 
-      this._commandPaths.set(command, fullPath);
-      if (!this._commands.includes(command)) this._commands.push(command);
+      this._commandPaths.set(commandName, fullPath);
+      if (!this._commands.includes(commandName)) this._commands.push(commandName);
       return true;
     }
     return false;
@@ -551,8 +553,10 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
   _resolvePermissionTier(command: string): PermissionTier {
     // No permissions config → fully unrestricted (backward compatible)
     if (Object.keys(this._permissions).length === 0) return 'full';
+    // Normalize path-based commands (/bin/ls → ls) so tier lookup matches basename keys
+    const commandName = command.includes('/') ? basename(command) : command;
     // User config checked first (exact, glob, *), defaults as fallback layer
-    return resolvePermissionTier(command, this._permissions, DEFAULT_FIRST_PARTY_TIERS);
+    return resolvePermissionTier(commandName, this._permissions, DEFAULT_FIRST_PARTY_TIERS);
   }
 
   /** Resolve binary path for a command. */
@@ -838,6 +842,15 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
         }
         case 'kill': {
           kernel.kill(msg.args.pid as number, msg.args.signal as number);
+          break;
+        }
+        case 'getcwd': {
+          // Return the calling process's current working directory from the kernel process table
+          const entry = kernel.processTable.get(pid);
+          const cwdStr = entry?.cwd ?? '/';
+          const cwdBytes = new TextEncoder().encode(cwdStr);
+          data.set(cwdBytes, 0);
+          responseData = cwdBytes;
           break;
         }
         case 'sigaction': {

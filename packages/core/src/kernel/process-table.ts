@@ -6,8 +6,8 @@
  * shell can waitpid on a Node child process.
  */
 
-import type { DriverProcess, ProcessContext, ProcessEntry, ProcessInfo, SignalHandler, ProcessSignalState } from "./types.js";
-import { KernelError, SIGCHLD, SIGALRM, SIGCONT, SIGSTOP, SIGTSTP, SIGKILL, WNOHANG, SA_RESTART, SA_RESETHAND, SIG_BLOCK, SIG_UNBLOCK, SIG_SETMASK } from "./types.js";
+import type { DriverProcess, ProcessContext, ProcessEntry, ProcessInfo, SignalHandler, ProcessSignalState, KernelLogger } from "./types.js";
+import { KernelError, SIGCHLD, SIGALRM, SIGCONT, SIGSTOP, SIGTSTP, SIGKILL, SIGWINCH, WNOHANG, SA_RESTART, SA_RESETHAND, SIG_BLOCK, SIG_UNBLOCK, SIG_SETMASK, noopKernelLogger } from "./types.js";
 import { WaitQueue } from "./wait.js";
 import { encodeExitStatus, encodeSignalStatus } from "./wstatus.js";
 
@@ -20,12 +20,17 @@ export class ProcessTable {
 	private zombieTimers: Map<number, ReturnType<typeof setTimeout>> = new Map();
 	/** Pending alarm timers per PID: { timer, scheduledAt (ms epoch) }. */
 	private alarmTimers: Map<number, { timer: ReturnType<typeof setTimeout>; scheduledAt: number; seconds: number }> = new Map();
+	private log: KernelLogger;
 
 	/** Called when a process exits, before waiters are notified. */
 	onProcessExit: ((pid: number) => void) | null = null;
 
 	/** Called when a zombie process is reaped (removed from the table). */
 	onProcessReap: ((pid: number) => void) | null = null;
+
+	constructor(logger?: KernelLogger) {
+		this.log = logger ?? noopKernelLogger;
+	}
 
 	/** Atomically allocate the next PID. */
 	allocatePid(): number {
@@ -77,6 +82,7 @@ export class ProcessTable {
 			driverProcess,
 		};
 		this.entries.set(pid, entry);
+		this.log.debug({ pid, ppid: ctx.ppid, pgid, sid, driver, command, args }, "process registered");
 
 		// Wire up exit callback to mark process as exited
 		driverProcess.onExit = (code: number) => {
@@ -110,6 +116,11 @@ export class ProcessTable {
 		if (!entry) return;
 		if (entry.status === "exited") return;
 
+		this.log.debug({
+			pid, exitCode, command: entry.command,
+			termSignal: entry.termSignal,
+			reason: entry.termSignal > 0 ? "signal" : "normal",
+		}, "process exited");
 		entry.status = "exited";
 		entry.exitCode = exitCode;
 		entry.exitReason = entry.termSignal > 0 ? "signal" : "normal";
@@ -198,6 +209,8 @@ export class ProcessTable {
 			throw new KernelError("EINVAL", `invalid signal ${signal}`);
 		}
 
+		this.log.debug({ pid, signal }, "kill");
+
 		if (pid < 0) {
 			// Process group kill
 			const pgid = -pid;
@@ -230,6 +243,7 @@ export class ProcessTable {
 	 */
 	private deliverSignal(entry: ProcessEntry, signal: number): void {
 		const { signalState } = entry;
+		this.log.trace({ pid: entry.pid, signal, command: entry.command }, "deliver signal");
 
 		// SIGKILL and SIGSTOP always use default action — cannot be caught/blocked/ignored
 		if (signal === SIGKILL || signal === SIGSTOP) {
@@ -325,15 +339,18 @@ export class ProcessTable {
 	/** Apply the kernel default action for a signal. */
 	private applyDefaultAction(entry: ProcessEntry, signal: number): void {
 		if (signal === SIGTSTP || signal === SIGSTOP) {
+			this.log.debug({ pid: entry.pid, signal, action: "stop" }, "signal default action");
 			this.stop(entry.pid);
 			entry.driverProcess.kill(signal);
 		} else if (signal === SIGCONT) {
+			this.log.debug({ pid: entry.pid, signal, action: "continue" }, "signal default action");
 			this.cont(entry.pid);
 			entry.driverProcess.kill(signal);
-		} else if (signal === SIGCHLD) {
-			// Default SIGCHLD action: ignore (don't terminate)
+		} else if (signal === SIGCHLD || signal === SIGWINCH) {
+			// Default action: ignore (POSIX — SIGCHLD and SIGWINCH don't terminate)
 			return;
 		} else {
+			this.log.debug({ pid: entry.pid, signal, action: "terminate", command: entry.command }, "signal default action");
 			entry.termSignal = signal;
 			entry.driverProcess.kill(signal);
 		}

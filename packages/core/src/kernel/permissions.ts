@@ -32,6 +32,35 @@ function fsError(op: string, path?: string, reason?: string): KernelError {
 }
 
 /**
+ * Normalize a filesystem path for permission checks.
+ *
+ * Resolves `.` and `..` components and collapses repeated slashes so that
+ * permission callbacks always see the canonical path. Without this,
+ * `/home/user/project/../../../etc/passwd` would pass a naive
+ * `startsWith('/home/user/project')` check.
+ */
+export function normalizeFsPath(p: string): string {
+	// Collapse repeated slashes
+	let cleaned = p.replace(/\/+/g, "/");
+	if (cleaned.length > 1 && cleaned.endsWith("/")) {
+		cleaned = cleaned.slice(0, -1);
+	}
+	const isAbsolute = cleaned.startsWith("/");
+	const parts = cleaned.split("/");
+	const resolved: string[] = [];
+	for (const seg of parts) {
+		if (seg === "" || seg === ".") continue;
+		if (seg === "..") {
+			if (resolved.length > 0) resolved.pop();
+		} else {
+			resolved.push(seg);
+		}
+	}
+	const result = (isAbsolute ? "/" : "") + resolved.join("/");
+	return result || (isAbsolute ? "/" : ".");
+}
+
+/**
  * Wrap a VFS with permission checks on every operation.
  */
 export function wrapFileSystem(
@@ -39,7 +68,7 @@ export function wrapFileSystem(
 	permissions?: Permissions,
 ): VirtualFileSystem {
 	const check = (op: FsAccessRequest["op"], path: string) => {
-		checkPermission(permissions?.fs, { op, path }, (req, reason) =>
+		checkPermission(permissions?.fs, { op, path: normalizeFsPath(path) }, (req, reason) =>
 			fsError(op, req.path, reason),
 		);
 	};

@@ -163,6 +163,35 @@ const driver = createNodeDriver({
 | `dnsLookup(hostname)` | `Promise<DnsResult>` | DNS resolution |
 | `httpRequest(url, options?)` | `Promise<HttpResponse>` | Low-level HTTP request |
 
+## Loopback RPC exemptions
+
+The default network adapter blocks all loopback/private-IP requests as SSRF protection. To allow sandbox code to call a host-side RPC server on specific loopback ports, use `loopbackExemptPorts`:
+
+```ts
+import { createNodeDriver, allowAllNetwork } from "secure-exec";
+
+const driver = createNodeDriver({
+  useDefaultNetwork: true,
+  loopbackExemptPorts: [rpcPort],
+  permissions: { ...allowAllNetwork },
+});
+```
+
+Only the listed ports are exempt — all other loopback and private-IP requests remain blocked.
+
+If you need more control (e.g. dynamic port discovery), construct the adapter directly:
+
+```ts
+import { createNodeDriver, createDefaultNetworkAdapter, allowAllNetwork } from "secure-exec";
+
+const driver = createNodeDriver({
+  networkAdapter: createDefaultNetworkAdapter({
+    initialExemptPorts: [rpcPort],
+  }),
+  permissions: { ...allowAllNetwork },
+});
+```
+
 ## Permission gating
 
 Use a function to filter requests:

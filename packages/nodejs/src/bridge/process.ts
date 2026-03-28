@@ -59,6 +59,10 @@ export interface ProcessConfig {
   stdinIsTTY?: boolean;
   stdoutIsTTY?: boolean;
   stderrIsTTY?: boolean;
+  /** Terminal columns (from PTY dimensions). */
+  cols?: number;
+  /** Terminal rows (from PTY dimensions). */
+  rows?: number;
 }
 
 // Declare config and host bridge globals
@@ -389,7 +393,7 @@ interface StdioWriteStream {
 
 // Lazy TTY flag readers — __runtimeTtyConfig is set by postRestoreScript
 // (cannot use _processConfig because InjectGlobals overwrites it later)
-declare const __runtimeTtyConfig: { stdinIsTTY?: boolean; stdoutIsTTY?: boolean; stderrIsTTY?: boolean } | undefined;
+declare const __runtimeTtyConfig: { stdinIsTTY?: boolean; stdoutIsTTY?: boolean; stderrIsTTY?: boolean; cols?: number; rows?: number } | undefined;
 function _getStdinIsTTY(): boolean {
   return (typeof __runtimeTtyConfig !== "undefined" && __runtimeTtyConfig.stdinIsTTY) || false;
 }
@@ -489,8 +493,12 @@ function createStdioWriteStream(options: {
     },
     writable: true,
     get isTTY(): boolean { return options.isTTY(); },
-    columns: 80,
-    rows: 24,
+    get columns(): number {
+      return (typeof __runtimeTtyConfig !== "undefined" && __runtimeTtyConfig.cols) || 80;
+    },
+    get rows(): number {
+      return (typeof __runtimeTtyConfig !== "undefined" && __runtimeTtyConfig.rows) || 24;
+    },
   };
 
   return stream;

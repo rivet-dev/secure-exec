@@ -71,16 +71,18 @@ All host capabilities are deny-by-default. You opt in to what sandboxed code can
 Two methods for running sandboxed code:
 
 ```ts
-// exec() runs code for side effects, returns an exit code
+// exec() — process-style execution with stdout/stderr observation
 const execResult = await runtime.exec("console.log('hello')");
 console.log(execResult.code); // 0
 
-// run() runs code and returns the default export
+// run() — export-based evaluation, returns computed values
 const runResult = await runtime.run<{ default: number }>(
   "export default 2 + 2"
 );
 console.log(runResult.exports?.default); // 4
 ```
+
+Use `exec()` for automation loops, CLI-style output capture, and per-call environment overrides. Use `run()` when the sandbox should return a value via `export`. See [exec vs run](/runtimes/node#exec-vs-run) for the full comparison.
 
 ## Capture output
 

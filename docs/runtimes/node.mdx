@@ -67,31 +67,100 @@ By default, all runtimes share a single V8 child process. You can pass a dedicat
 
 ## exec vs run
 
-Use `exec()` when you care about side effects (logging, file writes) but don't need a return value.
+`NodeRuntime` exposes two execution methods with different signatures and intended use cases:
 
 ```ts
-const result = await runtime.exec("const label = 'done'; console.log(label)");
-console.log(result.code); // 0
+// Process-style execution — observe stdout/stderr, set env/cwd/stdin
+exec(code: string, options?: ExecOptions): Promise<ExecResult>
+
+// Export-based evaluation — get computed values back
+run<T>(code: string, filePath?: string): Promise<RunResult<T>>
 ```
 
-Use `run()` when you need a value back. The sandboxed code should use `export default`.
+| | `exec()` | `run()` |
+|---|---|---|
+| **Returns** | `{ code, errorMessage? }` | `{ code, errorMessage?, exports? }` |
+| **Per-call `onStdio`** | Yes | No (use runtime-level hook) |
+| **Per-call `env` / `cwd` / `stdin`** | Yes | No |
+| **Best for** | Side effects, CLI-style output, automation loops | Getting computed values back into the host |
+
+### When to use `exec()`
+
+Use `exec()` when sandboxed code produces **output you need to observe** or when you need per-call control over the execution environment. This is the right choice for AI SDK tool loops, code interpreters, and any integration where the result is communicated through `console.log` rather than `export`.
 
 ```ts
+// AI SDK tool loop — capture stdout from each step
+for (const step of toolSteps) {
+  const result = await runtime.exec(step.code, {
+    onStdio: (e) => appendToToolResult(e.message),
+    env: { API_KEY: step.apiKey },
+    cwd: "/workspace",
+  });
+  if (result.code !== 0) handleError(result);
+}
+```
+
+### When to use `run()`
+
+Use `run()` when sandboxed code **exports a value** you need in the host. The sandbox code uses `export default` or named exports, and the host reads them from `result.exports`.
+
+```ts
+// Evaluate a user-provided expression and get the result
 const result = await runtime.run<{ default: number }>("export default 40 + 2");
 console.log(result.exports?.default); // 42
 ```
+
+<Tip>
+  If you find yourself parsing `console.log` output to extract a value, switch to `run()` with an `export`. If you need to watch a stream of output lines, switch to `exec()` with `onStdio`.
+</Tip>
 
 ## Capturing output
 
 Console output is not buffered into the result. Use the `onStdio` hook to capture it.
 
+The per-execution `onStdio` option is available on `exec()` only. To capture output from `run()`, set a runtime-level hook:
+
 ```ts
+// Per-execution hook (exec only)
 const logs: string[] = [];
 await runtime.exec("console.log('hello'); console.error('oops')", {
   onStdio: (event) => logs.push(`[${event.channel}] ${event.message}`),
 });
 // logs: ["[stdout] hello", "[stderr] oops"]
+
+// Runtime-level hook (applies to both exec and run)
+const runtime = new NodeRuntime({
+  systemDriver: createNodeDriver(),
+  runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+  onStdio: (event) => console.log(event.message),
+});
 ```
+
+## Lifecycle
+
+A single `NodeRuntime` instance is designed to be reused across many `.exec()` and `.run()` calls. Each call creates a fresh V8 isolate session internally, so per-execution state (module cache, budgets) is automatically reset while the underlying V8 process is reused efficiently.
+
+```ts
+// Recommended: create once, call many times, dispose at the end
+const runtime = new NodeRuntime({
+  systemDriver: createNodeDriver(),
+  runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+});
+
+// AI SDK tool loop — each step reuses the same runtime
+for (const step of toolSteps) {
+  const result = await runtime.exec(step.code, {
+    onStdio: (e) => log(e.message),
+  });
+}
+
+// Clean up when the session is over
+runtime.dispose();
+```
+
+Do **not** dispose and recreate the runtime between sequential calls. Calling `.exec()` or `.run()` on a disposed runtime throws `"NodeExecutionDriver has been disposed"`.
+
+`dispose()` is synchronous and immediate — it kills active child processes and clears timers. Use `terminate()` (async) when you need to wait for graceful HTTP server shutdown before cleanup.
 
 ## TypeScript workflows
 

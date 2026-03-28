@@ -1,5 +1,22 @@
+/**
+ * Pi SDK sandbox tool integration — mock-provider coverage.
+ *
+ * Coverage matrix axes proved by this file (mock LLM, deterministic):
+ *
+ *   [subprocess/bash]       bash tool via sandbox child_process bridge
+ *   [filesystem mutation]   write tool (create) + edit tool (modify) via sandbox fs bridge
+ *
+ * Limitation: these tests use a mock LLM server, not a real provider.
+ * Real-provider session execution is covered separately by
+ * pi-sdk-real-provider.test.ts (opt-in, read tool only).
+ *
+ * All tests run the unmodified @mariozechner/pi-coding-agent package
+ * inside NodeRuntime — no Pi patches, host-spawn fallbacks, or
+ * Pi-specific runtime exceptions.
+ */
+
 import { existsSync } from "node:fs";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -51,7 +68,14 @@ function parseLastJsonLine(stdout: string): Record<string, unknown> {
 	throw new Error(`sandbox produced no trailing JSON object: ${JSON.stringify(stdout)}`);
 }
 
-function buildSandboxSource(opts: { workDir: string; agentDir: string }): string {
+function buildSandboxSource(opts: {
+	workDir: string;
+	agentDir: string;
+	initialMessage?: string;
+}): string {
+	const message =
+		opts.initialMessage ??
+		"Run pwd with the bash tool and reply with the exact output only.";
 	return [
 		`const workDir = ${JSON.stringify(opts.workDir)};`,
 		`const agentDir = ${JSON.stringify(opts.agentDir)};`,
@@ -84,7 +108,7 @@ function buildSandboxSource(opts: { workDir: string; agentDir: string }): string
 		"  });",
 		"  await pi.runPrintMode(session, {",
 		"    mode: 'text',",
-		"    initialMessage: 'Run pwd with the bash tool and reply with the exact output only.',",
+		`    initialMessage: ${JSON.stringify(message)},`,
 		"  });",
 		"  console.log(JSON.stringify({",
 		"    ok: true,",
@@ -107,85 +131,87 @@ function buildSandboxSource(opts: { workDir: string; agentDir: string }): string
 	].join("\n");
 }
 
-describe.skipIf(skipUnlessPiInstalled())("Pi SDK sandbox tool integration", () => {
-	let runtime: NodeRuntime | undefined;
+describe.skipIf(skipUnlessPiInstalled())("Pi SDK sandbox tool integration (mock-provider)", () => {
 	let mockServer: MockLlmServerHandle | undefined;
-	let workDir: string | undefined;
+	const cleanups: Array<() => Promise<void>> = [];
 
 	beforeAll(async () => {
 		mockServer = await createMockLlmServer([]);
 	}, 15_000);
 
 	afterAll(async () => {
-		await runtime?.terminate();
+		for (const cleanup of cleanups) await cleanup();
 		await mockServer?.close();
-		if (workDir) {
-			await rm(workDir, { recursive: true, force: true });
-		}
 	});
 
-	it(
-		"executes Pi bash tool end-to-end inside NodeRuntime without /bin/bash resolution failures",
-		async () => {
-			workDir = await mkdtemp(path.join(tmpdir(), "pi-sdk-tool-integration-"));
-			const agentDir = path.join(workDir, ".pi", "agent");
-			await mkdir(agentDir, { recursive: true });
-			await writeFile(
-				path.join(agentDir, "models.json"),
-				JSON.stringify(
-					{
-						providers: {
-							anthropic: {
-								baseUrl: `http://127.0.0.1:${mockServer!.port}`,
-							},
+	/** Scaffold a temp workDir with mock-pointed agent config; returns cleanup handle. */
+	async function scaffoldWorkDir(): Promise<{ workDir: string; agentDir: string }> {
+		const workDir = await mkdtemp(path.join(tmpdir(), "pi-sdk-tool-integration-"));
+		const agentDir = path.join(workDir, ".pi", "agent");
+		await mkdir(agentDir, { recursive: true });
+		await writeFile(
+			path.join(agentDir, "models.json"),
+			JSON.stringify(
+				{
+					providers: {
+						anthropic: {
+							baseUrl: `http://127.0.0.1:${mockServer!.port}`,
 						},
 					},
-					null,
-					2,
-				),
-			);
+				},
+				null,
+				2,
+			),
+		);
+		cleanups.push(async () => rm(workDir, { recursive: true, force: true }));
+		return { workDir, agentDir };
+	}
+
+	/** Create a fresh NodeRuntime wired to host FS + network. */
+	function createRuntime(stdio: { stdout: string[]; stderr: string[] }): NodeRuntime {
+		const runtime = new NodeRuntime({
+			onStdio: (event) => {
+				if (event.channel === "stdout") stdio.stdout.push(event.message);
+				if (event.channel === "stderr") stdio.stderr.push(event.message);
+			},
+			systemDriver: createNodeDriver({
+				filesystem: new NodeFileSystem(),
+				moduleAccess: { cwd: SECURE_EXEC_ROOT },
+				permissions: allowAll,
+				useDefaultNetwork: true,
+			}),
+			runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+		});
+		cleanups.push(async () => runtime.terminate());
+		return runtime;
+	}
+
+	// --- Matrix axis: subprocess/bash (mock-provider) ---
+	it(
+		"[subprocess/bash] executes Pi bash tool end-to-end inside NodeRuntime",
+		async () => {
+			const { workDir, agentDir } = await scaffoldWorkDir();
 			mockServer!.reset([
 				{ type: "tool_use", name: "bash", input: { command: "pwd" } },
 				{ type: "text", text: workDir },
 			]);
 
-			const stdout: string[] = [];
-			const stderr: string[] = [];
-
-			runtime = new NodeRuntime({
-				onStdio: (event) => {
-					if (event.channel === "stdout") stdout.push(event.message);
-					if (event.channel === "stderr") stderr.push(event.message);
-				},
-				systemDriver: createNodeDriver({
-					filesystem: new NodeFileSystem(),
-					moduleAccess: { cwd: SECURE_EXEC_ROOT },
-					permissions: allowAll,
-					useDefaultNetwork: true,
-				}),
-				runtimeDriverFactory: createNodeRuntimeDriverFactory(),
-			});
+			const stdio = { stdout: [] as string[], stderr: [] as string[] };
+			const runtime = createRuntime(stdio);
 
 			const result = await runtime.exec(
-				buildSandboxSource({
-					workDir,
-					agentDir,
-				}),
+				buildSandboxSource({ workDir, agentDir }),
 				{
 					cwd: workDir,
 					filePath: "/entry.mjs",
-					env: {
-						HOME: workDir,
-						NO_COLOR: "1",
-						ANTHROPIC_API_KEY: "test-key",
-					},
+					env: { HOME: workDir, NO_COLOR: "1", ANTHROPIC_API_KEY: "test-key" },
 				},
 			);
 
-			expect(result.code, stderr.join("")).toBe(0);
+			expect(result.code, stdio.stderr.join("")).toBe(0);
 
-			const combinedStdout = stdout.join("");
-			const combinedStderr = stderr.join("");
+			const combinedStdout = stdio.stdout.join("");
+			const combinedStderr = stdio.stderr.join("");
 			const payload = parseLastJsonLine(combinedStdout);
 			expect(payload.ok, JSON.stringify(payload)).toBe(true);
 			expect(combinedStdout).toContain(workDir);
@@ -206,6 +232,144 @@ describe.skipIf(skipUnlessPiInstalled())("Pi SDK sandbox tool integration", () =
 					(event) => event.toolName === "bash" && event.type === "tool_execution_end",
 				),
 			).toBe(true);
+		},
+		60_000,
+	);
+
+	// --- Matrix axis: filesystem mutation / write (mock-provider) ---
+	it(
+		"[filesystem/write] creates a file through Pi write tool and sandbox fs bridge",
+		async () => {
+			const { workDir, agentDir } = await scaffoldWorkDir();
+			const targetFile = path.join(workDir, "created-by-pi.txt");
+			const fileContent = "hello from pi sandbox write tool";
+
+			// Mock: Pi calls write tool, then responds with text summary
+			mockServer!.reset([
+				{
+					type: "tool_use",
+					name: "write",
+					input: { path: targetFile, content: fileContent },
+				},
+				{ type: "text", text: "File created successfully." },
+			]);
+
+			const stdio = { stdout: [] as string[], stderr: [] as string[] };
+			const runtime = createRuntime(stdio);
+
+			const result = await runtime.exec(
+				buildSandboxSource({
+					workDir,
+					agentDir,
+					initialMessage: `Create a file at ${targetFile}`,
+				}),
+				{
+					cwd: workDir,
+					filePath: "/entry.mjs",
+					env: { HOME: workDir, NO_COLOR: "1", ANTHROPIC_API_KEY: "test-key" },
+				},
+			);
+
+			expect(result.code, stdio.stderr.join("")).toBe(0);
+
+			const payload = parseLastJsonLine(stdio.stdout.join(""));
+			expect(payload.ok, JSON.stringify(payload)).toBe(true);
+
+			// Verify write tool events
+			const toolEvents = Array.isArray(payload.toolEvents)
+				? (payload.toolEvents as Array<Record<string, unknown>>)
+				: [];
+			expect(
+				toolEvents.some(
+					(e) => e.toolName === "write" && e.type === "tool_execution_start",
+				),
+				"write tool_execution_start event missing",
+			).toBe(true);
+			expect(
+				toolEvents.some(
+					(e) =>
+						e.toolName === "write" &&
+						e.type === "tool_execution_end" &&
+						e.isError === false,
+				),
+				"write tool_execution_end event missing or errored",
+			).toBe(true);
+
+			// Verify file was actually created on the host filesystem
+			expect(existsSync(targetFile), "file was not created on disk").toBe(true);
+			const written = await readFile(targetFile, "utf8");
+			expect(written).toBe(fileContent);
+		},
+		60_000,
+	);
+
+	// --- Matrix axis: filesystem mutation / edit (mock-provider) ---
+	it(
+		"[filesystem/edit] modifies an existing file through Pi edit tool and sandbox fs bridge",
+		async () => {
+			const { workDir, agentDir } = await scaffoldWorkDir();
+			const targetFile = path.join(workDir, "edit-target.txt");
+			const originalContent = "line one\noriginal content\nline three\n";
+			const oldText = "original content";
+			const newText = "modified by pi edit tool";
+
+			// Pre-create the file that the edit tool will modify
+			await writeFile(targetFile, originalContent);
+
+			// Mock: Pi calls edit tool, then responds with text summary
+			mockServer!.reset([
+				{
+					type: "tool_use",
+					name: "edit",
+					input: { path: targetFile, oldText, newText },
+				},
+				{ type: "text", text: "File edited successfully." },
+			]);
+
+			const stdio = { stdout: [] as string[], stderr: [] as string[] };
+			const runtime = createRuntime(stdio);
+
+			const result = await runtime.exec(
+				buildSandboxSource({
+					workDir,
+					agentDir,
+					initialMessage: `Edit the file at ${targetFile}`,
+				}),
+				{
+					cwd: workDir,
+					filePath: "/entry.mjs",
+					env: { HOME: workDir, NO_COLOR: "1", ANTHROPIC_API_KEY: "test-key" },
+				},
+			);
+
+			expect(result.code, stdio.stderr.join("")).toBe(0);
+
+			const payload = parseLastJsonLine(stdio.stdout.join(""));
+			expect(payload.ok, JSON.stringify(payload)).toBe(true);
+
+			// Verify edit tool events
+			const toolEvents = Array.isArray(payload.toolEvents)
+				? (payload.toolEvents as Array<Record<string, unknown>>)
+				: [];
+			expect(
+				toolEvents.some(
+					(e) => e.toolName === "edit" && e.type === "tool_execution_start",
+				),
+				"edit tool_execution_start event missing",
+			).toBe(true);
+			expect(
+				toolEvents.some(
+					(e) =>
+						e.toolName === "edit" &&
+						e.type === "tool_execution_end" &&
+						e.isError === false,
+				),
+				"edit tool_execution_end event missing or errored",
+			).toBe(true);
+
+			// Verify file was actually modified on disk
+			const edited = await readFile(targetFile, "utf8");
+			expect(edited).toBe("line one\nmodified by pi edit tool\nline three\n");
 		},
 		60_000,
 	);

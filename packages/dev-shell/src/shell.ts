@@ -5,6 +5,7 @@ import { createDevShellKernel } from "./kernel.js";
 
 interface CliOptions {
 	workDir?: string;
+	debugLogPath?: string;
 	mountPython: boolean;
 	mountWasm: boolean;
 	command: string;
@@ -15,11 +16,12 @@ function printUsage(): void {
 	console.error(
 		[
 			"Usage:",
-			"  secure-exec-dev-shell [--work-dir <path>] [--no-python] [--no-wasm] [--] [command] [args...]",
+			"  secure-exec-dev-shell [--work-dir <path>] [--debug-log <path>] [--no-python] [--no-wasm] [--] [command] [args...]",
 			"",
 			"Examples:",
 			"  just dev-shell",
 			"  just dev-shell --work-dir /tmp/demo",
+			"  just dev-shell --debug-log /tmp/dev-shell-debug.ndjson",
 			"  just dev-shell sh",
 			"  just dev-shell -- node -e 'console.log(process.version)'",
 		].join("\n"),
@@ -63,6 +65,12 @@ function parseArgs(argv: string[]): CliOptions {
 				}
 				options.workDir = path.resolve(normalizedArgv[++index]);
 				break;
+			case "--debug-log":
+				if (!normalizedArgv[index + 1]) {
+					throw new Error("--debug-log requires a file path");
+				}
+				options.debugLogPath = path.resolve(normalizedArgv[++index]);
+				break;
 			case "--no-python":
 				options.mountPython = false;
 				break;
@@ -90,6 +98,7 @@ const shell = await createDevShellKernel({
 	workDir: cli.workDir,
 	mountPython: cli.mountPython,
 	mountWasm: cli.mountWasm,
+	debugLogPath: cli.debugLogPath,
 });
 
 console.error(`secure-exec dev shell`);

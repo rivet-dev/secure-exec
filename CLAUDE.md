@@ -12,6 +12,9 @@
 
 - every publishable package must include a `README.md` with the standard format: title, tagline, and links to website, docs, and GitHub
 - if `package.json` has a `"files"` array, `"README.md"` must be listed in it
+- **no hardcoded monorepo/pnpm paths** — NEVER resolve dependencies at runtime using hardcoded relative paths into `node_modules/.pnpm/` or monorepo-relative `../../../node_modules/` walks; use `createRequire(import.meta.url).resolve("pkg/path")` or standard Node module resolution instead
+- **no phantom transitive dependencies** — if published runtime code calls `require.resolve("foo")` or `import("foo")`, `foo` MUST be declared in that package's `dependencies` (not just available transitively in the monorepo)
+- **`files` array must cover all runtime references** — if compiled `dist/` code resolves paths outside `dist/` at runtime (e.g., `../src/polyfills/`), those directories MUST be listed in the `"files"` array; verify with `pnpm pack --json` or `npm pack --dry-run` before publishing
 
 ## Testing Policy
 
@@ -24,6 +27,11 @@
 - real-provider NodeRuntime CLI/tool tests that need a mutable temp worktree must pair `moduleAccess` with a real host-backed base filesystem such as `new NodeFileSystem()`; `moduleAccess` alone makes projected packages readable but leaves sandbox tools unable to touch `/tmp` working files
 - e2e-docker fixtures connect to real Docker containers (Postgres, MySQL, Redis, SSH/SFTP) — skip gracefully via `skipUnlessDocker()` when Docker is unavailable
 - interactive/PTY tests must use `kernel.openShell()` with `@xterm/headless`, not host PTY via `script -qefc`
+- before fixing a reported runtime, CLI, SDK, or PTY bug, first reproduce the broken state and capture the exact visible output (stdout, stderr, event payloads, or terminal screen) in a regression or work note; do not start by guessing at the fix
+- terminal-output and PTY-rendering bugs must use snapshot-style assertions against exact strings or exact screen contents under fixed rows/cols, not loose substring checks
+- if expected terminal behavior is unclear, run the same flow on the host as a control and compare the sandbox transcript/screen against that host output before deciding what to fix
+- be liberal with structured debug logging for complex interactive or long-running sessions so later manual repros can be diagnosed from artifacts instead of memory
+- debug logging for complex sessions should go to a separate sink that does not contaminate stdout/stderr protocol output; prefer structured `pino` logs with enough context to reconstruct process lifecycle, PTY events, command routing, and failures, while redacting secrets
 - kernel blocking-I/O regressions should be proven through `packages/core/test/kernel/kernel-integration.test.ts` using real process-owned FDs via `KernelInterface` (`fdWrite`, `flock`, `fdPollWait`) rather than only manager-level unit tests
 - inode-lifetime/deferred-unlink kernel integration tests must use `InMemoryFileSystem` (or another inode-aware VFS) and await the kernel's POSIX-dir bootstrap; the default `createTestKernel()` `TestFileSystem` does not exercise inode-backed FD lifetime semantics
 - kernel signal-handler regressions should use a real spawned PID plus `KernelInterface.processTable` / `KernelInterface.socketTable`; unit `ProcessTable` coverage alone does not prove pending delivery or `SA_RESTART` behavior through the live kernel

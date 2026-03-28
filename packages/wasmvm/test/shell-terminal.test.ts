@@ -181,7 +181,7 @@ describe.skipIf(!hasWasmBinaries)("wasmvm-shell-terminal", () => {
 		);
 	});
 
-	it("ls / shows listing — directory entries rendered correctly", async () => {
+	it("ls / shows listing — directory entries include /bin from command registration", async () => {
 		const { kernel } = await createShellKernel();
 		harness = new TerminalHarness(kernel);
 
@@ -189,15 +189,23 @@ describe.skipIf(!hasWasmBinaries)("wasmvm-shell-terminal", () => {
 		await harness.type("ls /\n");
 		await harness.waitFor(PROMPT, 2);
 
-		expect(harness.screenshotTrimmed()).toBe(
-			[
-				`${PROMPT}ls /`,
-				// brush-shell warns about child PID retrieval (benign)
-				" WARN could not retrieve pid for child process",
-				"bin",
-				PROMPT,
-			].join("\n"),
-		);
+		const screen = harness.screenshotTrimmed();
+		// Kernel bootstraps standard POSIX directories (/tmp, /etc, /usr, …)
+		// and WasmVM mounts commands into /bin — verify key entries exist.
+		expect(screen).toContain("bin");
+		expect(screen).toContain("tmp");
+	});
+
+	it("/bin/printf resolves through shell PATH — path-based command dispatch works from interactive shell", async () => {
+		const { kernel } = await createShellKernel();
+		harness = new TerminalHarness(kernel);
+
+		await harness.waitFor(PROMPT);
+		await harness.type("/bin/printf 'path-dispatch-ok\\n'\n");
+		await harness.waitFor(PROMPT, 2);
+
+		const screen = harness.screenshotTrimmed();
+		expect(screen).toContain("path-dispatch-ok");
 	});
 
 	it("ls directory with known contents — mkdir + touch then ls shows expected entries", async () => {
@@ -425,5 +433,61 @@ describe.skipIf(!hasWasmBinaries)("wasmvm-shell-terminal", () => {
 			),
 		]);
 		expect(exitCode).toBe(0);
+	});
+
+	// -----------------------------------------------------------------------
+	// CWD propagation regressions (US-076)
+	// -----------------------------------------------------------------------
+
+	// Requires WASM binaries rebuilt with init_cwd.c override so getcwd()
+	// reads PWD from env at startup. brush-shell calls getcwd() to determine
+	// its initial cwd; without the override, __wasilibc_cwd stays "/".
+	it.skip("shell started with non-root cwd — 'pwd' builtin reports that cwd", async () => {
+		const { kernel, vfs } = await createShellKernel();
+		await vfs.createDir("/home");
+		await vfs.createDir("/home/user");
+		harness = new TerminalHarness(kernel, { cwd: "/home/user" });
+
+		await harness.waitFor(PROMPT);
+		await harness.type("pwd\n");
+		await harness.waitFor(PROMPT, 2);
+
+		const screen = harness.screenshotTrimmed();
+		expect(screen).toContain("/home/user");
+	});
+
+	it("cd then external /bin/pwd — spawned command inherits shell cwd via PWD env", async () => {
+		const { kernel, vfs } = await createShellKernel();
+		await vfs.createDir("/tmp");
+		await vfs.createDir("/tmp/work");
+		harness = new TerminalHarness(kernel);
+
+		await harness.waitFor(PROMPT);
+		await harness.type("cd /tmp/work\n");
+		await harness.waitFor(PROMPT, 2);
+		await harness.type("/bin/pwd\n");
+		await harness.waitFor(PROMPT, 3);
+
+		const screen = harness.screenshotTrimmed();
+		expect(screen).toContain("/tmp/work");
+	});
+
+	// Requires WASM binaries rebuilt with init_cwd.c override so getcwd()
+	// reads PWD from env. ls uses getcwd() to determine its working
+	// directory when called without arguments.
+	it.skip("cd then ls — spawned ls lists cwd contents, not root", async () => {
+		const { kernel, vfs } = await createShellKernel();
+		await vfs.createDir("/data");
+		await vfs.writeFile("/data/marker.txt", "x");
+		harness = new TerminalHarness(kernel);
+
+		await harness.waitFor(PROMPT);
+		await harness.type("cd /data\n");
+		await harness.waitFor(PROMPT, 2);
+		await harness.type("ls\n");
+		await harness.waitFor(PROMPT, 3);
+
+		const screen = harness.screenshotTrimmed();
+		expect(screen).toContain("marker.txt");
 	});
 });

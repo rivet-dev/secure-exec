@@ -311,6 +311,21 @@ describe('Dynamic module loading — integration', () => {
       await kernel.dispose();
     });
 
+    it('tryResolve normalizes path-based commands to basename before lookup', async () => {
+      const dir = await makeTempDir(['alpha']);
+      const driver = createWasmVmRuntime({ commandDirs: [dir] });
+      const mockKernel: Partial<KernelInterface> = {};
+      await driver.init(mockKernel as KernelInterface);
+
+      // Path-based tryResolve should normalize /bin/alpha → alpha
+      expect(driver.tryResolve('/bin/alpha')).toBe(true);
+      expect(driver.tryResolve('/usr/local/bin/alpha')).toBe(true);
+      // Bare name still works
+      expect(driver.tryResolve('alpha')).toBe(true);
+      // Nonexistent commands still return false
+      expect(driver.tryResolve('/bin/nonexistent')).toBe(false);
+    });
+
     it('tryResolve returning false for all drivers results in ENOENT', async () => {
       const dir = await makeTempDir(['ls']);
       const vfs = new SimpleVFS();

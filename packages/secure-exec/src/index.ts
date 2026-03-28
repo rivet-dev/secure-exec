@@ -28,11 +28,13 @@ export type {
 export {
 	createDefaultNetworkAdapter,
 	createNodeDriver,
+	createNodeHostCommandExecutor,
 	createNodeRuntimeDriverFactory,
 	NodeExecutionDriver,
 	NodeFileSystem,
 } from "@secure-exec/nodejs";
 export type {
+	DefaultNetworkAdapterOptions,
 	ModuleAccessOptions,
 	NodeRuntimeDriverFactoryOptions,
 } from "@secure-exec/nodejs";
