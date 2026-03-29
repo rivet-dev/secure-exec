@@ -93,6 +93,11 @@ impl ResponseReceiver for ReaderResponseReceiver {
 /// belongs to (since BridgeResponse has call_id but no session_id).
 pub type CallIdRouter = Arc<Mutex<HashMap<u64, String>>>;
 
+/// Shared call_id counter type. Sessions sharing a CallIdRouter must use the same
+/// counter to prevent call_id collisions that cause BridgeResponses to be delivered
+/// to the wrong session.
+pub type SharedCallIdCounter = Arc<AtomicU64>;
+
 /// Context for sync-blocking bridge calls from a V8 session.
 ///
 /// Holds the frame sender and response receiver, session ID, call_id counter,
@@ -105,8 +110,9 @@ pub struct BridgeCallContext {
     response_rx: Mutex<Box<dyn ResponseReceiver>>,
     /// Session ID included in every BridgeCall
     pub session_id: String,
-    /// Monotonically increasing call_id counter
-    next_call_id: AtomicU64,
+    /// Monotonically increasing call_id counter. Sessions sharing a CallIdRouter
+    /// must share the same counter (via Arc) to prevent call_id collisions.
+    next_call_id: Arc<AtomicU64>,
     /// Set of in-flight call_ids (for duplicate rejection)
     pending_calls: Mutex<HashSet<u64>>,
     /// Optional routing table for call_id → session_id mapping.
@@ -147,7 +153,7 @@ impl BridgeCallContext {
             sender: Box::new(StubFrameSender),
             response_rx: Mutex::new(Box::new(StubResponseReceiver)),
             session_id: "stub".into(),
-            next_call_id: AtomicU64::new(1),
+            next_call_id: Arc::new(AtomicU64::new(1)),
             pending_calls: Mutex::new(HashSet::new()),
             call_id_router: None,
         }
@@ -166,25 +172,27 @@ impl BridgeCallContext {
             }),
             response_rx: Mutex::new(Box::new(ReaderResponseReceiver::new(reader))),
             session_id,
-            next_call_id: AtomicU64::new(1),
+            next_call_id: Arc::new(AtomicU64::new(1)),
             pending_calls: Mutex::new(HashSet::new()),
             call_id_router: None,
         }
     }
 
-    /// Create a BridgeCallContext with a FrameSender, ResponseReceiver, and call_id routing table.
-    /// Used in production with ChannelFrameSender for lock-free per-session writes.
+    /// Create a BridgeCallContext with a FrameSender, ResponseReceiver, call_id routing table,
+    /// and shared call_id counter. All sessions sharing the same CallIdRouter must share
+    /// the same counter to prevent call_id collisions in the routing table.
     pub fn with_receiver(
         sender: Box<dyn FrameSender>,
         response_rx: Box<dyn ResponseReceiver>,
         session_id: String,
         router: CallIdRouter,
+        shared_call_id: SharedCallIdCounter,
     ) -> Self {
         BridgeCallContext {
             sender,
             response_rx: Mutex::new(response_rx),
             session_id,
-            next_call_id: AtomicU64::new(1),
+            next_call_id: shared_call_id,
             pending_calls: Mutex::new(HashSet::new()),
             call_id_router: Some(router),
         }

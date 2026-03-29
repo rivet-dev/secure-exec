@@ -490,6 +490,59 @@ describe('Node RuntimeDriver', () => {
       // Total must be exactly 3
       expect(stderr).toContain('TOTAL:3');
     });
+
+    it('concurrent streamStdin processes receive data independently', async () => {
+      const vfs = new SimpleVFS();
+      kernel = createKernel({ filesystem: vfs as any });
+      await kernel.mount(createNodeRuntime());
+
+      const stderrA: Uint8Array[] = [];
+      const stderrB: Uint8Array[] = [];
+
+      // Spawn two echo-stdin processes with streamStdin
+      const procA = kernel.spawn('node', ['-e', `
+        process.stdin.on('data', (d) => {
+          const text = typeof d === 'string' ? d : new TextDecoder().decode(d);
+          process.stderr.write('A:' + text.trim() + '\\n');
+        });
+      `], {
+        streamStdin: true,
+        onStderr: (data) => stderrA.push(data),
+      });
+
+      const procB = kernel.spawn('node', ['-e', `
+        process.stdin.on('data', (d) => {
+          const text = typeof d === 'string' ? d : new TextDecoder().decode(d);
+          process.stderr.write('B:' + text.trim() + '\\n');
+        });
+      `], {
+        streamStdin: true,
+        onStderr: (data) => stderrB.push(data),
+      });
+
+      // Wait for both to start
+      await new Promise(r => setTimeout(r, 500));
+
+      // Write to each process
+      const enc = new TextEncoder();
+      procA.writeStdin(enc.encode('hello-A\n'));
+      procB.writeStdin(enc.encode('hello-B\n'));
+
+      await new Promise(r => setTimeout(r, 500));
+
+      const outA = stderrA.map(c => new TextDecoder().decode(c)).join('');
+      const outB = stderrB.map(c => new TextDecoder().decode(c)).join('');
+
+      // Each process must receive only its own data
+      expect(outA).toContain('A:hello-A');
+      expect(outB).toContain('B:hello-B');
+      // Data must not cross between processes
+      expect(outA).not.toContain('hello-B');
+      expect(outB).not.toContain('hello-A');
+
+      procA.kill();
+      procB.kill();
+    });
   });
 
   describe('exploit/abuse paths', () => {

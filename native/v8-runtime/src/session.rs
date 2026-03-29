@@ -1,6 +1,7 @@
 // Session management: create/destroy sessions with V8 isolates on dedicated threads
 
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 
@@ -8,7 +9,7 @@ use crossbeam_channel::{Receiver, Sender};
 
 use crate::execution;
 use crate::ipc::ExecutionError;
-use crate::host_call::CallIdRouter;
+use crate::host_call::{CallIdRouter, SharedCallIdCounter};
 #[cfg(not(test))]
 use crate::host_call::{BridgeCallContext, ChannelFrameSender};
 use crate::ipc_binary::BinaryFrame;
@@ -66,6 +67,9 @@ pub struct SessionManager {
     ipc_tx: IpcSender,
     /// Call_id → session_id routing table for BridgeResponse dispatch
     call_id_router: CallIdRouter,
+    /// Shared call_id counter — all sessions use this to generate globally unique
+    /// call_ids, preventing collisions in the call_id_router
+    shared_call_id: SharedCallIdCounter,
     /// Shared snapshot cache for fast isolate creation from pre-compiled bridge code
     snapshot_cache: Arc<SnapshotCache>,
 }
@@ -83,6 +87,7 @@ impl SessionManager {
             slot_control: Arc::new((Mutex::new(0), Condvar::new())),
             ipc_tx,
             call_id_router,
+            shared_call_id: Arc::new(AtomicU64::new(1)),
             snapshot_cache,
         }
     }
@@ -112,6 +117,7 @@ impl SessionManager {
         let max = self.max_concurrency;
         let ipc_tx = self.ipc_tx.clone();
         let router = Arc::clone(&self.call_id_router);
+        let shared_call_id = Arc::clone(&self.shared_call_id);
         let snap_cache = Arc::clone(&self.snapshot_cache);
 
         let name_prefix = if session_id.len() > 8 {
@@ -130,6 +136,7 @@ impl SessionManager {
                     max,
                     ipc_tx,
                     router,
+                    shared_call_id,
                     snap_cache,
                 );
             })
@@ -268,6 +275,7 @@ fn session_thread(
     max_concurrency: usize,
     #[cfg_attr(test, allow(unused_variables))] ipc_tx: IpcSender,
     #[cfg_attr(test, allow(unused_variables))] call_id_router: CallIdRouter,
+    #[cfg_attr(test, allow(unused_variables))] shared_call_id: SharedCallIdCounter,
     #[cfg_attr(test, allow(unused_variables))] snapshot_cache: Arc<SnapshotCache>,
 ) {
     // Acquire concurrency slot (blocks if at capacity)
@@ -422,6 +430,7 @@ fn session_thread(
                             Box::new(channel_rx),
                             session_id.clone(),
                             Arc::clone(&call_id_router),
+                            Arc::clone(&shared_call_id),
                         );
 
                         // Replace stub bridge functions with real session-local ones
