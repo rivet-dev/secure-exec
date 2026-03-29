@@ -8,7 +8,7 @@
  * or other mounted runtimes.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import * as fsPromises from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import type {
@@ -404,7 +404,54 @@ class NodeRuntimeDriver implements RuntimeDriver {
   tryResolve(command: string): boolean {
     // Handle .js/.mjs/.cjs file paths as node scripts
     if (/\.[cm]?js$/.test(command)) return true;
+    // Handle bare commands resolvable via node_modules/.bin
+    if (this._resolveBinCommand(command) !== null) return true;
     return false;
+  }
+
+  /**
+   * Resolve a bare command name (e.g. 'pi') to a JS entry point via
+   * node_modules/.bin on the host filesystem. Returns the VFS path
+   * (e.g. '/root/node_modules/@pkg/dist/cli.js') or null if not found.
+   *
+   * Handles two formats:
+   * 1. pnpm shell wrappers: parse `"$basedir/<relative-path>.js"` from the script
+   * 2. npm/yarn symlinks or direct JS files: follow to the .js target
+   */
+  private _resolveBinCommand(command: string): string | null {
+    if (!this._moduleAccessCwd) return null;
+    const binPath = join(this._moduleAccessCwd, 'node_modules', '.bin', command);
+    try {
+      const content = readFileSync(binPath, 'utf-8');
+      // Direct Node.js script (#!/usr/bin/env node or #!/path/to/node)
+      if (/^#!.*\bnode\b/.test(content)) {
+        // The .bin file itself is a JS entry — resolve its real path
+        // in case it's a symlink (npm/yarn), then map to VFS path
+        const realPath = realpathSync(binPath);
+        const nmDir = join(this._moduleAccessCwd, 'node_modules');
+        if (realPath.startsWith(nmDir)) {
+          return '/root/node_modules/' + realPath.slice(nmDir.length + 1);
+        }
+        // Fallback: use the .bin path itself
+        return `/root/node_modules/.bin/${command}`;
+      }
+      // pnpm/yarn shell wrapper — extract JS path from: "$basedir/<path>.{js,mjs,cjs}"
+      const match = content.match(/"\$basedir\/([^"]+\.[cm]?js)"/);
+      if (match) {
+        // Resolve relative to node_modules/.bin/ on host
+        const resolved = resolve(
+          join(this._moduleAccessCwd, 'node_modules', '.bin'),
+          match[1],
+        );
+        const nmDir = join(this._moduleAccessCwd, 'node_modules');
+        if (resolved.startsWith(nmDir)) {
+          return '/root/node_modules/' + resolved.slice(nmDir.length + 1);
+        }
+      }
+    } catch {
+      // File doesn't exist or isn't readable
+    }
+    return null;
   }
 
   spawn(command: string, args: string[], ctx: ProcessContext): DriverProcess {
@@ -761,6 +808,12 @@ class NodeRuntimeDriver implements RuntimeDriver {
     // .js/.mjs/.cjs file path used as command — treat as `node <path> <args>`
     if (/\.[cm]?js$/.test(command)) {
       return this._resolveNodeArgs([command, ...args], kernel);
+    }
+
+    // Bare command — resolve from node_modules/.bin (e.g. 'pi' → '/root/node_modules/.../cli.js')
+    const binEntry = this._resolveBinCommand(command);
+    if (binEntry) {
+      return this._resolveNodeArgs([binEntry, ...args], kernel);
     }
 
     // 'node' command — parse args to find code/script

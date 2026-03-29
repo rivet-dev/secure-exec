@@ -7,6 +7,9 @@
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
+import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { createNodeRuntime } from '../src/kernel-runtime.ts';
 import type { NodeRuntimeOptions } from '../src/kernel-runtime.ts';
 import { createKernel } from '@secure-exec/core';
@@ -764,6 +767,117 @@ describe('Node RuntimeDriver', () => {
       expect(output).toContain('STEP:1');
       expect(output).toContain('STEP:2');
       expect(output).toContain('STEP:3');
+    });
+  });
+
+  describe('bare command resolution from node_modules/.bin', () => {
+    let kernel: Kernel;
+    let tmpDir: string;
+
+    function createMockBinDir() {
+      tmpDir = join(tmpdir(), `se-bin-test-${Date.now()}`);
+      const binDir = join(tmpDir, 'node_modules', '.bin');
+      const pkgDir = join(tmpDir, 'node_modules', 'my-tool', 'dist');
+      mkdirSync(binDir, { recursive: true });
+      mkdirSync(pkgDir, { recursive: true });
+      // Create a real JS entry file
+      writeFileSync(
+        join(pkgDir, 'cli.js'),
+        'console.log("hello from bare command");',
+      );
+      // Create a pnpm-style shell wrapper in .bin
+      writeFileSync(
+        join(binDir, 'my-tool'),
+        [
+          '#!/bin/sh',
+          'basedir=$(dirname "$(echo "$0" | sed -e \'s,\\\\,/,g\')")',
+          'exec node  "$basedir/../my-tool/dist/cli.js" "$@"',
+        ].join('\n'),
+        { mode: 0o755 },
+      );
+      return tmpDir;
+    }
+
+    afterEach(async () => {
+      await kernel?.dispose();
+      if (tmpDir) {
+        try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+      }
+    });
+
+    it('tryResolve returns true for bare command in node_modules/.bin', () => {
+      createMockBinDir();
+      const driver = createNodeRuntime({ moduleAccessCwd: tmpDir });
+      expect(driver.tryResolve!('my-tool')).toBe(true);
+    });
+
+    it('tryResolve returns false for unknown bare command', () => {
+      createMockBinDir();
+      const driver = createNodeRuntime({ moduleAccessCwd: tmpDir });
+      expect(driver.tryResolve!('nonexistent-tool')).toBe(false);
+    });
+
+    it('tryResolve returns false when moduleAccessCwd is not set', () => {
+      const driver = createNodeRuntime();
+      expect(driver.tryResolve!('my-tool')).toBe(false);
+    });
+
+    it('bare command executes the resolved JS entry point', async () => {
+      createMockBinDir();
+      const vfs = new SimpleVFS();
+      kernel = createKernel({ filesystem: vfs as any });
+      await kernel.mount(createNodeRuntime({ moduleAccessCwd: tmpDir }));
+
+      const chunks: Uint8Array[] = [];
+      const proc = kernel.spawn('my-tool', [], {
+        onStdout: (data) => chunks.push(data),
+      });
+      const code = await proc.wait();
+      expect(code).toBe(0);
+
+      const output = chunks.map(c => new TextDecoder().decode(c)).join('');
+      expect(output).toContain('hello from bare command');
+    });
+
+    it('bare command runs successfully even when args are passed', async () => {
+      createMockBinDir();
+      const vfs = new SimpleVFS();
+      kernel = createKernel({ filesystem: vfs as any });
+      await kernel.mount(createNodeRuntime({ moduleAccessCwd: tmpDir }));
+
+      // Spawn with extra args — should not crash
+      const chunks: Uint8Array[] = [];
+      const proc = kernel.spawn('my-tool', ['--flag', 'value'], {
+        onStdout: (data) => chunks.push(data),
+      });
+      const code = await proc.wait();
+      expect(code).toBe(0);
+
+      const output = chunks.map(c => new TextDecoder().decode(c)).join('');
+      expect(output).toContain('hello from bare command');
+    });
+
+    it('handles direct node shebang scripts (npm/yarn symlink style)', async () => {
+      createMockBinDir();
+      // Replace the shell wrapper with a direct node script
+      writeFileSync(
+        join(tmpDir, 'node_modules', '.bin', 'my-tool'),
+        '#!/usr/bin/env node\nconsole.log("direct node script");',
+        { mode: 0o755 },
+      );
+      const vfs = new SimpleVFS();
+      kernel = createKernel({ filesystem: vfs as any });
+      await kernel.mount(createNodeRuntime({ moduleAccessCwd: tmpDir }));
+
+      const chunks: Uint8Array[] = [];
+      const proc = kernel.spawn('my-tool', [], {
+        onStdout: (data) => chunks.push(data),
+      });
+      const code = await proc.wait();
+      expect(code).toBe(0);
+
+      const output = chunks.map(c => new TextDecoder().decode(c)).join('');
+      expect(output).toContain('direct node script');
     });
   });
 });
