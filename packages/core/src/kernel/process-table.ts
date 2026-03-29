@@ -64,6 +64,7 @@ export class ProcessTable {
 			exitCode: null,
 			exitReason: null,
 			termSignal: 0,
+			startTime: Date.now(),
 			exitTime: null,
 			env: { ...ctx.env },
 			cwd: ctx.cwd,
@@ -600,8 +601,12 @@ export class ProcessTable {
 				sid: entry.sid,
 				driver: entry.driver,
 				command: entry.command,
+				args: entry.args,
+				cwd: entry.cwd,
 				status: entry.status,
 				exitCode: entry.exitCode,
+				startTime: entry.startTime,
+				exitTime: entry.exitTime,
 			});
 		}
 		return result;

@@ -498,6 +498,8 @@ export interface ProcessEntry {
 	exitReason: "normal" | "signal" | null;
 	/** Signal that killed the process (0 = normal exit). */
 	termSignal: number;
+	/** Epoch ms when the process was registered. */
+	startTime: number;
 	exitTime: number | null;
 	env: Record<string, string>;
 	cwd: string;
@@ -519,8 +521,12 @@ export interface ProcessInfo {
 	sid: number;
 	driver: string;
 	command: string;
+	args: string[];
+	cwd: string;
 	status: "running" | "stopped" | "exited";
 	exitCode: number | null;
+	startTime: number;
+	exitTime: number | null;
 }
 
 // ---------------------------------------------------------------------------
