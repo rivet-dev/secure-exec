@@ -89,12 +89,12 @@ fn drain_pipe(fd: RawFd) {
     }
 }
 
-/// Generate a 128-bit random hex string from /dev/urandom
-fn random_hex_128() -> io::Result<String> {
-    let mut buf = [0u8; 16];
+/// Generate a 64-bit random hex string from /dev/urandom.
+fn random_hex_64() -> io::Result<String> {
+    let mut buf = [0u8; 8];
     let mut f = fs::File::open("/dev/urandom")?;
     f.read_exact(&mut buf)?;
-    Ok(buf.iter().fold(String::with_capacity(32), |mut s, b| {
+    Ok(buf.iter().fold(String::with_capacity(16), |mut s, b| {
         use std::fmt::Write;
         let _ = write!(s, "{:02x}", b);
         s
@@ -105,7 +105,7 @@ fn random_hex_128() -> io::Result<String> {
 /// Uses DirBuilder::mode() to set permissions atomically via mkdir(2), avoiding
 /// a TOCTOU race between create_dir and set_permissions.
 fn create_socket_dir() -> io::Result<(PathBuf, PathBuf)> {
-    let suffix = random_hex_128()?;
+    let suffix = random_hex_64()?;
     let tmpdir = std::env::temp_dir().join(format!("secure-exec-{}", suffix));
     fs::DirBuilder::new().mode(0o700).create(&tmpdir)?;
     let socket_path = tmpdir.join("secure-exec.sock");
@@ -314,7 +314,7 @@ fn main() {
                 .unwrap_or(4)
         });
 
-    // Create socket directory with 128-bit random suffix and 0700 permissions
+    // Create socket directory with 64-bit random suffix and 0700 permissions
     let (tmpdir, socket_path) = create_socket_dir().expect("failed to create socket directory");
 
     // Bind UDS listener
