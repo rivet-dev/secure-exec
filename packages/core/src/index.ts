@@ -299,6 +299,8 @@ export type {
 } from "./vfs/types.js";
 export { InMemoryMetadataStore } from "./vfs/memory-metadata.js";
 export { InMemoryBlockStore } from "./vfs/memory-block-store.js";
+export { createChunkedVfs } from "./vfs/chunked-vfs.js";
+export type { ChunkedVfsOptions } from "./vfs/chunked-vfs.js";
 
 // Filesystem helpers.
 export type { DirEntry, StatInfo } from "./fs-helpers.js";
