@@ -18,6 +18,7 @@ export interface CommandExecutor {
 		options: {
 			cwd?: string;
 			env?: Record<string, string>;
+			streamStdin?: boolean;
 			onStdout?: (data: Uint8Array) => void;
 			onStderr?: (data: Uint8Array) => void;
 		},

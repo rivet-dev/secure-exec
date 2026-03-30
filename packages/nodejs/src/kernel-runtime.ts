@@ -219,6 +219,7 @@ export function createKernelCommandExecutor(kernel: KernelInterface, parentPid: 
       options: {
         cwd?: string;
         env?: Record<string, string>;
+        streamStdin?: boolean;
         onStdout?: (data: Uint8Array) => void;
         onStderr?: (data: Uint8Array) => void;
       },
@@ -229,6 +230,7 @@ export function createKernelCommandExecutor(kernel: KernelInterface, parentPid: 
         ppid: parentPid,
         env: options.env ?? {},
         cwd: options.cwd ?? kernel.getcwd(parentPid),
+        streamStdin: options.streamStdin,
         onStdout: options.onStdout,
         onStderr: options.onStderr,
       });

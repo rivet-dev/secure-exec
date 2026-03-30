@@ -1162,6 +1162,22 @@ export class NodeExecutionDriver implements RuntimeDriver {
 							const fs = s.filesystem as any;
 							return typeof fs.toSandboxPath === "function" ? fs.toSandboxPath(p) : p;
 						},
+						additionalResolvePaths: (() => {
+							// Collect host paths from package roots for transitive dep resolution.
+							// Each package root's parent node_modules is a valid search path.
+							const fs = s.filesystem as any;
+							const roots: string[] = [];
+							if (Array.isArray(fs?.packageRoots)) {
+								for (const root of fs.packageRoots) {
+									if (root.hostPath) roots.push(root.hostPath);
+								}
+							}
+							// Also include moduleAccessCwd's node_modules
+							if (fs?.hostNodeModulesRoot) {
+								roots.push(fs.hostNodeModulesRoot);
+							}
+							return roots.length > 0 ? roots : undefined;
+						})(),
 					}),
 					...buildPtyBridgeHandlers({
 						onPtySetRawMode: s.onPtySetRawMode,

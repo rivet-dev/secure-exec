@@ -1068,6 +1068,7 @@ class KernelImpl implements Kernel {
 				return this.spawnManaged(command, args, {
 					env: ctx.env,
 					cwd: ctx.cwd,
+					streamStdin: ctx.streamStdin,
 					onStdout: ctx.onStdout,
 					onStderr: ctx.onStderr,
 					stdinFd: ctx.stdinFd,

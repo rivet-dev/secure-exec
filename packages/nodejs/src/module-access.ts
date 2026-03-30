@@ -225,7 +225,8 @@ export class ModuleAccessFileSystem implements VirtualFileSystem {
 			(a, b) => b.vmPath.length - a.vmPath.length,
 		);
 
-		// Expand allowed roots to include package root host paths.
+		// Expand allowed roots to include package root host paths and their
+		// sibling node_modules (for transitive dep resolution in pnpm).
 		for (const root of this.packageRoots) {
 			try {
 				const canonical = fsSync.realpathSync(root.hostPath);
@@ -242,6 +243,24 @@ export class ModuleAccessFileSystem implements VirtualFileSystem {
 						}
 					}
 				}
+				// Add the pnpm store root if the package is inside a .pnpm directory.
+				// This makes all transitive deps in the store accessible.
+				const canonicalParts = canonical.split(path.sep);
+				const pnpmIdx = canonicalParts.indexOf(".pnpm");
+				if (pnpmIdx >= 0) {
+					const pnpmStoreRoot = canonicalParts.slice(0, pnpmIdx + 1).join(path.sep);
+					if (!this.overlayAllowedRoots.includes(pnpmStoreRoot)) {
+						this.overlayAllowedRoots.push(pnpmStoreRoot);
+					}
+				}
+				// Also add the parent node_modules directory for non-pnpm setups.
+				const parentNm = path.dirname(root.hostPath);
+				try {
+					const canonicalParent = fsSync.realpathSync(parentNm);
+					if (!this.overlayAllowedRoots.includes(canonicalParent)) {
+						this.overlayAllowedRoots.push(canonicalParent);
+					}
+				} catch { /* skip */ }
 			} catch {
 				// Package root doesn't exist on host; skip.
 			}
@@ -310,19 +329,62 @@ export class ModuleAccessFileSystem implements VirtualFileSystem {
 		}
 
 		// Fall back to CWD-based node_modules.
-		if (!this.hostNodeModulesRoot) {
-			return null;
+		if (this.hostNodeModulesRoot) {
+			if (virtualPath === SANDBOX_NODE_MODULES_ROOT) {
+				return this.hostNodeModulesRoot;
+			}
+			const relative = path.posix
+				.relative(SANDBOX_NODE_MODULES_ROOT, virtualPath)
+				.replace(/^\/+/, "");
+			if (!relative) {
+				return this.hostNodeModulesRoot;
+			}
+			const candidate = path.join(this.hostNodeModulesRoot, ...relative.split("/"));
+			if (fsSync.existsSync(candidate)) {
+				return candidate;
+			}
 		}
-		if (virtualPath === SANDBOX_NODE_MODULES_ROOT) {
-			return this.hostNodeModulesRoot;
-		}
-		const relative = path.posix
+
+		// Fall back: resolve transitive dependencies from package root siblings.
+		// In pnpm, each package root sits in a node_modules/ dir alongside
+		// its transitive deps (e.g., .pnpm/pi-agent@.../node_modules/chalk).
+		// Check each package root's sibling node_modules for the requested package.
+		const nmRelative = path.posix
 			.relative(SANDBOX_NODE_MODULES_ROOT, virtualPath)
 			.replace(/^\/+/, "");
-		if (!relative) {
-			return this.hostNodeModulesRoot;
+		if (nmRelative) {
+			const relParts = nmRelative.split("/");
+			const pkgName = relParts[0].startsWith("@")
+				? relParts.slice(0, 2).join("/")
+				: relParts[0];
+			const subPath = relParts[0].startsWith("@")
+				? relParts.slice(2).join("/")
+				: relParts.slice(1).join("/");
+			for (const root of this.packageRoots) {
+				// root.hostPath is e.g. .../node_modules/@mariozechner/pi-coding-agent
+				// Its parent node_modules dir may contain chalk, undici, etc.
+				const siblingPkg = path.join(path.dirname(root.hostPath), pkgName);
+				try {
+					if (fsSync.existsSync(siblingPkg)) {
+						const realPkg = fsSync.realpathSync(siblingPkg);
+						return subPath ? path.join(realPkg, ...subPath.split("/")) : realPkg;
+					}
+				} catch { /* skip */ }
+				// Also try the parent's parent for scoped packages
+				const parentNm = path.dirname(path.dirname(root.hostPath));
+				if (parentNm !== path.dirname(root.hostPath)) {
+					const parentSibling = path.join(parentNm, pkgName);
+					try {
+						if (fsSync.existsSync(parentSibling)) {
+							const realPkg = fsSync.realpathSync(parentSibling);
+							return subPath ? path.join(realPkg, ...subPath.split("/")) : realPkg;
+						}
+					} catch { /* skip */ }
+				}
+			}
 		}
-		return path.join(this.hostNodeModulesRoot, ...relative.split("/"));
+
+		return null;
 	}
 
 	private isProjectedHostPath(pathValue: string): boolean {

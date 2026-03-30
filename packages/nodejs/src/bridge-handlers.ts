@@ -2855,6 +2855,8 @@ export interface ModuleResolutionBridgeDeps {
 	sandboxToHostPath: (sandboxPath: string) => string | null;
 	/** Translate host path back to sandbox path. */
 	hostToSandboxPath: (hostPath: string) => string;
+	/** Additional host directories used as require.resolve paths for transitive deps. */
+	additionalResolvePaths?: string[];
 }
 
 function normalizeModuleResolveContext(referrer: string): string {
@@ -3032,6 +3034,7 @@ export function buildModuleResolutionBridgeHandlers(
 
 		// Handle #-prefixed subpath imports (package.json "imports" field)
 		if (req.startsWith("#")) {
+			// Try host-side resolution first with the translated hostDir.
 			let resolved = resolvePackageImportSync(req, hostDir, resolveMode);
 			if (!resolved) {
 				// Fallback: try resolving from the realpath of hostDir.
@@ -3043,6 +3046,31 @@ export function buildModuleResolutionBridgeHandlers(
 						resolved = resolvePackageImportSync(req, realHostDir, resolveMode);
 					}
 				} catch { /* realpath failed, skip */ }
+			}
+			if (!resolved) {
+				// hostDir translation may have failed (e.g. transitive deps not
+				// in packageRoots). Try using require.resolve with additional
+				// resolve paths to find the owning package on the host.
+				const nmPrefix = "/root/node_modules/";
+				if (sandboxDir.startsWith(nmPrefix)) {
+					const rest = sandboxDir.slice(nmPrefix.length);
+					const parts = rest.split("/");
+					const pkgName = parts[0].startsWith("@")
+						? parts.slice(0, 2).join("/")
+						: parts[0];
+					const paths = deps.additionalResolvePaths ?? [];
+					for (const searchPath of paths) {
+						try {
+							const pkgJsonPath = hostRequire.resolve(
+								`${pkgName}/package.json`,
+								{ paths: [searchPath] },
+							);
+							const pkgDir = pathDirname(pkgJsonPath);
+							resolved = resolvePackageImportSync(req, pkgDir, resolveMode);
+							if (resolved) break;
+						} catch { /* not found in this path */ }
+					}
+				}
 			}
 			return resolved ? deps.hostToSandboxPath(resolved) : null;
 		}
@@ -3849,6 +3877,7 @@ export function buildChildProcessBridgeHandlers(deps: ChildProcessBridgeDeps): B
 		const proc = deps.commandExecutor.spawn(String(command), args, {
 			cwd: options.cwd,
 			env: childEnv,
+			streamStdin: true,
 			onStdout: (data) => dispatchEvent(sessionId, "stdout", data),
 			onStderr: (data) => dispatchEvent(sessionId, "stderr", data),
 		});
