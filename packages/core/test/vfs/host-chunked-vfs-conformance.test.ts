@@ -38,7 +38,7 @@ defineVfsConformanceTests({
 		pwrite: true,
 		mkdir: true,
 		removeDir: true,
-		fsync: false,
+		fsync: true,
 		copy: true,
 		readDirStat: true,
 	},

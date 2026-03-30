@@ -30,7 +30,7 @@ export type {
 
 // Module access filesystem
 export { ModuleAccessFileSystem } from "./module-access.js";
-export type { ModuleAccessOptions } from "./module-access.js";
+export type { ModuleAccessOptions, PackageRootMapping } from "./module-access.js";
 
 // Bridge handlers
 export {

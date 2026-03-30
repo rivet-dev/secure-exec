@@ -6,7 +6,7 @@ Draft
 
 ## Motivation
 
-secure-exec emulates Node.js inside an isolated-vm sandbox. The project-matrix
+secure-exec emulates Node.js inside a V8 isolate sandbox. The project-matrix
 test suite validates parity with host Node for library-level projects (Express,
 Fastify, dotenv, semver), but no test exercises a real-world **interactive CLI
 tool** end-to-end. Proving that production AI coding agents — Pi, Claude Code,

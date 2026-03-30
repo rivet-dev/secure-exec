@@ -1021,6 +1021,13 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
           responseData = bytes;
           break;
         }
+        case 'vfsChmod': {
+          await kernel.vfs.chmod(
+            scopedProcPath(pid, msg.args.path as string),
+            msg.args.mode as number,
+          );
+          break;
+        }
         // ----- Networking (TCP sockets via kernel socket table) -----
         case 'netSocket': {
           intResult = kernel.socketTable.create(

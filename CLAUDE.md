@@ -122,13 +122,10 @@
 - the goal for WasmVM is full POSIX compliance 1:1 — every command, syscall, and shell behavior should match a real Linux system exactly
 - WasmVM and Python are experimental surfaces in this repo
 - all docs for WasmVM, Python, or other experimental runtime features must live under the `Experimental` section of the docs navigation, not the main getting-started/reference sections
-- the WasmVM runtime requires standalone WASM binaries in `native/wasmvm/target/wasm32-wasip1/release/commands/`
-- build them locally: `cd native/wasmvm && make wasm` (requires Rust nightly + wasm32-wasip1 target + rust-src component + wasm-opt/binaryen)
-- the Rust toolchain is pinned in `native/wasmvm/rust-toolchain.toml` — rustup will auto-install it
-- CI builds the binaries before tests; a CI-only guard test in `packages/wasmvm/test/driver.test.ts` fails if they're missing
-- story-critical C-built Wasm fixtures also have CI-only availability guards in `packages/wasmvm/test/ci-artifact-availability.test.ts` and `packages/secure-exec/tests/kernel/ci-wasm-artifact-availability.test.ts`; if they fail, rebuild with `make -C native/wasmvm/c sysroot && make -C native/wasmvm/c programs`
+- **All WASM command source code (Rust crates and C programs) has been moved to the agent-os-registry repo at `~/agent-os-registry/`** (GitHub: `rivet-dev/agent-os-registry`). The `native/wasmvm/` directory in this repo is the original copy and should no longer be the primary source for building commands. Build from the registry instead: `cd ~/agent-os-registry && make build-wasm`.
+- the WasmVM runtime driver (`packages/wasmvm/`) still lives in this repo. It loads and executes WASM binaries but does not contain command source code.
 - tests gated behind `skipIf(!hasWasmBinaries)` or `skipUnlessWasmBuilt()` will skip locally if binaries aren't built
-- see `native/wasmvm/CLAUDE.md` for full build details and architecture
+- the `native/wasmvm/` directory remains for reference and WASI host import definitions (`crates/wasi-ext/`), patches (`patches/`), and the C sysroot build
 
 ## WasmVM Syscall Coverage
 

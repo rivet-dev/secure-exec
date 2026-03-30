@@ -7,25 +7,12 @@
 
 ## Prior Art
 
-### wasix-org/dash
-
-- **Repo:** https://github.com/wasix-org/dash
-- **What:** Dash (Debian Almquist Shell) compiled to WebAssembly using WASIX.
-- **Compliance:** Full POSIX sh.
-- **Blocker for wasmVM:** Requires WASIX (Wasmer's proprietary POSIX extension to WASI). wasmVM explicitly avoids Wasmer/WASIX dependencies.
-
 ### CoWasm / dash-wasm (sagemathinc)
 
 - **Repo:** https://github.com/sagemathinc/cowasm
 - **What:** Dash compiled to WASM using Zig's clang/LLVM cross-compilation. Part of the CoWasm project (BSD coreutils + dash in WASM).
 - **Compliance:** Full POSIX sh (it's real dash).
 - **Blocker for wasmVM:** Adds Zig toolchain dependency. Different build system from wasmVM's Rust/cargo workflow. Integration with wasmVM's VFS and process model would require custom WASI polyfills.
-
-### bash-wasm (Wasmer)
-
-- **What:** Full bash compiled to WASM, available at webassembly.sh.
-- **Compliance:** Full bash.
-- **Blocker for wasmVM:** Requires WASIX. Bash is large and complex. Same Wasmer dependency problem.
 
 ---
 
@@ -34,7 +21,7 @@
 The core issue with putting any shell (C or Rust) inside WASM:
 
 1. **WASI intentionally omits `fork()`, `exec()`, and `posix_spawn()`** — these are OS process abstractions that don't fit the WASM sandbox model.
-2. WASIX (Wasmer's extension) fakes these, but ties you to Wasmer's runtime.
+2. Some proprietary WASM extensions fake these, but tie you to a specific runtime.
 3. A shell running inside WASM cannot create child processes. It would need to call back to the JS host for every command spawn via custom WASI imports.
 4. At that point, the shell in WASM is just a parser/evaluator that forwards all execution to JS — the same architecture wasmVM already has, but with extra FFI overhead and a C dependency.
 
@@ -67,9 +54,9 @@ Theoretically possible but impractical:
 
 ## Verdict
 
-Compiling C shells to WASM is proven to work (CoWasm, wasix-org/dash), but every existing approach either:
+Compiling C shells to WASM is proven to work (CoWasm, etc.), but every existing approach either:
 
-- Depends on WASIX/Wasmer (violates wasmVM constraints), or
+- Depends on a proprietary runtime extension (violates wasmVM constraints), or
 - Requires gutting the execution backend anyway (at which point you've done the same work as building an evaluator from scratch, but in C instead of TypeScript/Rust)
 
 **A Rust shell library (like flash) that already targets WASM is a much cleaner path** than trying to wrangle C shell code into the wasmVM architecture.

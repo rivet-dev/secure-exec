@@ -231,7 +231,8 @@ export interface VersionMeta {
  * implement this interface to allow ChunkedVFS to snapshot, list, and
  * restore file versions.
  *
- * InMemoryMetadataStore does NOT implement versioning.
+ * Both SqliteMetadataStore and InMemoryMetadataStore implement versioning
+ * when the `versioning` option is enabled at construction time.
  */
 export interface FsMetadataStoreVersioning {
 	/** Snapshot current chunk map + size. Returns the version number. */

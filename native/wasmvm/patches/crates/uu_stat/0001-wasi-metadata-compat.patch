@@ -21,7 +21,7 @@
  use uucore::{entries, format_usage, show_error, show_warning};
  
  use clap::{Arg, ArgAction, ArgMatches, Command};
-@@ -23,10 +29,49 @@
+@@ -23,10 +29,51 @@
  use std::ffi::{OsStr, OsString};
  use std::fs::{FileType, Metadata};
  use std::io::Write;
@@ -47,9 +47,11 @@
 +    }
 +    impl MetadataExt for Metadata {
 +        fn mode(&self) -> u32 {
-+            let ft = self.file_type();
-+            let base = if ft.is_dir() { 0o40755 } else if ft.is_symlink() { 0o120777 } else { 0o100644 };
-+            if self.permissions().readonly() { base & !0o222 } else { base }
++            // Extract real POSIX mode from Permissions via host_fs patch.
++            // Permissions wraps FilePermissions { mode: u32 }.
++            let perms = self.permissions();
++            const _: () = assert!(std::mem::size_of::<std::fs::Permissions>() == std::mem::size_of::<u32>());
++            unsafe { std::mem::transmute(perms) }
 +        }
 +        fn uid(&self) -> u32 { 0 }
 +        fn gid(&self) -> u32 { 0 }

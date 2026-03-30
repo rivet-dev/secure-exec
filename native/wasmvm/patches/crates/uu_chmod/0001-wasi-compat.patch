@@ -1,6 +1,6 @@
 --- a/src/chmod.rs
 +++ b/src/chmod.rs
-@@ -8,16 +8,51 @@
+@@ -8,16 +8,50 @@
  use clap::{Arg, ArgAction, Command};
  use std::ffi::OsString;
  use std::fs;
@@ -23,26 +23,25 @@
 +mod wasi_compat {
 +    use std::fs;
 +
-+    /// Extension trait to provide mode() on WASI Metadata.
++    /// Extension trait to provide mode() on WASI Metadata via host_fs.
 +    pub trait MetadataMode {
 +        fn mode(&self) -> u32;
 +    }
 +    impl MetadataMode for fs::Metadata {
 +        fn mode(&self) -> u32 {
-+            let ft = self.file_type();
-+            let base = if ft.is_dir() { 0o755 } else { 0o644 };
-+            if self.permissions().readonly() {
-+                base & !0o222
-+            } else {
-+                base
-+            }
++            // Permissions wraps FilePermissions { mode: u32 }. Extract via transmute.
++            let perms = self.permissions();
++            const _: () = assert!(std::mem::size_of::<fs::Permissions>() == std::mem::size_of::<u32>());
++            unsafe { std::mem::transmute(perms) }
 +        }
 +    }
 +
-+    /// Set POSIX-style permissions on a file (best-effort on WASI).
++    /// Set POSIX-style permissions on a file using host_fs::chmod on WASI.
 +    pub fn set_permissions_from_mode(path: &std::path::Path, mode: u32) -> std::io::Result<()> {
-+        let mut perms = path.metadata()?.permissions();
-+        perms.set_readonly(mode & 0o200 == 0);
++        // Permissions wraps FilePermissions { mode: u32 }. Since PermissionsExt
++        // is not available on WASI, construct via transmute (layout is just u32).
++        const _: () = assert!(std::mem::size_of::<fs::Permissions>() == std::mem::size_of::<u32>());
++        let perms: fs::Permissions = unsafe { std::mem::transmute(mode) };
 +        fs::set_permissions(path, perms)
 +    }
 +}
@@ -52,7 +51,7 @@
  #[cfg(all(unix, not(target_os = "redox")))]
  use uucore::safe_traversal::{DirFd, SymlinkBehavior};
  use uucore::{format_usage, show, show_error};
-@@ -683,7 +718,12 @@
+@@ -683,7 +717,12 @@
              // Use the helper method for consistent reporting
              self.report_permission_change(file, fperm, mode);
              Ok(())

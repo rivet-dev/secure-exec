@@ -67,6 +67,11 @@ export interface NodeRuntimeOptions {
    * to locate host node_modules. Defaults to the VM process CWD.
    */
   moduleAccessCwd?: string;
+  /**
+   * Explicit host-to-VM path mappings from packages. These are checked
+   * before the CWD-based node_modules fallback in the ModuleAccessFileSystem.
+   */
+  packageRoots?: Array<{ hostPath: string; vmPath: string }>;
 }
 
 const allowKernelProcSelfRead: Pick<Permissions, 'fs'> = {
@@ -400,6 +405,7 @@ class NodeRuntimeDriver implements RuntimeDriver {
   private _activeDrivers = new Map<number, NodeExecutionDriver>();
   private _loopbackExemptPorts?: number[];
   private _moduleAccessCwd?: string;
+  private _packageRoots?: Array<{ hostPath: string; vmPath: string }>;
 
   constructor(options?: NodeRuntimeOptions) {
     this._memoryLimit = options?.memoryLimit ?? 128;
@@ -407,6 +413,7 @@ class NodeRuntimeDriver implements RuntimeDriver {
     this._bindings = options?.bindings;
     this._loopbackExemptPorts = options?.loopbackExemptPorts;
     this._moduleAccessCwd = options?.moduleAccessCwd;
+    this._packageRoots = options?.packageRoots;
   }
 
   async init(kernel: KernelInterface): Promise<void> {
@@ -663,7 +670,7 @@ class NodeRuntimeDriver implements RuntimeDriver {
 
       const systemDriver = createNodeDriver({
         filesystem,
-        moduleAccess: { cwd: this._moduleAccessCwd ?? ctx.cwd },
+        moduleAccess: { cwd: this._moduleAccessCwd ?? ctx.cwd, packageRoots: this._packageRoots },
         networkAdapter: kernel.socketTable.hasHostNetworkAdapter()
           ? createDefaultNetworkAdapter({
               initialExemptPorts: this._loopbackExemptPorts,
@@ -868,17 +875,33 @@ class NodeRuntimeDriver implements RuntimeDriver {
         return { code: content, filePath: scriptPath };
       } catch {
         // Fall back to host filesystem for module access paths (/root/node_modules/*)
-        if (scriptPath.startsWith('/root/node_modules/') && this._moduleAccessCwd) {
-          const hostPath = join(
-            this._moduleAccessCwd,
-            'node_modules',
-            scriptPath.slice('/root/node_modules/'.length),
-          );
-          try {
-            const content = readFileSync(hostPath, 'utf-8');
-            return { code: content, filePath: scriptPath };
-          } catch {
-            // Fall through to the error below
+        if (scriptPath.startsWith('/root/node_modules/')) {
+          // Check package roots first (longest prefix match).
+          let hostPath: string | null = null;
+          if (this._packageRoots) {
+            for (const root of this._packageRoots) {
+              if (scriptPath === root.vmPath || scriptPath.startsWith(root.vmPath + '/')) {
+                const relative = scriptPath.slice(root.vmPath.length + 1);
+                hostPath = relative ? join(root.hostPath, relative) : root.hostPath;
+                break;
+              }
+            }
+          }
+          // Fall back to CWD-based node_modules.
+          if (!hostPath && this._moduleAccessCwd) {
+            hostPath = join(
+              this._moduleAccessCwd,
+              'node_modules',
+              scriptPath.slice('/root/node_modules/'.length),
+            );
+          }
+          if (hostPath) {
+            try {
+              const content = readFileSync(hostPath, 'utf-8');
+              return { code: content, filePath: scriptPath };
+            } catch {
+              // Fall through to the error below
+            }
           }
         }
         throw new Error(`Cannot find module '${scriptPath}'`);

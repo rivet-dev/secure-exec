@@ -535,8 +535,17 @@ function createKernelVfs(): WasiVFS {
       if (res.errno !== 0) throw new VfsError('EINVAL', path);
       return decoder.decode(res.data);
     },
-    chmod(_path: string, _mode: number): void {
-      // No-op — permissions handled by kernel
+    chmod(path: string, mode: number): void {
+      if (isWriteBlocked()) throw new VfsError('EACCES', path);
+      const res = rpcCall('vfsChmod', { path, mode });
+      if (res.errno !== 0) throw new VfsError('EPERM', path);
+      // Invalidate cached inode so subsequent stat picks up the new mode
+      const cachedIno = pathToIno.get(path);
+      if (cachedIno !== undefined) {
+        inoCache.delete(cachedIno);
+        inoToPath.delete(cachedIno);
+        pathToIno.delete(path);
+      }
     },
     getIno(path: string, followSymlinks = true): number | null {
       return resolveIno(path, followSymlinks);
@@ -1213,6 +1222,44 @@ function createHostNetImports(getMemory: () => WebAssembly.Memory | null) {
 }
 
 // -------------------------------------------------------------------------
+// Host filesystem imports — provides POSIX mode bridge for Rust std
+// -------------------------------------------------------------------------
+
+function createHostFsImports(getMemory: () => WebAssembly.Memory | null) {
+  const decoder = new TextDecoder();
+  return {
+    /** Return POSIX mode (including type bits) for a path. 0 on error. */
+    path_mode(pathPtr: number, pathLen: number, followSymlinks: number): number {
+      const mem = getMemory();
+      if (!mem) return 0;
+      const path = decoder.decode(new Uint8Array(mem.buffer, pathPtr, pathLen));
+      const rpcName = followSymlinks ? 'vfsStat' : 'vfsLstat';
+      const res = rpcCall(rpcName, { path });
+      if (res.errno !== 0) return 0;
+      const raw = JSON.parse(decoder.decode(res.data));
+      return (raw.mode as number) ?? 0;
+    },
+    /** Return POSIX mode for an open fd. 0 on error. */
+    fd_mode(fd: number): number {
+      const entry = fdTable.get(fd);
+      if (!entry || !entry.path) return 0;
+      const res = rpcCall('vfsStat', { path: entry.path });
+      if (res.errno !== 0) return 0;
+      const raw = JSON.parse(decoder.decode(res.data));
+      return (raw.mode as number) ?? 0;
+    },
+    /** chmod(path_ptr, path_len, mode) -> errno */
+    chmod(pathPtr: number, pathLen: number, mode: number): number {
+      const mem = getMemory();
+      if (!mem) return ERRNO_EINVAL;
+      const path = decoder.decode(new Uint8Array(mem.buffer, pathPtr, pathLen));
+      const res = rpcCall('vfsChmod', { path, mode });
+      return res.errno;
+    },
+  };
+}
+
+// -------------------------------------------------------------------------
 // Main execution
 // -------------------------------------------------------------------------
 
@@ -1284,6 +1331,7 @@ async function main(): Promise<void> {
 
   const hostProcess = createHostProcessImports(getMemory);
   const hostNet = createHostNetImports(getMemory);
+  const hostFs = createHostFsImports(getMemory);
 
   try {
     // Use pre-compiled module from main thread if available, otherwise compile from disk
@@ -1295,6 +1343,7 @@ async function main(): Promise<void> {
       host_user: userManager.getImports() as unknown as WebAssembly.ModuleImports,
       host_process: hostProcess as unknown as WebAssembly.ModuleImports,
       host_net: hostNet as unknown as WebAssembly.ModuleImports,
+      host_fs: hostFs as unknown as WebAssembly.ModuleImports,
     };
 
     const instance = await WebAssembly.instantiate(wasmModule, imports);

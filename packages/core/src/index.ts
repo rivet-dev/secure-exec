@@ -307,26 +307,9 @@ export { createChunkedVfs } from "./vfs/chunked-vfs.js";
 export type { ChunkedVfsOptions, ChunkedVfsVersioning } from "./vfs/chunked-vfs.js";
 export { HostBlockStore } from "./vfs/host-block-store.js";
 
-// VFS conformance test suite.
-export { defineVfsConformanceTests } from "./test/vfs-conformance.js";
-export type {
-	VfsConformanceConfig,
-	VfsConformanceCapabilities,
-} from "./test/vfs-conformance.js";
-
-// Block store conformance test suite.
-export { defineBlockStoreTests } from "./test/block-store-conformance.js";
-export type {
-	BlockStoreConformanceConfig,
-	BlockStoreConformanceCapabilities,
-} from "./test/block-store-conformance.js";
-
-// Metadata store conformance test suite.
-export { defineMetadataStoreTests } from "./test/metadata-store-conformance.js";
-export type {
-	MetadataStoreConformanceConfig,
-	MetadataStoreConformanceCapabilities,
-} from "./test/metadata-store-conformance.js";
+// Test conformance suites (VFS, block store, metadata store) are available
+// via subpath imports: @secure-exec/core/test/vfs-conformance, etc.
+// They are not re-exported here to avoid pulling in vitest at runtime.
 
 // Filesystem helpers.
 export type { DirEntry, StatInfo } from "./fs-helpers.js";

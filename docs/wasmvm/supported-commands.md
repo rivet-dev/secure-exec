@@ -378,31 +378,25 @@ See `notes/research/js-vs-wasm-os-layer.md` for the full analysis.
 
 ### Technologies We Chose Not to Use
 
-#### Wasmtime / Wasmer / Native WASM Runtimes
+#### Native WASM Runtimes (Wasmtime, etc.)
 
-Wasmtime and Wasmer are native WASM runtimes that provide a complete WASI implementation, the Component Model, epoch-based CPU interruption, memory limiters, and pre-compiled native code caching — all for free.
+Native WASM runtimes provide a complete WASI implementation, the Component Model, epoch-based CPU interruption, memory limiters, and pre-compiled native code caching.
 
 **Why we don't use them:** They are native binaries. They don't run in browsers. Our requirement is that the same WASM binary + JS host works identically in Chrome and Node.js. Using a native runtime would make wasmVM server-only.
 
-We evaluated JavaScript-based WASI polyfills (wasmer-js, browser_wasi_shim, etc.) and found them incomplete — missing syscalls, broken fd management, no process spawning. It was faster to write a correct polyfill than to patch broken third-party ones.
+We evaluated JavaScript-based WASI polyfills and found them incomplete — missing syscalls, broken fd management, no process spawning. It was faster to write a correct polyfill than to patch broken third-party ones.
 
 #### WASM Component Model / WIT Interfaces
 
-The Component Model adds typed interfaces (WIT), module composition, and structured host↔guest communication. Server-side Wasmtime projects use this to define clean contracts between host and guest.
+The Component Model adds typed interfaces (WIT), module composition, and structured host↔guest communication. Server-side projects use this to define clean contracts between host and guest.
 
 **Why we don't use it:** No browser supports the Component Model natively. The `jco` tool (Bytecode Alliance) can transpile WASM components into core WASM + JS glue for browser use, but this adds a build step, increases bundle size, and the generated JS glue is another layer of indirection. We target `wasm32-wasip1` which produces core WASM modules that all environments understand natively.
 
-#### WASIX (Wasmer's WASI Extensions)
-
-WASIX extends WASI with `fork()`, threads, networking, futex, etc. — essentially trying to make WASM act like a full POSIX OS.
-
-**Why we don't use it:** WASIX is proprietary to Wasmer. Not standardized, not supported by any other runtime. We implement similar capabilities (process spawning, pipes, user identity) as custom WASI import modules (`host_process`, `host_user`) that are tightly integrated with our Worker-based process model.
-
 #### WASI Shadowing
 
-Some Wasmtime-based projects use the linker to "shadow" the default WASI filesystem implementation with a custom hybrid VFS. The guest calls standard WASI functions; the linker intercepts and routes to virtual or real storage by path prefix.
+Some native-runtime-based projects use the linker to "shadow" the default WASI filesystem implementation with a custom hybrid VFS. The guest calls standard WASI functions; the linker intercepts and routes to virtual or real storage by path prefix.
 
-**Why we don't use it:** Shadowing is a Wasmtime linker feature. We don't have a base WASI implementation to shadow — we ARE the WASI implementation. Our `wasi-polyfill.ts` intercepts every syscall and routes it to our VFS directly. Same end result, different mechanism.
+**Why we don't use it:** Shadowing is a native-runtime linker feature. We don't have a base WASI implementation to shadow — we ARE the WASI implementation. Our `wasi-polyfill.ts` intercepts every syscall and routes it to our VFS directly. Same end result, different mechanism.
 
 #### Shell-Level Spawn Handler Pattern
 

@@ -471,9 +471,7 @@ interface ExecError extends Error {
 }
 
 // exec - execute shell command, callback when done
-// Uses spawn("bash", ["-c", command]) internally
-// NOTE: WASIX bash returns incorrect exit codes (45 instead of 0) for -c flag,
-// so error will be set even on successful commands. The stdout/stderr are correct.
+// Uses spawn("sh", ["-c", command]) internally
 function exec(
   command: string,
   options?: nodeChildProcess.ExecOptions | ((error: ExecError | null, stdout: string, stderr: string) => void),

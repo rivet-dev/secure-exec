@@ -50,11 +50,11 @@ Cascading defense:
 
 ## Comparison with libsandbox
 
-libsandbox uses `isolated-vm` (also V8 isolates) and shares some of the same principles.
+libsandbox uses V8 isolates and shares some of the same principles.
 
 | Aspect | Cloudflare Workers | libsandbox |
 |---|---|---|
-| Isolate tech | V8 (custom workerd) | V8 (isolated-vm) |
+| Isolate tech | V8 (custom workerd) | V8 isolate |
 | Default posture | Zero capabilities | Zero capabilities |
 | Permission model | Capability bindings in config | Function-based permission checks |
 | FS access | Blocked at syscall level | No FS unless VirtualFileSystem provided |
@@ -65,7 +65,7 @@ libsandbox uses `isolated-vm` (also V8 isolates) and shares some of the same pri
 | OS-level sandbox | seccomp + namespaces | **None** |
 | Spectre mitigations | Frozen clocks, perf counters, process isolation | Default frozen timing mode + `SharedArrayBuffer` removed (`timingMitigation: "freeze"`) |
 | eval/dynamic code | Blocked during request handling | **Not restricted** |
-| Native code | Blocked (JS/Wasm only) | Blocked (isolated-vm limitation) |
+| Native code | Blocked (JS/Wasm only) | Blocked (V8 isolate limitation) |
 
 ### What libsandbox does well
 
@@ -91,10 +91,10 @@ libsandbox uses `isolated-vm` (also V8 isolates) and shares some of the same pri
 
 ### 2. No OS-level sandboxing (MEDIUM-HIGH)
 
-The host Node.js process has full OS access. If there is ever an isolated-vm escape (V8 bug), the attacker owns the host process with all its permissions. Cloudflare wraps everything in seccomp + empty namespaces.
+The host Node.js process has full OS access. If there is ever a V8 isolate escape (V8 bug), the attacker owns the host process with all its permissions. Cloudflare wraps everything in seccomp + empty namespaces.
 
 **Recommendation:**
-- Document that isolated-vm alone is not sufficient for running untrusted code from the internet
+- Document that V8 isolates alone are not sufficient for running untrusted code from the internet
 - Provide guidance for users to run the host process in a container with minimal capabilities (`--cap-drop=ALL`)
 - Consider optional integration with Linux namespaces or seccomp for the host process
 
@@ -117,7 +117,7 @@ The host Node.js process has full OS access. If there is ever an isolated-vm esc
 
 Cloudflare blocks these during request handling because they make forensic analysis of exploits harder and expand the attack surface for V8 bugs.
 
-**Recommendation:** Add an option to disable dynamic code generation in the isolate. `isolated-vm` may support this via V8 flags or by overriding these globals in the bridge.
+**Recommendation:** Add an option to disable dynamic code generation in the isolate. The V8 isolate package may support this via V8 flags or by overriding these globals in the bridge.
 
 ### 5. No resource limits on child processes/network (LOW-MEDIUM)
 

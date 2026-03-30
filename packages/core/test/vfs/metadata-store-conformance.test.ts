@@ -8,3 +8,11 @@ defineMetadataStoreTests({
 		versioning: false,
 	},
 });
+
+defineMetadataStoreTests({
+	name: "InMemoryMetadataStore (versioning)",
+	createStore: () => new InMemoryMetadataStore({ versioning: true }),
+	capabilities: {
+		versioning: true,
+	},
+});

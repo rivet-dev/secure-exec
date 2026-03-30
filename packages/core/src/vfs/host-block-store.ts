@@ -83,9 +83,7 @@ export class HostBlockStore implements FsBlockStore {
 	}
 
 	async deleteMany(keys: string[]): Promise<void> {
-		for (const key of keys) {
-			await this.delete(key);
-		}
+		await Promise.all(keys.map((key) => this.delete(key)));
 	}
 
 	async copy(srcKey: string, dstKey: string): Promise<void> {

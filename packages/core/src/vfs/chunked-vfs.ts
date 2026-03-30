@@ -1285,7 +1285,9 @@ export function createChunkedVfs(options: ChunkedVfsOptions): VirtualFileSystem 
 		},
 	};
 
-	// Add fsync method.
+	// Always provide fsync. When write buffering is enabled it flushes dirty
+	// chunks to the block store. When disabled it is a no-op, but still
+	// present so callers never need to guard with optional chaining.
 	if (writeBuffering) {
 		vfs.fsync = async (path: string): Promise<void> => {
 			let ino: number;
@@ -1302,6 +1304,8 @@ export function createChunkedVfs(options: ChunkedVfsOptions): VirtualFileSystem 
 				release();
 			}
 		};
+	} else {
+		vfs.fsync = async (_path: string): Promise<void> => {};
 	}
 
 	// Add copy method.

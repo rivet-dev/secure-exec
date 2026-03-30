@@ -11,7 +11,7 @@ Catalog of known attack vectors against the sandbox runtime.
 
 | Vector                              | Layer   | Mitigated? | Notes                                                                                        |
 | ----------------------------------- | ------- | ---------- | -------------------------------------------------------------------------------------------- |
-| Infinite loop in sandbox code       | Runtime | Partial    | isolated-vm timeout via `cpuTimeLimitMs`. Gap: optional, no default; unset = no limit        |
+| Infinite loop in sandbox code       | Runtime | Partial    | V8 isolate timeout via `cpuTimeLimitMs`. Gap: optional, no default; unset = no limit        |
 | ReDoS (catastrophic regex)          | Runtime | Partial    | Caught by same CPU timeout. Gap: same; no per-regex complexity limit                         |
 | Crypto cost abuse (pbkdf2/scrypt)   | Runtime | No         | No caps on iterations/N/r/p parameters. Burns host CPU outside isolate timeout               |
 | JSON.parse bomb on host             | Runtime | No         | 8 host-side JSON.parse calls, no size check. Runs in host process; isolate limits don't help |
@@ -20,7 +20,7 @@ Catalog of known attack vectors against the sandbox runtime.
 
 | Vector                              | Layer   | Mitigated? | Notes                                                                                   |
 | ----------------------------------- | ------- | ---------- | --------------------------------------------------------------------------------------- |
-| Isolate heap exhaustion             | Runtime | Yes        | isolated-vm `memoryLimit` (default 128MB). OOM kills isolate, not host process          |
+| Isolate heap exhaustion             | Runtime | Yes        | V8 isolate `memoryLimit` (default 128MB). OOM kills isolate, not host process          |
 | Base64 amplification on host        | Runtime | No         | 50MB file → 67MB base64 on host heap. No transfer size cap; host OOM possible           |
 | Timer/interval bombing              | Runtime | No         | Bridge timer map grows unbounded. No limit on count of active timers                    |
 | stdout/stderr accumulation          | Runtime | No         | Output arrays grow unbounded on host. No cap on captured output size                    |
@@ -37,7 +37,7 @@ Catalog of known attack vectors against the sandbox runtime.
 
 | Vector                              | Layer   | Mitigated? | Notes                                                                                   |
 | ----------------------------------- | ------- | ---------- | --------------------------------------------------------------------------------------- |
-| Prototype pollution across boundary | Runtime | Likely safe | isolated-vm copies values, no shared prototypes. Needs verification test               |
+| Prototype pollution across boundary | Runtime | Likely safe | V8 isolate copies values, no shared prototypes. Needs verification test               |
 | Reference argument type confusion   | Runtime | No         | Host References don't validate argument types. String expected, object passed → UB      |
 | Bridge global overwriting           | Runtime | No         | `_fs`, `_registerHandle` etc. are writable. Impact: self-sabotage / host hang, not escape |
 | Module resolution path traversal    | Driver  | Partial    | VirtualFileSystem abstracts scope. Gap: no path canonicalization before permission check |

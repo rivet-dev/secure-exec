@@ -53,7 +53,7 @@
 +        ret_pid: *mut u32,
 +    ) -> u32;
 +
-+    fn proc_waitpid(pid: u32, options: u32, ret_status: *mut u32) -> u32;
++    fn proc_waitpid(pid: u32, options: u32, ret_status: *mut u32, ret_pid: *mut u32) -> u32;
 +
 +    fn proc_kill(pid: u32, signal: u32) -> u32;
 +
@@ -457,7 +457,13 @@
 +    }
 +
 +    pub fn code(&self) -> Option<i32> {
-+        Some(self.0)
++        // Decode POSIX wstatus: normal exit has bits 0-6 = 0, exit code in bits 8-15.
++        // Signal death has bits 0-6 = signal number (no exit code).
++        if (self.0 & 0x7f) == 0 {
++            Some((self.0 >> 8) & 0xff)
++        } else {
++            None
++        }
 +    }
 +}
 +
@@ -469,7 +475,11 @@
 +
 +impl fmt::Display for ExitStatus {
 +    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-+        write!(f, "exit status: {}", self.0)
++        if (self.0 & 0x7f) == 0 {
++            write!(f, "exit status: {}", (self.0 >> 8) & 0xff)
++        } else {
++            write!(f, "signal: {}", self.0 & 0x7f)
++        }
 +    }
 +}
 +
@@ -488,7 +498,13 @@
 +
 +impl ExitStatusError {
 +    pub fn code(self) -> Option<NonZero<i32>> {
-+        Some(self.0)
++        // Decode POSIX wstatus: return exit code only for normal exits.
++        let raw = self.0.get();
++        if (raw & 0x7f) == 0 {
++            NonZero::new((raw >> 8) & 0xff)
++        } else {
++            None
++        }
 +    }
 +}
 +
@@ -543,7 +559,8 @@
 +            return Ok(status);
 +        }
 +        let mut exit_code: u32 = 0;
-+        let errno = unsafe { proc_waitpid(self.pid, 0, &mut exit_code) };
++        let mut ret_pid: u32 = 0;
++        let errno = unsafe { proc_waitpid(self.pid, 0, &mut exit_code, &mut ret_pid) };
 +        if errno != 0 {
 +            return Err(wasi_err(errno));
 +        }
@@ -558,7 +575,8 @@
 +        }
 +        // Non-blocking wait: options=1 is WNOHANG equivalent
 +        let mut exit_code: u32 = 0;
-+        let errno = unsafe { proc_waitpid(self.pid, 1, &mut exit_code) };
++        let mut ret_pid: u32 = 0;
++        let errno = unsafe { proc_waitpid(self.pid, 1, &mut exit_code, &mut ret_pid) };
 +        if errno == 0 {
 +            let status = ExitStatus(exit_code as i32);
 +            self.status = Some(status);

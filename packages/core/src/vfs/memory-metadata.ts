@@ -4,6 +4,11 @@
  * All data lives in memory. Root inode (ino=1, type='directory') is created
  * at construction time. transaction() just calls the callback directly since
  * single-threaded JS has no interleaving risk within synchronous sections.
+ *
+ * Optionally supports versioning when `{ versioning: true }` is passed to
+ * the constructor. Version retention (automatic cleanup of old versions)
+ * defaults to false. There is intentionally no background cleanup task;
+ * callers are expected to prune versions explicitly via ChunkedVFS.
  */
 
 import { KernelError } from "../kernel/types.js";
@@ -12,9 +17,16 @@ import type {
 	DentryInfo,
 	DentryStatInfo,
 	FsMetadataStore,
+	FsMetadataStoreVersioning,
 	InodeMeta,
 	InodeType,
+	VersionMeta,
 } from "./types.js";
+
+export interface InMemoryMetadataStoreOptions {
+	/** Enable file versioning support. Default: false. */
+	versioning?: boolean;
+}
 
 const SYMLOOP_MAX = 40;
 
@@ -27,14 +39,27 @@ interface DentryEntry {
 	type: InodeType;
 }
 
-export class InMemoryMetadataStore implements FsMetadataStore {
+interface VersionRecord {
+	version: number;
+	size: number;
+	createdAt: number;
+	storageMode: "inline" | "chunked";
+	inlineContent: Uint8Array | null;
+	chunkMap: { chunkIndex: number; key: string }[];
+}
+
+export class InMemoryMetadataStore implements FsMetadataStore, FsMetadataStoreVersioning {
 	private nextIno = 2;
 	private inodes = new Map<number, InodeMeta>();
 	private dentries = new Map<number, Map<string, DentryEntry>>();
 	private symlinkTargets = new Map<number, string>();
 	private chunks = new Map<number, Map<number, string>>();
 
-	constructor() {
+	private versioningEnabled: boolean;
+	private versions = new Map<number, VersionRecord[]>();
+
+	constructor(options?: InMemoryMetadataStoreOptions) {
+		this.versioningEnabled = options?.versioning ?? false;
 		const now = Date.now();
 		const rootInode: InodeMeta = {
 			ino: 1,
@@ -101,7 +126,9 @@ export class InMemoryMetadataStore implements FsMetadataStore {
 	}
 
 	async getInode(ino: number): Promise<InodeMeta | null> {
-		return this.inodes.get(ino) ?? null;
+		const meta = this.inodes.get(ino);
+		if (!meta) return null;
+		return { ...meta };
 	}
 
 	async updateInode(ino: number, updates: Partial<InodeMeta>): Promise<void> {
@@ -167,7 +194,7 @@ export class InMemoryMetadataStore implements FsMetadataStore {
 		for (const [name, entry] of dir) {
 			const meta = this.inodes.get(entry.childIno);
 			if (meta) {
-				result.push({ name, ino: entry.childIno, type: entry.type, stat: meta });
+				result.push({ name, ino: entry.childIno, type: entry.type, stat: { ...meta } });
 			}
 		}
 		return result;
@@ -293,7 +320,9 @@ export class InMemoryMetadataStore implements FsMetadataStore {
 	}
 
 	getInodeSync(ino: number): InodeMeta | null {
-		return this.inodes.get(ino) ?? null;
+		const meta = this.inodes.get(ino);
+		if (!meta) return null;
+		return { ...meta };
 	}
 
 	createInodeSync(attrs: CreateInodeAttrs): number {
@@ -362,6 +391,187 @@ export class InMemoryMetadataStore implements FsMetadataStore {
 		const keys = Array.from(map.values());
 		this.chunks.delete(ino);
 		return keys;
+	}
+
+	// -- Versioning --
+	// No background cleanup task is implemented. This is intentional; callers
+	// prune versions explicitly via ChunkedVFS.pruneVersions(). Version
+	// retention defaults to false (no automatic cleanup).
+
+	async createVersion(ino: number): Promise<number> {
+		if (!this.versioningEnabled) {
+			throw new Error("versioning is not enabled");
+		}
+
+		const meta = this.inodes.get(ino);
+		if (!meta) {
+			throw new KernelError("ENOENT", `inode ${ino} not found`);
+		}
+
+		const records = this.versions.get(ino) ?? [];
+		const version = records.length > 0 ? records[records.length - 1]!.version + 1 : 1;
+
+		const chunkMap: { chunkIndex: number; key: string }[] = [];
+		const inoChunks = this.chunks.get(ino);
+		if (inoChunks) {
+			for (const [chunkIndex, key] of inoChunks) {
+				chunkMap.push({ chunkIndex, key });
+			}
+			chunkMap.sort((a, b) => a.chunkIndex - b.chunkIndex);
+		}
+
+		const record: VersionRecord = {
+			version,
+			size: meta.size,
+			createdAt: Date.now(),
+			storageMode: meta.storageMode,
+			inlineContent: meta.inlineContent ? new Uint8Array(meta.inlineContent) : null,
+			chunkMap,
+		};
+		records.push(record);
+		this.versions.set(ino, records);
+
+		return version;
+	}
+
+	async getVersion(ino: number, version: number): Promise<VersionMeta | null> {
+		if (!this.versioningEnabled) {
+			throw new Error("versioning is not enabled");
+		}
+
+		const records = this.versions.get(ino);
+		if (!records) return null;
+		const record = records.find((r) => r.version === version);
+		if (!record) return null;
+
+		return {
+			version: record.version,
+			size: record.size,
+			createdAt: record.createdAt,
+			storageMode: record.storageMode,
+			inlineContent: record.inlineContent ? new Uint8Array(record.inlineContent) : null,
+		};
+	}
+
+	async listVersions(ino: number): Promise<VersionMeta[]> {
+		if (!this.versioningEnabled) {
+			throw new Error("versioning is not enabled");
+		}
+
+		const records = this.versions.get(ino) ?? [];
+		return records
+			.map((r) => ({
+				version: r.version,
+				size: r.size,
+				createdAt: r.createdAt,
+				storageMode: r.storageMode,
+				inlineContent: r.inlineContent ? new Uint8Array(r.inlineContent) : null,
+			}))
+			.reverse();
+	}
+
+	async getVersionChunkMap(
+		ino: number,
+		version: number,
+	): Promise<{ chunkIndex: number; key: string }[]> {
+		if (!this.versioningEnabled) {
+			throw new Error("versioning is not enabled");
+		}
+
+		const records = this.versions.get(ino);
+		if (!records) return [];
+		const record = records.find((r) => r.version === version);
+		if (!record) return [];
+
+		return record.chunkMap.map((e) => ({ chunkIndex: e.chunkIndex, key: e.key }));
+	}
+
+	async deleteVersions(ino: number, versions: number[]): Promise<string[]> {
+		if (!this.versioningEnabled) {
+			throw new Error("versioning is not enabled");
+		}
+		if (versions.length === 0) return [];
+
+		const records = this.versions.get(ino);
+		if (!records) return [];
+
+		const versionSet = new Set(versions);
+
+		// Collect block keys from versions being deleted.
+		const deletedBlockKeys = new Set<string>();
+		for (const r of records) {
+			if (versionSet.has(r.version)) {
+				for (const e of r.chunkMap) {
+					deletedBlockKeys.add(e.key);
+				}
+			}
+		}
+
+		// Remove the version records.
+		const remaining = records.filter((r) => !versionSet.has(r.version));
+		this.versions.set(ino, remaining);
+
+		if (deletedBlockKeys.size === 0) return [];
+
+		// Find keys still referenced by remaining versions.
+		const referencedKeys = new Set<string>();
+		for (const r of remaining) {
+			for (const e of r.chunkMap) {
+				referencedKeys.add(e.key);
+			}
+		}
+
+		// Also check the current chunk map.
+		const currentChunks = this.chunks.get(ino);
+		if (currentChunks) {
+			for (const key of currentChunks.values()) {
+				referencedKeys.add(key);
+			}
+		}
+
+		// Return orphaned keys.
+		const orphanedKeys: string[] = [];
+		for (const key of deletedBlockKeys) {
+			if (!referencedKeys.has(key)) {
+				orphanedKeys.push(key);
+			}
+		}
+
+		return orphanedKeys;
+	}
+
+	async restoreVersion(ino: number, version: number): Promise<void> {
+		if (!this.versioningEnabled) {
+			throw new Error("versioning is not enabled");
+		}
+
+		const records = this.versions.get(ino);
+		const record = records?.find((r) => r.version === version);
+		if (!record) {
+			throw new KernelError("ENOENT", `version ${version} not found for inode ${ino}`);
+		}
+
+		// Clear current chunk map.
+		this.chunks.delete(ino);
+
+		// Restore chunk map from version.
+		if (record.chunkMap.length > 0) {
+			const map = new Map<number, string>();
+			for (const entry of record.chunkMap) {
+				map.set(entry.chunkIndex, entry.key);
+			}
+			this.chunks.set(ino, map);
+		}
+
+		// Restore inode metadata from version.
+		const meta = this.inodes.get(ino);
+		if (meta) {
+			meta.size = record.size;
+			meta.storageMode = record.storageMode;
+			meta.inlineContent = record.inlineContent ? new Uint8Array(record.inlineContent) : null;
+			meta.mtimeMs = Date.now();
+			meta.ctimeMs = Date.now();
+		}
 	}
 
 	// -- Internal helpers --

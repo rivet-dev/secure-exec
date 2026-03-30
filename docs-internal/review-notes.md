@@ -380,7 +380,7 @@ Driver checks kernel FD table to detect if stdio is piped:
 ## 10. Node Driver Internals (Quick Reference)
 
 ### Architecture
-- Each spawn() creates a real V8 isolate via `isolated-vm` (not a shell subprocess)
+- Each spawn() creates a real V8 isolate (not a shell subprocess)
 - Memory limit: 128MB per isolate (configurable)
 - `child_process.spawn/execSync` monkey-patched to route through `KernelCommandExecutor`
 - KernelCommandExecutor calls `kernel.spawn()` for cross-runtime dispatch

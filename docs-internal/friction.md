@@ -42,7 +42,7 @@
 1. **[resolved]** `NodeRuntime` constructor ownership drifted between driver and direct adapter options.
    - Symptom: runtime capability and config ownership was split across `NodeRuntime` fallbacks and `createNodeDriver`, which made permission defaults and runtime injection behavior harder to reason about.
    - Fix: `NodeRuntime` now requires a `driver`, reads `processConfig`/`osConfig` from `driver.runtime`, and no longer accepts direct constructor adapters/permissions.
-   - Follow-up: a dedicated pass should continue moving remaining `isolated-vm` execution internals from `NodeRuntime` into the Node driver implementation.
+   - Follow-up: a dedicated pass should continue moving remaining V8 isolate execution internals from `NodeRuntime` into the Node driver implementation.
 2. **[resolved]** Browser runtime surface needed temporary de-scope during driver boundary refactor.
    - Symptom: maintaining Worker/browser runtime paths during Node driver ownership changes increased refactor risk and cross-runtime drift.
    - Fix: browser package exports were removed for this phase and browser entrypoints now return deterministic unsupported errors until follow-up restoration.
@@ -142,7 +142,7 @@
    - Symptom: requests reached the sandbox server but responded `400`; root cause was `instanceof http2.Http2ServerRequest` checks throwing when `http2` constructors were undefined.
    - Fix: added built-in `http2` compatibility stubs (`Http2ServerRequest`/`Http2ServerResponse`) and routed `require('http2')` / ESM `import 'http2'` to that stub module.
 
-5. **[resolved]** Direct cloning of ESM module namespace objects failed in `isolated-vm`.
+5. **[resolved]** Direct cloning of ESM module namespace objects failed in the V8 isolate layer.
    - Symptom: using `entryModule.namespace.copy()` for `run()` exports failed with `[object Module] could not be cloned`.
    - Fix: after ESM evaluation, bind the namespace in isolate scope and copy `Object.fromEntries(Object.entries(namespace))` to the host.
 

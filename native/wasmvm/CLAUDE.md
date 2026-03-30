@@ -45,7 +45,7 @@ Standalone WebAssembly binaries providing a comprehensive Unix userland, paired 
 - **find:** Custom POSIX implementation (fd-find has incompatible CLI)
 - **codex:** `rivet-dev/codex` fork (Tier 3: full fork) — WASI feature gates, host_process integration, PTY replacement, HTTP client replacement
 - Do NOT use `sd`, `frawk`, or `zawk`
-- No dependency on WASIX, Wasmer, Emscripten, Wasmtime, or any proprietary runtime
+- No dependency on proprietary WASM runtimes, Emscripten, or non-standard WASI extensions
 
 ## Why Not Wasmtime / WASI Runtimes
 We implement our own WASI host runtime in JavaScript:

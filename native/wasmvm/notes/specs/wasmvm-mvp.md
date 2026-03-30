@@ -30,7 +30,7 @@ A single `coreutils.wasm` binary (~10-20MB estimated) containing 100+ Unix utili
 - Not a Linux kernel or full POSIX operating system
 - Not a container or VM — there is no syscall passthrough to a real kernel
 - Not a port of GNU coreutils — we use uutils/coreutils (Rust)
-- Not dependent on WASIX, Wasmer, Emscripten, or any proprietary runtime
+- Not dependent on proprietary WASM runtimes, Emscripten, or non-standard WASI extensions
 - Does not support fork(), pthreads, or Berkeley sockets in phase 1
 - Does not use Asyncify or JSPI for blocking call support
 
@@ -68,36 +68,13 @@ This section documents existing projects that solve adjacent problems, what we l
 - The crate-per-utility architecture is exactly what we need. Each `uu_*` crate can be imported as a library dependency.
 - The existing multicall binary proves the dispatch pattern works.
 - It already compiles partially to `wasm32-wasip1` — pure computation utilities (cat, sort, base64, wc, etc.) work today. Only utilities that touch process spawning, user/group databases, or OS-specific APIs fail.
-- A subset has already been compiled to WASM by the Wasmer team: https://wasmer.io/syrusakbary/coreutils
+- A subset has already been compiled to WASM by third parties as standalone projects.
 
 **Why it doesn't work out of the box:** The Rust standard library for `wasm32-wasip1` stubs out `std::process::Command::spawn()` to return `Err(Unsupported)`. This means utilities like `env` (when running a command), `timeout`, `nice`, and `nohup` fail. Additionally, `getuid()`/`getgid()` and pipe creation are not available.
 
 **Reference:** https://github.com/uutils/coreutils, https://uutils.github.io/coreutils/docs/
 
-### 2.3 WASIX and Wasmer
-
-**Repository:** https://github.com/wasix-org/cargo-wasix, https://wasix.org/docs/
-**Approach:** Extended WASI ABI with ~100+ additional POSIX syscalls, plus a forked Rust standard library and custom C library (wasix-libc).
-**What it does:** Makes `std::process::Command::spawn()`, `fork()`, `vfork()`, pthreads, Berkeley sockets, TTY ioctls, signals, and other POSIX features work transparently in WASM. Programs compile with `cargo wasix build` and run on the Wasmer runtime.
-
-**What we learn from it:**
-
-- **The three-layer approach is correct.** WASIX modifies (1) a WITX syscall specification, (2) a syscall bindings crate, and (3) the Rust standard library's `sys::pal::wasi` module. This is the minimum set of layers needed to make unmodified Rust code compile and run.
-- **The `cargo wasix` subcommand pattern works well.** It's a thin wrapper that downloads a pre-built sysroot and invokes normal Cargo with the right flags. The sysroot contains the patched std compiled for their custom target.
-- **Browser subprocess support uses the same primitives we plan to use.** The `@wasmer/sdk` uses Web Workers + SharedArrayBuffer + Atomics for subprocess management. There is no browser API that gives WASIX capabilities we don't have access to.
-- **fork() is extremely expensive in the browser.** It requires serializing the entire WASM linear memory. We avoid this entirely by only supporting spawn().
-
-**Why we aren't using it:**
-
-- **Vendor lock-in.** WASIX only runs on the Wasmer runtime. From their own documentation: "Currently, the only runtime that supports WASIX is Wasmer." (https://wasix.org/docs/)
-- **Heavyweight browser runtime.** The `@wasmer/sdk` loads a WASM-compiled Wasmer runtime (~50K+ lines of JS/WASM) that then runs your WASM. It's WASM running WASM.
-- **Mandatory SharedArrayBuffer even for single-threaded programs.** From their SDK docs: "This requirement is crucial even for running single-threaded WASIX programs because the SDK internals rely on SharedArrayBuffer for communication with Web Workers." (https://wasmerio.github.io/wasmer-js/)
-- **Scope mismatch.** WASIX implements fork(), pthreads, full sockets, setjmp/longjmp, and many other features we don't need. We want ~15-20 custom syscalls, not 100+.
-- **Standards concern.** WASIX is a proprietary extension. The WASI standards body has explicitly noted that fork() "conflicts directly with Component Model philosophy." WASIX may diverge permanently from standard WASI. (https://wasmruntime.com/en/blog/wasi-preview2-vs-wasix-2026)
-
-**Reference:** https://wasmer.io/posts/announcing-wasix, https://github.com/wasix-org/cargo-wasix, https://github.com/john-sharratt/wasix
-
-### 2.4 WASI (WebAssembly System Interface)
+### 2.3 WASI (WebAssembly System Interface)
 
 **Specification:** https://wasi.dev/, https://github.com/WebAssembly/WASI
 **What it does:** Standardized syscall interface for WASM modules. Preview 1 (`wasi_snapshot_preview1`) provides ~45 functions covering file I/O, clock, random, args, environment variables, and basic fd operations. Preview 2 adds the Component Model, HTTP, and sockets. Preview 3 (expected 2026-2027) will add native async.
@@ -111,12 +88,12 @@ This section documents existing projects that solve adjacent problems, what we l
 
 **Our relationship to WASI:** We target `wasm32-wasip1` and use standard WASI for all file/clock/env/random operations. We add a small number of custom imports (`host_process`, `host_user`) on top of standard WASI for the capabilities it intentionally omits.
 
-### 2.5 Emscripten
+### 2.4 Emscripten
 
 **What it does:** Compiles C/C++ to WASM with a comprehensive POSIX emulation layer.
-**Why we're not using it:** We're compiling Rust, not C. Emscripten's runtime is heavy, browser-focused, and doesn't align with the Rust/WASI ecosystem. WASIX's own documentation notes that "Emscripten toolchain is complicated to iterate on, it requires a complex installation and dependency chain while also having non-standardized system call convention."
+**Why we're not using it:** We're compiling Rust, not C. Emscripten's runtime is heavy, browser-focused, and doesn't align with the Rust/WASI ecosystem. The Emscripten toolchain is complicated to iterate on, requires a complex installation and dependency chain, and has a non-standardized system call convention.
 
-### 2.6 WebAssembly Standards Context
+### 2.5 WebAssembly Standards Context
 
 For reference, the current state of WebAssembly standards as of March 2026:
 
@@ -636,7 +613,7 @@ The project is considered complete when:
 1. `coreutils.wasm` contains 100+ utilities and loads successfully in Chrome, Firefox, Safari, and Node.js ≥ 18.
 2. `ls -la /tmp`, `cat file | sort | uniq -c`, `echo $HOME`, `grep pattern file`, and `echo '{"a":1}' | jq '.a'` all produce correct output.
 3. `timeout 1 sleep 10` correctly kills the child after 1 second (subprocess support works).
-4. No dependency on WASIX, Wasmer, Emscripten, or any proprietary runtime.
+4. No dependency on proprietary WASM runtimes, Emscripten, or non-standard WASI extensions.
 5. The build is reproducible from a clean checkout with `make all` on Linux and macOS.
 6. Binary size is under 25MB after `wasm-opt` optimization.
 
@@ -647,16 +624,8 @@ The project is considered complete when:
 - **uutils/coreutils:** https://github.com/uutils/coreutils
 - **uutils documentation:** https://uutils.github.io/coreutils/docs/
 - **just-bash:** https://github.com/vercel-labs/just-bash
-- **WASIX documentation:** https://wasix.org/docs/
-- **WASIX announcement:** https://wasmer.io/posts/announcing-wasix
-- **WASIX syscall bindings crate:** https://github.com/john-sharratt/wasix
-- **cargo-wasix subcommand:** https://github.com/wasix-org/cargo-wasix
-- **WASIX spawn tutorial:** https://wasix.org/docs/language-guide/rust/tutorials/wasix-spawn
-- **@wasmer/sdk browser docs:** https://wasmerio.github.io/wasmer-js/
-- **Wasmer JS SDK announcement:** https://wasmer.io/posts/introducing-the-wasmer-js-sdk
 - **WASI specification:** https://wasi.dev/
 - **WASI process spawn issue:** https://github.com/WebAssembly/WASI/issues/414
-- **WASI Preview 2 vs WASIX comparison:** https://wasmruntime.com/en/blog/wasi-preview2-vs-wasix-2026
 - **WASI ecosystem status:** https://eunomia.dev/blog/2025/02/16/wasi-and-the-webassembly-component-model-current-status/
 - **Rust wasm32-wasip1 target docs:** https://doc.rust-lang.org/beta/rustc/platform-support/wasm32-wasip1.html
 - **Rust WASI target changes:** https://blog.rust-lang.org/2024/04/09/updates-to-rusts-wasi-targets/

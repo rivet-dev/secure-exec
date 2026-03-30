@@ -4,9 +4,9 @@ A comparison of sandboxing and isolation approaches relevant to running untruste
 
 ## Approaches
 
-### V8 Isolates (isolated-vm)
+### V8 Isolates
 
-**What it is:** Creates separate V8 heap instances within a single process. Each isolate has its own memory, GC, and execution context with no shared state. The `isolated-vm` npm package exposes this via a Node.js API.
+**What it is:** Creates separate V8 heap instances within a single process. Each isolate has its own memory, GC, and execution context with no shared state. A V8 isolate package exposes this via a Node.js API.
 
 **Architecture:** A host Node.js process creates isolate instances, compiles code into them, and communicates across the boundary via `Reference` objects (opaque handles) and `transferIn`/`transferOut` for data copying. No shared memory — all data must be explicitly transferred or copied.
 
@@ -23,7 +23,7 @@ A comparison of sandboxing and isolation approaches relevant to running untruste
 - Data transfer across boundary requires serialization (base64 for binary)
 - No direct access to host APIs — every capability must be bridged manually
 - Single-threaded per isolate — CPU-bound code blocks the isolate
-- `isolated-vm` is a community package, not officially supported by V8 team
+- The V8 isolate package is a community package, not officially supported by V8 team
 - No syscall-level isolation — a native addon bug could escape
 
 **libsandbox relevance:** This is libsandbox's primary isolation mechanism for the Node driver. The entire bridge system exists to selectively expose Node APIs across the isolate boundary.
@@ -126,7 +126,7 @@ A comparison of sandboxing and isolation approaches relevant to running untruste
 - Ecosystem compatibility issues — libraries that modify prototypes break
 - Spec is still evolving (TC39 proposal stage)
 
-**libsandbox relevance:** A lighter-weight alternative to isolated-vm that would work in browsers without Workers. The lack of memory isolation and CPU limits makes it insufficient for running untrusted code, but the capability model is a good conceptual match for libsandbox's permission system.
+**libsandbox relevance:** A lighter-weight alternative to V8 isolates that would work in browsers without Workers. The lack of memory isolation and CPU limits makes it insufficient for running untrusted code, but the capability model is a good conceptual match for libsandbox's permission system.
 
 ---
 
@@ -177,7 +177,7 @@ A comparison of sandboxing and isolation approaches relevant to running untruste
 - `eval()` in Workers is not isolated from the Worker's own globals
 - No memory limits — a Worker can consume arbitrary memory
 
-**libsandbox relevance:** This is libsandbox's browser isolation mechanism. `NodeRuntime` uses a browser runtime driver that creates a Web Worker and communicates via a request/response protocol over `postMessage`. Note that Worker isolation is weaker than isolated-vm — code in the Worker has full access to the Worker global scope.
+**libsandbox relevance:** This is libsandbox's browser isolation mechanism. `NodeRuntime` uses a browser runtime driver that creates a Web Worker and communicates via a request/response protocol over `postMessage`. Note that Worker isolation is weaker than V8 isolates — code in the Worker has full access to the Worker global scope.
 
 ---
 
@@ -201,7 +201,7 @@ A comparison of sandboxing and isolation approaches relevant to running untruste
 - No CPU isolation — infinite loops block the host
 - Built-in modules (`require('fs')`) are accessible via constructor chains
 
-**libsandbox relevance:** This is the approach libsandbox explicitly avoids. The `vm` module is useful for module loading and code transformation but provides no meaningful isolation. `isolated-vm` solves the same problem with real isolation guarantees.
+**libsandbox relevance:** This is the approach libsandbox explicitly avoids. The `vm` module is useful for module loading and code transformation but provides no meaningful isolation. V8 isolates solve the same problem with real isolation guarantees.
 
 ---
 
@@ -209,7 +209,7 @@ A comparison of sandboxing and isolation approaches relevant to running untruste
 
 | Mechanism | Security | Performance | Startup | API Surface | Browser | Node.js |
 |---|---|---|---|---|---|---|
-| V8 Isolates (isolated-vm) | High | Near-native | <1ms | Manual bridge | No | Yes |
+| V8 Isolates | High | Near-native | <1ms | Manual bridge | No | Yes |
 | WebAssembly | High | 2-10x slower | 10-100ms | Manual bridge | Yes | Yes |
 | Firecracker microVMs | Highest | Native | ~125ms | Full Linux | No | Server |
 | Containers | Medium-High | Native | 100-500ms | Full Linux | No | Server |

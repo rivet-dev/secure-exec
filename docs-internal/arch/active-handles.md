@@ -2,7 +2,7 @@
 
 ## Problem
 
-The sandboxed Node.js environment uses `isolated-vm` (V8 isolates) to run JavaScript code. Unlike real Node.js, isolated-vm does not have an event loop. Code runs synchronously and the sandbox exits immediately when the script finishes executing.
+The sandboxed Node.js environment uses V8 isolates to run JavaScript code. Unlike real Node.js, the V8 isolate does not have an event loop. Code runs synchronously and the sandbox exits immediately when the script finishes executing.
 
 This causes problems with async APIs that use callbacks:
 
@@ -31,7 +31,7 @@ In real Node.js:
 4. Callbacks fire as events occur
 5. Process exits when no more active handles remain
 
-In isolated-vm:
+In the V8 isolate:
 1. Script sets up event handlers
 2. Script finishes synchronous execution
 3. `exec()` returns immediately - no event loop
@@ -137,7 +137,7 @@ Active handles: [
 
 | Feature | Node.js | secure-exec |
 |---------|---------|----------------|
-| Event loop | Built-in libuv | None (isolated-vm) |
+| Event loop | Built-in libuv | None (V8 isolate) |
 | Handle tracking | Automatic via libuv | Manual via `_registerHandle` |
 | `ref()`/`unref()` | Per-handle methods | Not implemented (all handles keep alive) |
 | Debugging | `process._getActiveHandles()` | `_getActiveHandles()` |

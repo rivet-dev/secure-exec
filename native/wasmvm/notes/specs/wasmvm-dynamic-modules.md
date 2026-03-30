@@ -50,18 +50,7 @@ kernel.spawn("grep", [...])
 3. Third-party Rust crates cannot be added without integrating them into the multicall workspace
 4. Binary size grows monotonically — every new command increases load time for all commands
 
-### 2.2 WASIX Prior Art
-
-Wasmer's WASIX project solved this same problem:
-
-- **Custom Rust target** (`wasm32-wasmer-wasi`) with a patched sysroot extending WASI with threads, sockets, fork/exec, signals, and TTY support
-- **`cargo-wasix`** — a cargo wrapper that auto-downloads a pre-built sysroot and compiles any Rust crate to a standalone WASM binary
-- **Package registry** — individual WASM packages (bash, python, coreutils) loadable on demand
-- **`@wasmer/sdk`** — JS SDK that runs WASIX programs in browsers/Node.js, fetching packages from the registry
-
-We adopt the same architectural pattern (standalone binaries + cargo wrapper + dynamic loading) but target our existing `wasm32-wasip1` + custom host imports rather than WASIX.
-
-### 2.3 Existing Bug: Path-Based Command Resolution
+### 2.2 Existing Bug: Path-Based Command Resolution
 
 During this investigation, a latent bug was discovered in the current system that applies equally to the new architecture. It must be fixed as part of this work.
 

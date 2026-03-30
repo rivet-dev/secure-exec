@@ -87,10 +87,10 @@ All kernel operations run on the **main thread** (the event loop). Each runtime'
 | Runtime | Execution Context | Sync Mechanism |
 |---------|------------------|----------------|
 | WasmVM  | Web Worker (WASM instance) | SharedArrayBuffer + Atomics.wait |
-| Node    | V8 Isolate (isolated-vm) | ivm.Reference (applySyncPromise) |
+| Node    | V8 Isolate | Reference (applySyncPromise) |
 | Python  | Node Worker (Pyodide) | Worker postMessage |
 
-The main thread services all runtimes via the event loop. When a WasmVM Worker needs a file, it posts a message and blocks on `Atomics.wait`. The main thread handles the request and calls `Atomics.notify`. When a V8 isolate needs a file, the `ivm.Reference` suspends the isolate, the main thread resolves the promise, and the isolate resumes. No dedicated kernel worker needed.
+The main thread services all runtimes via the event loop. When a WasmVM Worker needs a file, it posts a message and blocks on `Atomics.wait`. The main thread handles the request and calls `Atomics.notify`. When a V8 isolate needs a file, the Reference suspends the isolate, the main thread resolves the promise, and the isolate resumes. No dedicated kernel worker needed.
 
 ---
 
@@ -1031,7 +1031,7 @@ WasmVM internal docs stay with WasmVM. Only cross-project docs go to the top lev
 2. Build instructions — `wasm32-wasip1`, nightly Rust, `-Z build-std`
 3. Key decisions — brush-shell, uutils/sed, awk-rs, ripgrep, jaq, custom find
 4. Dependency patching — three-tier: direct dep → vendor+patch → full fork
-5. Why not Wasmtime/WASIX/Component Model
+5. Why not native WASM runtimes/Component Model
 6. Naming — `wasmvm/crates/`, `wasmvm/stubs/`, `wasmvm/patches/`
 7. Deferred items → `wasmvm/notes/todo.md`
 

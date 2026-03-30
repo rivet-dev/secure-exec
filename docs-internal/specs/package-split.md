@@ -9,7 +9,7 @@ Draft
 The `secure-exec` package currently bundles three runtime implementations
 (Node/V8, Browser/Worker, Python/Pyodide) into a single package. This means:
 
-- Every consumer pulls `isolated-vm`, `pyodide`, `esbuild`, and
+- Every consumer pulls `pyodide`, `esbuild`, and
   `node-stdlib-browser` as dependencies regardless of which runtime they use.
 - The Node kernel adapter (`packages/runtime/node/`) depends on `secure-exec`
   just to get `NodeExecutionDriver`, pulling in Pyodide and browser code
@@ -71,36 +71,35 @@ packages/secure-exec/
 │   │   └── worker-protocol.ts
 │   └── python/                  # Pyodide implementation
 │       └── driver.ts            # PyodideRuntimeDriver
-└── package.json                 # deps: isolated-vm, pyodide, esbuild, ...
+└── package.json                 # deps: v8-isolate-package, pyodide, esbuild, ...
 ```
 
 ### Key architectural observations
 
 1. **`execution.ts` is V8-specific, not generic.** The `ExecutionRuntime`
-   interface references `ivm.Isolate`, `ivm.Context`, `ivm.Module`, and
-   `ivm.Reference` in nearly every method signature. Only
+   interface references V8 isolate types in nearly every method signature. Only
    `NodeExecutionDriver` implements it.
 
 2. **The browser worker has its own execution loop.** `browser/worker.ts`
-   uses `eval()` + `sucrase` to run code — it never touches `isolated-vm` or
+   uses `eval()` + `sucrase` to run code — it never touches the V8 isolate layer or
    `execution.ts`. It imports the bridge guest code directly via
    `import("../bridge/index.js")` rather than injecting it as text.
 
 3. **`NodeRuntime` is a generic facade.** Despite its name, `runtime.ts` has
-   zero `isolated-vm` imports. It accepts any `NodeRuntimeDriverFactory` and
+   zero V8 isolate imports. It accepts any `NodeRuntimeDriverFactory` and
    delegates. Both Node (`createNodeRuntimeDriverFactory`) and Browser
    (`createBrowserRuntimeDriverFactory`) plug into it.
 
 4. **Bridge guest code is shared.** The `bridge/` directory (fs, process, os
-   polyfills) has zero `isolated-vm` imports. Node compiles it into an IIFE
+   polyfills) has zero V8 isolate imports. Node compiles it into an IIFE
    and injects via `context.eval()`. Browser imports it as an ES module.
 
 5. **Generated code is shared.** `generated/isolate-runtime.ts` and
    `generated/polyfills.ts` are used by both Node (`bridge-setup.ts`,
    `execution.ts`) and Browser (`worker.ts`).
 
-6. **`ivm` imports are fully contained to `src/node/` + `execution.ts` +
-   `isolate.ts`.** No other files import `isolated-vm`.
+6. **V8 isolate imports are fully contained to `src/node/` + `execution.ts` +
+   `isolate.ts`.** No other files import the V8 isolate package.
 
 ## Target State
 
@@ -126,19 +125,19 @@ packages/
 ```
 @secure-exec/core
 ├── deps: buffer, sucrase, text-encoding-utf-8, whatwg-url
-├── no: isolated-vm, pyodide, esbuild, node-stdlib-browser
+├── no: v8-isolate-package, pyodide, esbuild, node-stdlib-browser
 
 @secure-exec/node
-├── deps: @secure-exec/core, isolated-vm, esbuild, node-stdlib-browser
+├── deps: @secure-exec/core, v8-isolate-package, esbuild, node-stdlib-browser
 ├── no: pyodide
 
 @secure-exec/browser
 ├── deps: @secure-exec/core
-├── no: isolated-vm, pyodide, esbuild, node-stdlib-browser
+├── no: v8-isolate-package, pyodide, esbuild, node-stdlib-browser
 
 @secure-exec/python
 ├── deps: @secure-exec/core, pyodide
-├── no: isolated-vm, esbuild
+├── no: v8-isolate-package, esbuild
 
 secure-exec (barrel)
 ├── deps: @secure-exec/core, @secure-exec/node, @secure-exec/browser, @secure-exec/python
@@ -234,7 +233,7 @@ export { createNodeRuntimeDriverFactory } from "./node/driver.js";
 export type { NodeDriverOptions, ModuleAccessOptions, ... };
 ```
 
-**Dependencies:** `@secure-exec/core`, `isolated-vm`, `esbuild`,
+**Dependencies:** `@secure-exec/core`, V8 isolate package, `esbuild`,
 `node-stdlib-browser`
 
 ### `@secure-exec/browser`

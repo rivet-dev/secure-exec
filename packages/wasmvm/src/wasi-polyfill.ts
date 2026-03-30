@@ -717,7 +717,9 @@ export class WasiPolyfill {
     view.setBigUint64(ptr, 0n, true);                                 // dev
     view.setBigUint64(ptr + 8, BigInt(ino), true);                    // ino
     view.setUint8(ptr + 16, this._inodeTypeToFiletype(node.type));    // filetype
-    for (let i = 17; i < 24; i++) view.setUint8(ptr + i, 0);         // padding
+    view.setUint8(ptr + 17, 0);                                       // padding[0]
+    view.setUint16(ptr + 18, node.mode & 0o7777, true);               // POSIX permission bits (extension)
+    view.setUint32(ptr + 20, 0, true);                                 // padding[2..5]
     view.setBigUint64(ptr + 24, BigInt(node.nlink), true);            // nlink
     view.setBigUint64(ptr + 32, BigInt(node.size), true);             // size
     view.setBigUint64(ptr + 40, BigInt(node.atime) * 1000000n, true); // atim (ms->ns)

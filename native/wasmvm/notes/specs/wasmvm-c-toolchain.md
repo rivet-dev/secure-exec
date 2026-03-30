@@ -14,7 +14,7 @@ Enable compilation of C programs to standalone WebAssembly modules that run on o
 
 The key new work is a **patched wasi-libc sysroot** that maps POSIX functions (`pipe()`, `getpid()`, `kill()`, etc.) to our existing `host_process` and `host_user` WASM imports — the C equivalent of our Rust std patches (`patches/0001-0005`). The patched sysroot is to C programs what the `wasi-ext` crate is to Rust programs.
 
-We already solved this problem for Rust. See `wasmvm-mvp.md` §2.3 for WASIX/wasi-sdk prior art and why we chose our own approach. The C toolchain applies the same vendor+patch strategy (`scripts/patch-wasi-libc.sh`) to wasi-libc's bottom-half instead of Rust's `std::sys::pal::wasi`.
+We already solved this problem for Rust. See `wasmvm-mvp.md` §2 for prior art and why we chose our own approach. The C toolchain applies the same vendor+patch strategy (`scripts/patch-wasi-libc.sh`) to wasi-libc's bottom-half instead of Rust's `std::sys::pal::wasi`.
 
 ### 1.1 What This Is
 
@@ -26,7 +26,7 @@ We already solved this problem for Rust. See `wasmvm-mvp.md` §2.3 for WASIX/was
 ### 1.2 What This Is Not
 
 - Not a fork of wasi-libc — we vendor and patch, same as our Rust std patches
-- Not WASIX — we don't depend on Wasmer, wasix-libc, or any proprietary runtime
+- Not a proprietary WASM extension — we don't depend on non-standard runtimes or libraries
 - Not a general-purpose C development environment — this targets our specific host runtime
 
 ### 1.3 Relationship to Dynamic Modules

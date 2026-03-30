@@ -854,7 +854,7 @@ Add:
 **Implementation:**
 - Replace JSON serialization with structured clone serialization
 - Options:
-  a. Use `isolated-vm`'s `copy()` or `transferIn()`/`transferOut()` which use V8's internal serializer
+  a. Use the V8 isolate package's `copy()` or `transferIn()`/`transferOut()` which use V8's internal serializer
   b. Implement a JS-level structured clone using `structuredClone()` if available in the isolate
   c. Use a polyfill that handles Map, Set, Date, RegExp, circular refs, typed arrays
 - Must handle: Map, Set, Date, RegExp, Error, ArrayBuffer, SharedArrayBuffer (reject), typed arrays, circular references, undefined, NaN, Infinity, BigInt

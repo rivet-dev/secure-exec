@@ -4,7 +4,7 @@
 Define bridge boundary policy, third-party module boundaries, and capability expansion controls.
 ## Requirements
 ### Requirement: Bridge Scope Is Node Built-ins Only
-Bridge implementations injected into isolated-vm MUST be limited to Node.js built-in modules and types compatible with `@types/node`.
+Bridge implementations injected into the V8 isolate MUST be limited to Node.js built-in modules and types compatible with `@types/node`.
 
 #### Scenario: Bridge request targets a third-party package
 - **WHEN** a proposed bridge module is not a Node.js built-in

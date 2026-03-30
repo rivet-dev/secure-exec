@@ -89,9 +89,9 @@ A comparison of tools that run Node.js-compatible code in browsers or sandboxed 
 
 ### libsandbox (secure-exec)
 
-**What it is:** A driver-based sandboxed Node.js runtime with two backends: `isolated-vm` for Node.js (V8 isolate-level isolation) and Web Workers for browsers. Designed for executing code snippets with controlled API access.
+**What it is:** A driver-based sandboxed Node.js runtime with two backends: V8 isolates for Node.js (isolate-level isolation) and Web Workers for browsers. Designed for executing code snippets with controlled API access.
 
-**Architecture:** A unified bridge layer provides Node.js APIs (fs, process, child_process, network, os) that work identically across both drivers. The Node driver uses `isolated-vm` to create V8 isolates with explicit `Reference`-based bridges. The browser driver uses Web Workers with `postMessage` communication. A permission system gates access to filesystem, network, child process, and environment operations.
+**Architecture:** A unified bridge layer provides Node.js APIs (fs, process, child_process, network, os) that work identically across both drivers. The Node driver uses V8 isolates with explicit `Reference`-based bridges. The browser driver uses Web Workers with `postMessage` communication. A permission system gates access to filesystem, network, child process, and environment operations.
 
 **Strengths:**
 - Strong isolation on Node.js (V8 isolate — separate heap)
@@ -108,7 +108,7 @@ A comparison of tools that run Node.js-compatible code in browsers or sandboxed 
 - Browser driver isolation is weaker (Worker global scope is accessible)
 - No npm package installation
 - No real `node_modules` resolution (polyfills via node-stdlib-browser)
-- `isolated-vm` is a native addon (complicates deployment)
+- The V8 isolate package is a native addon (complicates deployment)
 - Single-threaded execution per isolate/Worker
 
 **Node API coverage:** Targeted. Covers fs (full CRUD), path, process, child_process (spawn, exec, spawnSync, execSync, fork), http/https, fetch, dns, os, Buffer, URL, stream, events, timers, console, and modules via node-stdlib-browser polyfills.
@@ -119,7 +119,7 @@ A comparison of tools that run Node.js-compatible code in browsers or sandboxed 
 
 | Feature | WebContainers | Sandpack/Nodebox | almostnode | libsandbox |
 |---|---|---|---|---|
-| **Architecture** | WASM OS | Worker + bundler | In-memory JS | isolated-vm / Worker |
+| **Architecture** | WASM OS | Worker + bundler | In-memory JS | V8 Isolate / Worker |
 | **Bundle size** | ~10MB+ | ~2MB (Sandpack) | ~250KB target | ~500KB (with bridge) |
 | **Startup time** | 2-5s | 500ms-2s | <10ms | <10ms |
 | **Node API coverage** | High | Moderate | Partial | Targeted |
@@ -138,7 +138,7 @@ A comparison of tools that run Node.js-compatible code in browsers or sandboxed 
 
 libsandbox occupies a distinct niche: **fast, secure, dual-environment code execution** rather than full development environment simulation. Key differentiators:
 
-1. **Security-first**: libsandbox is the only option with real memory isolation (via isolated-vm) and a structured permission system. WebContainers relies on browser sandboxing; almostnode has no isolation.
+1. **Security-first**: libsandbox is the only option with real memory isolation (via V8 isolates) and a structured permission system. WebContainers relies on browser sandboxing; almostnode has no isolation.
 
 2. **Node.js as primary target**: libsandbox is designed to run on Node.js servers (for AI agent backends, code execution APIs) with browser as a secondary target. WebContainers and Sandpack are browser-first.
 

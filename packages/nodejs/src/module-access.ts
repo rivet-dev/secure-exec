@@ -5,6 +5,14 @@ import { createEaccesError } from "@secure-exec/core/internal/shared/errors";
 import { O_CREAT, O_EXCL, O_TRUNC } from "@secure-exec/core";
 import type { VirtualDirEntry, VirtualFileSystem, VirtualStat } from "@secure-exec/core";
 
+/** Host-to-VM path mapping for package-provided module roots. */
+export interface PackageRootMapping {
+	/** Absolute host path to the package directory. */
+	hostPath: string;
+	/** VM path where this package should appear (e.g. /root/node_modules/pi-acp). */
+	vmPath: string;
+}
+
 /**
  * Options controlling which host node_modules are projected into the sandbox.
  * The overlay exposes `<cwd>/node_modules` read-only by default.
@@ -16,6 +24,12 @@ export interface ModuleAccessOptions {
 	 * The overlay now exposes scoped <cwd>/node_modules read-only by default.
 	 */
 	allowPackages?: string[];
+	/**
+	 * Explicit host-to-VM path mappings from packages. These are checked
+	 * before the CWD-based node_modules fallback, using longest-prefix match
+	 * on the VM path. Each root is added to the symlink-safety allowlist.
+	 */
+	packageRoots?: PackageRootMapping[];
 }
 
 const MODULE_ACCESS_INVALID_CONFIG = "ERR_MODULE_ACCESS_INVALID_CONFIG";
@@ -181,6 +195,8 @@ export class ModuleAccessFileSystem implements VirtualFileSystem {
 	private readonly configuredNodeModulesRoot: string;
 	private readonly hostNodeModulesRoot: string | null;
 	private readonly overlayAllowedRoots: string[];
+	/** Package roots sorted by vmPath length descending for longest-prefix match. */
+	private readonly packageRoots: PackageRootMapping[];
 
 	constructor(baseFileSystem: VirtualFileSystem | undefined, options: ModuleAccessOptions) {
 		this.baseFileSystem = baseFileSystem;
@@ -203,6 +219,33 @@ export class ModuleAccessFileSystem implements VirtualFileSystem {
 			this.hostNodeModulesRoot = null;
 			this.overlayAllowedRoots = [];
 		}
+
+		// Sort package roots by vmPath length (longest first) for prefix matching.
+		this.packageRoots = [...(options.packageRoots ?? [])].sort(
+			(a, b) => b.vmPath.length - a.vmPath.length,
+		);
+
+		// Expand allowed roots to include package root host paths.
+		for (const root of this.packageRoots) {
+			try {
+				const canonical = fsSync.realpathSync(root.hostPath);
+				if (!this.overlayAllowedRoots.includes(canonical)) {
+					this.overlayAllowedRoots.push(canonical);
+				}
+				// Also add the symlink-resolved roots from the package's own node_modules
+				const pkgNodeModules = path.join(canonical, "node_modules");
+				if (fsSync.existsSync(pkgNodeModules)) {
+					const additionalRoots = collectOverlayAllowedRoots(pkgNodeModules);
+					for (const additionalRoot of additionalRoots) {
+						if (!this.overlayAllowedRoots.includes(additionalRoot)) {
+							this.overlayAllowedRoots.push(additionalRoot);
+						}
+					}
+				}
+			} catch {
+				// Package root doesn't exist on host; skip.
+			}
+		}
 	}
 
 	private isWithinAllowedOverlayRoots(canonicalPath: string): boolean {
@@ -214,7 +257,7 @@ export class ModuleAccessFileSystem implements VirtualFileSystem {
 			return true;
 		}
 		if (virtualPath === SANDBOX_NODE_MODULES_ROOT) {
-			return this.hostNodeModulesRoot !== null;
+			return this.hostNodeModulesRoot !== null || this.packageRoots.length > 0;
 		}
 		return false;
 	}
@@ -224,7 +267,7 @@ export class ModuleAccessFileSystem implements VirtualFileSystem {
 		if (pathValue === "/") {
 			entries.set("app", true);
 		}
-		if (pathValue === SANDBOX_APP_ROOT && this.hostNodeModulesRoot !== null) {
+		if (pathValue === SANDBOX_APP_ROOT && (this.hostNodeModulesRoot !== null || this.packageRoots.length > 0)) {
 			entries.set("node_modules", true);
 		}
 		return entries;
@@ -249,6 +292,24 @@ export class ModuleAccessFileSystem implements VirtualFileSystem {
 		if (!startsWithPath(virtualPath, SANDBOX_NODE_MODULES_ROOT)) {
 			return null;
 		}
+
+		// Check package roots first (longest-prefix match, already sorted).
+		for (const root of this.packageRoots) {
+			if (virtualPath === root.vmPath || startsWithPath(virtualPath, root.vmPath)) {
+				if (virtualPath === root.vmPath) {
+					return root.hostPath;
+				}
+				const relative = path.posix
+					.relative(root.vmPath, virtualPath)
+					.replace(/^\/+/, "");
+				if (!relative) {
+					return root.hostPath;
+				}
+				return path.join(root.hostPath, ...relative.split("/"));
+			}
+		}
+
+		// Fall back to CWD-based node_modules.
 		if (!this.hostNodeModulesRoot) {
 			return null;
 		}
@@ -315,6 +376,15 @@ export class ModuleAccessFileSystem implements VirtualFileSystem {
 
 	/** Translate a host path back to the sandbox path (reverse of toHostPath). */
 	toSandboxPath(hostPath: string): string {
+		// Check package roots first (longest host path match).
+		for (const root of this.packageRoots) {
+			if (isWithinPath(hostPath, root.hostPath)) {
+				const relative = path.relative(root.hostPath, hostPath);
+				return relative
+					? path.posix.join(root.vmPath, ...relative.split(path.sep))
+					: root.vmPath;
+			}
+		}
 		if (this.hostNodeModulesRoot && isWithinPath(hostPath, this.hostNodeModulesRoot)) {
 			const relative = path.relative(this.hostNodeModulesRoot, hostPath);
 			return path.posix.join(SANDBOX_NODE_MODULES_ROOT, ...relative.split(path.sep));

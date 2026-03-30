@@ -520,7 +520,32 @@ pub fn canonicalize<P: AsRef<Path>>(
     Ok(result)
 }
 
-#[cfg(not(unix))]
+#[cfg(target_os = "wasi")]
+/// Display the permissions of a file using real POSIX mode from host_fs.
+pub fn display_permissions(metadata: &fs::Metadata, display_file_type: bool) -> String {
+    // Access st_mode through the internal stat struct.
+    // We patched Rust std to populate this via host_fs FFI imports.
+    use std::os::wasi::fs::MetadataExt;
+    let ino = metadata.ino(); // dummy call to ensure we use the right type
+    let _ = ino;
+    // The stat struct has st_mode set by our host_fs patch. Access it via the
+    // internal FileAttr → stat64 → st_mode chain. Since PermissionsExt doesn't
+    // exist on WASI, we use a small helper to extract mode.
+    let mode = wasi_metadata_mode(metadata);
+    display_permissions_unix(mode, display_file_type)
+}
+
+#[cfg(target_os = "wasi")]
+fn wasi_metadata_mode(metadata: &fs::Metadata) -> mode_t {
+    // Permissions wraps FilePermissions which is { mode: mode_t } (u32).
+    // No public trait exposes mode() on WASI, so we transmute the newtype.
+    let perms = metadata.permissions();
+    const _: () = assert!(std::mem::size_of::<fs::Permissions>() == std::mem::size_of::<u32>());
+    let mode: u32 = unsafe { std::mem::transmute(perms) };
+    mode as mode_t
+}
+
+#[cfg(not(any(unix, target_os = "wasi")))]
 /// Display the permissions of a file
 pub fn display_permissions(metadata: &fs::Metadata, display_file_type: bool) -> String {
     let write = if metadata.permissions().readonly() {
