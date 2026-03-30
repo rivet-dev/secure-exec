@@ -42,7 +42,7 @@
 
 ### POSIX Conformance Test Integrity
 
-- **no test-only workarounds** — if a C override fixes broken libc behavior (fcntl, realloc, strfmon, etc.), it MUST go in the patched sysroot (`native/wasmvm/patches/wasi-libc/`) so all WASM programs get the fix; never link overrides only into test binaries — that inflates conformance numbers while real users still hit the bug
+- **no test-only workarounds** — if a C override fixes broken libc behavior (fcntl, realloc, strfmon, etc.), it MUST go in the patched sysroot in `~/agent-os-registry/` so all WASM programs get the fix; never link overrides only into test binaries — that inflates conformance numbers while real users still hit the bug
 - **never replace upstream test source files** — if an os-test `.c` file fails due to a platform difference (e.g. `sizeof(long)`), exclude it via `os-test-exclusions.json` with the real reason; do not swap in a rewritten version that changes what the test validates
 - **kernel behavior belongs in the kernel, not the test runner** — if a test requires runtime state (POSIX directories like `/tmp`, `/usr`, device nodes, etc.), implement it in the kernel/device-layer so all users get it; the test runner should not create kernel state that real users won't have
 - **no suite-specific VFS special-casing** — the test runner must not branch on suite name to inject different filesystem state; if a test needs files to exist, either the kernel should provide them or the test should be excluded
@@ -111,10 +111,8 @@
 ## C Library Vendoring Policy
 
 - NEVER commit third-party C library source code directly into this repo
-- **unmodified upstream libraries** (sqlite3, zlib, minizip, cJSON, etc.) must be downloaded at build time from their official release URLs — add a Makefile target in `native/wasmvm/c/Makefile` under `fetch-libs`
-- **modified libraries** (e.g., libcurl with WASI patches) must live in a fork under the `rivet-dev` GitHub org (e.g., `rivet-dev/secure-exec-curl`) — the Makefile downloads from the fork's archive URL
-- all downloaded library sources go in `native/wasmvm/c/libs/` which is gitignored — they are fetched by `make fetch-libs` and cached in `native/wasmvm/c/.cache/`
-- when adding a new C library dependency: (1) add its download URL and Makefile target to `fetch-libs`, (2) add `libs/<name>` to the appropriate `.gitignore`, (3) if WASI modifications are needed, create a `rivet-dev/secure-exec-<name>` fork first
+- **modified libraries** (e.g., libcurl with WASI patches) must live in a fork under the `rivet-dev` GitHub org (e.g., `rivet-dev/secure-exec-curl`)
+- all WASM command source code, C programs, and sysroot builds now live in `~/agent-os-registry/` (GitHub: `rivet-dev/agent-os-registry`)
 - existing forks: `rivet-dev/secure-exec-curl` (libcurl with `wasi_tls.c` and `wasi_stubs.c`)
 
 ## WASM Binary
@@ -122,19 +120,19 @@
 - the goal for WasmVM is full POSIX compliance 1:1 — every command, syscall, and shell behavior should match a real Linux system exactly
 - WasmVM and Python are experimental surfaces in this repo
 - all docs for WasmVM, Python, or other experimental runtime features must live under the `Experimental` section of the docs navigation, not the main getting-started/reference sections
-- **All WASM command source code (Rust crates and C programs) has been moved to the agent-os-registry repo at `~/agent-os-registry/`** (GitHub: `rivet-dev/agent-os-registry`). The `native/wasmvm/` directory in this repo is the original copy and should no longer be the primary source for building commands. Build from the registry instead: `cd ~/agent-os-registry && make build-wasm`.
+- **The `native/wasmvm/` directory has been deleted from this repo.** All WASM command source code (Rust crates, C programs, WASI host import definitions, patches, and the C sysroot build) now lives in `~/agent-os-registry/` (GitHub: `rivet-dev/agent-os-registry`). Build from the registry: `cd ~/agent-os-registry && make build-wasm`.
 - the WasmVM runtime driver (`packages/wasmvm/`) still lives in this repo. It loads and executes WASM binaries but does not contain command source code.
 - tests gated behind `skipIf(!hasWasmBinaries)` or `skipUnlessWasmBuilt()` will skip locally if binaries aren't built
-- the `native/wasmvm/` directory remains for reference and WASI host import definitions (`crates/wasi-ext/`), patches (`patches/`), and the C sysroot build
 
 ## WasmVM Syscall Coverage
 
-- every function in the `host_process` and `host_user` import modules (declared in `native/wasmvm/crates/wasi-ext/src/lib.rs`) must have at least one C parity test exercising it through libc
-- when adding a new host import, add a matching test case to `native/wasmvm/c/programs/syscall_coverage.c` and its parity test in `packages/wasmvm/test/c-parity.test.ts`
-- the canonical source of truth for import signatures is `native/wasmvm/crates/wasi-ext/src/lib.rs` — C patches and JS host implementations must match exactly
-- C patches in `native/wasmvm/patches/wasi-libc/` must be kept in sync with wasi-ext — ABI drift between C, Rust, and JS is a P0 bug
+- the WASM command source code (including `wasi-ext`, C programs, patches, and Makefiles) now lives in `~/agent-os-registry/` (GitHub: `rivet-dev/agent-os-registry`)
+- every function in the `host_process` and `host_user` import modules (declared in `wasi-ext` in the registry) must have at least one C parity test exercising it through libc
+- when adding a new host import, add a matching test case to the registry's syscall_coverage.c and its parity test in `packages/wasmvm/test/c-parity.test.ts`
+- the canonical source of truth for import signatures is `wasi-ext/src/lib.rs` in the registry. C patches and JS host implementations must match exactly.
+- C patches in the registry's `patches/wasi-libc/` must be kept in sync with wasi-ext. ABI drift between C, Rust, and JS is a P0 bug.
 - permission tier enforcement must cover ALL write/spawn/kill/pipe/dup operations — audit `packages/wasmvm/src/kernel-worker.ts` when adding new syscalls
-- `PATCHED_PROGRAMS` in `native/wasmvm/c/Makefile` must include all programs that use `host_process` or `host_user` imports (programs linking the patched sysroot)
+- `PATCHED_PROGRAMS` in the registry's C Makefile must include all programs that use `host_process` or `host_user` imports (programs linking the patched sysroot)
 - WasmVM `host_net` socket option payloads cross the worker RPC boundary as little-endian byte buffers; decode/encode them in `packages/wasmvm/src/driver.ts` and keep `packages/wasmvm/src/kernel-worker.ts` as a thin memory marshal layer
 
 ## Terminology
