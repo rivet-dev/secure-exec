@@ -999,6 +999,81 @@ export function defineVfsConformanceTests(config: VfsConformanceConfig): void {
 				const text = await fs.readTextFile(path);
 				expect(text).toBe("deep");
 			});
+
+			test.skipIf(!capabilities.pwrite)(
+				"pwrite on nonexistent file throws ENOENT",
+				async () => {
+					const err = await fs
+						.pwrite("/no-such-file.txt", 0, new TextEncoder().encode("x"))
+						.catch((e) => e);
+					expectErrorCode(err, "ENOENT");
+				},
+			);
+
+			test.skipIf(!capabilities.truncate)(
+				"truncate on nonexistent file throws ENOENT",
+				async () => {
+					const err = await fs.truncate("/no-such-file.txt", 0).catch((e) => e);
+					expectErrorCode(err, "ENOENT");
+				},
+			);
+
+			test("stat on root directory '/' returns isDirectory: true", async () => {
+				const s = await fs.stat("/");
+				expect(s.isDirectory).toBe(true);
+			});
+		});
+
+		// ---------------------------------------------------------------
+		// Relative symlink tests (gated)
+		// ---------------------------------------------------------------
+
+		describe.skipIf(!capabilities.symlinks)("relative symlinks", () => {
+			test("relative symlink resolution", async () => {
+				// Create /dir/real.txt, then /dir/link.txt -> real.txt (relative)
+				await fs.writeFile("/dir/real.txt", "real content");
+				await fs.symlink("real.txt", "/dir/link.txt");
+				const text = await fs.readTextFile("/dir/link.txt");
+				expect(text).toBe("real content");
+			});
+
+			test("symlink-to-directory traversal", async () => {
+				// Create /real-dir/file.txt, then /a -> /real-dir
+				// Reading /a/file.txt should resolve to /real-dir/file.txt
+				await fs.writeFile("/real-dir/file.txt", "traversed");
+				await fs.symlink("/real-dir", "/a");
+				const text = await fs.readTextFile("/a/file.txt");
+				expect(text).toBe("traversed");
+			});
+		});
+
+		// ---------------------------------------------------------------
+		// Concurrent rename + readFile (gated on pwrite for concurrency)
+		// ---------------------------------------------------------------
+
+		describe.skipIf(!capabilities.pwrite)("concurrent rename + readFile", () => {
+			test("concurrent rename + readFile does not crash or corrupt", async () => {
+				await fs.writeFile("/conc-rename.txt", "data before rename");
+				// Run rename and readFile concurrently. Neither should crash.
+				// readFile may see the file at old or new path depending on ordering.
+				const results = await Promise.allSettled([
+					fs.rename("/conc-rename.txt", "/conc-renamed.txt"),
+					fs.readFile("/conc-rename.txt"),
+				]);
+				// Rename should succeed.
+				expect(results[0]!.status).toBe("fulfilled");
+				// readFile may succeed (read before rename) or fail with ENOENT (read after rename).
+				if (results[1]!.status === "fulfilled") {
+					const data = (results[1] as PromiseFulfilledResult<Uint8Array>).value;
+					expect(new TextDecoder().decode(data)).toBe("data before rename");
+				} else {
+					const err = (results[1] as PromiseRejectedResult).reason;
+					expectErrorCode(err, "ENOENT");
+				}
+				// The file should exist at the new path.
+				const text = await fs.readTextFile("/conc-renamed.txt");
+				expect(text).toBe("data before rename");
+			});
 		});
 	});
 }

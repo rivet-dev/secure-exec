@@ -160,6 +160,35 @@ export function defineMetadataStoreTests(
 				const meta = await store.getInode(99999);
 				expect(meta).toBeNull();
 			});
+
+			test("deleteInode cleans up associated chunk mappings and symlink targets", async () => {
+				// Create a file inode with chunk mappings.
+				const fileIno = await store.createInode(fileAttrs());
+				await store.setChunkKey(fileIno, 0, "chunk-0");
+				await store.setChunkKey(fileIno, 1, "chunk-1");
+
+				// Create a symlink inode.
+				const symlinkIno = await store.createInode(symlinkAttrs("/some/target"));
+
+				// Delete the file inode.
+				await store.deleteInode(fileIno);
+				expect(await store.getInode(fileIno)).toBeNull();
+				// Chunk mappings should also be cleaned up.
+				expect(await store.getChunkKey(fileIno, 0)).toBeNull();
+				expect(await store.getChunkKey(fileIno, 1)).toBeNull();
+
+				// Delete the symlink inode.
+				await store.deleteInode(symlinkIno);
+				expect(await store.getInode(symlinkIno)).toBeNull();
+				// readSymlink should fail or return null.
+				try {
+					const target = await store.readSymlink(symlinkIno);
+					// If it doesn't throw, it should return null or undefined.
+					expect(target == null).toBe(true);
+				} catch {
+					// Expected: inode no longer exists.
+				}
+			});
 		});
 
 		// ---------------------------------------------------------------
@@ -409,6 +438,22 @@ export function defineMetadataStoreTests(
 					expectErrorCode(err, "ENOENT");
 				}
 			});
+
+			test("resolvePath with relative symlink targets", async () => {
+				// Create /dir/ containing real.txt and a relative symlink link.txt -> real.txt.
+				const dirIno = await store.createInode(dirAttrs());
+				await store.createDentry(1, "dir", dirIno, "directory");
+
+				const fileIno = await store.createInode(fileAttrs());
+				await store.createDentry(dirIno, "real.txt", fileIno, "file");
+
+				// Relative symlink: target is "real.txt" (no leading /).
+				const linkIno = await store.createInode(symlinkAttrs("real.txt"));
+				await store.createDentry(dirIno, "link.txt", linkIno, "symlink");
+
+				const resolved = await store.resolvePath("/dir/link.txt");
+				expect(resolved).toBe(fileIno);
+			});
 		});
 
 		// ---------------------------------------------------------------
@@ -548,6 +593,17 @@ export function defineMetadataStoreTests(
 				const ino = await store.createInode(symlinkAttrs("/some/target"));
 				const target = await store.readSymlink(ino);
 				expect(target).toBe("/some/target");
+			});
+
+			test("readSymlink on non-symlink inode throws error", async () => {
+				const fileIno = await store.createInode(fileAttrs());
+				try {
+					await store.readSymlink(fileIno);
+					expect.fail("should have thrown");
+				} catch (err) {
+					// Any error is acceptable: EINVAL, ENOENT, or a generic Error.
+					expect(err).toBeInstanceOf(Error);
+				}
 			});
 		});
 

@@ -162,6 +162,20 @@ export function defineBlockStoreTests(
 					expectErrorCode(err, "ENOENT");
 				}
 			});
+
+			test("readRange with offset exactly at block size returns empty Uint8Array", async () => {
+				const data = makeData(50);
+				await store.write("key", data);
+				const result = await store.readRange("key", 50, 10);
+				expect(result.length).toBe(0);
+			});
+
+			test("readRange with offset=0, length=0 returns empty Uint8Array", async () => {
+				const data = makeData(50);
+				await store.write("key", data);
+				const result = await store.readRange("key", 0, 0);
+				expect(result.length).toBe(0);
+			});
 		});
 
 		// ---------------------------------------------------------------
