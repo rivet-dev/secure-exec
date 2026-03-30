@@ -22,6 +22,7 @@
 
 import type {
 	FsMetadataStore,
+	FsMetadataStoreVersioning,
 	InodeMeta,
 	CreateInodeAttrs,
 } from "../vfs/types.js";
@@ -547,6 +548,184 @@ export function defineMetadataStoreTests(
 				const ino = await store.createInode(symlinkAttrs("/some/target"));
 				const target = await store.readSymlink(ino);
 				expect(target).toBe("/some/target");
+			});
+		});
+
+		// ---------------------------------------------------------------
+		// Versioning (gated)
+		// ---------------------------------------------------------------
+
+		describe.skipIf(!config.capabilities.versioning)("versioning", () => {
+			function getVersioningStore(): FsMetadataStoreVersioning {
+				return store as unknown as FsMetadataStoreVersioning;
+			}
+
+			test("createVersion returns incrementing version numbers", async () => {
+				const ino = await store.createInode(fileAttrs());
+				await store.updateInode(ino, { size: 100, storageMode: "inline", inlineContent: new Uint8Array(100) });
+
+				const vs = getVersioningStore();
+				const v1 = await vs.createVersion(ino);
+				const v2 = await vs.createVersion(ino);
+				const v3 = await vs.createVersion(ino);
+				expect(v1).toBe(1);
+				expect(v2).toBe(2);
+				expect(v3).toBe(3);
+			});
+
+			test("listVersions returns all versions newest first", async () => {
+				const ino = await store.createInode(fileAttrs());
+				await store.updateInode(ino, { size: 10, storageMode: "inline", inlineContent: new Uint8Array(10) });
+
+				const vs = getVersioningStore();
+				await vs.createVersion(ino);
+				await store.updateInode(ino, { size: 20 });
+				await vs.createVersion(ino);
+				await store.updateInode(ino, { size: 30 });
+				await vs.createVersion(ino);
+
+				const versions = await vs.listVersions(ino);
+				expect(versions.length).toBe(3);
+				expect(versions[0]!.version).toBe(3);
+				expect(versions[1]!.version).toBe(2);
+				expect(versions[2]!.version).toBe(1);
+				expect(versions[0]!.size).toBe(30);
+				expect(versions[1]!.size).toBe(20);
+				expect(versions[2]!.size).toBe(10);
+			});
+
+			test("getVersion returns correct metadata", async () => {
+				const ino = await store.createInode(fileAttrs());
+				const content = new Uint8Array([1, 2, 3, 4, 5]);
+				await store.updateInode(ino, { size: 5, storageMode: "inline", inlineContent: content });
+
+				const vs = getVersioningStore();
+				const v = await vs.createVersion(ino);
+
+				const meta = await vs.getVersion(ino, v);
+				expect(meta).not.toBeNull();
+				expect(meta!.version).toBe(v);
+				expect(meta!.size).toBe(5);
+				expect(meta!.storageMode).toBe("inline");
+				expect(meta!.inlineContent).toEqual(content);
+				expect(meta!.createdAt).toBeGreaterThan(0);
+			});
+
+			test("getVersion returns null for nonexistent version", async () => {
+				const ino = await store.createInode(fileAttrs());
+
+				const vs = getVersioningStore();
+				const meta = await vs.getVersion(ino, 999);
+				expect(meta).toBeNull();
+			});
+
+			test("getVersionChunkMap returns chunk keys at snapshot time", async () => {
+				const ino = await store.createInode(fileAttrs());
+				await store.updateInode(ino, { storageMode: "chunked", inlineContent: null, size: 2048 });
+				await store.setChunkKey(ino, 0, "ino/0/abc");
+				await store.setChunkKey(ino, 1, "ino/1/def");
+
+				const vs = getVersioningStore();
+				const v = await vs.createVersion(ino);
+
+				const chunkMap = await vs.getVersionChunkMap(ino, v);
+				expect(chunkMap.length).toBe(2);
+				expect(chunkMap[0]!.chunkIndex).toBe(0);
+				expect(chunkMap[0]!.key).toBe("ino/0/abc");
+				expect(chunkMap[1]!.chunkIndex).toBe(1);
+				expect(chunkMap[1]!.key).toBe("ino/1/def");
+			});
+
+			test("restoreVersion reverts current chunk map", async () => {
+				const ino = await store.createInode(fileAttrs());
+				await store.updateInode(ino, { storageMode: "chunked", inlineContent: null, size: 1024 });
+				await store.setChunkKey(ino, 0, "ino/0/v1key");
+
+				const vs = getVersioningStore();
+				const v1 = await vs.createVersion(ino);
+
+				// Write new data.
+				await store.setChunkKey(ino, 0, "ino/0/v2key");
+				await store.setChunkKey(ino, 1, "ino/1/v2key");
+				await store.updateInode(ino, { size: 2048 });
+
+				// Restore to v1.
+				await vs.restoreVersion(ino, v1);
+
+				// Verify chunk map is restored.
+				const chunks = await store.getAllChunkKeys(ino);
+				expect(chunks.length).toBe(1);
+				expect(chunks[0]!.key).toBe("ino/0/v1key");
+
+				// Verify inode size is restored.
+				const meta = await store.getInode(ino);
+				expect(meta!.size).toBe(1024);
+			});
+
+			test("deleteVersions removes specified versions", async () => {
+				const ino = await store.createInode(fileAttrs());
+				await store.updateInode(ino, { size: 10, storageMode: "inline", inlineContent: new Uint8Array(10) });
+
+				const vs = getVersioningStore();
+				const v1 = await vs.createVersion(ino);
+				const v2 = await vs.createVersion(ino);
+				const v3 = await vs.createVersion(ino);
+
+				await vs.deleteVersions(ino, [v1, v2]);
+
+				const remaining = await vs.listVersions(ino);
+				expect(remaining.length).toBe(1);
+				expect(remaining[0]!.version).toBe(v3);
+			});
+
+			test("deleteVersions returns orphaned block keys", async () => {
+				const ino = await store.createInode(fileAttrs());
+				await store.updateInode(ino, { storageMode: "chunked", inlineContent: null, size: 1024 });
+				await store.setChunkKey(ino, 0, "ino/0/v1key");
+
+				const vs = getVersioningStore();
+				const v1 = await vs.createVersion(ino);
+
+				// Write new chunk keys.
+				await store.setChunkKey(ino, 0, "ino/0/v2key");
+
+				// Delete v1. "ino/0/v1key" is no longer referenced by any version or current state.
+				const orphaned = await vs.deleteVersions(ino, [v1]);
+				expect(orphaned).toContain("ino/0/v1key");
+				expect(orphaned).not.toContain("ino/0/v2key");
+			});
+
+			test("deleteVersions does not return keys still referenced by remaining versions", async () => {
+				const ino = await store.createInode(fileAttrs());
+				await store.updateInode(ino, { storageMode: "chunked", inlineContent: null, size: 1024 });
+				await store.setChunkKey(ino, 0, "ino/0/sharedkey");
+
+				const vs = getVersioningStore();
+				const v1 = await vs.createVersion(ino);
+				const v2 = await vs.createVersion(ino);
+
+				// Both v1 and v2 reference "ino/0/sharedkey". Delete v1.
+				const orphaned = await vs.deleteVersions(ino, [v1]);
+				expect(orphaned).not.toContain("ino/0/sharedkey");
+			});
+
+			test("createVersion + write new data: old version has old size", async () => {
+				const ino = await store.createInode(fileAttrs());
+				await store.updateInode(ino, { size: 10, storageMode: "inline", inlineContent: new Uint8Array(10) });
+
+				const vs = getVersioningStore();
+				const v1 = await vs.createVersion(ino);
+
+				// Write new data (larger).
+				await store.updateInode(ino, { size: 50, inlineContent: new Uint8Array(50) });
+
+				// Old version still has old size.
+				const meta = await vs.getVersion(ino, v1);
+				expect(meta!.size).toBe(10);
+
+				// No new version was created automatically.
+				const versions = await vs.listVersions(ino);
+				expect(versions.length).toBe(1);
 			});
 		});
 	});

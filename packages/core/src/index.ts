@@ -297,13 +297,17 @@ export type {
 	DentryStatInfo,
 	FsMetadataStore,
 	FsBlockStore,
+	FsMetadataStoreVersioning,
+	VersionMeta,
+	VersionInfo,
+	RetentionPolicy,
 } from "./vfs/types.js";
 export { InMemoryMetadataStore } from "./vfs/memory-metadata.js";
 export { InMemoryBlockStore } from "./vfs/memory-block-store.js";
 export { SqliteMetadataStore } from "./vfs/sqlite-metadata.js";
 export type { SqliteMetadataStoreOptions } from "./vfs/sqlite-metadata.js";
 export { createChunkedVfs } from "./vfs/chunked-vfs.js";
-export type { ChunkedVfsOptions } from "./vfs/chunked-vfs.js";
+export type { ChunkedVfsOptions, ChunkedVfsVersioning } from "./vfs/chunked-vfs.js";
 export { HostBlockStore } from "./vfs/host-block-store.js";
 
 // VFS conformance test suite.

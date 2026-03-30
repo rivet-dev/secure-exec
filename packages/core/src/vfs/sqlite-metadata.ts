@@ -22,8 +22,10 @@ import type {
 	DentryInfo,
 	DentryStatInfo,
 	FsMetadataStore,
+	FsMetadataStoreVersioning,
 	InodeMeta,
 	InodeType,
+	VersionMeta,
 } from "./types.js";
 
 const SYMLOOP_MAX = 40;
@@ -35,10 +37,13 @@ const S_IFLNK = 0o120000;
 export interface SqliteMetadataStoreOptions {
 	/** Path to the SQLite database file. Use ':memory:' for in-memory. */
 	dbPath: string;
+	/** Enable file versioning support. Default: false. */
+	versioning?: boolean;
 }
 
-export class SqliteMetadataStore implements FsMetadataStore {
+export class SqliteMetadataStore implements FsMetadataStore, FsMetadataStoreVersioning {
 	private db: BetterSqlite3.Database;
+	private versioningEnabled: boolean;
 
 	// Prepared statements for hot paths.
 	private stmtGetInode: BetterSqlite3.Statement;
@@ -59,10 +64,19 @@ export class SqliteMetadataStore implements FsMetadataStore {
 	private stmtDeleteAllChunks: BetterSqlite3.Statement;
 	private stmtDeleteChunksFrom: BetterSqlite3.Statement;
 
+	// Versioning prepared statements (only initialized if versioning is enabled).
+	private stmtCreateVersion!: BetterSqlite3.Statement;
+	private stmtGetVersion!: BetterSqlite3.Statement;
+	private stmtListVersions!: BetterSqlite3.Statement;
+	private stmtGetVersionChunkMap!: BetterSqlite3.Statement;
+	private stmtDeleteVersion!: BetterSqlite3.Statement;
+	private stmtMaxVersion!: BetterSqlite3.Statement;
+
 	constructor(options: SqliteMetadataStoreOptions) {
 		this.db = new Database(options.dbPath);
 		this.db.pragma("journal_mode = WAL");
 		this.db.pragma("foreign_keys = ON");
+		this.versioningEnabled = options.versioning ?? false;
 
 		this.initSchema();
 
@@ -119,6 +133,28 @@ export class SqliteMetadataStore implements FsMetadataStore {
 		this.stmtDeleteChunksFrom = this.db.prepare(
 			"SELECT block_key FROM chunks WHERE ino = ? AND chunk_index >= ?",
 		);
+
+		// Versioning prepared statements.
+		if (this.versioningEnabled) {
+			this.stmtCreateVersion = this.db.prepare(
+				"INSERT INTO versions (ino, version, size, created_at, storage_mode, inline_content, chunk_map) VALUES (?, ?, ?, ?, ?, ?, ?)",
+			);
+			this.stmtGetVersion = this.db.prepare(
+				"SELECT version, size, created_at, storage_mode, inline_content FROM versions WHERE ino = ? AND version = ?",
+			);
+			this.stmtListVersions = this.db.prepare(
+				"SELECT version, size, created_at, storage_mode, inline_content FROM versions WHERE ino = ? ORDER BY version DESC",
+			);
+			this.stmtGetVersionChunkMap = this.db.prepare(
+				"SELECT chunk_map FROM versions WHERE ino = ? AND version = ?",
+			);
+			this.stmtDeleteVersion = this.db.prepare(
+				"DELETE FROM versions WHERE ino = ? AND version = ?",
+			);
+			this.stmtMaxVersion = this.db.prepare(
+				"SELECT MAX(version) as max_version FROM versions WHERE ino = ?",
+			);
+		}
 	}
 
 	private initSchema(): void {
@@ -164,6 +200,22 @@ export class SqliteMetadataStore implements FsMetadataStore {
 				FOREIGN KEY (ino) REFERENCES inodes(ino)
 			);
 		`);
+
+		if (this.versioningEnabled) {
+			this.db.exec(`
+				CREATE TABLE IF NOT EXISTS versions (
+					ino            INTEGER NOT NULL,
+					version        INTEGER NOT NULL,
+					size           INTEGER NOT NULL,
+					created_at     INTEGER NOT NULL,
+					storage_mode   TEXT NOT NULL,
+					inline_content BLOB,
+					chunk_map      TEXT,
+					PRIMARY KEY (ino, version),
+					FOREIGN KEY (ino) REFERENCES inodes(ino)
+				);
+			`);
+		}
 
 		// Create root inode (ino=1) if it doesn't exist.
 		const rootExists = this.db
@@ -560,6 +612,214 @@ export class SqliteMetadataStore implements FsMetadataStore {
 			.prepare("DELETE FROM chunks WHERE ino = ? AND chunk_index >= ?")
 			.run(ino, startIndex);
 		return keys;
+	}
+
+	// -- Versioning --
+
+	async createVersion(ino: number): Promise<number> {
+		if (!this.versioningEnabled) {
+			throw new Error("versioning is not enabled");
+		}
+
+		const meta = this.stmtGetInode.get(ino) as Record<string, unknown> | undefined;
+		if (!meta) {
+			throw new KernelError("ENOENT", `inode ${ino} not found`);
+		}
+
+		// Get next version number.
+		const maxRow = this.stmtMaxVersion.get(ino) as { max_version: number | null };
+		const version = (maxRow.max_version ?? 0) + 1;
+
+		const now = Date.now();
+		const storageMode = meta.storage_mode as string;
+		const inlineContent = meta.inline_content as Buffer | null;
+
+		// Capture current chunk map as JSON.
+		let chunkMapJson: string | null = null;
+		if (storageMode === "chunked") {
+			const chunkRows = this.stmtGetAllChunkKeys.all(ino) as Array<{
+				chunk_index: number;
+				block_key: string;
+			}>;
+			chunkMapJson = JSON.stringify(
+				chunkRows.map((r) => ({
+					chunkIndex: r.chunk_index,
+					blockKey: r.block_key,
+				})),
+			);
+		}
+
+		this.stmtCreateVersion.run(
+			ino,
+			version,
+			meta.size as number,
+			now,
+			storageMode,
+			inlineContent,
+			chunkMapJson,
+		);
+
+		return version;
+	}
+
+	async getVersion(ino: number, version: number): Promise<VersionMeta | null> {
+		if (!this.versioningEnabled) {
+			throw new Error("versioning is not enabled");
+		}
+
+		const row = this.stmtGetVersion.get(ino, version) as Record<string, unknown> | undefined;
+		if (!row) return null;
+
+		const inlineContent = row.inline_content as Buffer | null;
+		return {
+			version: row.version as number,
+			size: row.size as number,
+			createdAt: row.created_at as number,
+			storageMode: row.storage_mode as "inline" | "chunked",
+			inlineContent: inlineContent ? new Uint8Array(inlineContent) : null,
+		};
+	}
+
+	async listVersions(ino: number): Promise<VersionMeta[]> {
+		if (!this.versioningEnabled) {
+			throw new Error("versioning is not enabled");
+		}
+
+		const rows = this.stmtListVersions.all(ino) as Array<Record<string, unknown>>;
+		return rows.map((row) => {
+			const inlineContent = row.inline_content as Buffer | null;
+			return {
+				version: row.version as number,
+				size: row.size as number,
+				createdAt: row.created_at as number,
+				storageMode: row.storage_mode as "inline" | "chunked",
+				inlineContent: inlineContent ? new Uint8Array(inlineContent) : null,
+			};
+		});
+	}
+
+	async getVersionChunkMap(
+		ino: number,
+		version: number,
+	): Promise<{ chunkIndex: number; key: string }[]> {
+		if (!this.versioningEnabled) {
+			throw new Error("versioning is not enabled");
+		}
+
+		const row = this.stmtGetVersionChunkMap.get(ino, version) as
+			| { chunk_map: string | null }
+			| undefined;
+		if (!row || !row.chunk_map) return [];
+
+		const parsed = JSON.parse(row.chunk_map) as Array<{
+			chunkIndex: number;
+			blockKey: string;
+		}>;
+		return parsed.map((e) => ({
+			chunkIndex: e.chunkIndex,
+			key: e.blockKey,
+		}));
+	}
+
+	async deleteVersions(ino: number, versions: number[]): Promise<string[]> {
+		if (!this.versioningEnabled) {
+			throw new Error("versioning is not enabled");
+		}
+		if (versions.length === 0) return [];
+
+		// Collect all block keys referenced by the versions being deleted.
+		const deletedBlockKeys = new Set<string>();
+		for (const v of versions) {
+			const chunkMap = await this.getVersionChunkMap(ino, v);
+			for (const entry of chunkMap) {
+				deletedBlockKeys.add(entry.key);
+			}
+			this.stmtDeleteVersion.run(ino, v);
+		}
+
+		if (deletedBlockKeys.size === 0) return [];
+
+		// Find block keys still referenced by remaining versions.
+		const remainingVersions = this.stmtListVersions.all(ino) as Array<Record<string, unknown>>;
+		const referencedKeys = new Set<string>();
+
+		for (const rv of remainingVersions) {
+			const chunkMapStr = (
+				this.stmtGetVersionChunkMap.get(ino, rv.version as number) as
+					| { chunk_map: string | null }
+					| undefined
+			)?.chunk_map;
+			if (chunkMapStr) {
+				const parsed = JSON.parse(chunkMapStr) as Array<{
+					chunkIndex: number;
+					blockKey: string;
+				}>;
+				for (const e of parsed) {
+					referencedKeys.add(e.blockKey);
+				}
+			}
+		}
+
+		// Also check the current chunk map.
+		const currentChunks = this.stmtGetAllChunkKeys.all(ino) as Array<{
+			chunk_index: number;
+			block_key: string;
+		}>;
+		for (const c of currentChunks) {
+			referencedKeys.add(c.block_key);
+		}
+
+		// Return orphaned keys (not referenced by any remaining version or current state).
+		const orphanedKeys: string[] = [];
+		for (const key of deletedBlockKeys) {
+			if (!referencedKeys.has(key)) {
+				orphanedKeys.push(key);
+			}
+		}
+
+		return orphanedKeys;
+	}
+
+	async restoreVersion(ino: number, version: number): Promise<void> {
+		if (!this.versioningEnabled) {
+			throw new Error("versioning is not enabled");
+		}
+
+		const versionRow = this.stmtGetVersion.get(ino, version) as Record<string, unknown> | undefined;
+		if (!versionRow) {
+			throw new KernelError("ENOENT", `version ${version} not found for inode ${ino}`);
+		}
+
+		const versionChunkMapStr = (
+			this.stmtGetVersionChunkMap.get(ino, version) as
+				| { chunk_map: string | null }
+				| undefined
+		)?.chunk_map;
+
+		// Clear current chunk map.
+		this.stmtDeleteChunks.run(ino);
+
+		// Restore chunk map from version.
+		if (versionChunkMapStr) {
+			const parsed = JSON.parse(versionChunkMapStr) as Array<{
+				chunkIndex: number;
+				blockKey: string;
+			}>;
+			for (const entry of parsed) {
+				this.stmtSetChunkKey.run(ino, entry.chunkIndex, entry.blockKey);
+			}
+		}
+
+		// Restore inode metadata from version.
+		const inlineContent = versionRow.inline_content as Buffer | null;
+		const updates: Partial<InodeMeta> = {
+			size: versionRow.size as number,
+			storageMode: versionRow.storage_mode as "inline" | "chunked",
+			inlineContent: inlineContent ? new Uint8Array(inlineContent) : null,
+			mtimeMs: Date.now(),
+			ctimeMs: Date.now(),
+		};
+		await this.updateInode(ino, updates);
 	}
 }
 

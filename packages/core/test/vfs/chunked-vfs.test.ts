@@ -13,8 +13,10 @@
 
 import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
 import { createChunkedVfs } from "../../src/vfs/chunked-vfs.js";
+import type { ChunkedVfsVersioning } from "../../src/vfs/chunked-vfs.js";
 import { InMemoryMetadataStore } from "../../src/vfs/memory-metadata.js";
 import { InMemoryBlockStore } from "../../src/vfs/memory-block-store.js";
+import { SqliteMetadataStore } from "../../src/vfs/sqlite-metadata.js";
 import type { FsBlockStore } from "../../src/vfs/types.js";
 import type { VirtualFileSystem } from "../../src/kernel/vfs.js";
 
@@ -577,5 +579,171 @@ describe("ChunkedVFS internals: write buffering", () => {
 	test("fsync on stale/nonexistent path: silent no-op", async () => {
 		// fsync on a path that doesn't exist should not throw.
 		await expect(fs.fsync!("/does-not-exist.txt")).resolves.toBeUndefined();
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Versioning tests
+// ---------------------------------------------------------------------------
+
+describe("ChunkedVFS versioning", () => {
+	let metadataStore: SqliteMetadataStore;
+	let blockStore: ReturnType<typeof createSpiedBlockStore>;
+	let fs: VirtualFileSystem & { versioning: ChunkedVfsVersioning };
+
+	beforeEach(() => {
+		metadataStore = new SqliteMetadataStore({ dbPath: ":memory:", versioning: true });
+		blockStore = createSpiedBlockStore();
+		fs = createChunkedVfs({
+			metadata: metadataStore,
+			blocks: blockStore.store,
+			chunkSize: CHUNK_SIZE,
+			inlineThreshold: INLINE_THRESHOLD,
+			versioning: true,
+		}) as VirtualFileSystem & { versioning: ChunkedVfsVersioning };
+	});
+
+	test("each pwrite creates a new block key (old key preserved)", async () => {
+		// Write a chunked file.
+		const data = makeData(CHUNK_SIZE);
+		await fs.writeFile("/big.bin", data);
+
+		// Track the initial block key.
+		const initialWriteArgs = blockStore.spies.write.mock.calls.map((c) => c[0] as string);
+		expect(initialWriteArgs.length).toBeGreaterThan(0);
+		const initialKey = initialWriteArgs[initialWriteArgs.length - 1]!;
+
+		blockStore.spies.write.mockClear();
+
+		// Pwrite to the same chunk.
+		await fs.pwrite("/big.bin", 0, new Uint8Array([99, 98, 97]));
+
+		// New pwrite should create a different key (versioned key includes randomId).
+		const newWriteArgs = blockStore.spies.write.mock.calls.map((c) => c[0] as string);
+		expect(newWriteArgs.length).toBeGreaterThan(0);
+		const newKey = newWriteArgs[newWriteArgs.length - 1]!;
+		expect(newKey).not.toBe(initialKey);
+
+		// Old block should NOT be deleted (versioning preserves it).
+		expect(blockStore.spies.deleteMany).not.toHaveBeenCalled();
+		expect(blockStore.spies.delete).not.toHaveBeenCalled();
+	});
+
+	test("createVersion snapshots current chunk map", async () => {
+		const data = makeData(CHUNK_SIZE + 100);
+		await fs.writeFile("/file.bin", data);
+
+		const v1 = await fs.versioning.createVersion("/file.bin");
+		expect(v1).toBe(1);
+
+		const versions = await fs.versioning.listVersions("/file.bin");
+		expect(versions.length).toBe(1);
+		expect(versions[0]!.version).toBe(1);
+		expect(versions[0]!.size).toBe(CHUNK_SIZE + 100);
+	});
+
+	test("after write, old version block keys still exist", async () => {
+		const data = makeData(CHUNK_SIZE);
+		await fs.writeFile("/file.bin", data);
+		await fs.versioning.createVersion("/file.bin");
+
+		// Write new data to overwrite.
+		const newData = makeData(CHUNK_SIZE, 42);
+		await fs.writeFile("/file.bin", newData);
+
+		// Old blocks should still be readable (not deleted).
+		// Verify by checking that deleteMany was not called.
+		const deleteManyCalls = blockStore.spies.deleteMany.mock.calls;
+		// With versioning, deleteMany should NOT have been called for the old blocks.
+		for (const call of deleteManyCalls) {
+			const keys = call[0] as string[];
+			expect(keys.length).toBe(0);
+		}
+	});
+
+	test("restoreVersion: pread returns old data", async () => {
+		const v1Data = makeData(INLINE_THRESHOLD + 100);
+		await fs.writeFile("/file.bin", v1Data);
+		await fs.versioning.createVersion("/file.bin");
+
+		// Write new data.
+		const v2Data = makeData(INLINE_THRESHOLD + 100, 42);
+		await fs.writeFile("/file.bin", v2Data);
+
+		// Read back to verify it's v2.
+		const currentData = await fs.readFile("/file.bin");
+		expect(currentData).toEqual(v2Data);
+
+		// Restore to v1.
+		await fs.versioning.restoreVersion("/file.bin", 1);
+
+		// Pread should return v1 data.
+		const restored = await fs.readFile("/file.bin");
+		expect(restored).toEqual(v1Data);
+	});
+
+	test("pruneVersions with count policy: keeps N newest", async () => {
+		await fs.writeFile("/file.txt", "v1");
+		await fs.versioning.createVersion("/file.txt");
+		await fs.writeFile("/file.txt", "v2");
+		await fs.versioning.createVersion("/file.txt");
+		await fs.writeFile("/file.txt", "v3");
+		await fs.versioning.createVersion("/file.txt");
+		await fs.writeFile("/file.txt", "v4");
+		await fs.versioning.createVersion("/file.txt");
+
+		// Keep only 2 newest.
+		const pruned = await fs.versioning.pruneVersions("/file.txt", { type: "count", keep: 2 });
+		expect(pruned).toBe(2);
+
+		const remaining = await fs.versioning.listVersions("/file.txt");
+		expect(remaining.length).toBe(2);
+		expect(remaining[0]!.version).toBe(4);
+		expect(remaining[1]!.version).toBe(3);
+	});
+
+	test("pruneVersions with age policy: keeps recent, deletes old", async () => {
+		await fs.writeFile("/file.txt", "v1");
+		await fs.versioning.createVersion("/file.txt");
+
+		// Keep versions newer than 1 hour (our version was just created, so it's kept).
+		const prunedNone = await fs.versioning.pruneVersions("/file.txt", { type: "age", maxAgeMs: 3600000 });
+		expect(prunedNone).toBe(0);
+
+		// Wait a small amount so the version timestamp is in the past.
+		await new Promise((r) => setTimeout(r, 10));
+
+		// Keep versions newer than 1ms (our version is now older than 1ms).
+		const prunedAll = await fs.versioning.pruneVersions("/file.txt", { type: "age", maxAgeMs: 1 });
+		expect(prunedAll).toBe(1);
+
+		const remaining = await fs.versioning.listVersions("/file.txt");
+		expect(remaining.length).toBe(0);
+	});
+
+	test("pruneVersions with deferred policy: deletes metadata only, not blocks", async () => {
+		const data = makeData(CHUNK_SIZE);
+		await fs.writeFile("/file.bin", data);
+		await fs.versioning.createVersion("/file.bin");
+
+		// Clear spy history before prune.
+		blockStore.spies.deleteMany.mockClear();
+		blockStore.spies.delete.mockClear();
+
+		const pruned = await fs.versioning.pruneVersions("/file.bin", { type: "deferred" });
+		expect(pruned).toBe(1);
+
+		// No block deletions should have occurred.
+		expect(blockStore.spies.deleteMany).not.toHaveBeenCalled();
+		expect(blockStore.spies.delete).not.toHaveBeenCalled();
+
+		// Version metadata should be gone.
+		const remaining = await fs.versioning.listVersions("/file.bin");
+		expect(remaining.length).toBe(0);
+	});
+
+	test("collectGarbage returns 0 (placeholder)", async () => {
+		const count = await fs.versioning.collectGarbage();
+		expect(count).toBe(0);
 	});
 });

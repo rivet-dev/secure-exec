@@ -211,3 +211,76 @@ export interface FsBlockStore {
 	 */
 	copy?(srcKey: string, dstKey: string): Promise<void>;
 }
+
+// ---------------------------------------------------------------------------
+// Versioning types
+// ---------------------------------------------------------------------------
+
+export interface VersionMeta {
+	version: number;
+	size: number;
+	createdAt: number;
+	storageMode: "inline" | "chunked";
+	inlineContent: Uint8Array | null;
+}
+
+/**
+ * Optional versioning extension for FsMetadataStore.
+ *
+ * Implementations that support versioning (e.g., SqliteMetadataStore) can
+ * implement this interface to allow ChunkedVFS to snapshot, list, and
+ * restore file versions.
+ *
+ * InMemoryMetadataStore does NOT implement versioning.
+ */
+export interface FsMetadataStoreVersioning {
+	/** Snapshot current chunk map + size. Returns the version number. */
+	createVersion(ino: number): Promise<number>;
+
+	/** Get version info. Returns null if the version does not exist. */
+	getVersion(ino: number, version: number): Promise<VersionMeta | null>;
+
+	/** List versions, newest first. */
+	listVersions(ino: number): Promise<VersionMeta[]>;
+
+	/** Get chunk map for a specific version. */
+	getVersionChunkMap(
+		ino: number,
+		version: number,
+	): Promise<{ chunkIndex: number; key: string }[]>;
+
+	/**
+	 * Delete version records. Returns block keys that are no longer
+	 * referenced by ANY version or the current chunk map.
+	 */
+	deleteVersions(ino: number, versions: number[]): Promise<string[]>;
+
+	/** Restore current chunk map to match a version. */
+	restoreVersion(ino: number, version: number): Promise<void>;
+}
+
+// ---------------------------------------------------------------------------
+// Retention policy types (for ChunkedVFS versioning API)
+// ---------------------------------------------------------------------------
+
+export type RetentionPolicy =
+	/** Keep the N most recent versions. Delete the rest immediately. */
+	| { type: "count"; keep: number }
+	/** Keep versions newer than maxAgeMs. Delete older immediately. */
+	| { type: "age"; maxAgeMs: number }
+	/**
+	 * Mark old metadata as pruned but do NOT delete blocks.
+	 * Used with block stores that have their own TTL/lifecycle
+	 * (e.g., S3 lifecycle rules). The block store handles cleanup.
+	 */
+	| { type: "deferred" };
+
+// ---------------------------------------------------------------------------
+// ChunkedVFS versioning API types
+// ---------------------------------------------------------------------------
+
+export interface VersionInfo {
+	version: number;
+	size: number;
+	createdAt: number;
+}

@@ -8,3 +8,11 @@ defineMetadataStoreTests({
 		versioning: false,
 	},
 });
+
+defineMetadataStoreTests({
+	name: "SqliteMetadataStore (versioning)",
+	createStore: () => new SqliteMetadataStore({ dbPath: ":memory:", versioning: true }),
+	capabilities: {
+		versioning: true,
+	},
+});

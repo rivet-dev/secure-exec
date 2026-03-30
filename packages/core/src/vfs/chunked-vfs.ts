@@ -13,7 +13,14 @@
 
 import { KernelError } from "../kernel/types.js";
 import type { VirtualDirEntry, VirtualDirStatEntry, VirtualFileSystem, VirtualStat } from "../kernel/vfs.js";
-import type { FsBlockStore, FsMetadataStore, InodeMeta } from "./types.js";
+import type {
+	FsBlockStore,
+	FsMetadataStore,
+	FsMetadataStoreVersioning,
+	InodeMeta,
+	RetentionPolicy,
+	VersionInfo,
+} from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Options
@@ -39,6 +46,30 @@ export interface ChunkedVfsOptions {
 	 * Default: 1000 (1 second).
 	 */
 	autoFlushIntervalMs?: number;
+	/**
+	 * Enable file versioning. When true, block keys use the format
+	 * {ino}/{chunkIndex}/{randomId} so old blocks are never overwritten.
+	 * The metadata store must implement FsMetadataStoreVersioning.
+	 * Default: false.
+	 */
+	versioning?: boolean;
+}
+
+/**
+ * Extended return type when versioning is enabled.
+ * Exposes the versioning API alongside the VirtualFileSystem.
+ */
+export interface ChunkedVfsVersioning {
+	/** Snapshot current state. Returns version number. */
+	createVersion(path: string): Promise<number>;
+	/** List all versions of a file, newest first. */
+	listVersions(path: string): Promise<VersionInfo[]>;
+	/** Restore file to a previous version. */
+	restoreVersion(path: string, version: number): Promise<void>;
+	/** Prune old versions according to policy. Returns count of versions pruned. */
+	pruneVersions(path: string, policy: RetentionPolicy): Promise<number>;
+	/** Find and delete orphaned blocks. Returns count of blocks deleted. */
+	collectGarbage(): Promise<number>;
 }
 
 // ---------------------------------------------------------------------------
@@ -115,6 +146,19 @@ function blockKey(ino: number, chunkIndex: number): string {
 	return `${ino}/${chunkIndex}`;
 }
 
+function randomId(): string {
+	const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+	let result = "";
+	for (let i = 0; i < 12; i++) {
+		result += chars[Math.floor(Math.random() * chars.length)];
+	}
+	return result;
+}
+
+function versionedBlockKey(ino: number, chunkIndex: number): string {
+	return `${ino}/${chunkIndex}/${randomId()}`;
+}
+
 // ---------------------------------------------------------------------------
 // createChunkedVfs
 // ---------------------------------------------------------------------------
@@ -135,7 +179,18 @@ export function createChunkedVfs(options: ChunkedVfsOptions): VirtualFileSystem 
 	const inlineThreshold = options.inlineThreshold ?? DEFAULT_INLINE_THRESHOLD;
 	const writeBuffering = options.writeBuffering ?? false;
 	const autoFlushIntervalMs = options.autoFlushIntervalMs ?? 1000;
+	const versioning = options.versioning ?? false;
 	const mutex = new InodeMutex();
+
+	// Cast metadata to versioning interface if versioning is enabled.
+	const versioningStore = versioning
+		? (metadata as unknown as FsMetadataStoreVersioning)
+		: null;
+
+	/** Generate a block key using the appropriate format. */
+	function makeBlockKey(ino: number, chunkIndex: number): string {
+		return versioning ? versionedBlockKey(ino, chunkIndex) : blockKey(ino, chunkIndex);
+	}
 
 	// Write buffer: maps inode number to its dirty chunk buffer.
 	const writeBuffers = new Map<number, InodeWriteBuffer>();
@@ -155,7 +210,7 @@ export function createChunkedVfs(options: ChunkedVfsOptions): VirtualFileSystem 
 		if (!buf || buf.dirtyChunks.size === 0) return;
 
 		for (const [ci, chunk] of buf.dirtyChunks) {
-			const key = blockKey(ino, ci);
+			const key = makeBlockKey(ino, ci);
 			await blocks.write(key, chunk);
 			await metadata.setChunkKey(ino, ci, key);
 		}
@@ -311,7 +366,9 @@ export function createChunkedVfs(options: ChunkedVfsOptions): VirtualFileSystem 
 		// Clean up old chunked data if present.
 		if (meta.storageMode === "chunked") {
 			const oldKeys = await metadata.deleteAllChunks(ino);
-			if (oldKeys.length > 0) {
+			// Only delete blocks when versioning is disabled.
+			// With versioning, old blocks are preserved for version snapshots.
+			if (!versioning && oldKeys.length > 0) {
 				await blocks.deleteMany(oldKeys);
 			}
 		}
@@ -331,7 +388,7 @@ export function createChunkedVfs(options: ChunkedVfsOptions): VirtualFileSystem 
 				const start = i * chunkSize;
 				const end = Math.min(start + chunkSize, content.length);
 				const chunk = content.slice(start, end);
-				const key = blockKey(ino, i);
+				const key = makeBlockKey(ino, i);
 				await blocks.write(key, chunk);
 				await metadata.setChunkKey(ino, i, key);
 			}
@@ -356,7 +413,7 @@ export function createChunkedVfs(options: ChunkedVfsOptions): VirtualFileSystem 
 			for (let i = 0; i < numChunks; i++) {
 				const start = i * chunkSize;
 				const end = Math.min(start + chunkSize, data.length);
-				const key = blockKey(ino, i);
+				const key = makeBlockKey(ino, i);
 				await blocks.write(key, data.slice(start, end));
 				await metadata.setChunkKey(ino, i, key);
 			}
@@ -373,7 +430,7 @@ export function createChunkedVfs(options: ChunkedVfsOptions): VirtualFileSystem 
 
 	async function demoteToInline(ino: number, content: Uint8Array): Promise<void> {
 		const oldKeys = await metadata.deleteAllChunks(ino);
-		if (oldKeys.length > 0) {
+		if (!versioning && oldKeys.length > 0) {
 			await blocks.deleteMany(oldKeys);
 		}
 		await metadata.updateInode(ino, {
@@ -714,7 +771,7 @@ export function createChunkedVfs(options: ChunkedVfsOptions): VirtualFileSystem 
 						const dataStart = Math.max(chunkStart - offset, 0);
 						const writeEnd = Math.min(offset + data.length, chunkStart + chunkSize) - chunkStart;
 
-						const key = blockKey(ino, ci);
+						const key = makeBlockKey(ino, ci);
 						let chunk: Uint8Array;
 
 						const existingKey = await metadata.getChunkKey(ino, ci);
@@ -782,7 +839,7 @@ export function createChunkedVfs(options: ChunkedVfsOptions): VirtualFileSystem 
 					// Chunked shrink.
 					if (length === 0) {
 						const keys = await metadata.deleteAllChunks(ino);
-						if (keys.length > 0) await blocks.deleteMany(keys);
+						if (!versioning && keys.length > 0) await blocks.deleteMany(keys);
 						await metadata.updateInode(ino, {
 							storageMode: "inline",
 							inlineContent: new Uint8Array(0),
@@ -796,17 +853,19 @@ export function createChunkedVfs(options: ChunkedVfsOptions): VirtualFileSystem 
 					const lastChunkIndex = Math.floor((length - 1) / chunkSize);
 					// Delete chunks beyond last.
 					const deletedKeys = await metadata.deleteChunksFrom(ino, lastChunkIndex + 1);
-					if (deletedKeys.length > 0) await blocks.deleteMany(deletedKeys);
+					if (!versioning && deletedKeys.length > 0) await blocks.deleteMany(deletedKeys);
 
 					// Truncate last chunk if partial.
 					const lastChunkOffset = length % chunkSize;
 					if (lastChunkOffset > 0) {
-						const key = await metadata.getChunkKey(ino, lastChunkIndex);
-						if (key !== null) {
-							const existing = await blocks.read(key);
+						const existingKey = await metadata.getChunkKey(ino, lastChunkIndex);
+						if (existingKey !== null) {
+							const existing = await blocks.read(existingKey);
 							if (existing.length > lastChunkOffset) {
 								const truncated = existing.slice(0, lastChunkOffset);
-								await blocks.write(key, truncated);
+								const newKey = makeBlockKey(ino, lastChunkIndex);
+								await blocks.write(newKey, truncated);
+								await metadata.setChunkKey(ino, lastChunkIndex, newKey);
 							}
 						}
 					}
@@ -1003,7 +1062,7 @@ export function createChunkedVfs(options: ChunkedVfsOptions): VirtualFileSystem 
 							if (newNlink <= 0) {
 								if (dstMeta.storageMode === "chunked") {
 									const keys = await metadata.deleteAllChunks(existingDstIno);
-									if (keys.length > 0) await blocks.deleteMany(keys);
+									if (!versioning && keys.length > 0) await blocks.deleteMany(keys);
 								}
 								await metadata.deleteInode(existingDstIno);
 							} else {
@@ -1066,7 +1125,7 @@ export function createChunkedVfs(options: ChunkedVfsOptions): VirtualFileSystem 
 					if (newNlink <= 0) {
 						if (childMeta.storageMode === "chunked") {
 							const keys = await metadata.deleteAllChunks(childIno);
-							if (keys.length > 0) await blocks.deleteMany(keys);
+							if (!versioning && keys.length > 0) await blocks.deleteMany(keys);
 						}
 						writeBuffers.delete(childIno);
 						await metadata.deleteInode(childIno);
@@ -1239,7 +1298,7 @@ export function createChunkedVfs(options: ChunkedVfsOptions): VirtualFileSystem 
 				// Chunked: copy each block.
 				const chunkEntries = await metadata.getAllChunkKeys(srcIno);
 				for (const entry of chunkEntries) {
-					const newKey = blockKey(dstIno, entry.chunkIndex);
+					const newKey = makeBlockKey(dstIno, entry.chunkIndex);
 					if (blocks.copy) {
 						await blocks.copy(entry.key, newKey);
 					} else {
@@ -1274,6 +1333,98 @@ export function createChunkedVfs(options: ChunkedVfsOptions): VirtualFileSystem 
 			stat: inodeMetaToStat(e.stat),
 		}));
 	};
+
+	// Add versioning API if enabled.
+	if (versioning && versioningStore) {
+		const versioningApi: ChunkedVfsVersioning = {
+			async createVersion(path: string): Promise<number> {
+				const ino = await resolveIno(path);
+				const release = await mutex.acquire(ino);
+				try {
+					// Flush any buffered writes before creating a version.
+					if (writeBuffering) {
+						await flushInode(ino);
+					}
+					return versioningStore.createVersion(ino);
+				} finally {
+					release();
+				}
+			},
+
+			async listVersions(path: string): Promise<VersionInfo[]> {
+				const ino = await resolveIno(path);
+				const versions = await versioningStore.listVersions(ino);
+				return versions.map((v) => ({
+					version: v.version,
+					size: v.size,
+					createdAt: v.createdAt,
+				}));
+			},
+
+			async restoreVersion(path: string, version: number): Promise<void> {
+				const ino = await resolveIno(path);
+				const release = await mutex.acquire(ino);
+				try {
+					writeBuffers.delete(ino);
+					await versioningStore.restoreVersion(ino, version);
+				} finally {
+					release();
+				}
+			},
+
+			async pruneVersions(path: string, policy: RetentionPolicy): Promise<number> {
+				const ino = await resolveIno(path);
+				const release = await mutex.acquire(ino);
+				try {
+					const allVersions = await versioningStore.listVersions(ino);
+					if (allVersions.length === 0) return 0;
+
+					let toPrune: number[];
+
+					if (policy.type === "count") {
+						// Keep the `keep` most recent versions. Since listVersions returns newest first,
+						// prune everything after the first `keep` entries.
+						if (allVersions.length <= policy.keep) return 0;
+						toPrune = allVersions.slice(policy.keep).map((v) => v.version);
+					} else if (policy.type === "age") {
+						const cutoff = Date.now() - policy.maxAgeMs;
+						toPrune = allVersions
+							.filter((v) => v.createdAt < cutoff)
+							.map((v) => v.version);
+					} else {
+						// "deferred": prune all metadata, but deleteVersions will return
+						// orphaned keys which we do NOT delete (block store handles cleanup).
+						toPrune = allVersions.map((v) => v.version);
+					}
+
+					if (toPrune.length === 0) return 0;
+
+					const orphanedKeys = await versioningStore.deleteVersions(ino, toPrune);
+
+					// For non-deferred policies, delete orphaned blocks immediately.
+					if (policy.type !== "deferred" && orphanedKeys.length > 0) {
+						await blocks.deleteMany(orphanedKeys);
+					}
+
+					return toPrune.length;
+				} finally {
+					release();
+				}
+			},
+
+			async collectGarbage(): Promise<number> {
+				// This is an expensive operation that scans all block keys.
+				// For now, it works with metadata store to find unreferenced blocks.
+				// This requires the block store to support listing (not in the interface).
+				// Return 0 as a placeholder. Applications should implement GC at the
+				// driver level using their own listing mechanisms.
+				return 0;
+			},
+		};
+
+		// Attach versioning methods to the VFS object.
+		Object.assign(vfs, { versioning: versioningApi });
+	}
 
 	return vfs;
 }
