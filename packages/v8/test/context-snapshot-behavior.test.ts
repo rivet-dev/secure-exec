@@ -12,7 +12,9 @@
  */
 
 import { describe, it, expect, afterEach } from "vitest";
-import { resolve, dirname } from "node:path";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import * as nodeV8 from "node:v8";
@@ -60,6 +62,23 @@ function defaultExecOptions(
 		bridgeHandlers: {},
 		...overrides,
 	};
+}
+
+interface IpcFrameLogEntry {
+	kind: string;
+	direction?: "send" | "recv";
+	frameType?: string;
+	status?: number;
+	payloadBytes?: number;
+}
+
+async function readLogEntries(logFile: string): Promise<IpcFrameLogEntry[]> {
+	const contents = await readFile(logFile, "utf8");
+	return contents
+		.trim()
+		.split("\n")
+		.filter(Boolean)
+		.map((line) => JSON.parse(line) as IpcFrameLogEntry);
 }
 
 describe.skipIf(skipUnlessBinary)("V8 context snapshot behavior", () => {
@@ -391,6 +410,140 @@ describe.skipIf(skipUnlessBinary)("V8 context snapshot behavior", () => {
 			expect(result.code).toBe(0);
 			expect(result.error).toBeFalsy();
 			await session.destroy();
+		});
+
+		it("reuses cached _loadPolyfill payloads across fresh sessions", async () => {
+			const tempDir = await mkdtemp(
+				join(tmpdir(), "secure-exec-v8-polyfill-hit-"),
+			);
+			const logFile = join(tempDir, "ipc.ndjson");
+			const polyfillCode = `polyfill-hit:${"x".repeat(4096)}`;
+			const runtime = await createRuntime({
+				observability: { logFile },
+			});
+			const execOptions = defaultExecOptions({
+				userCode: `
+					const code = _loadPolyfill("stream/web");
+					if (code !== ${JSON.stringify(polyfillCode)}) {
+						throw new Error("unexpected polyfill payload");
+					}
+				`,
+				bridgeHandlers: {
+					_loadPolyfill: () => polyfillCode,
+				},
+			});
+
+			try {
+				const firstSession = await runtime.createSession();
+				const firstResult = await firstSession.execute(execOptions);
+				expect(firstResult.code).toBe(0);
+				expect(firstResult.error).toBeFalsy();
+				await firstSession.destroy();
+
+				const secondSession = await runtime.createSession();
+				const secondResult = await secondSession.execute(execOptions);
+				expect(secondResult.code).toBe(0);
+				expect(secondResult.error).toBeFalsy();
+				await secondSession.destroy();
+
+				await runtime.dispose();
+				const runtimeIndex = runtimes.indexOf(runtime);
+				if (runtimeIndex !== -1) {
+					runtimes.splice(runtimeIndex, 1);
+				}
+
+				const bridgeResponses = (await readLogEntries(logFile)).filter(
+					(entry) =>
+						entry.kind === "ipc_frame" &&
+						entry.direction === "send" &&
+						entry.frameType === "BridgeResponse" &&
+						entry.status === 0,
+				);
+
+				expect(bridgeResponses).toHaveLength(2);
+				expect(bridgeResponses[0].payloadBytes).toBeGreaterThan(4000);
+				expect(bridgeResponses[1].payloadBytes).toBeLessThan(256);
+			} finally {
+				await rm(tempDir, { recursive: true, force: true });
+			}
+		});
+
+		it("treats changed _loadPolyfill payloads as cache misses", async () => {
+			const tempDir = await mkdtemp(
+				join(tmpdir(), "secure-exec-v8-polyfill-miss-"),
+			);
+			const logFile = join(tempDir, "ipc.ndjson");
+			const firstPolyfillCode = `polyfill-miss:a:${"a".repeat(4096)}`;
+			const secondPolyfillCode = `polyfill-miss:b:${"b".repeat(4096)}`;
+			const runtime = await createRuntime({
+				observability: { logFile },
+			});
+			let callCount = 0;
+
+			try {
+				const firstSession = await runtime.createSession();
+				const firstResult = await firstSession.execute(
+					defaultExecOptions({
+						userCode: `
+							const code = _loadPolyfill("stream/web");
+							if (code !== ${JSON.stringify(firstPolyfillCode)}) {
+								throw new Error("unexpected first polyfill payload");
+							}
+						`,
+						bridgeHandlers: {
+							_loadPolyfill: () => {
+								callCount += 1;
+								return firstPolyfillCode;
+							},
+						},
+					}),
+				);
+				expect(firstResult.code).toBe(0);
+				expect(firstResult.error).toBeFalsy();
+				await firstSession.destroy();
+
+				const secondSession = await runtime.createSession();
+				const secondResult = await secondSession.execute(
+					defaultExecOptions({
+						userCode: `
+							const code = _loadPolyfill("stream/web");
+							if (code !== ${JSON.stringify(secondPolyfillCode)}) {
+								throw new Error("unexpected second polyfill payload");
+							}
+						`,
+						bridgeHandlers: {
+							_loadPolyfill: () => {
+								callCount += 1;
+								return secondPolyfillCode;
+							},
+						},
+					}),
+				);
+				expect(secondResult.code).toBe(0);
+				expect(secondResult.error).toBeFalsy();
+				await secondSession.destroy();
+
+				await runtime.dispose();
+				const runtimeIndex = runtimes.indexOf(runtime);
+				if (runtimeIndex !== -1) {
+					runtimes.splice(runtimeIndex, 1);
+				}
+
+				const bridgeResponses = (await readLogEntries(logFile)).filter(
+					(entry) =>
+						entry.kind === "ipc_frame" &&
+						entry.direction === "send" &&
+						entry.frameType === "BridgeResponse" &&
+						entry.status === 0,
+				);
+
+				expect(callCount).toBe(2);
+				expect(bridgeResponses).toHaveLength(2);
+				expect(bridgeResponses[0].payloadBytes).toBeGreaterThan(4000);
+				expect(bridgeResponses[1].payloadBytes).toBeGreaterThan(4000);
+			} finally {
+				await rm(tempDir, { recursive: true, force: true });
+			}
 		});
 	});
 

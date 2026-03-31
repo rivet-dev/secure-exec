@@ -16,6 +16,7 @@ import {
 import {
 	buildBenchmarkComparisonMarkdown,
 	buildBenchmarkSummaryMarkdown,
+	buildLoadPolyfillAttributionClassifier,
 	buildScenarioSummaryMarkdown,
 	buildTransportRttMarkdown,
 	compareScenarioSummaries,
@@ -489,6 +490,9 @@ function resolveBenchmarkV8Binary(): string {
 
 async function collectScenarioSummaries(
 	baseline: Awaited<ReturnType<typeof loadBenchmarkBaseline>>,
+	loadPolyfillAttributionClassifier: Awaited<
+		ReturnType<typeof buildLoadPolyfillAttributionClassifier>
+	>,
 ): Promise<{
 	results: ScenarioRunResult[];
 	scenarioSummaries: ScenarioDerivedSummary[];
@@ -497,7 +501,9 @@ async function collectScenarioSummaries(
 	const scenarioSummaries: ScenarioDerivedSummary[] = [];
 
 	for (const scenario of MODULE_LOAD_SCENARIOS) {
-		const summary = await loadScenarioDerivedSummary(RESULTS_ROOT, scenario);
+		const summary = await loadScenarioDerivedSummary(RESULTS_ROOT, scenario, {
+			loadPolyfillAttributionClassifier,
+		});
 		if (!summary) continue;
 
 		const baselineSummary = baseline?.scenarioSummaries.get(scenario.id);
@@ -518,7 +524,11 @@ async function collectScenarioSummaries(
 async function main(): Promise<void> {
 	const iterations = 3;
 	const binaryPath = resolveBenchmarkV8Binary();
-	const baseline = await loadBenchmarkBaseline(RESULTS_ROOT);
+	const loadPolyfillAttributionClassifier =
+		await buildLoadPolyfillAttributionClassifier();
+	const baseline = await loadBenchmarkBaseline(RESULTS_ROOT, {
+		loadPolyfillAttributionClassifier,
+	});
 	await rm(RESULTS_ROOT, { recursive: true, force: true });
 	await mkdir(RESULTS_ROOT, { recursive: true });
 
@@ -540,9 +550,11 @@ async function main(): Promise<void> {
 		);
 	}
 
-	const { results: passedResults, scenarioSummaries } = await collectScenarioSummaries(
-		baseline,
-	);
+	const { results: passedResults, scenarioSummaries } =
+		await collectScenarioSummaries(
+			baseline,
+			loadPolyfillAttributionClassifier,
+		);
 	for (const summary of scenarioSummaries) {
 		await writeFile(
 			path.join(RESULTS_ROOT, summary.artifacts.summaryFile),
@@ -569,6 +581,7 @@ async function main(): Promise<void> {
 				"Warm wall mean",
 				"Bridge calls per iteration",
 				"Warm fixed session overhead",
+				"`_loadPolyfill` real polyfill-body vs `__bd:*` bridge-dispatch splits from comparison.md",
 				"Warm phase attribution when fixed overhead changes",
 				"Transport RTT means from transport-rtt.md for transport-sensitive changes",
 				"Dominant bridge method time and byte deltas from comparison.md",

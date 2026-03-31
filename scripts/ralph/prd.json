@@ -117,8 +117,8 @@
         "Touched packages typecheck."
       ],
       "priority": 7,
-      "passes": false,
-      "notes": "US-004 removed the repeated wrapper calls it targeted, but the aggregate `_loadPolyfill` method-time signal in `comparison.md` still includes unique `__bd:_resolveModuleSync` / `_loadFileSync` dispatches, which hides the real polyfill-only timing delta."
+      "passes": true,
+      "notes": "Completed by adding `_loadPolyfill` target attribution to IPC observability plus a benchmark-summary fallback classifier for older logs. The committed `summary.md` / `comparison.md` artifacts now expose copy-ready `real polyfill-body loads` vs `__bd:* bridge-dispatch wrappers` deltas for Pi startup scenarios."
     },
     {
       "id": "US-005",

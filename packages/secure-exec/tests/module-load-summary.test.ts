@@ -3,6 +3,7 @@ import { getModuleLoadScenario } from "../benchmarks/module-load/scenario-catalo
 import {
 	buildBenchmarkComparisonMarkdown,
 	buildBenchmarkSummaryMarkdown,
+	buildScenarioSummaryMarkdown,
 	buildTransportRttMarkdown,
 	compareScenarioSummaries,
 	compareTransportRtt,
@@ -341,6 +342,191 @@ describe("module-load summary generation", () => {
 			encodedBytesPerIteration: 230,
 		});
 		expect(summary.bridge.methodsByResponseBytes[0]?.responseEncodedBytesPerIteration).toBe(135);
+	});
+
+	it("splits _loadPolyfill attribution between real polyfills and __bd dispatch, including legacy baseline fallback", () => {
+		const scenario = getModuleLoadScenario("pi-sdk-startup");
+		const currentResult: ScenarioRunResult = {
+			scenarioId: scenario.id,
+			title: scenario.title,
+			target: scenario.target,
+			kind: scenario.kind,
+			description: scenario.description,
+			createdAt: "2026-03-31T05:30:00.000Z",
+			iterations: 1,
+			artifacts: {
+				resultFile: "pi-sdk-startup/result.json",
+				metricsFile: "pi-sdk-startup/metrics.prom",
+				logFile: "pi-sdk-startup/ipc.ndjson",
+			},
+			samples: [
+				{
+					iteration: 1,
+					wallMs: 240,
+					code: 0,
+					stdoutBytes: 0,
+					stderrBytes: 0,
+					stdoutPreview: "",
+					stderrPreview: "",
+					checks: { ok: true },
+				},
+			],
+			summary: {
+				coldWallMs: 240,
+			},
+		};
+		const baselineResult: ScenarioRunResult = {
+			...currentResult,
+			createdAt: "2026-03-30T05:30:00.000Z",
+			samples: [
+				{
+					...currentResult.samples[0],
+					wallMs: 260,
+				},
+			],
+			summary: {
+				coldWallMs: 260,
+			},
+		};
+		const classifier = {
+			knownPolyfillRequestResponsePairs: new Set(["20/6434"]),
+		};
+
+		const currentLog = buildLog([
+			{ ts: "2026-03-31T05:30:00.000Z", kind: "ipc_frame", direction: "send", frameType: "CreateSession", sessionId: "c1", encodedBytes: 10 },
+			{ ts: "2026-03-31T05:30:00.001Z", kind: "ipc_frame", direction: "send", frameType: "InjectGlobals", sessionId: "c1", encodedBytes: 20, payloadBytes: 15 },
+			{ ts: "2026-03-31T05:30:00.002Z", kind: "ipc_frame", direction: "send", frameType: "Execute", sessionId: "c1", encodedBytes: 30, payloadBytes: 25 },
+			{ ts: "2026-03-31T05:30:00.010Z", kind: "ipc_frame", direction: "recv", frameType: "BridgeCall", sessionId: "c1", callId: 1, method: "_loadPolyfill", encodedBytes: 80, payloadBytes: 20, bridgeTarget: "querystring", bridgeTargetKind: "polyfill_body" },
+			{ ts: "2026-03-31T05:30:00.030Z", kind: "ipc_bridge_call", event: "finish", sessionId: "c1", callId: 1, method: "_loadPolyfill", status: 0, payloadBytes: 6434, durationMs: 25 },
+			{ ts: "2026-03-31T05:30:00.031Z", kind: "ipc_frame", direction: "send", frameType: "BridgeResponse", sessionId: "c1", callId: 1, status: 0, encodedBytes: 6500, payloadBytes: 6434 },
+			{ ts: "2026-03-31T05:30:00.040Z", kind: "ipc_frame", direction: "recv", frameType: "BridgeCall", sessionId: "c1", callId: 2, method: "_loadPolyfill", encodedBytes: 210, payloadBytes: 130, bridgeTarget: "__bd:_loadFileSync:[\"/tmp/demo.js\"]", bridgeTargetKind: "bridge_dispatch" },
+			{ ts: "2026-03-31T05:30:00.070Z", kind: "ipc_bridge_call", event: "finish", sessionId: "c1", callId: 2, method: "_loadPolyfill", status: 0, payloadBytes: 125, durationMs: 40 },
+			{ ts: "2026-03-31T05:30:00.071Z", kind: "ipc_frame", direction: "send", frameType: "BridgeResponse", sessionId: "c1", callId: 2, status: 0, encodedBytes: 170, payloadBytes: 125 },
+			{ ts: "2026-03-31T05:30:00.180Z", kind: "ipc_frame", direction: "recv", frameType: "ExecutionResult", sessionId: "c1", encodedBytes: 12 },
+			{ ts: "2026-03-31T05:30:00.180Z", kind: "ipc_execute", event: "finish", sessionId: "c1", durationMs: 160 },
+			{ ts: "2026-03-31T05:30:00.220Z", kind: "ipc_frame", direction: "send", frameType: "DestroySession", sessionId: "c1", encodedBytes: 10 },
+		]);
+		const baselineLog = buildLog([
+			{ ts: "2026-03-30T05:30:00.000Z", kind: "ipc_frame", direction: "send", frameType: "CreateSession", sessionId: "b1", encodedBytes: 10 },
+			{ ts: "2026-03-30T05:30:00.001Z", kind: "ipc_frame", direction: "send", frameType: "InjectGlobals", sessionId: "b1", encodedBytes: 20, payloadBytes: 15 },
+			{ ts: "2026-03-30T05:30:00.002Z", kind: "ipc_frame", direction: "send", frameType: "Execute", sessionId: "b1", encodedBytes: 30, payloadBytes: 25 },
+			{ ts: "2026-03-30T05:30:00.010Z", kind: "ipc_frame", direction: "recv", frameType: "BridgeCall", sessionId: "b1", callId: 1, method: "_loadPolyfill", encodedBytes: 80, payloadBytes: 20 },
+			{ ts: "2026-03-30T05:30:00.040Z", kind: "ipc_bridge_call", event: "finish", sessionId: "b1", callId: 1, method: "_loadPolyfill", status: 0, payloadBytes: 6434, durationMs: 35 },
+			{ ts: "2026-03-30T05:30:00.041Z", kind: "ipc_frame", direction: "send", frameType: "BridgeResponse", sessionId: "b1", callId: 1, status: 0, encodedBytes: 7000, payloadBytes: 6434 },
+			{ ts: "2026-03-30T05:30:00.050Z", kind: "ipc_frame", direction: "recv", frameType: "BridgeCall", sessionId: "b1", callId: 2, method: "_loadPolyfill", encodedBytes: 230, payloadBytes: 130 },
+			{ ts: "2026-03-30T05:30:00.090Z", kind: "ipc_bridge_call", event: "finish", sessionId: "b1", callId: 2, method: "_loadPolyfill", status: 0, payloadBytes: 125, durationMs: 55 },
+			{ ts: "2026-03-30T05:30:00.091Z", kind: "ipc_frame", direction: "send", frameType: "BridgeResponse", sessionId: "b1", callId: 2, status: 0, encodedBytes: 190, payloadBytes: 125 },
+			{ ts: "2026-03-30T05:30:00.210Z", kind: "ipc_frame", direction: "recv", frameType: "ExecutionResult", sessionId: "b1", encodedBytes: 12 },
+			{ ts: "2026-03-30T05:30:00.210Z", kind: "ipc_execute", event: "finish", sessionId: "b1", durationMs: 170 },
+			{ ts: "2026-03-30T05:30:00.250Z", kind: "ipc_frame", direction: "send", frameType: "DestroySession", sessionId: "b1", encodedBytes: 10 },
+		]);
+
+		const currentSummary = deriveScenarioSummary(
+			scenario,
+			currentResult,
+			parseIpcLog(currentLog),
+			{ loadPolyfillAttributionClassifier: classifier },
+		);
+		const baselineSummary = deriveScenarioSummary(
+			scenario,
+			baselineResult,
+			parseIpcLog(baselineLog),
+			{ loadPolyfillAttributionClassifier: classifier },
+		);
+		const comparison = compareScenarioSummaries(currentSummary, baselineSummary);
+		currentSummary.comparisonToPrevious = comparison;
+
+		expect(currentSummary.bridge.loadPolyfillAttribution).toEqual([
+			{
+				kind: "polyfill_body",
+				label: "real polyfill-body loads",
+				callsTotal: 1,
+				callsPerIteration: 1,
+				totalDurationMs: 25,
+				durationMsPerIteration: 25,
+				requestEncodedBytesTotal: 80,
+				requestEncodedBytesPerIteration: 80,
+				responseEncodedBytesTotal: 6500,
+				responseEncodedBytesPerIteration: 6500,
+				exampleTargets: ["querystring"],
+			},
+			{
+				kind: "bridge_dispatch",
+				label: "__bd:* bridge-dispatch wrappers",
+				callsTotal: 1,
+				callsPerIteration: 1,
+				totalDurationMs: 40,
+				durationMsPerIteration: 40,
+				requestEncodedBytesTotal: 210,
+				requestEncodedBytesPerIteration: 210,
+				responseEncodedBytesTotal: 170,
+				responseEncodedBytesPerIteration: 170,
+				exampleTargets: ["__bd:_loadFileSync:[\"/tmp/demo.js\"]"],
+			},
+		]);
+		expect(comparison.loadPolyfillAttributionDeltas).toEqual([
+			{
+				kind: "polyfill_body",
+				label: "real polyfill-body loads",
+				callsPerIteration: { before: 1, after: 1, delta: 0, deltaPercent: 0 },
+				durationMsPerIteration: { before: 35, after: 25, delta: -10, deltaPercent: -28.571 },
+				responseEncodedBytesPerIteration: { before: 7000, after: 6500, delta: -500, deltaPercent: -7.143 },
+			},
+			{
+				kind: "bridge_dispatch",
+				label: "__bd:* bridge-dispatch wrappers",
+				callsPerIteration: { before: 1, after: 1, delta: 0, deltaPercent: 0 },
+				durationMsPerIteration: { before: 55, after: 40, delta: -15, deltaPercent: -27.273 },
+				responseEncodedBytesPerIteration: { before: 190, after: 170, delta: -20, deltaPercent: -10.526 },
+			},
+		]);
+		expect(buildScenarioSummaryMarkdown(currentSummary)).toContain(
+			"_loadPolyfill real polyfill-body loads",
+		);
+		expect(buildScenarioSummaryMarkdown(currentSummary)).toContain(
+			"_loadPolyfill __bd:* bridge-dispatch wrappers",
+		);
+		const report: BenchmarkSummaryReport = {
+			createdAt: currentResult.createdAt,
+			gitCommit: "abc123",
+			host: { node: "v24.13.0", platform: "linux" },
+			v8BinaryPath: "/tmp/secure-exec-v8",
+			iterations: 1,
+			baseline: {
+				createdAt: baselineResult.createdAt,
+				gitCommit: "def456",
+			},
+			progressGuide: {
+				copyTheseFields: ["Warm wall mean"],
+				comparisonArtifact: "comparison.md",
+			},
+			results: [currentResult],
+			scenarioSummaries: [currentSummary],
+			scenarioOverview: [
+				{
+					scenarioId: currentSummary.scenarioId,
+					title: currentSummary.title,
+					target: currentSummary.target,
+					kind: currentSummary.kind,
+					status: "passed",
+					warmWallMsMean: currentSummary.progressSignals.warmWallMsMean,
+					bridgeCallsPerIteration: currentSummary.progressSignals.bridgeCallsPerIteration,
+					fixedSessionOverheadWarmMsMean:
+						currentSummary.progressSignals.fixedSessionOverheadWarmMsMean,
+					dominantBridgeMethodByTime:
+						currentSummary.progressSignals.dominantBridgeMethodByTime,
+					dominantFrameByEncodedBytes:
+						currentSummary.progressSignals.dominantFrameByEncodedBytes,
+					comparisonToPrevious: comparison,
+				},
+			],
+		};
+		expect(buildBenchmarkComparisonMarkdown(report)).toContain(
+			"_loadPolyfill real polyfill-body loads",
+		);
+		expect(buildBenchmarkComparisonMarkdown(report)).toContain(
+			"_loadPolyfill __bd:* bridge-dispatch wrappers",
+		);
 	});
 
 	it("compares against a previous baseline and surfaces progress-ready markdown", () => {

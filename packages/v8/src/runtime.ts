@@ -2,7 +2,7 @@
 // and exposes session lifecycle.
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { createInterface } from "node:readline";
@@ -29,6 +29,14 @@ const PLATFORM_PACKAGES: Record<string, string> = {
 	"darwin-arm64": "@secure-exec/v8-darwin-arm64",
 	"win32-x64": "@secure-exec/v8-win32-x64",
 };
+
+const POLYFILL_CACHE_STORE_FIELD = "__secureExecPolyfillCacheStore";
+const POLYFILL_CACHE_REF_FIELD = "__secureExecPolyfillCacheRef";
+
+interface CachedPolyfillBridgePayload {
+	payload: Buffer;
+	rememberCacheKey?: string;
+}
 
 /** Options for creating a V8 runtime. */
 export interface V8RuntimeOptions {
@@ -92,6 +100,53 @@ function resolveBinaryPath(): string {
 	return "secure-exec-v8";
 }
 
+function buildPolyfillCacheKey(moduleName: string, code: string): string {
+	const hash = createHash("sha256").update(code).digest("hex").slice(0, 16);
+	return `polyfill:${moduleName}:${hash}`;
+}
+
+function buildCachedPolyfillBridgePayload(
+	method: string,
+	args: unknown[],
+	result: unknown,
+	sentPolyfillCacheKeys: ReadonlySet<string>,
+): CachedPolyfillBridgePayload | null {
+	if (method !== "_loadPolyfill") {
+		return null;
+	}
+	const [moduleName] = args;
+	if (
+		typeof moduleName !== "string" ||
+		moduleName.startsWith("__bd:") ||
+		typeof result !== "string"
+	) {
+		return null;
+	}
+
+	const cacheKey = buildPolyfillCacheKey(moduleName, result);
+	if (sentPolyfillCacheKeys.has(cacheKey)) {
+		return {
+			payload: Buffer.from(
+				v8.serialize({
+					[POLYFILL_CACHE_REF_FIELD]: cacheKey,
+				}),
+			),
+		};
+	}
+
+	return {
+		payload: Buffer.from(
+			v8.serialize({
+				[POLYFILL_CACHE_STORE_FIELD]: {
+					key: cacheKey,
+					code: result,
+				},
+			}),
+		),
+		rememberCacheKey: cacheKey,
+	};
+}
+
 /**
  * Spawn the Rust V8 runtime process and return a handle.
  *
@@ -109,10 +164,7 @@ export async function createV8Runtime(
 	// Generate 128-bit random auth token
 	const authToken = randomBytes(16).toString("hex");
 	// Message routing: session-level handlers registered per session_id
-	const sessionHandlers = new Map<
-		string,
-		(frame: BinaryFrame) => void
-	>();
+	const sessionHandlers = new Map<string, (frame: BinaryFrame) => void>();
 	// Per-session reject functions for rejecting in-flight execute() promises
 	const sessionRejects = new Map<string, (err: Error) => void>();
 	// Connection-scoped Ping/Pong barriers used to wait for ordered teardown.
@@ -120,12 +172,15 @@ export async function createV8Runtime(
 		string,
 		{ resolve: () => void; reject: (error: Error) => void }
 	>();
+	// Shared-runtime cache state for bridge payloads that can be materialized in
+	// the native process after a prior execution has transferred them.
+	const promotedPolyfillCacheKeys = new Set<string>();
 	let ipcClient: IpcClient | null = null;
 	let disposed = false;
 
 	// Build child environment
 	const childEnv: Record<string, string> = {
-		...process.env as Record<string, string>,
+		...(process.env as Record<string, string>),
 		SECURE_EXEC_V8_TOKEN: authToken,
 	};
 	if (options?.maxSessions != null) {
@@ -164,13 +219,9 @@ export async function createV8Runtime(
 			signal: signal ?? undefined,
 		});
 		if (code !== 0 && code !== null) {
-			exitError = new Error(
-				`V8 runtime process exited with code ${code}`,
-			);
+			exitError = new Error(`V8 runtime process exited with code ${code}`);
 		} else if (signal) {
-			exitError = new Error(
-				`V8 runtime process killed by signal ${signal}`,
-			);
+			exitError = new Error(`V8 runtime process killed by signal ${signal}`);
 		}
 
 		// Resolve all pending executions with a crash error
@@ -210,7 +261,9 @@ export async function createV8Runtime(
 	child.unref();
 	child.stdout?.destroy(); // Done reading after readline
 	// Unref stderr (still collects errors, but doesn't block exit)
-	const stderrStream = child.stderr as NodeJS.ReadableStream & { unref?: () => void };
+	const stderrStream = child.stderr as NodeJS.ReadableStream & {
+		unref?: () => void;
+	};
 	stderrStream?.unref?.();
 
 	ipcClient = new IpcClient({
@@ -237,9 +290,7 @@ export async function createV8Runtime(
 			// Give the child 'exit' event one tick to populate exitError/stderr
 			// before collapsing everything into a generic IPC-close failure.
 			setTimeout(() => {
-				rejectPendingSessions(
-					formatRuntimeCloseError("IPC connection closed"),
-				);
+				rejectPendingSessions(formatRuntimeCloseError("IPC connection closed"));
 			}, 0);
 		},
 		onError: (err) => {
@@ -256,7 +307,10 @@ export async function createV8Runtime(
 		ipcClient.authenticate(authToken);
 
 		// Send warm-up snapshot request (fire-and-forget)
-		if (options?.warmupBridgeCode && process.env.SECURE_EXEC_NO_SNAPSHOT_WARMUP !== "1") {
+		if (
+			options?.warmupBridgeCode &&
+			process.env.SECURE_EXEC_NO_SNAPSHOT_WARMUP !== "1"
+		) {
 			observability?.recordRuntimeEvent("runtime_warm_snapshot", {
 				bridgeCodeBytes: Buffer.byteLength(options.warmupBridgeCode, "utf8"),
 			});
@@ -272,8 +326,7 @@ export async function createV8Runtime(
 		// Connection failed — kill child and surface error
 		child.kill("SIGTERM");
 		await observability?.close();
-		const msg =
-			err instanceof Error ? err.message : String(err);
+		const msg = err instanceof Error ? err.message : String(err);
 		throw new Error(
 			`Failed to connect to V8 runtime: ${msg}${stderrBuf ? `\nstderr: ${stderrBuf}` : ""}`,
 		);
@@ -427,6 +480,7 @@ export async function createV8Runtime(
 
 					// Set up result promise
 					return new Promise((resolve, reject) => {
+						const sessionPolyfillCacheKeys = new Set<string>();
 						// Store reject so rejectPendingSessions can
 						// reject this promise on IPC close or process crash
 						sessionRejects.set(sessionId, reject);
@@ -442,17 +496,20 @@ export async function createV8Runtime(
 										frame.payload.length,
 									);
 									// Route to bridge handler
-									const handler =
-										execOptions.bridgeHandlers[frame.method];
+									const handler = execOptions.bridgeHandlers[frame.method];
 									if (!handler) {
 										const payload = Buffer.from(
 											`No handler for bridge method: ${frame.method}`,
 											"utf8",
 										);
-										observability?.markBridgeCallFinish(sessionId, frame.callId, {
-											status: 1,
-											payloadBytes: payload.length,
-										});
+										observability?.markBridgeCallFinish(
+											sessionId,
+											frame.callId,
+											{
+												status: 1,
+												payloadBytes: payload.length,
+											},
+										);
 										client.send({
 											type: "BridgeResponse",
 											sessionId,
@@ -465,22 +522,22 @@ export async function createV8Runtime(
 									// Deserialize args and call handler
 									void (async () => {
 										try {
-											const args = v8.deserialize(
-												frame.payload,
-											) as unknown[];
+											const args = v8.deserialize(frame.payload) as unknown[];
 											const result = await handler(
-												...(Array.isArray(args)
-													? args
-													: [args]),
+												...(Array.isArray(args) ? args : [args]),
 											);
 											if (!client.isConnected) return;
 											// Use status=2 for raw binary (Uint8Array/Buffer) to avoid
 											// V8 typed array format incompatibility across V8 versions.
 											if (result instanceof Uint8Array) {
-												observability?.markBridgeCallFinish(sessionId, frame.callId, {
-													status: 2,
-													payloadBytes: result.length,
-												});
+												observability?.markBridgeCallFinish(
+													sessionId,
+													frame.callId,
+													{
+														status: 2,
+														payloadBytes: result.length,
+													},
+												);
 												client.send({
 													type: "BridgeResponse",
 													sessionId,
@@ -489,32 +546,54 @@ export async function createV8Runtime(
 													payload: Buffer.from(result),
 												});
 											} else {
-												const payload =
-													result !== undefined
-														? Buffer.from(v8.serialize(result))
+								const cachedPayload =
+									result !== undefined
+										? buildCachedPolyfillBridgePayload(
+												frame.method,
+												Array.isArray(args) ? args : [args],
+												result,
+												promotedPolyfillCacheKeys,
+											)
+										: null;
+								const payload =
+									result !== undefined
+														? (cachedPayload?.payload ??
+															Buffer.from(v8.serialize(result)))
 														: Buffer.alloc(0);
-												observability?.markBridgeCallFinish(sessionId, frame.callId, {
-													status: 0,
-													payloadBytes: payload.length,
-												});
+												observability?.markBridgeCallFinish(
+													sessionId,
+													frame.callId,
+													{
+														status: 0,
+														payloadBytes: payload.length,
+													},
+												);
 												client.send({
 													type: "BridgeResponse",
 													sessionId,
 													callId: frame.callId,
 													status: 0,
-													payload,
-												});
+											payload,
+										});
+										if (cachedPayload?.rememberCacheKey) {
+											sessionPolyfillCacheKeys.add(
+												cachedPayload.rememberCacheKey,
+													);
+												}
 											}
 										} catch (err) {
 											if (!client.isConnected) return;
-											const errMsg = err instanceof Error
-												? err.message
-												: String(err);
+											const errMsg =
+												err instanceof Error ? err.message : String(err);
 											const payload = Buffer.from(errMsg, "utf8");
-											observability?.markBridgeCallFinish(sessionId, frame.callId, {
-												status: 1,
-												payloadBytes: payload.length,
-											});
+											observability?.markBridgeCallFinish(
+												sessionId,
+												frame.callId,
+												{
+													status: 1,
+													payloadBytes: payload.length,
+												},
+											);
 											client.send({
 												type: "BridgeResponse",
 												sessionId,
@@ -531,6 +610,9 @@ export async function createV8Runtime(
 									sessionHandlers.delete(sessionId);
 									sessionRejects.delete(sessionId);
 									updateSocketRef();
+									for (const cacheKey of sessionPolyfillCacheKeys) {
+										promotedPolyfillCacheKeys.add(cacheKey);
+									}
 									observability?.markExecuteFinish(sessionId, {
 										exitCode: frame.exitCode,
 										errorCode: frame.error?.code || undefined,
@@ -538,12 +620,14 @@ export async function createV8Runtime(
 									resolve({
 										code: frame.exitCode,
 										exports: frame.exports,
-										error: frame.error ? {
-											type: frame.error.errorType,
-											message: frame.error.message,
-											stack: frame.error.stack,
-											code: frame.error.code || undefined,
-										} : null,
+										error: frame.error
+											? {
+													type: frame.error.errorType,
+													message: frame.error.message,
+													stack: frame.error.stack,
+													code: frame.error.code || undefined,
+												}
+											: null,
 									});
 									break;
 								}
@@ -654,7 +738,8 @@ export async function createV8Runtime(
 function readSocketPath(child: ChildProcess): Promise<string> {
 	return new Promise<string>((resolve, reject) => {
 		let resolved = false;
-		const exitedBeforeSocketPath = child.exitCode !== null || child.signalCode !== null;
+		const exitedBeforeSocketPath =
+			child.exitCode !== null || child.signalCode !== null;
 		if (exitedBeforeSocketPath) {
 			reject(
 				new Error(
@@ -669,11 +754,7 @@ function readSocketPath(child: ChildProcess): Promise<string> {
 			if (!resolved) {
 				resolved = true;
 				child.kill("SIGTERM");
-				reject(
-					new Error(
-						"Timed out waiting for V8 runtime socket path",
-					),
-				);
+				reject(new Error("Timed out waiting for V8 runtime socket path"));
 			}
 		}, 10_000);
 

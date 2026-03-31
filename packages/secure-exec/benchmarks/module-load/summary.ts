@@ -1,5 +1,10 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import v8 from "node:v8";
+import {
+	bundlePolyfill,
+	getAvailableStdlib,
+} from "../../../nodejs/src/polyfills.js";
 import {
 	MODULE_LOAD_SCENARIOS,
 	type ModuleLoadScenarioDefinition,
@@ -50,6 +55,46 @@ type JsonValue =
 	| JsonValue[]
 	| { [key: string]: JsonValue };
 
+export type LoadPolyfillAttributionKind = "polyfill_body" | "bridge_dispatch";
+
+export type LoadPolyfillAttributionClassifier = {
+	knownPolyfillRequestResponsePairs: ReadonlySet<string>;
+};
+
+export type DeriveScenarioSummaryOptions = {
+	loadPolyfillAttributionClassifier?: LoadPolyfillAttributionClassifier;
+};
+
+const LOAD_POLYFILL_ATTRIBUTION_LABELS: Record<
+	LoadPolyfillAttributionKind,
+	string
+> = {
+	polyfill_body: "real polyfill-body loads",
+	bridge_dispatch: "__bd:* bridge-dispatch wrappers",
+};
+
+const LOAD_POLYFILL_ATTRIBUTION_ORDER: LoadPolyfillAttributionKind[] = [
+	"polyfill_body",
+	"bridge_dispatch",
+];
+
+const EXTRA_POLYFILL_MODULES = [
+	"stream/web",
+	"util/types",
+	"internal/webstreams/util",
+	"internal/webstreams/adapters",
+	"internal/webstreams/readablestream",
+	"internal/webstreams/writablestream",
+	"internal/webstreams/transformstream",
+	"internal/worker/js_transferable",
+	"internal/test/binding",
+	"internal/mime",
+] as const;
+
+let loadPolyfillAttributionClassifierPromise:
+	| Promise<LoadPolyfillAttributionClassifier>
+	| undefined;
+
 type IpcEntry = {
 	ts?: string;
 	seq?: number;
@@ -64,6 +109,8 @@ type IpcEntry = {
 	encodedBytes?: number;
 	payloadBytes?: number;
 	durationMs?: number;
+	bridgeTarget?: string;
+	bridgeTargetKind?: LoadPolyfillAttributionKind;
 };
 
 type MutableBridgeMethodStats = {
@@ -85,6 +132,25 @@ type MutableFrameStats = {
 	payloadBytesTotal: number;
 };
 
+type PendingLoadPolyfillAttribution = {
+	requestEncodedBytes: number;
+	requestPayloadBytes: number;
+	bridgeTarget?: string;
+	bridgeTargetKind?: LoadPolyfillAttributionKind;
+};
+
+type MutableLoadPolyfillAttributionStats = {
+	kind: LoadPolyfillAttributionKind;
+	label: string;
+	callsTotal: number;
+	totalDurationMs: number;
+	requestEncodedBytesTotal: number;
+	requestPayloadBytesTotal: number;
+	responseEncodedBytesTotal: number;
+	responsePayloadBytesTotal: number;
+	targets: Set<string>;
+};
+
 type MutableSessionStats = {
 	sessionId: string;
 	createTs?: number;
@@ -100,6 +166,8 @@ type MutableSessionStats = {
 	bridgeCallPayloadBytes: number;
 	bridgeResponsePayloadBytes: number;
 	callMethods: Map<number, string>;
+	loadPolyfillKinds: Map<number, LoadPolyfillAttributionKind>;
+	pendingLoadPolyfillCalls: Map<number, PendingLoadPolyfillAttribution>;
 };
 
 export type ScenarioIterationSummary = {
@@ -154,6 +222,20 @@ export type ScenarioFrameSummary = {
 	payloadBytesPerIteration: number;
 };
 
+export type ScenarioLoadPolyfillAttributionSummary = {
+	kind: LoadPolyfillAttributionKind;
+	label: string;
+	callsTotal: number;
+	callsPerIteration: number;
+	totalDurationMs: number;
+	durationMsPerIteration: number;
+	requestEncodedBytesTotal: number;
+	requestEncodedBytesPerIteration: number;
+	responseEncodedBytesTotal: number;
+	responseEncodedBytesPerIteration: number;
+	exampleTargets: string[];
+};
+
 export type NumericDelta = {
 	before: number;
 	after: number;
@@ -189,6 +271,14 @@ export type ScenarioFrameDelta = {
 	delta: number;
 };
 
+export type LoadPolyfillAttributionDelta = {
+	kind: LoadPolyfillAttributionKind;
+	label: string;
+	callsPerIteration: NumericDelta;
+	durationMsPerIteration: NumericDelta;
+	responseEncodedBytesPerIteration: NumericDelta;
+};
+
 export type ScenarioComparisonSummary = {
 	baselineScenarioCreatedAt: string;
 	metrics: ScenarioMetricComparison;
@@ -196,6 +286,7 @@ export type ScenarioComparisonSummary = {
 	bridgeMethodCountDeltas: ScenarioMethodDelta[];
 	bridgeMethodResponseByteDeltas: ScenarioMethodDelta[];
 	frameEncodedByteDeltas: ScenarioFrameDelta[];
+	loadPolyfillAttributionDeltas: LoadPolyfillAttributionDelta[];
 };
 
 export type ScenarioDerivedSummary = {
@@ -242,6 +333,7 @@ export type ScenarioDerivedSummary = {
 		methodsByCount: ScenarioBridgeMethodSummary[];
 		methodsByTime: ScenarioBridgeMethodSummary[];
 		methodsByResponseBytes: ScenarioBridgeMethodSummary[];
+		loadPolyfillAttribution: ScenarioLoadPolyfillAttributionSummary[];
 		framesByEncodedBytes: ScenarioFrameSummary[];
 		frames: ScenarioFrameSummary[];
 	};
@@ -263,6 +355,16 @@ export type ScenarioDerivedSummary = {
 			method: string;
 			responseEncodedBytesPerIteration: number;
 		};
+		loadPolyfillAttribution?: Partial<
+			Record<
+				LoadPolyfillAttributionKind,
+				{
+					callsPerIteration: number;
+					durationMsPerIteration: number;
+					responseEncodedBytesPerIteration: number;
+				}
+			>
+		>;
 		dominantFrameByEncodedBytes?: {
 			direction: string;
 			frameType: string;
@@ -355,6 +457,48 @@ function round(value: number): number {
 	return Number(value.toFixed(3));
 }
 
+function buildLoadPolyfillPairKey(
+	requestPayloadBytes: number,
+	responsePayloadBytes: number,
+): string {
+	return `${requestPayloadBytes}/${responsePayloadBytes}`;
+}
+
+function normalizePolyfillModuleName(moduleName: string): string {
+	return moduleName.replace(/^node:/, "");
+}
+
+export async function buildLoadPolyfillAttributionClassifier(): Promise<LoadPolyfillAttributionClassifier> {
+	if (loadPolyfillAttributionClassifierPromise) {
+		return loadPolyfillAttributionClassifierPromise;
+	}
+	loadPolyfillAttributionClassifierPromise = (async () => {
+		const knownPolyfillRequestResponsePairs = new Set<string>();
+		const moduleNames = new Set(
+			[...getAvailableStdlib(), ...EXTRA_POLYFILL_MODULES].map(
+				normalizePolyfillModuleName,
+			),
+		);
+		for (const moduleName of moduleNames) {
+			try {
+				const requestPayloadBytes = v8.serialize([moduleName]).length;
+				const responsePayloadBytes = v8.serialize(
+					await bundlePolyfill(moduleName),
+				).length;
+				knownPolyfillRequestResponsePairs.add(
+					buildLoadPolyfillPairKey(requestPayloadBytes, responsePayloadBytes),
+				);
+			} catch {
+				// Ignore modules that cannot be bundled in the current environment.
+			}
+		}
+		return {
+			knownPolyfillRequestResponsePairs,
+		};
+	})();
+	return loadPolyfillAttributionClassifierPromise;
+}
+
 function mean(values: number[]): number | undefined {
 	if (values.length === 0) return undefined;
 	return round(values.reduce((sum, value) => sum + value, 0) / values.length);
@@ -383,6 +527,18 @@ function formatDelta(delta: NumericDelta | undefined, unit = "ms"): string {
 			? ""
 			: ` (${delta.deltaPercent > 0 ? "+" : ""}${delta.deltaPercent.toFixed(2)}%)`;
 	return `${delta.before.toFixed(3)} -> ${delta.after.toFixed(3)} ${unit} (${sign}${delta.delta.toFixed(3)} ${unit}${percent})`;
+}
+
+function formatLoadPolyfillAttributionSummary(
+	attribution: ScenarioLoadPolyfillAttributionSummary,
+): string {
+	return `${attribution.callsPerIteration.toFixed(3)} calls/iteration, ${attribution.durationMsPerIteration.toFixed(3)} ms/iteration, ${attribution.responseEncodedBytesPerIteration.toFixed(3)} bytes/iteration`;
+}
+
+function formatLoadPolyfillAttributionDelta(
+	delta: LoadPolyfillAttributionDelta,
+): string {
+	return `calls ${formatDelta(delta.callsPerIteration, "calls")}; time ${formatDelta(delta.durationMsPerIteration)}; response bytes ${formatDelta(delta.responseEncodedBytesPerIteration, "bytes")}`;
 }
 
 function compareNumeric(before: number | undefined, after: number | undefined): NumericDelta | undefined {
@@ -441,6 +597,27 @@ function ensureFrameStats(
 	return created;
 }
 
+function ensureLoadPolyfillAttributionStats(
+	stats: Map<LoadPolyfillAttributionKind, MutableLoadPolyfillAttributionStats>,
+	kind: LoadPolyfillAttributionKind,
+): MutableLoadPolyfillAttributionStats {
+	const existing = stats.get(kind);
+	if (existing) return existing;
+	const created: MutableLoadPolyfillAttributionStats = {
+		kind,
+		label: LOAD_POLYFILL_ATTRIBUTION_LABELS[kind],
+		callsTotal: 0,
+		totalDurationMs: 0,
+		requestEncodedBytesTotal: 0,
+		requestPayloadBytesTotal: 0,
+		responseEncodedBytesTotal: 0,
+		responsePayloadBytesTotal: 0,
+		targets: new Set<string>(),
+	};
+	stats.set(kind, created);
+	return created;
+}
+
 function ensureSession(
 	sessions: Map<string, MutableSessionStats>,
 	sessionOrder: string[],
@@ -457,10 +634,32 @@ function ensureSession(
 		bridgeCallPayloadBytes: 0,
 		bridgeResponsePayloadBytes: 0,
 		callMethods: new Map<number, string>(),
+		loadPolyfillKinds: new Map<number, LoadPolyfillAttributionKind>(),
+		pendingLoadPolyfillCalls: new Map<number, PendingLoadPolyfillAttribution>(),
 	};
 	sessions.set(sessionId, created);
 	sessionOrder.push(sessionId);
 	return created;
+}
+
+function classifyLoadPolyfillAttribution(
+	requestPayloadBytes: number,
+	responsePayloadBytes: number,
+	bridgeTargetKind: LoadPolyfillAttributionKind | undefined,
+	options: DeriveScenarioSummaryOptions | undefined,
+): LoadPolyfillAttributionKind | undefined {
+	if (bridgeTargetKind) {
+		return bridgeTargetKind;
+	}
+	const classifier = options?.loadPolyfillAttributionClassifier;
+	if (!classifier) {
+		return undefined;
+	}
+	return classifier.knownPolyfillRequestResponsePairs.has(
+		buildLoadPolyfillPairKey(requestPayloadBytes, responsePayloadBytes),
+	)
+		? "polyfill_body"
+		: "bridge_dispatch";
 }
 
 export function parseIpcLog(logText: string): IpcEntry[] {
@@ -475,10 +674,15 @@ export function deriveScenarioSummary(
 	_scenario: ModuleLoadScenarioDefinition,
 	result: ScenarioRunResult,
 	entries: IpcEntry[],
+	options?: DeriveScenarioSummaryOptions,
 ): ScenarioDerivedSummary {
 	const sessionOrder: string[] = [];
 	const sessions = new Map<string, MutableSessionStats>();
 	const methods = new Map<string, MutableBridgeMethodStats>();
+	const loadPolyfillAttribution = new Map<
+		LoadPolyfillAttributionKind,
+		MutableLoadPolyfillAttributionStats
+	>();
 	const frames = new Map<string, MutableFrameStats>();
 	let connectStartTs: number | undefined;
 	let connectOkTs: number | undefined;
@@ -525,6 +729,14 @@ export function deriveScenarioSummary(
 				session.bridgeCallEncodedBytes += entry.encodedBytes ?? 0;
 				session.bridgeCallPayloadBytes += entry.payloadBytes ?? 0;
 				session.callMethods.set(callId, method);
+				if (method === "_loadPolyfill") {
+					session.pendingLoadPolyfillCalls.set(callId, {
+						requestEncodedBytes: entry.encodedBytes ?? 0,
+						requestPayloadBytes: entry.payloadBytes ?? 0,
+						bridgeTarget: entry.bridgeTarget,
+						bridgeTargetKind: entry.bridgeTargetKind,
+					});
+				}
 				const methodStats = ensureMethodStats(methods, method);
 				methodStats.callsTotal += 1;
 				methodStats.requestEncodedBytesTotal += entry.encodedBytes ?? 0;
@@ -537,6 +749,17 @@ export function deriveScenarioSummary(
 				const methodStats = ensureMethodStats(methods, method);
 				methodStats.responseEncodedBytesTotal += entry.encodedBytes ?? 0;
 				methodStats.responsePayloadBytesTotal += entry.payloadBytes ?? 0;
+				if (method === "_loadPolyfill") {
+					const kind = session.loadPolyfillKinds.get(entry.callId ?? -1);
+					if (kind) {
+						const attributionStats = ensureLoadPolyfillAttributionStats(
+							loadPolyfillAttribution,
+							kind,
+						);
+						attributionStats.responseEncodedBytesTotal += entry.encodedBytes ?? 0;
+						attributionStats.responsePayloadBytesTotal += entry.payloadBytes ?? 0;
+					}
+				}
 			}
 			continue;
 		}
@@ -550,6 +773,33 @@ export function deriveScenarioSummary(
 			methodStats.totalDurationMs += durationMs;
 			const statusKey = String(entry.status ?? "unknown");
 			methodStats.statusCounts[statusKey] = (methodStats.statusCounts[statusKey] ?? 0) + 1;
+			if (method === "_loadPolyfill") {
+				const pendingLoadPolyfillCall = session.pendingLoadPolyfillCalls.get(
+					entry.callId ?? -1,
+				);
+				const kind = classifyLoadPolyfillAttribution(
+					pendingLoadPolyfillCall?.requestPayloadBytes ?? 0,
+					entry.payloadBytes ?? 0,
+					pendingLoadPolyfillCall?.bridgeTargetKind,
+					options,
+				);
+				if (kind) {
+					const attributionStats = ensureLoadPolyfillAttributionStats(
+						loadPolyfillAttribution,
+						kind,
+					);
+					attributionStats.callsTotal += 1;
+					attributionStats.totalDurationMs += durationMs;
+					attributionStats.requestEncodedBytesTotal +=
+						pendingLoadPolyfillCall?.requestEncodedBytes ?? 0;
+					attributionStats.requestPayloadBytesTotal +=
+						pendingLoadPolyfillCall?.requestPayloadBytes ?? 0;
+					if (pendingLoadPolyfillCall?.bridgeTarget) {
+						attributionStats.targets.add(pendingLoadPolyfillCall.bridgeTarget);
+					}
+					session.loadPolyfillKinds.set(entry.callId ?? -1, kind);
+				}
+			}
 			continue;
 		}
 
@@ -634,6 +884,42 @@ export function deriveScenarioSummary(
 		statusCounts: method.statusCounts,
 	}));
 
+	const hasLoadPolyfillTraffic = methods.has("_loadPolyfill");
+	const loadPolyfillAttributionSummaries = LOAD_POLYFILL_ATTRIBUTION_ORDER.map(
+		(kind): ScenarioLoadPolyfillAttributionSummary | null => {
+			const attribution = loadPolyfillAttribution.get(kind);
+			if (!attribution && !hasLoadPolyfillTraffic) {
+				return null;
+			}
+			return {
+				kind,
+				label:
+					attribution?.label ?? LOAD_POLYFILL_ATTRIBUTION_LABELS[kind],
+				callsTotal: attribution?.callsTotal ?? 0,
+				callsPerIteration: round(
+					(attribution?.callsTotal ?? 0) / result.iterations,
+				),
+				totalDurationMs: round(attribution?.totalDurationMs ?? 0),
+				durationMsPerIteration: round(
+					(attribution?.totalDurationMs ?? 0) / result.iterations,
+				),
+				requestEncodedBytesTotal: attribution?.requestEncodedBytesTotal ?? 0,
+				requestEncodedBytesPerIteration: round(
+					(attribution?.requestEncodedBytesTotal ?? 0) / result.iterations,
+				),
+				responseEncodedBytesTotal: attribution?.responseEncodedBytesTotal ?? 0,
+				responseEncodedBytesPerIteration: round(
+					(attribution?.responseEncodedBytesTotal ?? 0) / result.iterations,
+				),
+				exampleTargets: Array.from(attribution?.targets ?? []).sort().slice(0, 5),
+			};
+		},
+	).filter(
+		(
+			attribution,
+		): attribution is ScenarioLoadPolyfillAttributionSummary => attribution !== null,
+	);
+
 	const frameSummaries = Array.from(frames.values()).map((frame): ScenarioFrameSummary => ({
 		direction: frame.direction,
 		frameType: frame.frameType,
@@ -667,6 +953,18 @@ export function deriveScenarioSummary(
 		}
 		return right.countTotal - left.countTotal;
 	});
+	const loadPolyfillAttributionProgressSignals = loadPolyfillAttributionSummaries.reduce(
+		(signals, attribution) => {
+			signals[attribution.kind] = {
+				callsPerIteration: attribution.callsPerIteration,
+				durationMsPerIteration: attribution.durationMsPerIteration,
+				responseEncodedBytesPerIteration:
+					attribution.responseEncodedBytesPerIteration,
+			};
+			return signals;
+		},
+		{} as NonNullable<ScenarioDerivedSummary["progressSignals"]["loadPolyfillAttribution"]>,
+	);
 
 	return {
 		scenarioId: result.scenarioId,
@@ -746,6 +1044,7 @@ export function deriveScenarioSummary(
 			methodsByCount: sortedMethodsByCount,
 			methodsByTime: sortedMethodsByTime,
 			methodsByResponseBytes: sortedMethodsByResponseBytes,
+			loadPolyfillAttribution: loadPolyfillAttributionSummaries,
 			framesByEncodedBytes: sortedFramesByBytes,
 			frames: frameSummaries.sort((left, right) => {
 				if (left.direction !== right.direction) {
@@ -786,6 +1085,10 @@ export function deriveScenarioSummary(
 							sortedMethodsByResponseBytes[0].responseEncodedBytesPerIteration,
 					}
 				: undefined,
+			loadPolyfillAttribution:
+				loadPolyfillAttributionSummaries.length > 0
+					? loadPolyfillAttributionProgressSignals
+					: undefined,
 			dominantFrameByEncodedBytes: sortedFramesByBytes[0]
 				? {
 						direction: sortedFramesByBytes[0].direction,
@@ -847,6 +1150,53 @@ function compareFrameSeries(
 		.filter((entry) => entry.delta !== 0)
 		.sort((left, right) => Math.abs(right.delta) - Math.abs(left.delta))
 		.slice(0, 5);
+}
+
+function compareLoadPolyfillAttribution(
+	current: ScenarioLoadPolyfillAttributionSummary[],
+	baseline: ScenarioLoadPolyfillAttributionSummary[],
+): LoadPolyfillAttributionDelta[] {
+	if (current.length === 0 && baseline.length === 0) {
+		return [];
+	}
+	const currentMap = new Map(current.map((entry) => [entry.kind, entry]));
+	const baselineMap = new Map(baseline.map((entry) => [entry.kind, entry]));
+	return LOAD_POLYFILL_ATTRIBUTION_ORDER.map((kind) => {
+		const currentEntry = currentMap.get(kind);
+		const baselineEntry = baselineMap.get(kind);
+		const label =
+			currentEntry?.label ??
+			baselineEntry?.label ??
+			LOAD_POLYFILL_ATTRIBUTION_LABELS[kind];
+		return {
+			kind,
+			label,
+			callsPerIteration: compareNumeric(
+				baselineEntry?.callsPerIteration ?? 0,
+				currentEntry?.callsPerIteration ?? 0,
+			) ?? {
+				before: 0,
+				after: 0,
+				delta: 0,
+			},
+			durationMsPerIteration: compareNumeric(
+				baselineEntry?.durationMsPerIteration ?? 0,
+				currentEntry?.durationMsPerIteration ?? 0,
+			) ?? {
+				before: 0,
+				after: 0,
+				delta: 0,
+			},
+			responseEncodedBytesPerIteration: compareNumeric(
+				baselineEntry?.responseEncodedBytesPerIteration ?? 0,
+				currentEntry?.responseEncodedBytesPerIteration ?? 0,
+			) ?? {
+				before: 0,
+				after: 0,
+				delta: 0,
+			},
+		};
+	});
 }
 
 function getFrameEncodedBytesPerIteration(
@@ -926,6 +1276,10 @@ export function compareScenarioSummaries(
 			current.bridge.framesByEncodedBytes,
 			baseline.bridge.framesByEncodedBytes,
 		),
+		loadPolyfillAttributionDeltas: compareLoadPolyfillAttribution(
+			current.bridge.loadPolyfillAttribution,
+			baseline.bridge.loadPolyfillAttribution,
+		),
 	};
 }
 
@@ -941,6 +1295,7 @@ export async function readScenarioRunResult(resultFile: string): Promise<Scenari
 export async function loadScenarioDerivedSummary(
 	resultsRoot: string,
 	scenario: ModuleLoadScenarioDefinition,
+	options?: DeriveScenarioSummaryOptions,
 ): Promise<ScenarioDerivedSummary | null> {
 	const resultFile = path.join(resultsRoot, scenario.id, "result.json");
 	const logFile = path.join(resultsRoot, scenario.id, "ipc.ndjson");
@@ -950,16 +1305,19 @@ export async function loadScenarioDerivedSummary(
 	}
 	try {
 		const logText = await readFile(logFile, "utf8");
-		return deriveScenarioSummary(scenario, result, parseIpcLog(logText));
+		return deriveScenarioSummary(scenario, result, parseIpcLog(logText), options);
 	} catch {
 		return null;
 	}
 }
 
-export async function loadBenchmarkBaseline(resultsRoot: string): Promise<BenchmarkBaseline | null> {
+export async function loadBenchmarkBaseline(
+	resultsRoot: string,
+	options?: DeriveScenarioSummaryOptions,
+): Promise<BenchmarkBaseline | null> {
 	const scenarioSummaries = new Map<string, ScenarioDerivedSummary>();
 	for (const scenario of MODULE_LOAD_SCENARIOS) {
-		const summary = await loadScenarioDerivedSummary(resultsRoot, scenario);
+		const summary = await loadScenarioDerivedSummary(resultsRoot, scenario, options);
 		if (summary) {
 			scenarioSummaries.set(scenario.id, summary);
 		}
@@ -1113,6 +1471,11 @@ export function buildScenarioSummaryMarkdown(summary: ScenarioDerivedSummary): s
 			`- Dominant bridge response bytes: \`${summary.progressSignals.dominantBridgeMethodByResponseBytes.method}\` ${summary.progressSignals.dominantBridgeMethodByResponseBytes.responseEncodedBytesPerIteration.toFixed(3)} bytes/iteration`,
 		);
 	}
+	for (const attribution of summary.bridge.loadPolyfillAttribution) {
+		lines.push(
+			`- _loadPolyfill ${attribution.label}: ${formatLoadPolyfillAttributionSummary(attribution)}`,
+		);
+	}
 	if (summary.progressSignals.dominantFrameByEncodedBytes) {
 		lines.push(
 			`- Dominant frame bytes: \`${summary.progressSignals.dominantFrameByEncodedBytes.direction}:${summary.progressSignals.dominantFrameByEncodedBytes.frameType}\` ${summary.progressSignals.dominantFrameByEncodedBytes.encodedBytesPerIteration.toFixed(3)} bytes/iteration`,
@@ -1156,6 +1519,19 @@ export function buildScenarioSummaryMarkdown(summary: ScenarioDerivedSummary): s
 		lines.push(
 			`| \`${method.method}\` | ${method.callsPerIteration.toFixed(3)} | ${formatMetric(method.durationMsPerIteration)} | ${formatMetric(method.meanDurationMsPerCall)} | ${method.responseEncodedBytesPerIteration.toFixed(3)} |`,
 		);
+	}
+
+	if (summary.bridge.loadPolyfillAttribution.length > 0) {
+		lines.push("");
+		lines.push("## _loadPolyfill Attribution");
+		lines.push("");
+		lines.push("| Kind | Calls/Iter | Time/Iter | Response Bytes/Iter | Sample Targets |");
+		lines.push("| --- | ---: | ---: | ---: | --- |");
+		for (const attribution of summary.bridge.loadPolyfillAttribution) {
+			lines.push(
+				`| ${attribution.label} | ${attribution.callsPerIteration.toFixed(3)} | ${formatMetric(attribution.durationMsPerIteration)} | ${attribution.responseEncodedBytesPerIteration.toFixed(3)} | ${attribution.exampleTargets.length > 0 ? attribution.exampleTargets.map((target) => `\`${target}\``).join(", ") : "-" } |`,
+			);
+		}
 	}
 
 	lines.push("");
@@ -1202,6 +1578,11 @@ export function buildScenarioSummaryMarkdown(summary: ScenarioDerivedSummary): s
 		lines.push(
 			`- BridgeResponse encoded bytes/iteration: ${formatDelta(summary.comparisonToPrevious.metrics.bridgeResponseFrameBytesPerIteration, "bytes")}`,
 		);
+		for (const attributionDelta of summary.comparisonToPrevious.loadPolyfillAttributionDeltas) {
+			lines.push(
+				`- _loadPolyfill ${attributionDelta.label}: ${formatLoadPolyfillAttributionDelta(attributionDelta)}`,
+			);
+		}
 		lines.push("");
 		lines.push("| Delta Type | Name | Before | After | Delta |");
 		lines.push("| --- | --- | ---: | ---: | ---: |");
@@ -1236,7 +1617,7 @@ export function buildBenchmarkSummaryMarkdown(report: BenchmarkSummaryReport): s
 		`V8 binary: ${report.v8BinaryPath}`,
 		`Baseline summary: ${report.baseline?.createdAt ?? "none"}`,
 		"",
-		"Use `comparison.md` for before/after deltas and the per-scenario `summary.md` files for the copy-ready progress numbers.",
+		"Use `comparison.md` for before/after deltas, including the split between real `_loadPolyfill` bodies and `__bd:*` dispatch wrappers, and the per-scenario `summary.md` files for copy-ready progress numbers.",
 		"",
 		"| Scenario | Warm Wall Mean | Bridge Calls/Iter | Warm Fixed Overhead | Dominant Method Time | Dominant Frame Bytes |",
 		"| --- | ---: | ---: | ---: | --- | --- |",
@@ -1307,7 +1688,7 @@ export function buildBenchmarkComparisonMarkdown(report: BenchmarkSummaryReport)
 		`Current benchmark: ${report.createdAt} (${report.gitCommit})`,
 		`Baseline benchmark: ${report.baseline?.createdAt ?? "none"}${report.baseline?.gitCommit ? ` (${report.baseline.gitCommit})` : ""}`,
 		"",
-		"Copy the warm wall, bridge calls/iteration, warm fixed overhead, and the highlighted method/frame deltas below into `scripts/ralph/progress.txt`.",
+		"Copy the warm wall, bridge calls/iteration, warm fixed overhead, and the highlighted method/frame deltas below into `scripts/ralph/progress.txt`. When `_loadPolyfill` is relevant, also copy the split between real polyfill bodies and `__bd:*` bridge dispatch.",
 		"",
 	];
 
@@ -1362,6 +1743,11 @@ export function buildBenchmarkComparisonMarkdown(report: BenchmarkSummaryReport)
 		if (frameDelta) {
 			lines.push(
 				`- Largest frame-byte delta: \`${frameDelta.direction}:${frameDelta.frameType}\` ${frameDelta.before.toFixed(3)} -> ${frameDelta.after.toFixed(3)} encoded bytes/iteration (${frameDelta.delta > 0 ? "+" : ""}${frameDelta.delta.toFixed(3)})`,
+			);
+		}
+		for (const attributionDelta of scenario.comparisonToPrevious.loadPolyfillAttributionDeltas) {
+			lines.push(
+				`- _loadPolyfill ${attributionDelta.label}: ${formatLoadPolyfillAttributionDelta(attributionDelta)}`,
 			);
 		}
 		lines.push("");

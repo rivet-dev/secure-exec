@@ -3,13 +3,18 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_void;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 use v8::MapFnTo;
 use v8::ValueDeserializerHelper;
 use v8::ValueSerializerHelper;
 
 use crate::host_call::BridgeCallContext;
+
+const POLYFILL_CACHE_STORE_FIELD: &str = "__secureExecPolyfillCacheStore";
+const POLYFILL_CACHE_REF_FIELD: &str = "__secureExecPolyfillCacheRef";
+const POLYFILL_CACHE_KEY_FIELD: &str = "key";
+const POLYFILL_CACHE_CODE_FIELD: &str = "code";
 
 /// External references for V8 snapshot serialization.
 /// Maps function pointer indices in the snapshot to current addresses.
@@ -46,6 +51,80 @@ impl v8::ValueSerializerImpl for DefaultSerializerDelegate {
 struct DefaultDeserializerDelegate;
 
 impl v8::ValueDeserializerImpl for DefaultDeserializerDelegate {}
+
+fn cached_polyfill_payloads() -> &'static Mutex<HashMap<String, Vec<u8>>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, Vec<u8>>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn get_object_property<'s>(
+    scope: &mut v8::HandleScope<'s>,
+    obj: v8::Local<'s, v8::Object>,
+    name: &str,
+) -> Result<Option<v8::Local<'s, v8::Value>>, String> {
+    let key = v8::String::new(scope, name)
+        .ok_or_else(|| format!("failed to allocate V8 string for property {}", name))?;
+    Ok(obj
+        .get(scope, key.into())
+        .filter(|value| !value.is_undefined() && !value.is_null()))
+}
+
+fn resolve_cached_polyfill_value<'s>(
+    scope: &mut v8::HandleScope<'s>,
+    value: v8::Local<'s, v8::Value>,
+) -> Result<Option<v8::Local<'s, v8::Value>>, String> {
+    if !value.is_object() {
+        return Ok(None);
+    }
+
+    let obj = value
+        .to_object(scope)
+        .ok_or_else(|| "failed to read cached _loadPolyfill payload envelope".to_string())?;
+
+    if let Some(store_value) = get_object_property(scope, obj, POLYFILL_CACHE_STORE_FIELD)? {
+        if !store_value.is_object() {
+            return Err("invalid cached _loadPolyfill store envelope".to_string());
+        }
+        let store_obj = store_value
+            .to_object(scope)
+            .ok_or_else(|| "invalid cached _loadPolyfill store object".to_string())?;
+        let cache_key_value = get_object_property(scope, store_obj, POLYFILL_CACHE_KEY_FIELD)?
+            .ok_or_else(|| "missing cached _loadPolyfill store key".to_string())?;
+        if !cache_key_value.is_string() {
+            return Err("cached _loadPolyfill store key must be a string".to_string());
+        }
+        let code_value = get_object_property(scope, store_obj, POLYFILL_CACHE_CODE_FIELD)?
+            .ok_or_else(|| "missing cached _loadPolyfill store code".to_string())?;
+        if !code_value.is_string() {
+            return Err("cached _loadPolyfill store code must be a string".to_string());
+        }
+
+        let cache_key = cache_key_value.to_rust_string_lossy(scope);
+        let serialized_code = serialize_v8_value(scope, code_value)?;
+        cached_polyfill_payloads()
+            .lock()
+            .unwrap()
+            .insert(cache_key, serialized_code);
+        return Ok(Some(code_value));
+    }
+
+    if let Some(ref_value) = get_object_property(scope, obj, POLYFILL_CACHE_REF_FIELD)? {
+        if !ref_value.is_string() {
+            return Err("cached _loadPolyfill ref must be a string".to_string());
+        }
+        let cache_key = ref_value.to_rust_string_lossy(scope);
+        let serialized_code = cached_polyfill_payloads()
+            .lock()
+            .unwrap()
+            .get(&cache_key)
+            .cloned()
+            .ok_or_else(|| format!("missing cached _loadPolyfill payload for key {}", cache_key))?;
+        let code_value = deserialize_v8_value(scope, &serialized_code)?;
+        return Ok(Some(code_value));
+    }
+
+    Ok(None)
+}
 
 /// Serialize a V8 value to bytes using V8's built-in ValueSerializer.
 /// Handles all V8 types natively: primitives, strings, arrays, objects,
@@ -263,7 +342,15 @@ fn sync_bridge_callback(
                 deserialize_v8_value(tc, &result_bytes).ok()
             };
             if let Some(val) = v8_val {
-                rv.set(val);
+                match resolve_cached_polyfill_value(scope, val) {
+                    Ok(Some(cached_val)) => rv.set(cached_val),
+                    Ok(None) => rv.set(val),
+                    Err(err) => {
+                        let msg = v8::String::new(scope, &err).unwrap();
+                        let exc = v8::Exception::error(scope, msg);
+                        scope.throw_exception(exc);
+                    }
+                }
             } else {
                 // Fallback: raw binary data → Uint8Array
                 let len = result_bytes.len();

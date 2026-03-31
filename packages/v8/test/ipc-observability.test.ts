@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import v8 from "node:v8";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	createIpcObservability,
@@ -50,6 +51,17 @@ describe("IPC observability", () => {
 				cpuTimeLimitMs: 250,
 			},
 			32,
+		);
+		observability?.recordFrame(
+			"recv",
+			{
+				type: "BridgeCall",
+				sessionId: "session-1",
+				callId: 6,
+				method: "_loadPolyfill",
+				payload: Buffer.from(v8.serialize(["__bd:_loadFileSync:[\"/tmp/demo.js\"]"])),
+			},
+			96,
 		);
 		observability?.markExecuteStart("session-1", {
 			mode: "exec",
@@ -118,6 +130,16 @@ describe("IPC observability", () => {
 					entry.event === "finish" &&
 					entry.method === "_fsReadFile" &&
 					entry.status === 0,
+			),
+		).toBe(true);
+		expect(
+			logLines.some(
+				(entry) =>
+					entry.kind === "ipc_frame" &&
+					entry.frameType === "BridgeCall" &&
+					entry.method === "_loadPolyfill" &&
+					entry.bridgeTarget === "__bd:_loadFileSync:[\"/tmp/demo.js\"]" &&
+					entry.bridgeTargetKind === "bridge_dispatch",
 			),
 		).toBe(true);
 	});

@@ -2,6 +2,7 @@ import http from "node:http";
 import { mkdirSync, createWriteStream, type WriteStream } from "node:fs";
 import { dirname } from "node:path";
 import type { AddressInfo } from "node:net";
+import v8 from "node:v8";
 import type { BinaryFrame } from "./ipc-binary.js";
 
 export interface V8IpcObservabilityOptions {
@@ -353,6 +354,30 @@ function parseOptionalPort(value: string | undefined): number | undefined {
 	return parsed;
 }
 
+function summarizeBridgeCallPayload(
+	method: string,
+	payload: Buffer,
+): Record<string, string | undefined> {
+	if (method !== "_loadPolyfill") {
+		return {};
+	}
+	try {
+		const decodedArgs = v8.deserialize(payload) as unknown;
+		const [bridgeTarget] = Array.isArray(decodedArgs) ? decodedArgs : [decodedArgs];
+		if (typeof bridgeTarget !== "string") {
+			return {};
+		}
+		return {
+			bridgeTarget,
+			bridgeTargetKind: bridgeTarget.startsWith("__bd:")
+				? "bridge_dispatch"
+				: "polyfill_body",
+		};
+	} catch {
+		return {};
+	}
+}
+
 function summarizeFrame(
 	frame: BinaryFrame,
 	encodedBytes: number,
@@ -418,6 +443,7 @@ function summarizeFrame(
 				callId: frame.callId,
 				method: frame.method,
 				payloadBytes: frame.payload.length,
+				...summarizeBridgeCallPayload(frame.method, frame.payload),
 			};
 		case "ExecutionResult":
 			return {

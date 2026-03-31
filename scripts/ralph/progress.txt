@@ -4,7 +4,8 @@ Started: Mon Mar 30 08:41:55 PM PDT 2026
 
 ## Codebase Patterns
 - Active module-load benchmark artifacts live in `packages/secure-exec/benchmarks/results/module-load/`; refresh them with the full `pnpm --filter secure-exec bench:module-load` run after each performance story.
-- The benchmark's `_loadPolyfill` method bucket includes generic `__bd:*` bridge-dispatch wrappers like `_resolveModuleSync` and `_loadFileSync`, not just real polyfill-body loads; use a direct in-sandbox probe when you need the true polyfill-only count/time signal.
+- Module-load benchmark `summary.md` / `comparison.md` now split `_loadPolyfill` into `real polyfill-body loads` and `__bd:* bridge-dispatch wrappers`; copy those fields directly for progress updates instead of using ad hoc probes.
+- When deriving module-load baselines from committed `ipc.ndjson` via `git show`, set a large `maxBuffer`; Pi logs exceed Node's default sync buffer.
 - Module-load scenario reruns must start from a truncated `ipc.ndjson`; the V8 observability sink appends by default, so stale logs will corrupt per-scenario summaries and `comparison.md`.
 - Shared `createNodeV8Runtime()` reuse now depends on `session.destroy()` fully draining the runtime-side teardown path; if a workload generates lots of timer or stream events, use an ordered barrier like `DestroySession` -> `Ping/Pong` instead of treating session destroy as fire-and-forget.
 - Headless CLI workloads inside standalone `NodeRuntime.exec()` should pass `stdin: ""`; for Pi's direct `dist/main.js` print-mode path with an explicit `--print` message, set `process.stdin.isTTY = true` inside the sandbox harness or Pi stalls in its piped-stdin probe before provider traffic.
@@ -103,4 +104,15 @@ Started: Mon Mar 30 08:41:55 PM PDT 2026
   - A direct sandbox probe on `_loadPolyfill.applySyncPromise` is the fastest way to tell whether a change removed repeated round-trips or only changed the mix of remaining unique bridge work.
   - The current module-load `_loadPolyfill` benchmark bucket is overloaded: it includes real polyfill-body loads plus generic `__bd:_resolveModuleSync` and `_loadFileSync` wrappers, so aggregate method time can move in the wrong direction even when repeated polyfill misses are gone.
   - Package-internal imports under projected `node_modules` are safe resolution-cache candidates because that tree is read-only inside `moduleAccess`; mutable user-worktree imports still need separate handling.
+---
+## [2026-03-31 02:52 PDT] - US-014
+- Added `_loadPolyfill` attribution to the IPC observability path and module-load summary pipeline, with a fallback classifier that reconstructs real polyfill-body vs `__bd:*` bridge-dispatch traffic from older benchmark logs. Regenerated the module-load summary/comparison artifacts so Pi startup stories now have copy-ready deltas for both `_loadPolyfill` buckets.
+- Benchmark deltas:
+  - `pi-sdk-startup`: warm wall `1693.028 ms` -> `1729.225 ms`; bridge calls `2548` -> `2548`/iteration; warm fixed overhead `115.200 ms` -> `117.534 ms`; `_loadPolyfill` real polyfill-body loads `0` -> `79` calls/iteration, `0.000 ms` -> `116.126 ms`, `0` -> `839171.667` bytes/iteration; `_loadPolyfill` `__bd:*` bridge-dispatch wrappers `2523` -> `2444` calls/iteration, `878.447 ms` -> `728.782 ms`, `9136395.000` -> `6630250.000` bytes/iteration.
+  - `pi-cli-startup`: warm wall `1827.171 ms` -> `1697.463 ms`; bridge calls `2604` -> `2604`/iteration; warm fixed overhead `117.846 ms` -> `118.185 ms`; `_loadPolyfill` real polyfill-body loads `0` -> `79` calls/iteration, `0.000 ms` -> `117.951 ms`, `0` -> `839171.667` bytes/iteration; `_loadPolyfill` `__bd:*` bridge-dispatch wrappers `2528` -> `2449` calls/iteration, `921.631 ms` -> `777.979 ms`, `9152170.000` -> `6646025.000` bytes/iteration.
+- Files changed: `AGENTS.md`, `packages/v8/src/ipc-observability.ts`, `packages/v8/test/ipc-observability.test.ts`, `packages/secure-exec/benchmarks/module-load/run-module-load-benchmarks.ts`, `packages/secure-exec/benchmarks/module-load/summary.ts`, `packages/secure-exec/benchmarks/results/module-load/*`, `packages/secure-exec/tests/module-load-summary.test.ts`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Module-load summary comparisons should be derived from committed `result.json` plus `ipc.ndjson` with the current classifier when the summary schema changes; older generated `summary.json` files may not have the fields new comparison code expects.
+  - Pi benchmark IPC logs are large enough that `execFileSync('git', ['show', ...])` needs an explicit larger `maxBuffer`, or baseline reconstruction fails with `ENOBUFS`.
+  - Pi startup `_loadPolyfill` attribution is now copy-ready in `packages/secure-exec/benchmarks/results/module-load/pi-sdk-startup/summary.md`, `packages/secure-exec/benchmarks/results/module-load/pi-cli-startup/summary.md`, and the top-level `comparison.md`; future stories should use those artifacts directly.
 ---
