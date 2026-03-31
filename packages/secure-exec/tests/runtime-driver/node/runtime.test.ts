@@ -80,6 +80,31 @@ describe("runtime driver specific: node", () => {
 		expect(result.code).toBe(0);
 	});
 
+	it("treats empty exec stdin as an immediate EOF", async () => {
+		const runtime = new NodeRuntime({
+			systemDriver: createNodeDriver({}),
+			runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+		});
+		runtimes.add(runtime);
+
+		const result = await runtime.exec(
+			[
+				'let sawData = false;',
+				'process.stdin.setEncoding("utf8");',
+				'process.stdin.on("data", () => { sawData = true; });',
+				'let sawEnd = false;',
+				'process.stdin.on("end", () => { sawEnd = true; });',
+				'process.stdin.resume();',
+				'setTimeout(() => {',
+				'  if (!sawEnd || sawData) process.exitCode = 9;',
+				'}, 0);',
+			].join("\n"),
+			{ stdin: "" },
+		);
+
+		expect(result.code).toBe(0);
+	});
+
 	it("treats TypeScript-only syntax as a JavaScript execution failure", async () => {
 		const runtime = createRuntime();
 		const result = await runtime.exec(

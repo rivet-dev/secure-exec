@@ -103,6 +103,14 @@ The Node runtime SHALL wait for tracked active handles before finalizing executi
 - **WHEN** sandboxed code starts a child process and registers active-handle lifecycle events
 - **THEN** `exec` MUST wait for handle completion before returning final output
 
+### Requirement: Buffered Exec Stdin Preserves EOF Semantics
+Standalone `NodeRuntime.exec()` SHALL treat provided buffered stdin, including the empty-string case, as a finite pipe that reaches EOF once the payload is consumed.
+
+#### Scenario: Exec receives empty buffered stdin
+- **WHEN** a caller invokes `NodeRuntime.exec(code, { stdin: "" })` and sandboxed code listens for `process.stdin` `'end'`
+- **THEN** the runtime MUST emit `'end'` and `'close'` without any `'data'` events
+- **AND** execution MUST remain able to continue past stdin-drain logic instead of exiting early with unresolved stdin listeners
+
 ### Requirement: Circular-Safe Console Output Capture
 The runtime SHALL process console arguments without throwing on circular structures, and SHALL avoid retaining console output in execution-result buffers. If a log-stream hook is configured, serialized log events MUST be emitted to the hook without persistent runtime buffering.
 

@@ -100,6 +100,27 @@ docs-internal/specs/cli-tool-e2e.md
 
 ## Priority 2: Maintainability and Performance
 
+### Module-load performance
+
+- [ ] Finish the module-load benchmark optimization track in `scripts/ralph/prd.json`.
+  - Keep committed benchmark artifacts current for Hono, Pi SDK, and Pi CLI while recording per-story deltas in `scripts/ralph/progress.txt`.
+
+- [ ] Reduce `_loadPolyfill` RPC count and repeated payload transfer on Pi startup paths.
+  - Current baseline is `5240-5664` `_loadPolyfill` calls per Pi iteration and `~860-911 ms` host bridge time, with BridgeResponse bytes dominating total traffic.
+
+- [ ] Reduce repeated bootstrap, resolver, and filesystem probe overhead in module-load scenarios.
+  - Current baseline shows `~1.24 MB` `Execute` payloads per iteration, `_resolveModule` at `34` calls and `~41-46 ms`, and `_fsExists` as high as `44` calls and `~54.9 ms`.
+
+- [ ] Attribute and reduce the fixed fresh-session overhead in the module-load benchmark.
+  - Current baseline shows a stable `~109 ms` fixed per-session cost even on Hono, which is likely outside the actual module graph work.
+
+- [ ] Expand module-load benchmark controls and transport attribution.
+  - Add true cold-start timing, same-session and new-session replay controls, host-Node controls, warm snapshot comparisons, and direct UDS RTT measurements so later optimizations are attributable.
+
+- [ ] Restore direct Pi CLI headless execution inside standalone `NodeRuntime`.
+  - The current trustworthy `pi-cli-end-to-end` benchmark imports the CLI module graph and then drives `runPrintMode()` through the SDK because direct `dist/main.js` / `dist/cli.js` headless execution in standalone `NodeRuntime.exec()` still exits `0` before provider traffic or stdout.
+  - Files: `packages/nodejs/src/bridge/process.ts`, `packages/secure-exec/benchmarks/module-load/scenario-runner.ts`, `packages/secure-exec/tests/runtime-driver/node/runtime.test.ts`
+
 - [ ] Remove remaining `@ts-nocheck` bypasses in bridge internals.
   - Current bypasses remain in `bridge/polyfills.ts`, `bridge/os.ts`, `bridge/child-process.ts`, `bridge/process.ts`, and `bridge/network.ts`.
   - Files: `packages/secure-exec/src/bridge/*.ts`

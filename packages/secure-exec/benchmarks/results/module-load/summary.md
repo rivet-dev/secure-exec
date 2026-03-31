@@ -1,18 +1,18 @@
 # Module Load Benchmark
 
-Generated: 2026-03-31T02:01:34.230Z
-Git commit: 17cacf5009860765991bd8f1e79b14681cd2bdee
+Generated: 2026-03-31T04:02:18.767Z
+Git commit: f32fdfd33bf844cfb50284b07412da1db4b9fd1f
 Host: {"node":"v24.13.0","platform":"linux","arch":"x64","cpu":"12th Gen Intel(R) Core(TM) i7-12700KF","cores":20,"ramGb":62.558}
 V8 binary: /home/nathan/se6/native/v8-runtime/target/release/secure-exec-v8
 
 | Scenario | Status | Cold Wall | Warm Wall Mean | Cold Sandbox | Warm Sandbox Mean | Notes |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
-| Hono Startup | passed | 276.657 ms | 143.791 ms | 0.000 ms | 0.000 ms | - |
-| Hono End-to-End | passed | 314.008 ms | 146.734 ms | 0.000 ms | 0.000 ms | - |
-| Pi SDK Startup | passed | 2087.659 ms | 1874.052 ms | 0.000 ms | 0.000 ms | - |
-| Pi SDK End-to-End | passed | 2652.074 ms | 1901.765 ms | 0.000 ms | 0.000 ms | - |
-| Pi CLI Startup | passed | 2667.455 ms | 1810.580 ms | - | - | - |
-| Pi CLI End-to-End | failed | - | - | - | - | Error: Pi CLI end-to-end failed with code 0; mockRequests=0; stdout=""; stderr=""     at runScenarioIteration (/home/nathan/se6/packages/secure-exec/benchmarks/ |
+| Hono Startup | passed | 302.365 ms | 153.889 ms | 0.000 ms | 0.000 ms | - |
+| Hono End-to-End | passed | 276.735 ms | 143.365 ms | 0.000 ms | 0.000 ms | - |
+| Pi SDK Startup | passed | 2267.032 ms | 1615.126 ms | 0.000 ms | 0.000 ms | - |
+| Pi SDK End-to-End | passed | 2515.994 ms | 2004.673 ms | 0.000 ms | 0.000 ms | - |
+| Pi CLI Startup | passed | 2324.069 ms | 1919.521 ms | - | - | - |
+| Pi CLI End-to-End | passed | 2577.123 ms | 2036.938 ms | - | - | - |
 
 ## Artifacts
 

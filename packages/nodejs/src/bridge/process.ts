@@ -560,10 +560,10 @@ function getStdinFlowMode(): boolean { return (globalThis as Record<string, unkn
 function setStdinFlowMode(v: boolean): void { (globalThis as Record<string, unknown>)._stdinFlowMode = v; }
 
 function _emitStdinData(): void {
-  if (getStdinEnded() || !getStdinData()) return;
+  if (getStdinEnded() || !getStdinFlowMode()) return;
 
   // In flowing mode, emit all remaining data
-  if (getStdinFlowMode() && getStdinPosition() < getStdinData().length) {
+  if (getStdinPosition() < getStdinData().length) {
     const chunk = getStdinData().slice(getStdinPosition());
     setStdinPosition(getStdinData().length);
 
@@ -574,20 +574,21 @@ function _emitStdinData(): void {
       listener(chunk);
     }
 
-    // Emit end after all data
-    setStdinEnded(true);
-    const endListeners = [...(_stdinListeners["end"] || []), ...(_stdinOnceListeners["end"] || [])];
-    _stdinOnceListeners["end"] = [];
-    for (const listener of endListeners) {
-      listener();
-    }
+  }
 
-    // Emit close
-    const closeListeners = [...(_stdinListeners["close"] || []), ...(_stdinOnceListeners["close"] || [])];
-    _stdinOnceListeners["close"] = [];
-    for (const listener of closeListeners) {
-      listener();
-    }
+  // Even an empty buffered stdin payload represents an immediately closed pipe.
+  setStdinEnded(true);
+  const endListeners = [...(_stdinListeners["end"] || []), ...(_stdinOnceListeners["end"] || [])];
+  _stdinOnceListeners["end"] = [];
+  for (const listener of endListeners) {
+    listener();
+  }
+
+  // Emit close
+  const closeListeners = [...(_stdinListeners["close"] || []), ...(_stdinOnceListeners["close"] || [])];
+  _stdinOnceListeners["close"] = [];
+  for (const listener of closeListeners) {
+    listener();
   }
 }
 

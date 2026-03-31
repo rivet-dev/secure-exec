@@ -212,6 +212,7 @@ async function runRuntimeExec(
 	options: {
 		code: string;
 		cwd: string;
+		stdin?: string;
 		useHostFileSystem?: boolean;
 		useNetwork?: boolean;
 	},
@@ -234,7 +235,10 @@ async function runRuntimeExec(
 
 	const startedAt = performance.now();
 	try {
-		const result = await runtime.exec(options.code, { cwd: options.cwd });
+		const result = await runtime.exec(options.code, {
+			cwd: options.cwd,
+			stdin: options.stdin,
+		});
 		return {
 			code: result.code,
 			errorMessage: result.errorMessage,
@@ -390,18 +394,59 @@ process.title = "pi";
 `;
 }
 
-function buildPiCliEndToEndCode(workDir: string, agentDir: string): string {
+function buildPiCliEndToEndCode(
+	workDir: string,
+	agentDir: string,
+	mockUrl: string,
+): string {
 	return `
 process.title = "pi";
 (async () => {
+  let session;
   try {
-    const { main } = await globalThis.__dynamicImport(${JSON.stringify(PI_MAIN_ENTRY)}, "/bench-pi-cli-end-to-end.mjs");
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = function(input, init) {
+      let url = typeof input === "string" ? input
+        : input instanceof URL ? input.href
+        : input?.url;
+      if (url && url.includes("api.anthropic.com")) {
+        const newUrl = url.replace(/https?:\\/\\/api\\.anthropic\\.com/, ${JSON.stringify(mockUrl)});
+        if (typeof input === "string") input = newUrl;
+        else if (input instanceof URL) input = new URL(newUrl);
+        else input = new Request(newUrl, input);
+      }
+      return origFetch.call(this, input, init);
+    };
+    await globalThis.__dynamicImport(${JSON.stringify(PI_MAIN_ENTRY)}, "/bench-pi-cli-end-to-end-cli.mjs");
+    const pi = await globalThis.__dynamicImport(${JSON.stringify(PI_SDK_ENTRY)}, "/bench-pi-cli-end-to-end-sdk.mjs");
     process.env.HOME = ${JSON.stringify(workDir)};
     process.env.PI_CODING_AGENT_DIR = ${JSON.stringify(agentDir)};
     process.env.ANTHROPIC_API_KEY = "test-key";
     process.env.NO_COLOR = "1";
-    await main(${JSON.stringify([...PI_BASE_FLAGS, "--print", "Say hello from the CLI benchmark."])});
+    const authStorage = pi.AuthStorage.inMemory();
+    authStorage.setRuntimeApiKey("anthropic", "test-key");
+    const modelRegistry = new pi.ModelRegistry(authStorage, ${JSON.stringify(path.join(agentDir, "models.json"))});
+    const model = modelRegistry.find("anthropic", "claude-sonnet-4-20250514")
+      ?? modelRegistry.getAll().find((candidate) => candidate.provider === "anthropic");
+    if (!model) throw new Error("No anthropic model");
+    ({ session } = await pi.createAgentSession({
+      cwd: ${JSON.stringify(workDir)},
+      agentDir: ${JSON.stringify(agentDir)},
+      authStorage,
+      modelRegistry,
+      model,
+      tools: pi.createCodingTools(${JSON.stringify(workDir)}),
+      sessionManager: pi.SessionManager.inMemory(),
+    }));
+    await pi.runPrintMode(session, {
+      mode: "text",
+      initialMessage: "Say hello from the CLI benchmark.",
+    });
+    session.dispose();
   } catch (error) {
+    if (session) {
+      try { session.dispose(); } catch {}
+    }
     console.error(error instanceof Error ? error.stack ?? error.message : String(error));
     process.exitCode = 1;
   }
@@ -530,6 +575,7 @@ async function runScenarioIteration(
 				const capture = await runRuntimeExec(v8Runtime, {
 					code: buildPiCliStartupCode(workDir, agentDir),
 					cwd: workDir,
+					stdin: "",
 					useHostFileSystem: true,
 				});
 				if (capture.code !== 0 || !capture.stdoutText.trim()) {
@@ -559,8 +605,13 @@ async function runScenarioIteration(
 			const { workDir, agentDir } = await createPiWorkDir(mockServer, true);
 			try {
 				const capture = await runRuntimeExec(v8Runtime, {
-					code: buildPiCliEndToEndCode(workDir, agentDir),
+					code: buildPiCliEndToEndCode(
+						workDir,
+						agentDir,
+						`http://127.0.0.1:${mockServer.port}`,
+					),
 					cwd: workDir,
+					stdin: "",
 					useHostFileSystem: true,
 					useNetwork: true,
 				});

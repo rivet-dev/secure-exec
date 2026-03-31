@@ -1,3 +1,59 @@
 {
-  "error": "Error: Pi CLI end-to-end failed with code 0; mockRequests=0; stdout=\"\"; stderr=\"\"\n    at runScenarioIteration (/home/nathan/se6/packages/secure-exec/benchmarks/module-load/scenario-runner.ts:569:12)\n    at async main (/home/nathan/se6/packages/secure-exec/benchmarks/module-load/scenario-runner.ts:621:17)"
+  "scenarioId": "pi-cli-end-to-end",
+  "title": "Pi CLI End-to-End",
+  "target": "pi_cli",
+  "kind": "end_to_end",
+  "description": "Loads the Pi CLI module graph, then drives Pi print-mode against the mock Anthropic SSE server.",
+  "createdAt": "2026-03-31T04:02:18.714Z",
+  "iterations": 3,
+  "artifacts": {
+    "resultFile": "pi-cli-end-to-end/result.json",
+    "metricsFile": "pi-cli-end-to-end/metrics.prom",
+    "logFile": "pi-cli-end-to-end/ipc.ndjson"
+  },
+  "samples": [
+    {
+      "iteration": 1,
+      "wallMs": 2577.123,
+      "code": 0,
+      "stdoutBytes": 25,
+      "stderrBytes": 0,
+      "mockRequests": 1,
+      "stdoutPreview": "benchmark-pi-cli-response",
+      "stderrPreview": "",
+      "checks": {
+        "responseSeen": true
+      }
+    },
+    {
+      "iteration": 2,
+      "wallMs": 2152.298,
+      "code": 0,
+      "stdoutBytes": 25,
+      "stderrBytes": 0,
+      "mockRequests": 1,
+      "stdoutPreview": "benchmark-pi-cli-response",
+      "stderrPreview": "",
+      "checks": {
+        "responseSeen": true
+      }
+    },
+    {
+      "iteration": 3,
+      "wallMs": 1921.577,
+      "code": 0,
+      "stdoutBytes": 25,
+      "stderrBytes": 0,
+      "mockRequests": 1,
+      "stdoutPreview": "benchmark-pi-cli-response",
+      "stderrPreview": "",
+      "checks": {
+        "responseSeen": true
+      }
+    }
+  ],
+  "summary": {
+    "coldWallMs": 2577.123,
+    "warmWallMsMean": 2036.938
+  }
 }

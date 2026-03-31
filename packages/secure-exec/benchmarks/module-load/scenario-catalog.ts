@@ -49,7 +49,8 @@ export const MODULE_LOAD_SCENARIOS: readonly ModuleLoadScenarioDefinition[] = [
 		title: "Pi CLI End-to-End",
 		target: "pi_cli",
 		kind: "end_to_end",
-		description: "Runs Pi CLI --print mode against the mock Anthropic SSE server.",
+		description:
+			"Loads the Pi CLI module graph, then drives Pi print-mode against the mock Anthropic SSE server.",
 	},
 ] as const;
 
