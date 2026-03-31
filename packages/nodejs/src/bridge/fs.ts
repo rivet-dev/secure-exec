@@ -10,7 +10,8 @@ import type { FsFacadeBridge } from "../bridge-contract.js";
 // Declare globals that are set up by the host environment
 declare const _fs: FsFacadeBridge;
 
-// Kernel FD bridge globals — dispatched through _loadPolyfill on the V8 runtime.
+// Kernel FD bridge globals — exposed through the dedicated dispatch bridge on
+// the V8 runtime when native host globals are unavailable.
 // FD table is managed on the host side via kernel ProcessFDTable.
 declare const _fdOpen: { applySync(t: undefined, a: [string, number, number?]): number; applySyncPromise(t: undefined, a: [string, number, number?]): number };
 declare const _fdClose: { applySync(t: undefined, a: [number]): void; applySyncPromise(t: undefined, a: [number]): void };

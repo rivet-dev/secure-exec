@@ -343,6 +343,99 @@ describe("runtime driver specific: node", () => {
 	);
 
 	it(
+		"routes hot wrapper-backed module loads through _bridgeDispatch instead of _loadPolyfill",
+		async () => {
+			const projectDir = await mkdtemp(
+				path.join(tmpdir(), "secure-exec-bridge-dispatch-"),
+			);
+			const packageDir = path.join(projectDir, "node_modules", "pkg");
+
+			try {
+				await mkdir(packageDir, { recursive: true });
+				await writeFile(
+					path.join(packageDir, "package.json"),
+					JSON.stringify({ name: "pkg", main: "index.js" }),
+					"utf8",
+				);
+				await writeFile(
+					path.join(packageDir, "inner.js"),
+					"module.exports = 42;\n",
+					"utf8",
+				);
+				await writeFile(
+					path.join(packageDir, "index.js"),
+					'module.exports = require("./inner.js");\n',
+					"utf8",
+				);
+
+				const runtime = new NodeRuntime({
+					systemDriver: createNodeDriver({
+						moduleAccess: { cwd: projectDir },
+						permissions: allowAll,
+					}),
+					runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+				});
+				runtimes.add(runtime);
+
+				const result = await runtime.run(
+					`
+						const dispatchSeen = [];
+						const polyfillSeen = [];
+						const originalDispatch = _bridgeDispatch.applySyncPromise;
+						const originalLoadPolyfill = _loadPolyfill.applySyncPromise;
+						_bridgeDispatch.applySyncPromise = function(ctx, args) {
+							dispatchSeen.push(String(args[0]));
+							return originalDispatch.call(this, ctx, args);
+						};
+						_loadPolyfill.applySyncPromise = function(ctx, args) {
+							polyfillSeen.push(args[0]);
+							return originalLoadPolyfill.call(this, ctx, args);
+						};
+
+						const value = require(${JSON.stringify(
+							path.join(packageDir, "index.js"),
+						)});
+						export const summary = {
+							value,
+							dispatchSeen,
+							polyfillSeen,
+						};
+					`,
+				);
+
+				expect(result.code).toBe(0);
+				const parsed = result.exports?.summary as
+					| {
+					value: number;
+					dispatchSeen: string[];
+					polyfillSeen: unknown[];
+				  }
+					| undefined;
+
+				expect(parsed).toBeDefined();
+				expect(parsed?.value).toBe(42);
+				expect(
+					parsed?.dispatchSeen.filter((entry) => entry === "_resolveModuleSync")
+						.length,
+				).toBeGreaterThan(0);
+				expect(
+					parsed?.dispatchSeen.filter((entry) => entry === "_loadFileSync")
+						.length,
+				).toBeGreaterThan(0);
+				expect(
+					parsed?.polyfillSeen.filter(
+						(entry: unknown) =>
+							typeof entry === "string" && entry.startsWith("__bd:"),
+					),
+				).toEqual([]);
+			} finally {
+				await rm(projectDir, { recursive: true, force: true });
+			}
+		},
+		20_000,
+	);
+
+	it(
 		"skips repeated relative-specifier polyfill probes within a single workload",
 		async () => {
 			const runtime = createRuntime();

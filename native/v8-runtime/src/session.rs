@@ -778,7 +778,7 @@ fn session_thread(
 ///
 /// Sync functions block V8 while the host processes the call (applySync/applySyncPromise).
 /// Async functions return a Promise to V8, resolved when the host responds (apply).
-pub(crate) const SYNC_BRIDGE_FNS: [&str; 32] = [
+pub(crate) const SYNC_BRIDGE_FNS: [&str; 33] = [
     // Console
     "_log",
     "_error",
@@ -786,6 +786,7 @@ pub(crate) const SYNC_BRIDGE_FNS: [&str; 32] = [
     "_resolveModule",
     "_loadFile",
     "_loadPolyfill",
+    "_bridgeDispatch",
     // Crypto
     "_cryptoRandomFill",
     "_cryptoRandomUUID",

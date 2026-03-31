@@ -4,7 +4,7 @@
   "target": "pi_cli",
   "kind": "startup",
   "description": "Boots the Pi CLI help path inside the sandbox.",
-  "createdAt": "2026-03-31T13:28:43.439Z",
+  "createdAt": "2026-03-31T20:09:28.411Z",
   "iterations": 3,
   "artifacts": {
     "resultFile": "pi-cli-startup/result.json",
@@ -14,43 +14,43 @@
   "samples": [
     {
       "iteration": 1,
-      "wallMs": 2173.406,
+      "wallMs": 1779.084,
       "code": 0,
       "stdoutBytes": 4096,
       "stderrBytes": 220,
       "stdoutPreview": "pi - AI coding assistant with read, bash, edit, write tools\n\nUsage:\n  pi [options] [@files...] [messages...]\n\nCommands:\n  pi install <source> [-l]     Install extension source and add to settings\n  pi remove <source> [-l]      Remove extens",
-      "stderrPreview": "ProcessExitError: process.exit(0)\n    at process.exit (<anonymous>:22153:13)\n    at main (/home/nathan/se6/packages/secure-exec/node_modules/@mariozechner/pi-coding-agent/dist/main.js:571:13)\n    at async <anonymous>:9:5",
+      "stderrPreview": "ProcessExitError: process.exit(0)\n    at process.exit (<anonymous>:22160:13)\n    at main (/home/nathan/se6/packages/secure-exec/node_modules/@mariozechner/pi-coding-agent/dist/main.js:571:13)\n    at async <anonymous>:9:5",
       "checks": {
         "stdoutHasUsage": true
       }
     },
     {
       "iteration": 2,
-      "wallMs": 1738.368,
+      "wallMs": 1723.868,
       "code": 0,
       "stdoutBytes": 4096,
       "stderrBytes": 220,
       "stdoutPreview": "pi - AI coding assistant with read, bash, edit, write tools\n\nUsage:\n  pi [options] [@files...] [messages...]\n\nCommands:\n  pi install <source> [-l]     Install extension source and add to settings\n  pi remove <source> [-l]      Remove extens",
-      "stderrPreview": "ProcessExitError: process.exit(0)\n    at process.exit (<anonymous>:22153:13)\n    at main (/home/nathan/se6/packages/secure-exec/node_modules/@mariozechner/pi-coding-agent/dist/main.js:571:13)\n    at async <anonymous>:9:5",
+      "stderrPreview": "ProcessExitError: process.exit(0)\n    at process.exit (<anonymous>:22160:13)\n    at main (/home/nathan/se6/packages/secure-exec/node_modules/@mariozechner/pi-coding-agent/dist/main.js:571:13)\n    at async <anonymous>:9:5",
       "checks": {
         "stdoutHasUsage": true
       }
     },
     {
       "iteration": 3,
-      "wallMs": 1880.293,
+      "wallMs": 1750.348,
       "code": 0,
       "stdoutBytes": 4096,
       "stderrBytes": 220,
       "stdoutPreview": "pi - AI coding assistant with read, bash, edit, write tools\n\nUsage:\n  pi [options] [@files...] [messages...]\n\nCommands:\n  pi install <source> [-l]     Install extension source and add to settings\n  pi remove <source> [-l]      Remove extens",
-      "stderrPreview": "ProcessExitError: process.exit(0)\n    at process.exit (<anonymous>:22153:13)\n    at main (/home/nathan/se6/packages/secure-exec/node_modules/@mariozechner/pi-coding-agent/dist/main.js:571:13)\n    at async <anonymous>:9:5",
+      "stderrPreview": "ProcessExitError: process.exit(0)\n    at process.exit (<anonymous>:22160:13)\n    at main (/home/nathan/se6/packages/secure-exec/node_modules/@mariozechner/pi-coding-agent/dist/main.js:571:13)\n    at async <anonymous>:9:5",
       "checks": {
         "stdoutHasUsage": true
       }
     }
   ],
   "summary": {
-    "coldWallMs": 2173.406,
-    "warmWallMsMean": 1809.331
+    "coldWallMs": 1779.084,
+    "warmWallMsMean": 1737.108
   }
 }

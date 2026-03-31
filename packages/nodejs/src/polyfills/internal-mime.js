@@ -1,12 +1,17 @@
 const SHARED_KEY = "__secureExecMime";
 
 function callMimeBridge(op, ...args) {
-	if (typeof _loadPolyfill === "undefined") {
+	if (typeof _bridgeDispatch === "undefined" && typeof _loadPolyfill === "undefined") {
 		throw new Error("MIME bridge is not available in sandbox");
 	}
-	const encoded = `__bd:mimeBridge:${JSON.stringify([op, ...args])}`;
-	const response = _loadPolyfill.applySyncPromise(undefined, [encoded]);
-	const payload = JSON.parse(response);
+	const response =
+		typeof _bridgeDispatch !== "undefined"
+			? _bridgeDispatch.applySyncPromise(undefined, ["mimeBridge", op, ...args])
+			: _loadPolyfill.applySyncPromise(
+					undefined,
+					[`__bd:mimeBridge:${JSON.stringify([op, ...args])}`],
+				);
+	const payload = typeof response === "string" ? JSON.parse(response) : response;
 	if (payload?.__bd_error) {
 		const ctor =
 			payload.__bd_error.name === "TypeError"

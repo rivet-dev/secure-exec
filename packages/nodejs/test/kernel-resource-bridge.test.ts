@@ -1,7 +1,10 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { StdioEvent } from "@secure-exec/core";
 import { HOST_BRIDGE_GLOBAL_KEYS } from "../src/bridge-contract.ts";
-import { buildFsBridgeHandlers } from "../src/bridge-handlers.ts";
+import {
+	buildFsBridgeHandlers,
+	buildModuleLoadingBridgeHandlers,
+} from "../src/bridge-handlers.ts";
 import { createBudgetState } from "../src/isolate-bootstrap.ts";
 import { ProcessTable, TimerTable, type VirtualFileSystem } from "@secure-exec/core";
 import { createNodeDriver, NodeExecutionDriver } from "../src/driver.ts";
@@ -139,5 +142,87 @@ describe("kernel-backed Node bridge resource tracking", () => {
 		expect(JSON.parse(String(json))).toEqual([
 			{ name: "file.txt", isDirectory: false, ino: 11 },
 		]);
+	});
+
+	it("preserves undefined args, structured errors, and missing-handler fallback in _bridgeDispatch", async () => {
+		const handlers = buildModuleLoadingBridgeHandlers(
+			{
+				filesystem: {} as VirtualFileSystem,
+				resolutionCache: new Map(),
+			},
+			{
+				echo: (...args: unknown[]) => args,
+				fail: () => {
+					const error = new Error("dispatch failed") as Error & {
+						code?: string;
+					};
+					error.name = "RangeError";
+					error.code = "ERR_TEST_DISPATCH";
+					error.stack = "RangeError: dispatch failed\n    at bridge";
+					throw error;
+				},
+			},
+		);
+
+		const dispatch = handlers[HOST_BRIDGE_GLOBAL_KEYS.bridgeDispatch];
+
+		await expect(
+			dispatch("echo", undefined, { nested: undefined, value: 7 }),
+		).resolves.toEqual({
+			__bd_result: [undefined, { nested: undefined, value: 7 }],
+		});
+		await expect(dispatch("missing-handler")).resolves.toBeNull();
+		await expect(dispatch("fail")).resolves.toEqual({
+			__bd_error: {
+				message: "dispatch failed",
+				name: "RangeError",
+				code: "ERR_TEST_DISPATCH",
+				stack: "RangeError: dispatch failed\n    at bridge",
+			},
+		});
+	});
+
+	it("skips managed-resource polling when exec work leaves no host resources", async () => {
+		const ctx = createKernelBackedExecutionDriver();
+		driver = ctx.driver;
+		const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+
+		try {
+			await (ctx.driver as any).waitForManagedResources();
+		} finally {
+			setTimeoutSpy.mockRestore();
+		}
+
+		expect(setTimeoutSpy).not.toHaveBeenCalled();
+	});
+
+	it("keeps polling while managed host resources are still active", async () => {
+		const ctx = createKernelBackedExecutionDriver();
+		driver = ctx.driver;
+		const state = (ctx.driver as any).state as {
+			activeHttpClientRequests: { count: number };
+		};
+
+		state.activeHttpClientRequests.count = 1;
+		vi.useFakeTimers();
+		try {
+			let settled = false;
+			const waitPromise = ((ctx.driver as any).waitForManagedResources() as Promise<void>).then(
+				() => {
+					settled = true;
+				},
+			);
+
+			await vi.advanceTimersByTimeAsync(9);
+			expect(settled).toBe(false);
+
+			state.activeHttpClientRequests.count = 0;
+			await vi.advanceTimersByTimeAsync(10);
+			await waitPromise;
+
+			expect(settled).toBe(true);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });

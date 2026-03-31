@@ -2,6 +2,7 @@ export {};
 
 import type {
 	BatchResolveModulesBridgeRef,
+	BridgeDispatchBridgeRef,
 	CryptoRandomFillBridgeRef,
 	CryptoRandomUuidBridgeRef,
 	DynamicImportBridgeRef,
@@ -85,6 +86,7 @@ declare global {
 	var __runtimeDynamicImportConfig: { referrerPath?: string } | undefined;
 	var _dynamicImport: DynamicImportBridgeRef;
 	var _loadPolyfill: LoadPolyfillBridgeRef;
+	var _bridgeDispatch: BridgeDispatchBridgeRef | undefined;
 	var _resolveModule: ResolveModuleBridgeRef;
 	var _resolveModuleSync: RuntimeResolveModuleSyncBridgeRef | undefined;
 	var _loadFile: LoadFileBridgeRef;

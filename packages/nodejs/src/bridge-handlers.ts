@@ -186,6 +186,10 @@ interface SerializedDispatchError {
 	stack?: string;
 }
 
+type DispatchBridgeEnvelope =
+	| { __bd_result: unknown }
+	| { __bd_error: SerializedDispatchError };
+
 type DiffieHellmanSession =
 	| ReturnType<typeof createDiffieHellman>
 	| ReturnType<typeof getDiffieHellman>
@@ -429,6 +433,28 @@ function restoreDispatchArgument(value: unknown): unknown {
 	return Object.fromEntries(
 		Object.entries(value).map(([key, entry]) => [key, restoreDispatchArgument(entry)]),
 	);
+}
+
+async function dispatchBridgeCall(
+	dispatchHandlers: BridgeHandlers | undefined,
+	method: string,
+	args: unknown[],
+): Promise<DispatchBridgeEnvelope | null> {
+	if (!dispatchHandlers) {
+		return null;
+	}
+
+	const handler = dispatchHandlers[method];
+	if (!handler) {
+		return null;
+	}
+
+	try {
+		const result = await handler(...args);
+		return { __bd_result: result };
+	} catch (error) {
+		return { __bd_error: serializeDispatchError(error) };
+	}
 }
 
 function normalizeBridgeAlgorithm(algorithm: unknown): string | null {
@@ -3319,11 +3345,17 @@ function loadHostModuleSourceSync(
 /** Build module loading bridge handlers (loadPolyfill, resolveModule, loadFile). */
 export function buildModuleLoadingBridgeHandlers(
 	deps: ModuleLoadingBridgeDeps,
-	/** Extra handlers to dispatch through _loadPolyfill for V8 runtime compatibility. */
+	/** Extra handlers to dispatch through _bridgeDispatch or legacy _loadPolyfill compatibility shims. */
 	dispatchHandlers?: BridgeHandlers,
 ): BridgeHandlers {
 	const handlers: BridgeHandlers = {};
 	const K = HOST_BRIDGE_GLOBAL_KEYS;
+
+	handlers[K.bridgeDispatch] = async (
+		method: unknown,
+		...args: unknown[]
+	): Promise<DispatchBridgeEnvelope | null> =>
+		dispatchBridgeCall(dispatchHandlers, String(method), args);
 
 	// Polyfill loading — also serves as bridge dispatch multiplexer.
 	// The V8 runtime binary only registers a fixed set of bridge globals.
@@ -3337,15 +3369,16 @@ export function buildModuleLoadingBridgeHandlers(
 			const colonIdx = nameStr.indexOf(":", 5);
 			const method = nameStr.substring(5, colonIdx > 0 ? colonIdx : undefined);
 			const argsJson = colonIdx > 0 ? nameStr.substring(colonIdx + 1) : "[]";
-			const handler = dispatchHandlers[method];
-			if (!handler) return JSON.stringify({ __bd_error: `No handler: ${method}` });
-			try {
-				const args = restoreDispatchArgument(JSON.parse(argsJson));
-				const result = await handler(...(Array.isArray(args) ? args : [args]));
-				return JSON.stringify({ __bd_result: result });
-			} catch (err) {
-				return JSON.stringify({ __bd_error: serializeDispatchError(err) });
+			const parsedArgs = restoreDispatchArgument(JSON.parse(argsJson));
+			const envelope = await dispatchBridgeCall(
+				dispatchHandlers,
+				method,
+				Array.isArray(parsedArgs) ? parsedArgs : [parsedArgs],
+			);
+			if (envelope === null) {
+				return JSON.stringify({ __bd_error: `No handler: ${method}` });
 			}
+			return JSON.stringify(envelope);
 		}
 
 		const name = nameStr.replace(/^node:/, "");

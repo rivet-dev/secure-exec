@@ -36,12 +36,12 @@ describe("bridge registry policy", () => {
 		const inventoryNames = new Set(
 			NODE_CUSTOM_GLOBAL_INVENTORY.map((entry) => entry.name),
 		);
-		for (const key of HOST_BRIDGE_GLOBAL_KEY_LIST) {
-			expect(inventoryNames.has(key)).toBe(true);
-		}
-		for (const key of RUNTIME_BRIDGE_GLOBAL_KEY_LIST) {
-			expect(inventoryNames.has(key)).toBe(true);
-		}
+		expect(
+			HOST_BRIDGE_GLOBAL_KEY_LIST.filter((key) => !inventoryNames.has(key)),
+		).toEqual([]);
+		expect(
+			RUNTIME_BRIDGE_GLOBAL_KEY_LIST.filter((key) => !inventoryNames.has(key)),
+		).toEqual([]);
 	});
 
 	it("uses shared host bridge key constants for jail wiring", () => {
@@ -88,8 +88,10 @@ describe("bridge registry policy", () => {
 	it("keeps native V8 bridge registries aligned for async HTTP server lifecycle hooks", () => {
 		const sessionSource = readNativeSource("src/session.rs");
 
+		expect(sessionSource).toContain('"_bridgeDispatch"');
 		expect(sessionSource).toContain('"_networkHttpServerRespondRaw"');
 		expect(sessionSource).toContain('"_networkHttpServerWaitRaw"');
+		expect(sessionSource).toMatch(/SYNC_BRIDGE_FNS:[^]*"_bridgeDispatch"/);
 		expect(sessionSource).toMatch(/SYNC_BRIDGE_FNS:[^]*"_networkHttpServerRespondRaw"/);
 		expect(sessionSource).toMatch(/ASYNC_BRIDGE_FNS:[^]*"_networkHttpServerWaitRaw"/);
 	});

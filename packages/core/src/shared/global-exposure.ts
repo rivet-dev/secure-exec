@@ -169,6 +169,11 @@ export const NODE_CUSTOM_GLOBAL_INVENTORY: readonly CustomGlobalInventoryEntry[]
 		rationale: "Host module-loading bridge reference.",
 	},
 	{
+		name: "_bridgeDispatch",
+		classification: "hardened",
+		rationale: "Host dispatch bridge reference for non-polyfill wrapper calls.",
+	},
+	{
 		name: "_resolveModule",
 		classification: "hardened",
 		rationale: "Host module-resolution bridge reference.",
@@ -192,6 +197,11 @@ export const NODE_CUSTOM_GLOBAL_INVENTORY: readonly CustomGlobalInventoryEntry[]
 		name: "_scheduleTimer",
 		classification: "hardened",
 		rationale: "Host timer bridge reference used by process timers.",
+	},
+	{
+		name: "_kernelStdinRead",
+		classification: "hardened",
+		rationale: "Host stdin bridge reference used by live kernel-backed stdin reads.",
 	},
 	{
 		name: "_cryptoRandomFill",

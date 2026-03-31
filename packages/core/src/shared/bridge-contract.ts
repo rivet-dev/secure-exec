@@ -23,6 +23,7 @@ function valuesOf<T extends Record<string, string>>(object: T): Array<ValueOf<T>
 export const HOST_BRIDGE_GLOBAL_KEYS = {
 	dynamicImport: "_dynamicImport",
 	loadPolyfill: "_loadPolyfill",
+	bridgeDispatch: "_bridgeDispatch",
 	resolveModule: "_resolveModule",
 	loadFile: "_loadFile",
 	scheduleTimer: "_scheduleTimer",
@@ -209,6 +210,19 @@ export type DynamicImportBridgeRef = BridgeApplyRef<
 	Record<string, unknown> | null
 >;
 export type LoadPolyfillBridgeRef = BridgeApplyRef<[string], string | null>;
+export interface BridgeDispatchErrorPayload {
+	message: string;
+	name?: string;
+	code?: string;
+	stack?: string;
+}
+export type BridgeDispatchResultEnvelope<TResult = unknown> =
+	| { __bd_result: TResult }
+	| { __bd_error: BridgeDispatchErrorPayload };
+export type BridgeDispatchBridgeRef = BridgeApplySyncPromiseRef<
+	[string, ...unknown[]],
+	BridgeDispatchResultEnvelope | null
+>;
 export type ResolveModuleBridgeRef = BridgeApplySyncPromiseRef<
 	[string, string] | [string, string, ModuleLoadMode],
 	string | null

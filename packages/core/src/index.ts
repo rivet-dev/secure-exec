@@ -198,6 +198,9 @@ export {
 // Bridge contract.
 export type {
 	BridgeApplyRef,
+	BridgeDispatchBridgeRef,
+	BridgeDispatchErrorPayload,
+	BridgeDispatchResultEnvelope,
 	BridgeApplySyncPromiseRef,
 	BridgeApplySyncRef,
 	BridgeGlobalKey,

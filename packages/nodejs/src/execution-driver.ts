@@ -712,8 +712,8 @@ const BRIDGE_NATIVE_SHIM = `
 
 // Dispatch shim for bridge globals not natively supported by the V8 binary.
 // Installs dispatch wrappers for ALL known bridge globals that aren't already
-// functions. This runs BEFORE require-setup so the crypto/net module code
-// detects the dispatch-wrapped globals and installs the corresponding APIs.
+// functions. This prefers the dedicated _bridgeDispatch route and only falls
+// back to the legacy _loadPolyfill "__bd:*" path when needed.
 function buildBridgeDispatchShim(): string {
 	const K = HOST_BRIDGE_GLOBAL_KEYS;
 	// Collect all bridge global names from the contract
@@ -721,37 +721,46 @@ function buildBridgeDispatchShim(): string {
 	return `
 (function() {
   var _origApply = Function.prototype.apply;
-  function encodeDispatchArgs(args) {
-    return JSON.stringify(args, function(_key, value) {
-      if (value === undefined) {
-        return { __secureExecDispatchType: 'undefined' };
-      }
-      return value;
-    });
-  }
+  var dispatchBridge = typeof _bridgeDispatch === 'function' ? _bridgeDispatch : null;
+  var loadPolyfillBridge = typeof _loadPolyfill === 'function' ? _loadPolyfill : null;
   var names = ${JSON.stringify(allGlobals)};
+  function reviveDispatchError(payload) {
+    var error = new Error(payload && payload.message ? payload.message : String(payload));
+    if (payload && payload.name) error.name = payload.name;
+    if (payload && payload.code !== undefined) error.code = payload.code;
+    if (payload && payload.stack) error.stack = payload.stack;
+    return error;
+  }
+  function parseDispatchResult(payload) {
+    if (payload === null) return undefined;
+    var parsed = typeof payload === 'string' ? JSON.parse(payload) : payload;
+    if (parsed && parsed.__bd_error) throw reviveDispatchError(parsed.__bd_error);
+    return parsed ? parsed.__bd_result : undefined;
+  }
   for (var i = 0; i < names.length; i++) {
     var name = names[i];
     if (typeof globalThis[name] === 'function') continue;
     (function(n) {
-      function reviveDispatchError(payload) {
-        var error = new Error(payload && payload.message ? payload.message : String(payload));
-        if (payload && payload.name) error.name = payload.name;
-        if (payload && payload.code !== undefined) error.code = payload.code;
-        if (payload && payload.stack) error.stack = payload.stack;
-        return error;
-      }
       var fn = function() {
         var args = Array.prototype.slice.call(arguments);
-        var encoded = "__bd:" + n + ":" + encodeDispatchArgs(args);
-        var resultJson = _loadPolyfill.applySyncPromise(undefined, [encoded]);
-        if (resultJson === null) return undefined;
+        if (dispatchBridge) {
+          return parseDispatchResult(
+            dispatchBridge.applySyncPromise(undefined, [n].concat(args))
+          );
+        }
+        if (!loadPolyfillBridge) return undefined;
+        var encoded = "__bd:" + n + ":" + JSON.stringify(args, function(_key, value) {
+          if (value === undefined) {
+            return { __secureExecDispatchType: 'undefined' };
+          }
+          return value;
+        });
         try {
-          var parsed = JSON.parse(resultJson);
-          if (parsed.__bd_error) throw reviveDispatchError(parsed.__bd_error);
-          return parsed.__bd_result;
+          return parseDispatchResult(
+            loadPolyfillBridge.applySyncPromise(undefined, [encoded])
+          );
         } catch (e) {
-          if (e.message && e.message.startsWith('No handler:')) return undefined;
+          if (e && e.message && e.message.startsWith('No handler:')) return undefined;
           throw e;
         }
       };
@@ -1015,14 +1024,9 @@ export class NodeExecutionDriver implements RuntimeDriver {
 	}
 
 	private async waitForManagedResources(): Promise<void> {
-		const graceDeadline = Date.now() + 100;
-
-		// Give async bridge callbacks a moment to register their host-side handles.
-		while (!this.disposed && !this.hasManagedResources() && Date.now() < graceDeadline) {
-			await new Promise((resolve) => setTimeout(resolve, 10));
-		}
-
-		// Keep the session alive while host-managed resources are still active.
+		// Host-managed resources must register their bookkeeping before the
+		// sandbox execution returns. If nothing is active now, there is no drain
+		// work left to wait on.
 		while (!this.disposed && this.hasManagedResources()) {
 			await new Promise((resolve) => setTimeout(resolve, 10));
 		}
@@ -1707,13 +1711,13 @@ function getOsConfigGlobalKey(): string { return HOST_BRIDGE_GLOBAL_KEYS.osConfi
 /** Build the JS snippet that inflates __bind.* globals into a frozen SecureExec.bindings tree. */
 function buildBindingsInflationSnippet(bindingKeys: string[]): string {
 	// Build dispatch wrappers for each binding key and assign directly to the
-	// tree nodes. Uses _loadPolyfill as the dispatch multiplexer (same as the
-	// static dispatch shim for internal bridge globals).
+	// tree nodes. Prefer the dedicated _bridgeDispatch path, with the legacy
+	// _loadPolyfill dispatch shim retained as a compatibility fallback.
 	return `(function(){
 var __bindingKeys__=${JSON.stringify(bindingKeys)};
 var tree={};
 function makeBindFn(bk){
-return function(){var args=Array.prototype.slice.call(arguments);var encoded="__bd:"+bk+":"+JSON.stringify(args);var r=_loadPolyfill.applySyncPromise(undefined,[encoded]);if(r===null)return undefined;try{var p=JSON.parse(r);if(p.__bd_error)throw new Error(p.__bd_error);return p.__bd_result;}catch(e){if(e.message&&e.message.startsWith("No handler:"))return undefined;throw e;}};
+return function(){var args=Array.prototype.slice.call(arguments);if(typeof _bridgeDispatch==="function"){var payload=_bridgeDispatch.applySyncPromise(undefined,[bk].concat(args));if(payload===null)return undefined;if(payload&&payload.__bd_error){var error=new Error(payload.__bd_error.message);if(payload.__bd_error.name)error.name=payload.__bd_error.name;if(payload.__bd_error.code!==undefined)error.code=payload.__bd_error.code;if(payload.__bd_error.stack)error.stack=payload.__bd_error.stack;throw error;}return payload?payload.__bd_result:undefined;}var encoded="__bd:"+bk+":"+JSON.stringify(args);var r=_loadPolyfill.applySyncPromise(undefined,[encoded]);if(r===null)return undefined;try{var p=JSON.parse(r);if(p.__bd_error)throw new Error(p.__bd_error);return p.__bd_result;}catch(e){if(e.message&&e.message.startsWith("No handler:"))return undefined;throw e;}};
 }
 for(var i=0;i<__bindingKeys__.length;i++){
 var parts=__bindingKeys__[i].split(".");

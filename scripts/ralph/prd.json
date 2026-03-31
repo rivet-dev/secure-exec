@@ -236,6 +236,103 @@
       "notes": "US-008 landed the safe preload set, but broader builtin candidates such as `stream`, `stream/web`, `crypto`, `zlib`, `assert`, and `url` still destabilize snapshot restore or fail at require time when forced onto the snapshot-preload path."
     },
     {
+      "id": "US-018",
+      "title": "Bypass `_loadPolyfill` for hot `__bd:*` bridge-dispatch wrappers",
+      "description": "As a maintainer, I need the hottest remaining `__bd:*` bridge-dispatch wrappers to use a direct bridge route instead of the string-encoded `_loadPolyfill.applySyncPromise()` path so Pi startup is no longer dominated by wrapper dispatch overhead.",
+      "acceptanceCriteria": [
+        "The hottest remaining dispatch-backed bridge paths currently emitted as `__bd:*` wrapper loads use a dedicated bridge route (native bridge globals, binary dispatch opcodes, or an equivalent non-`_loadPolyfill` path) instead of the current `\"__bd:\" + method + \":\" + JSON.stringify(args)` `_loadPolyfill.applySyncPromise()` shim.",
+        "Committed benchmark artifacts show a meaningful reduction in `__bd:* bridge-dispatch wrappers` time and/or response bytes for Pi SDK startup and Pi CLI startup versus the current baseline.",
+        "Focused regression coverage proves moved handlers preserve current behavior for undefined arguments, structured error fields (`name`, `code`, `stack`), and missing-handler fallback semantics.",
+        "Append before/after benchmark deltas to `scripts/ralph/progress.txt`, including warm wall time, bridge calls per iteration, and the `real polyfill-body loads` vs `__bd:* bridge-dispatch wrappers` splits.",
+        "Relevant targeted tests pass.",
+        "Touched packages typecheck."
+      ],
+      "priority": 11,
+      "passes": true,
+      "notes": "Current committed Pi startup baselines still spend most `_loadPolyfill` time in `__bd:*` wrappers rather than real polyfill bodies: Pi SDK startup shows `2437` wrapper calls / `741.039 ms` / `2735956` response bytes per iteration, and Pi CLI startup shows `2440` wrapper calls / `848.487 ms` / `2736128` response bytes per iteration. The current implementation path is built in `packages/nodejs/src/execution-driver.ts` `buildBridgeDispatchShim()` and decoded in `packages/nodejs/src/bridge-handlers.ts` `buildModuleLoadingBridgeHandlers()`."
+    },
+    {
+      "id": "US-019",
+      "title": "Preload or manifest-cache hot projected package source files",
+      "description": "As a maintainer, I need the hottest read-only package source files under projected `node_modules` to load from a snapshot or manifest cache instead of repeated `__bd:_loadFileSync` source transfers so Pi, pdf-lib, and JSZip stop spending bridge time on package bodies we already know are immutable.",
+      "acceptanceCriteria": [
+        "Use the committed scenario summaries to identify the hottest projected package source targets on Pi startup and add a preload or manifest-cache path for an evidence-backed subset of them.",
+        "At minimum, the committed artifacts show whether the hot read-only package source loads currently sampled in the benchmark (`@mariozechner/jiti`, `@mariozechner/pi-agent-core`, `@borewit/text-codec`, or an updated data-backed subset) move off the repeated `__bd:_loadFileSync` body-transfer path on warm fresh sessions.",
+        "Committed benchmark artifacts show lower `__bd:_loadFileSync` wrapper counts or response bytes for Pi SDK startup and at least one additional scenario (`pi-cli-startup`, `pdf-lib-*`, or `jszip-*`) versus the current baseline.",
+        "Focused regression coverage proves the new cache path preserves module correctness and read-only `moduleAccess` safety for projected package files.",
+        "Append before/after benchmark deltas to `scripts/ralph/progress.txt`, including warm wall time, bridge calls per iteration, and the dominant `_loadPolyfill` target samples touched by this story.",
+        "Relevant targeted tests pass.",
+        "Touched packages typecheck."
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": "The committed `pi-sdk-startup/summary.md` samples show the remaining wrapper traffic is mostly projected package source loads such as `__bd:_loadFileSync:[\".../@borewit/text-codec/lib/index.js\"]`, `__bd:_loadFileSync:[\".../@mariozechner/jiti/dist/jiti.cjs\"]`, and `__bd:_loadFileSync:[\".../@mariozechner/pi-agent-core/dist/agent.js\"]`. Builtin preload work in US-017 does not address these package-local file bodies."
+    },
+    {
+      "id": "US-020",
+      "title": "Replace destroy Ping/Pong teardown with explicit session-destroy acknowledgment",
+      "description": "As a maintainer, I need normal session teardown to stop paying a connection-level Ping/Pong barrier after every `DestroySession` so low-RPC workloads like Hono are not dominated by post-execution teardown latency.",
+      "acceptanceCriteria": [
+        "Normal `DestroySession` teardown no longer requires the current connection-level Ping/Pong barrier on every successful destroy, or an equivalent ordered-teardown design lands with measurably lower overhead.",
+        "Committed benchmark artifacts show a meaningful reduction in `ExecutionResult->Destroy` time and warm fixed overhead for Hono startup and at least one Pi startup scenario versus the current baseline.",
+        "IPC/runtime regression coverage proves teardown still stays ordered across normal completion, handler failure, connection close, and dispose paths without leaking sessions or dropping late stream events.",
+        "Append before/after benchmark deltas to `scripts/ralph/progress.txt`, including warm phase attribution fields (`ExecutionResult->Destroy`, fixed overhead) for the affected scenarios.",
+        "Relevant targeted tests pass.",
+        "Touched packages typecheck."
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": "The current committed warm phase tables still show `ExecutionResult->Destroy` at about `102-103 ms` for Hono, pdf-lib, JSZip, Pi SDK startup, and Pi CLI startup. The current teardown path lives in `packages/v8/src/runtime.ts`, where `destroy()` sends `DestroySession` and then waits on `waitForRuntimeBarrier()` via a connection-level `Ping` / `Pong` round-trip."
+    },
+    {
+      "id": "US-021",
+      "title": "Expose ranked bridge-target hotspots in module-load summaries",
+      "description": "As a maintainer, I need the module-load summaries to rank the exact bridge targets still dominating `_loadPolyfill` and `__bd:*` traffic so follow-on preload and dispatch stories can target the highest-value files instead of relying on sample target snippets.",
+      "acceptanceCriteria": [
+        "Per-scenario summaries and comparisons expose the top bridge targets by calls, time, and response bytes for `_loadPolyfill` traffic instead of only showing `Sample Targets`.",
+        "At minimum, the Pi startup and Pi end-to-end summaries make it obvious which projected package files or wrapper targets dominate the remaining `__bd:* bridge-dispatch wrappers` bucket.",
+        "The top-level benchmark artifacts include copy-ready target-level deltas that can be cited in `scripts/ralph/progress.txt` when deciding which files or builtins to move into US-017, US-018, or US-019.",
+        "Focused summary/derivation regression coverage proves older logs still parse correctly when target-level ranking fields are absent or partial.",
+        "Relevant targeted tests pass.",
+        "Touched packages typecheck."
+      ],
+      "priority": 17,
+      "passes": false,
+      "notes": "The current per-scenario summaries only expose `_loadPolyfill` `Sample Targets`, which is enough to hint at hot paths like `@mariozechner/jiti`, `@mariozechner/pi-agent-core`, `@borewit/text-codec`, and `@anthropic-ai/sdk`, but not enough to rank the real time/byte winners for the remaining wrapper bucket."
+    },
+    {
+      "id": "US-022",
+      "title": "Add isolation microbenchmarks for empty session and single hot imports",
+      "description": "As a maintainer, I need smaller isolation benchmarks for lifecycle-only and single-import paths so the remaining fixed-overhead, builtin-preload, wrapper-bypass, and package-cache stories can be measured without interference from full app workloads.",
+      "acceptanceCriteria": [
+        "The module-load benchmark suite includes at least one lifecycle-only or empty-session scenario that exercises fresh-session creation, execute, and destroy with minimal user code.",
+        "The suite includes an import microbenchmark matrix for the highest-value remaining hotspots, covering an evidence-backed subset of hot builtins (`stream`, `stream/web`, `crypto`, `zlib`, `assert`, `url`) and at least one projected package-file target from the current Pi startup path.",
+        "Committed artifacts and summaries make it clear which microbenchmarks isolate fixed session overhead versus import/bootstrap overhead, with copy-ready numbers for `scripts/ralph/progress.txt`.",
+        "The new scenarios are stable in the full `pnpm --filter secure-exec bench:module-load` suite and have focused regression coverage for their expected checks.",
+        "Relevant targeted tests pass.",
+        "Touched packages typecheck."
+      ],
+      "priority": 18,
+      "passes": false,
+      "notes": "The current scenario catalog only covers full app-style workloads (`hono`, `pdf-lib`, `jszip`, `pi-sdk`, `pi-cli`). That is useful for end-to-end regression tracking, but it does not isolate the open fixed-overhead story (`US-009`) from the remaining builtin/package import hot spots tracked in `US-017` through `US-019`."
+    },
+    {
+      "id": "US-023",
+      "title": "Add benchmark stability and resource-usage reporting",
+      "description": "As a maintainer, I need the module-load benchmark to report per-scenario variance and resource usage so future perf changes can be judged on noise, CPU, and memory behavior instead of warm wall time alone.",
+      "acceptanceCriteria": [
+        "Per-scenario summaries include warm-run stability fields such as min/max, median, and a spread metric (`stddev`, `MAD`, or an equivalent) for wall time and execute duration.",
+        "The benchmark artifacts capture host-runtime resource usage for each scenario, covering an evidence-backed subset such as peak RSS, CPU time, heap limit usage, or another concrete metric surfaced through the existing observability path.",
+        "Top-level summary and comparison artifacts expose these stability/resource fields in a copy-ready format for `scripts/ralph/progress.txt`.",
+        "Focused regression coverage proves the summary pipeline handles missing or partial resource metrics gracefully and keeps older artifact comparisons readable.",
+        "Relevant targeted tests pass.",
+        "Touched packages typecheck."
+      ],
+      "priority": 19,
+      "passes": false,
+      "notes": "Current benchmark artifacts report means and targeted transport RTT percentiles, but they do not expose per-scenario wall/execute variance or any host-runtime resource metrics. That makes it harder to interpret mixed results such as Pi CLI startup cutting bridge calls roughly in half while wall time stays flat."
+    },
+    {
       "id": "US-009",
       "title": "Reduce the fixed per-session overhead",
       "description": "As a maintainer, I need fresh-session startup to spend less time in session lifecycle bookkeeping so even low-RPC workloads like Hono are materially faster.",
@@ -248,9 +345,9 @@
         "Relevant targeted tests pass.",
         "Touched packages typecheck."
       ],
-      "priority": 11,
+      "priority": 15,
       "passes": false,
-      "notes": "The fixed overhead shows up even in Hono (`~110 ms` out of `~188-202 ms` wall time) so it is likely session creation/destruction and adjacent bookkeeping rather than the module graph itself."
+      "notes": "The fixed overhead still shows up even in Hono (`~109-110 ms` warm fixed overhead, with `ExecutionResult->Destroy` contributing `~102-103 ms`). After US-020 lands, re-measure the remaining fixed-overhead bucket and keep this story only for whatever lifecycle cost is left beyond destroy acknowledgment."
     },
     {
       "id": "US-010",
@@ -265,7 +362,7 @@
         "Relevant targeted tests pass.",
         "Touched packages typecheck."
       ],
-      "priority": 12,
+      "priority": 16,
       "passes": false,
       "notes": "The current benchmark excludes `createNodeV8Runtime()` from wall time and does not include a host control. Those missing controls make it too easy to confuse session cost, bootstrap cost, and actual steady-state module-load work."
     },

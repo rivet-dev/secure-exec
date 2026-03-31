@@ -1,6 +1,9 @@
 // Re-exported from @secure-exec/nodejs (canonical source moved from core in US-002)
 export type {
 	BridgeApplyRef,
+	BridgeDispatchBridgeRef,
+	BridgeDispatchErrorPayload,
+	BridgeDispatchResultEnvelope,
 	BridgeApplySyncPromiseRef,
 	BridgeApplySyncRef,
 	BridgeGlobalKey,
