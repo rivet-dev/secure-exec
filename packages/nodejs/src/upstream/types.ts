@@ -38,6 +38,37 @@ export interface UpstreamBuiltinSource {
 	source: string;
 }
 
+export type UpstreamBuiltinSourceType =
+	| "bootstrap-realm"
+	| "bootstrap-script"
+	| "per-context-script"
+	| "main-script"
+	| "function"
+	| "source-text-module";
+
+export interface UpstreamBuiltinCompileSpec {
+	id: string;
+	filename: string;
+	sourceType: UpstreamBuiltinSourceType;
+	parameters: readonly string[];
+}
+
+export type UpstreamBuiltinCompileFunction = (...args: unknown[]) => unknown;
+
+export interface UpstreamInternalLoaders {
+	internalBinding: (...args: unknown[]) => unknown;
+	requireBuiltin: (id: string) => unknown;
+}
+
+export interface UpstreamBuiltinsBinding {
+	builtinIds: readonly string[];
+	compileFunction(id: string): UpstreamBuiltinCompileFunction;
+	setInternalLoaders(
+		internalBinding: UpstreamInternalLoaders["internalBinding"],
+		requireBuiltin: UpstreamInternalLoaders["requireBuiltin"],
+	): void;
+}
+
 export type UpstreamBindingStatus = "deferred" | "implemented" | "planned";
 
 export interface UpstreamInternalBindingDescriptor {

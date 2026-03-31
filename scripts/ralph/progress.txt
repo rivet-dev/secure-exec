@@ -8,6 +8,7 @@ Started: Mon Mar 30 06:07:03 PM PDT 2026
 - Upstream Node asset sync must export from a pinned git ref and validate with `pnpm check:node-upstream-assets`; do not copy builtin files from a dirty checkout or from upstream `main` when the story is pinned to a release tag.
 - `pnpm check:node-upstream-assets` only needs a git checkout that contains the pinned commit; a temporary `git init` plus single-commit fetch is enough for real-release validation.
 - Resolve vendored upstream Node assets relative to `import.meta.url` from `packages/nodejs/src/upstream/` so the same loader works under source tests and built `dist/` output.
+- Upstream builtin `compileFunction()` must mirror Node's wrapper categories from `src/builtin_info.h`: `internal/bootstrap/realm` uses the realm wrapper, other `internal/bootstrap/*` and `internal/main/*` use `(process, require, internalBinding, primordials)`, `internal/per_context/*` uses `(exports, primordials, privateSymbols, perIsolateSymbols)`, and other builtins use the CommonJS-style wrapper.
 
 ## [2026-03-30 18:23 PDT] - US-001
 - What was implemented: added a host-side upstream Node preflight runner that replays `internal/bootstrap/realm`, probes `internal/bootstrap/node`, and exercises `module_wrap`, `contextify`, `uv`, and `cares_wrap`; documented the exact bootstrap-node blocker and linked it from the runtime plan; added focused vitest coverage for the probe outcomes; added local lexer type shims plus typed callbacks so `@secure-exec/nodejs` typecheck is green again.
@@ -48,4 +49,12 @@ Started: Mon Mar 30 06:07:03 PM PDT 2026
   - Patterns discovered: upstream asset loaders should resolve the vendored tree relative to `import.meta.url` so the same code works from `src/` and built `dist/`.
   - Gotchas encountered: keep the new scaffold internal-only for now; do not wire `src/upstream/*` into `src/index.ts` or the public `NodeRuntime` path before builtin compilation and bootstrap execution exist.
   - Useful context: the focused quality bar for this story is green with `pnpm --filter @secure-exec/nodejs check-types` and `pnpm vitest run packages/nodejs/test/upstream-runtime-scaffold.test.ts`.
+---
+## [2026-03-30 19:42 PDT] - US-005
+- What was implemented: upgraded the upstream builtin registry from metadata-only scaffolding into a usable `internalBinding('builtins')` surface, including Node-style wrapper classification, cached `compileFunction(id)`, `setInternalLoaders(...)`, stored loader state, and cached `requireBuiltin()` access on the experimental upstream runtime scaffold; added focused tests for wrapper signatures, loader round-trip, and builtin cache behavior; updated the runtime plan and AGENTS note to preserve the wrapper-category rule.
+- Files changed: `packages/nodejs/src/upstream/types.ts`, `packages/nodejs/src/upstream/builtin-registry.ts`, `packages/nodejs/src/upstream/internal-binding-registry.ts`, `packages/nodejs/src/upstream/runtime-driver.ts`, `packages/nodejs/test/upstream-builtins-registry.test.ts`, `packages/nodejs/test/upstream-runtime-scaffold.test.ts`, `docs-internal/specs/upstream-node-runtime-plan.md`, `AGENTS.md`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Patterns discovered: the upstream builtin registry should derive wrapper parameters from Node's builtin source categories instead of per-module heuristics so bootstrap, per-context, and CommonJS builtins all compile with the same contract upstream Node expects.
+  - Gotchas encountered: TypeScript does not narrow the overloaded `setInternalLoaders()` branch well enough for the function overload unless the function-path object is built inside its own explicit branch.
+  - Useful context: the focused quality bar for this story is green with `pnpm --filter @secure-exec/nodejs check-types` and `pnpm vitest run packages/nodejs/test/upstream-builtins-registry.test.ts packages/nodejs/test/upstream-runtime-scaffold.test.ts`.
 ---

@@ -14,6 +14,10 @@ import {
 	type UpstreamInternalBindingRegistry,
 	createBootstrapBindingRegistryScaffold,
 } from "./internal-binding-registry.js";
+import type {
+	UpstreamBuiltinsBinding,
+	UpstreamInternalLoaders,
+} from "./types.js";
 
 export interface UpstreamRuntimeDriverScaffoldOptions {
 	assetLoader?: UpstreamAssetLoader;
@@ -26,6 +30,7 @@ export interface UpstreamRuntimeDriverScaffoldDescription {
 	gitCommit: string;
 	plannedBindingCount: number;
 	bootstrapStepCount: number;
+	internalLoadersReady: boolean;
 }
 
 /**
@@ -64,7 +69,20 @@ export class UpstreamRuntimeDriverScaffold {
 			gitCommit: versionMetadata.gitCommit,
 			plannedBindingCount: this.bindingRegistry.listBindings().length,
 			bootstrapStepCount: bootstrapPlan.steps.length,
+			internalLoadersReady: this.builtinRegistry.hasInternalLoaders(),
 		};
+	}
+
+	getBuiltinsBinding(): UpstreamBuiltinsBinding {
+		return this.builtinRegistry.createBuiltinsBinding();
+	}
+
+	getInternalLoaders(): UpstreamInternalLoaders {
+		return this.builtinRegistry.getInternalLoaders();
+	}
+
+	requireBuiltin(id: string): unknown {
+		return this.builtinRegistry.requireBuiltin(id);
 	}
 }
 

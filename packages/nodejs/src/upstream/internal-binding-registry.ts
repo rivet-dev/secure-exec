@@ -4,8 +4,9 @@ const DEFAULT_BOOTSTRAP_BINDINGS: ReadonlyArray<UpstreamInternalBindingDescripto
 	Object.freeze([
 		{
 			name: "builtins",
-			status: "planned",
-			notes: "US-005 wires builtinIds, compileFunction, and setInternalLoaders.",
+			status: "implemented",
+			notes:
+				"US-005 wires builtinIds, compileFunction, setInternalLoaders, and cached builtin require() access.",
 		},
 		{
 			name: "module_wrap",

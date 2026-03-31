@@ -53,7 +53,7 @@ describe("upstream runtime scaffold", () => {
 		});
 
 		expect(bindingRegistry.getBinding("builtins")).toMatchObject({
-			status: "planned",
+			status: "implemented",
 		});
 		expect(bindingRegistry.getBinding("async_wrap").notes).toContain("US-001");
 		expect(runtimeScaffold.describe()).toMatchObject({
@@ -61,6 +61,22 @@ describe("upstream runtime scaffold", () => {
 			nodeVersion: "v24.14.1",
 			plannedBindingCount: 17,
 			bootstrapStepCount: 6,
+			internalLoadersReady: false,
+		});
+
+		const internalBinding = (name: string) => ({ name });
+		const requireBuiltin = (id: string) => ({ id });
+		runtimeScaffold
+			.getBuiltinsBinding()
+			.setInternalLoaders(internalBinding, requireBuiltin);
+
+		expect(runtimeScaffold.describe().internalLoadersReady).toBe(true);
+		expect(runtimeScaffold.getInternalLoaders()).toMatchObject({
+			internalBinding,
+			requireBuiltin,
+		});
+		expect(runtimeScaffold.requireBuiltin("process")).toMatchObject({
+			id: "process",
 		});
 	});
 });

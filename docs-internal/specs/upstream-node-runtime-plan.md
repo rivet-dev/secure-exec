@@ -571,10 +571,10 @@ Likely new files:
 As of the US-004 scaffold, the initial responsibilities are intentionally narrow:
 
 - `asset-loader.ts` reads the pinned vendored asset metadata plus builtin source files from `packages/nodejs/assets/upstream-node/**`
-- `builtin-registry.ts` is metadata-and-source only; builtin compilation and `setInternalLoaders` remain US-005 work
+- `builtin-registry.ts` now mirrors Node's builtin wrapper categories, exposes the `internalBinding('builtins')` surface (`builtinIds`, `compileFunction`, `setInternalLoaders`), and stores loader state plus cached builtin exports for later bootstrap bring-up
 - `internal-binding-registry.ts` tracks explicit planned binding descriptors so the bring-up surface stays visible instead of implicit
 - `bootstrap-loader.ts` only builds a snapshot-free bring-up plan over vendored assets; it does not execute bootstrap yet
-- `runtime-driver.ts` currently aggregates the scaffold for internal experimentation and is intentionally not wired into the public `NodeRuntime` path yet
+- `runtime-driver.ts` currently aggregates the scaffold plus builtin runtime state for internal experimentation and is intentionally not wired into the public `NodeRuntime` path yet
 
 ### Existing Files We Will Touch
 
