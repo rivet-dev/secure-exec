@@ -736,6 +736,32 @@ const BRIDGE_DISPATCH_SHIM = buildBridgeDispatchShim();
 // Cache assembled bridge code (same across all executions)
 let bridgeCodeCache: string | null = null;
 
+function buildPostRestoreStaticBridgeCode(): string {
+	const parts = [
+		"globalThis.__secureExecRunPostRestoreStatic = function(){",
+		getConsoleSetupCode(),
+		getRequireSetupCode(),
+		getIsolateRuntimeSource("setupFsFacade"),
+		getIsolateRuntimeSource("setupDynamicImport"),
+		'if (globalThis.__runtimeProcessEnvOverride !== undefined) {',
+		getIsolateRuntimeSource("overrideProcessEnv"),
+		"}",
+		'if (typeof globalThis.__runtimeProcessCwdOverride === "string") {',
+		getIsolateRuntimeSource("overrideProcessCwd"),
+		"}",
+		'if (globalThis.__runtimeStdinData !== undefined) {',
+		getIsolateRuntimeSource("setStdinData"),
+		"}",
+		getIsolateRuntimeSource("initCommonjsModuleGlobals"),
+		'if (globalThis.__runtimeCommonJsFileConfig !== undefined) {',
+		getIsolateRuntimeSource("setCommonjsFileGlobals"),
+		"}",
+		"};",
+	];
+
+	return parts.join("\n");
+}
+
 function buildFullBridgeCode(): string {
 	if (bridgeCodeCache) return bridgeCodeCache;
 
@@ -749,6 +775,7 @@ function buildFullBridgeCode(): string {
 		getInitialBridgeGlobalsSetupCode(),
 		getRawBridgeCode(),
 		getBridgeAttachCode(),
+		buildPostRestoreStaticBridgeCode(),
 	];
 
 	bridgeCodeCache = parts.join("\n");
@@ -1464,32 +1491,23 @@ function buildPostRestoreScript(
 	parts.push(BRIDGE_NATIVE_SHIM);
 	parts.push(BRIDGE_DISPATCH_SHIM);
 
-	// Console and require setup (must run in postRestoreScript, not bridgeCode,
-	// because bridge calls are muted during the bridgeCode snapshot phase)
-	parts.push(getConsoleSetupCode());
-	parts.push(getRequireSetupCode());
-	parts.push(getIsolateRuntimeSource("setupFsFacade"));
-	parts.push(`globalThis.__runtimeDynamicImportConfig = ${JSON.stringify({
+	parts.push(`globalThis.__runtimeDynamicImportConfig = ${stableJsonStringify({
 		referrerPath: filePath ?? processConfig.cwd ?? bridgeConfig.initialCwd,
-	})};`);
-	parts.push(getIsolateRuntimeSource("setupDynamicImport"));
-
-	// Inject bridge setup config
-	parts.push(`globalThis.__runtimeBridgeSetupConfig = ${JSON.stringify({
-		initialCwd: bridgeConfig.initialCwd,
-		jsonPayloadLimitBytes: bridgeConfig.jsonPayloadLimitBytes,
-		payloadLimitErrorCode: bridgeConfig.payloadLimitErrorCode,
 	})};`);
 
 	// Inject process and OS config
-	parts.push(`globalThis.${getProcessConfigGlobalKey()} = ${JSON.stringify(processConfig)};`);
-	parts.push(`globalThis.${getOsConfigGlobalKey()} = ${JSON.stringify(osConfig)};`);
+	parts.push(
+		`globalThis.${getProcessConfigGlobalKey()} = ${stableJsonStringify(processConfig)};`,
+	);
+	parts.push(
+		`globalThis.${getOsConfigGlobalKey()} = ${stableJsonStringify(osConfig)};`,
+	);
 
 	// Inject TTY config separately — InjectGlobals overwrites _processConfig,
 	// so TTY flags need their own global that persists
 	if (processConfig.stdinIsTTY || processConfig.stdoutIsTTY || processConfig.stderrIsTTY
 		|| processConfig.cols || processConfig.rows) {
-		parts.push(`globalThis.__runtimeTtyConfig = ${JSON.stringify({
+		parts.push(`globalThis.__runtimeTtyConfig = ${stableJsonStringify({
 			stdinIsTTY: processConfig.stdinIsTTY,
 			stdoutIsTTY: processConfig.stdoutIsTTY,
 			stderrIsTTY: processConfig.stderrIsTTY,
@@ -1511,14 +1529,6 @@ function buildPostRestoreScript(
 		parts.push(`globalThis._maxHandles = ${bridgeConfig.maxHandles};`);
 	}
 
-	// Apply timing mitigation
-	if (timingMitigation === "freeze") {
-		parts.push(`globalThis.__runtimeTimingMitigationConfig = ${JSON.stringify({ frozenTimeMs })};`);
-		parts.push(getIsolateRuntimeSource("applyTimingMitigationFreeze"));
-	} else {
-		parts.push(getIsolateRuntimeSource("applyTimingMitigationOff"));
-	}
-
 	// Apply execution overrides (env, cwd, stdin) for exec mode
 	if (mode === "exec") {
 		const commonJsFileConfig = (() => {
@@ -1537,46 +1547,70 @@ function buildPostRestoreScript(
 			return null;
 		})();
 		if (processConfig.env) {
-			parts.push(`globalThis.__runtimeProcessEnvOverride = ${JSON.stringify(processConfig.env)};`);
-			parts.push(getIsolateRuntimeSource("overrideProcessEnv"));
+			parts.push(
+				`globalThis.__runtimeProcessEnvOverride = ${stableJsonStringify(processConfig.env)};`,
+			);
 		}
 		if (processConfig.cwd) {
 			parts.push(`globalThis.__runtimeProcessCwdOverride = ${JSON.stringify(processConfig.cwd)};`);
-			parts.push(getIsolateRuntimeSource("overrideProcessCwd"));
 		}
 		if (bridgeConfig.stdin !== undefined) {
 			parts.push(`globalThis.__runtimeStdinData = ${JSON.stringify(bridgeConfig.stdin)};`);
-			parts.push(getIsolateRuntimeSource("setStdinData"));
 		}
-		// Set CommonJS globals
-		parts.push(getIsolateRuntimeSource("initCommonjsModuleGlobals"));
 		if (commonJsFileConfig) {
-			parts.push(`globalThis.__runtimeCommonJsFileConfig = ${JSON.stringify(commonJsFileConfig)};`);
-			parts.push(getIsolateRuntimeSource("setCommonjsFileGlobals"));
+			parts.push(
+				`globalThis.__runtimeCommonJsFileConfig = ${stableJsonStringify(commonJsFileConfig)};`,
+			);
 		}
 	} else {
-		// run mode — still need CommonJS module globals
-		parts.push(getIsolateRuntimeSource("initCommonjsModuleGlobals"));
 		if (filePath) {
 			const dirname = filePath.includes("/")
 				? filePath.substring(0, filePath.lastIndexOf("/")) || "/"
 				: "/";
-			parts.push(`globalThis.__runtimeCommonJsFileConfig = ${JSON.stringify({ filePath, dirname })};`);
-			parts.push(getIsolateRuntimeSource("setCommonjsFileGlobals"));
+			parts.push(
+				`globalThis.__runtimeCommonJsFileConfig = ${stableJsonStringify({ filePath, dirname })};`,
+			);
 		}
 	}
 
 	// Apply custom global exposure policy
-	parts.push(`globalThis.__runtimeCustomGlobalPolicy = ${JSON.stringify({
+	parts.push(`globalThis.__runtimeCustomGlobalPolicy = ${stableJsonStringify({
 		hardenedGlobals: getHardenedGlobals(),
 		mutableGlobals: getMutableGlobals(),
 	})};`);
+	parts.push(`globalThis.__secureExecRunPostRestoreStatic();`);
+	parts.push(
+		`globalThis.__runtimeApplyConfig(${stableJsonStringify({
+			payloadLimitBytes: bridgeConfig.jsonPayloadLimitBytes,
+			payloadLimitErrorCode: bridgeConfig.payloadLimitErrorCode,
+			timingMitigation,
+			...(timingMitigation === "freeze" ? { frozenTimeMs } : {}),
+		})});`,
+	);
 	parts.push(getIsolateRuntimeSource("applyCustomGlobalPolicy"));
 
 	// Inflate SecureExec.bindings from flattened __bind.* globals
 	parts.push(buildBindingsInflationSnippet(bindingKeys ?? []));
 
 	return parts.join("\n");
+}
+
+function stableJsonStringify(value: unknown): string {
+	return JSON.stringify(sortJsonValue(value));
+}
+
+function sortJsonValue(value: unknown): unknown {
+	if (Array.isArray(value)) {
+		return value.map((entry) => sortJsonValue(entry));
+	}
+	if (value && typeof value === "object") {
+		return Object.fromEntries(
+			Object.entries(value as Record<string, unknown>)
+				.sort(([left], [right]) => left.localeCompare(right))
+				.map(([key, entryValue]) => [key, sortJsonValue(entryValue)]),
+		);
+	}
+	return value;
 }
 
 // Import global exposure policy constants

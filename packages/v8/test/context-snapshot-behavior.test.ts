@@ -73,6 +73,8 @@ interface IpcFrameLogEntry {
 	payloadBytes?: number;
 	bridgeCodeBytes?: number;
 	bridgeCodeRefBytes?: number;
+	postRestoreScriptBytes?: number;
+	postRestoreScriptRefBytes?: number;
 }
 
 async function readLogEntries(logFile: string): Promise<IpcFrameLogEntry[]> {
@@ -523,6 +525,63 @@ describe.skipIf(skipUnlessBinary)("V8 context snapshot behavior", () => {
 				expect(executeFrames[1].bridgeCodeRefBytes).toBeGreaterThan(0);
 				expect(executeFrames[0].encodedBytes).toBeTypeOf("number");
 				expect(executeFrames[1].encodedBytes).toBeTypeOf("number");
+				expect(executeFrames[1].encodedBytes!).toBeLessThan(
+					executeFrames[0].encodedBytes!,
+				);
+			} finally {
+				await rm(tempDir, { recursive: true, force: true });
+			}
+		});
+
+		it("reuses cached post-restore bootstrap source across fresh sessions", async () => {
+			const tempDir = await mkdtemp(
+				join(tmpdir(), "secure-exec-v8-post-restore-ref-"),
+			);
+			const logFile = join(tempDir, "ipc.ndjson");
+			const runtime = await createRuntime({
+				observability: { logFile },
+			});
+			const execOptions = defaultExecOptions({
+				postRestoreScript: [
+					"globalThis.__postRestoreCounter =",
+					"  (globalThis.__postRestoreCounter || 0) + 1;",
+					"globalThis.__postRestoreReady = true;",
+				].join("\n"),
+				userCode: `
+					if (globalThis.__postRestoreReady !== true) {
+						throw new Error("post-restore script did not run");
+					}
+					if (globalThis.__postRestoreCounter !== 1) {
+						throw new Error("unexpected post-restore counter: " + globalThis.__postRestoreCounter);
+					}
+				`,
+			});
+
+			try {
+				const firstSession = await runtime.createSession();
+				const firstResult = await firstSession.execute(execOptions);
+				expect(firstResult.code).toBe(0);
+				expect(firstResult.error).toBeFalsy();
+				await firstSession.destroy();
+
+				const secondSession = await runtime.createSession();
+				const secondResult = await secondSession.execute(execOptions);
+				expect(secondResult.code).toBe(0);
+				expect(secondResult.error).toBeFalsy();
+				await secondSession.destroy();
+
+				const executeFrames = (await readLogEntries(logFile)).filter(
+					(entry) =>
+						entry.kind === "ipc_frame" &&
+						entry.direction === "send" &&
+						entry.frameType === "Execute",
+				);
+
+				expect(executeFrames).toHaveLength(2);
+				expect(executeFrames[0].postRestoreScriptBytes).toBeGreaterThan(0);
+				expect(executeFrames[0].postRestoreScriptRefBytes).toBeGreaterThan(0);
+				expect(executeFrames[1].postRestoreScriptBytes).toBe(0);
+				expect(executeFrames[1].postRestoreScriptRefBytes).toBeGreaterThan(0);
 				expect(executeFrames[1].encodedBytes!).toBeLessThan(
 					executeFrames[0].encodedBytes!,
 				);

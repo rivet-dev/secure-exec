@@ -65,6 +65,7 @@ export type BinaryFrame =
 			mode: number;
 			filePath: string;
 			bridgeCodeRef: string;
+			postRestoreScriptRef: string;
 			bridgeCode: string;
 			postRestoreScript: string;
 			userCode: string;
@@ -172,6 +173,14 @@ export function decodeFrame(buf: Buffer): BinaryFrame {
 			pos += 2;
 			const bridgeCodeRef = buf.toString("utf8", pos, pos + bridgeCodeRefLen);
 			pos += bridgeCodeRefLen;
+			const postRestoreScriptRefLen = buf.readUInt16BE(pos);
+			pos += 2;
+			const postRestoreScriptRef = buf.toString(
+				"utf8",
+				pos,
+				pos + postRestoreScriptRefLen,
+			);
+			pos += postRestoreScriptRefLen;
 			const bcLen = buf.readUInt32BE(pos);
 			pos += 4;
 			const bridgeCode = buf.toString("utf8", pos, pos + bcLen);
@@ -187,6 +196,7 @@ export function decodeFrame(buf: Buffer): BinaryFrame {
 				mode,
 				filePath,
 				bridgeCodeRef,
+				postRestoreScriptRef,
 				bridgeCode,
 				postRestoreScript,
 				userCode,
@@ -354,6 +364,12 @@ function encodeBody(frame: BinaryFrame): Buffer {
 			bcrLen.writeUInt16BE(bcrBuf.length, 0);
 			parts.push(bcrLen);
 			parts.push(bcrBuf);
+			// post_restore_script_ref (u16 BE length prefix)
+			const prsRefBuf = Buffer.from(frame.postRestoreScriptRef, "utf8");
+			const prsRefLen = Buffer.alloc(2);
+			prsRefLen.writeUInt16BE(prsRefBuf.length, 0);
+			parts.push(prsRefLen);
+			parts.push(prsRefBuf);
 			// bridge_code (u32 BE length prefix)
 			const bcBuf = Buffer.from(frame.bridgeCode, "utf8");
 			const bcLen = Buffer.alloc(4);

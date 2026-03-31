@@ -188,6 +188,60 @@ describe("runtime driver specific: node", () => {
 		expect(result.code).toBe(0);
 	});
 
+	it("keeps exec and run bootstrap features working when post-restore source is cached by ref", async () => {
+		const projectDir = await mkdtemp(
+			path.join(tmpdir(), "secure-exec-post-restore-bootstrap-"),
+		);
+		const entryPath = path.join(projectDir, "entry.mjs");
+		const helperPath = path.join(projectDir, "helper.mjs");
+		const v8Runtime = await createNodeV8Runtime();
+		const runtime = new NodeRuntime({
+			systemDriver: createNodeDriver({
+				moduleAccess: { cwd: projectDir },
+				permissions: allowAll,
+			}),
+			runtimeDriverFactory: createNodeRuntimeDriverFactory({ v8Runtime }),
+		});
+
+		try {
+			await writeFile(entryPath, "", "utf8");
+			await writeFile(
+				helperPath,
+				'export const helperValue = "dynamic-import-ok";\n',
+				"utf8",
+			);
+
+			const execResult = await runtime.exec(
+				[
+					'const fs = require("node:fs");',
+					'console.log("require-type:" + typeof fs.readFileSync);',
+				].join("\n"),
+			);
+			expect(execResult.code).toBe(0);
+
+			const secondExecResult = await runtime.exec(
+				[
+					'const fs = require("node:fs");',
+					'console.log("require-type:" + typeof fs.readFileSync);',
+				].join("\n"),
+			);
+			expect(secondExecResult.code).toBe(0);
+
+			const runResult = await runtime.run(
+				[
+					'const helper = await import("./helper.mjs");',
+					'console.log("dynamic-import:" + helper.helperValue);',
+					"export const helperValue = helper.helperValue;",
+				].join("\n"),
+				entryPath,
+			);
+			expect(runResult.exports).toEqual({ helperValue: "dynamic-import-ok" });
+		} finally {
+			runtime.dispose();
+			await v8Runtime.dispose().catch(() => {});
+		}
+	});
+
 	it(
 		"memoizes repeated bare-specifier polyfill misses within a single workload",
 		async () => {

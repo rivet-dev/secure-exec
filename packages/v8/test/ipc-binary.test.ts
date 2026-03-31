@@ -73,6 +73,7 @@ describe("Host → Rust messages", () => {
 			mode: 0,
 			filePath: "",
 			bridgeCodeRef: "",
+			postRestoreScriptRef: "",
 			bridgeCode: "(function(){ /* bridge */ })()",
 			postRestoreScript: "",
 			userCode: "console.log('hello')",
@@ -86,6 +87,7 @@ describe("Host → Rust messages", () => {
 			mode: 1,
 			filePath: "/app/index.mjs",
 			bridgeCodeRef: "bridge:abc123",
+			postRestoreScriptRef: "",
 			bridgeCode: "(function(){ /* bridge */ })()",
 			postRestoreScript: "",
 			userCode: "export default 42",
@@ -99,6 +101,7 @@ describe("Host → Rust messages", () => {
 			mode: 0,
 			filePath: "",
 			bridgeCodeRef: "bridge:cache-hit",
+			postRestoreScriptRef: "post-restore:cache-hit",
 			bridgeCode: "",
 			postRestoreScript: "globalThis.__afterRestore = true;",
 			userCode: "globalThis.__afterRestore;",
@@ -346,6 +349,7 @@ describe("framing validation", () => {
 				mode: 0,
 				filePath: "",
 				bridgeCodeRef: "",
+				postRestoreScriptRef: "",
 				bridgeCode: "bridge()",
 				postRestoreScript: "",
 				userCode: "1+1",
@@ -412,6 +416,7 @@ describe("session_id extraction", () => {
 					mode: 0,
 					filePath: "",
 					bridgeCodeRef: "",
+					postRestoreScriptRef: "",
 					bridgeCode: "",
 					postRestoreScript: "",
 					userCode: "",
@@ -516,6 +521,7 @@ describe("wire format interop", () => {
 					mode: 0,
 					filePath: "",
 					bridgeCodeRef: "",
+					postRestoreScriptRef: "",
 					bridgeCode: "",
 					postRestoreScript: "",
 					userCode: "",
@@ -643,6 +649,7 @@ describe("wire format interop", () => {
 			mode: 1,
 			filePath: "/entry.mjs",
 			bridgeCodeRef: "bridge:abc",
+			postRestoreScriptRef: "post-restore:def",
 			bridgeCode: "bridge()",
 			postRestoreScript: "post()",
 			userCode: "user()",
@@ -657,11 +664,13 @@ describe("wire format interop", () => {
 		expect(body.toString("utf8", 6, 16)).toBe("/entry.mjs");
 		expect(body.readUInt16BE(16)).toBe(10); // bridge_code_ref len
 		expect(body.toString("utf8", 18, 28)).toBe("bridge:abc");
-		expect(body.readUInt32BE(28)).toBe(8); // bridge_code len
-		expect(body.toString("utf8", 32, 40)).toBe("bridge()");
-		expect(body.readUInt32BE(40)).toBe(6); // post_restore_script len
-		expect(body.toString("utf8", 44, 50)).toBe("post()");
-		expect(body.toString("utf8", 50)).toBe("user()");
+		expect(body.readUInt16BE(28)).toBe(16); // post_restore_script_ref len
+		expect(body.toString("utf8", 30, 46)).toBe("post-restore:def");
+		expect(body.readUInt32BE(46)).toBe(8); // bridge_code len
+		expect(body.toString("utf8", 50, 58)).toBe("bridge()");
+		expect(body.readUInt32BE(58)).toBe(6); // post_restore_script len
+		expect(body.toString("utf8", 62, 68)).toBe("post()");
+		expect(body.toString("utf8", 68)).toBe("user()");
 	});
 
 	it("WarmSnapshot wire format matches Rust layout", () => {

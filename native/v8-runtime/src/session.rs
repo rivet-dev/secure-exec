@@ -290,6 +290,7 @@ fn session_thread(
     #[cfg_attr(test, allow(unused_variables))] snapshot_cache: Arc<SnapshotCache>,
 ) {
     const BRIDGE_CODE_REF_MISS_ERROR: &str = "ERR_BRIDGE_CODE_REF_MISS";
+    const POST_RESTORE_SCRIPT_REF_MISS_ERROR: &str = "ERR_POST_RESTORE_SCRIPT_REF_MISS";
 
     // Acquire concurrency slot (blocks if at capacity)
     {
@@ -354,6 +355,7 @@ fn session_thread(
                         session_id,
                         bridge_code,
                         bridge_code_ref,
+                        post_restore_script_ref,
                         post_restore_script,
                         user_code,
                         mode,
@@ -406,6 +408,38 @@ fn session_thread(
                         } else {
                             last_bridge_code = Some(bridge_code.clone());
                             bridge_code
+                        };
+
+                        let effective_post_restore_script = if post_restore_script.is_empty() {
+                            if !post_restore_script_ref.is_empty() {
+                                match snapshot_cache
+                                    .get_script_by_reference(&post_restore_script_ref)
+                                {
+                                    Some(source) => (*source).clone(),
+                                    None => {
+                                        send_execute_error(
+                                            format!(
+                                                "Unknown post-restore script ref: {}",
+                                                post_restore_script_ref
+                                            ),
+                                            POST_RESTORE_SCRIPT_REF_MISS_ERROR,
+                                            &ipc_tx,
+                                            &mut msg_frame_buf,
+                                        );
+                                        continue;
+                                    }
+                                }
+                            } else {
+                                String::new()
+                            }
+                        } else {
+                            if !post_restore_script_ref.is_empty() {
+                                snapshot_cache.remember_script_reference(
+                                    &post_restore_script_ref,
+                                    Arc::new(post_restore_script.clone()),
+                                );
+                            }
+                            post_restore_script
                         };
 
                         // Deferred isolate creation: create on first Execute using snapshot cache
@@ -520,12 +554,12 @@ fn session_thread(
 
                         // Run post-restore init script (config, mutable state reset)
                         // after bridge fn replacement but before user code
-                        if !post_restore_script.is_empty() {
+                        if !effective_post_restore_script.is_empty() {
                             let scope = &mut v8::HandleScope::new(iso);
                             let ctx = v8::Local::new(scope, &exec_context);
                             let scope = &mut v8::ContextScope::new(scope, ctx);
                             let (prs_code, prs_err) =
-                                execution::run_init_script(scope, &post_restore_script);
+                                execution::run_init_script(scope, &effective_post_restore_script);
                             if prs_code != 0 {
                                 let result_frame = BinaryFrame::ExecutionResult {
                                     session_id,

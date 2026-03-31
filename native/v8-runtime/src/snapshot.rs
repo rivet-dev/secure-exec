@@ -153,6 +153,7 @@ pub struct SnapshotCache {
 struct CacheInner {
     entries: Vec<CacheEntry>,
     refs: Vec<SnapshotRefEntry>,
+    script_refs: Vec<ScriptRefEntry>,
     /// Per-key in-flight tracking: callers for the same hash wait on the
     /// condvar instead of creating duplicate snapshots.
     in_flight: HashMap<u64, Arc<InFlightEntry>>,
@@ -171,6 +172,11 @@ struct SnapshotRefEntry {
     blob: Arc<Vec<u8>>,
 }
 
+struct ScriptRefEntry {
+    reference: String,
+    source: Arc<String>,
+}
+
 /// Shared state for an in-flight snapshot creation. The creator thread
 /// populates `result` and notifies all waiters via `done`.
 struct InFlightEntry {
@@ -184,6 +190,7 @@ impl SnapshotCache {
             inner: Mutex::new(CacheInner {
                 entries: Vec::new(),
                 refs: Vec::new(),
+                script_refs: Vec::new(),
                 in_flight: HashMap::new(),
             }),
             max_entries,
@@ -208,6 +215,28 @@ impl SnapshotCache {
         });
     }
 
+    pub fn remember_script_reference(&self, reference: &str, source: Arc<String>) {
+        if reference.is_empty() {
+            return;
+        }
+
+        let mut inner = self.inner.lock().unwrap();
+        if let Some(pos) = inner
+            .script_refs
+            .iter()
+            .position(|entry| entry.reference == reference)
+        {
+            inner.script_refs.remove(pos);
+        }
+        if inner.script_refs.len() >= self.max_entries {
+            inner.script_refs.remove(0);
+        }
+        inner.script_refs.push(ScriptRefEntry {
+            reference: reference.to_string(),
+            source,
+        });
+    }
+
     pub fn get_by_reference(&self, reference: &str) -> Option<Arc<Vec<u8>>> {
         if reference.is_empty() {
             return None;
@@ -222,6 +251,22 @@ impl SnapshotCache {
         let blob = Arc::clone(&entry.blob);
         inner.refs.push(entry);
         Some(blob)
+    }
+
+    pub fn get_script_by_reference(&self, reference: &str) -> Option<Arc<String>> {
+        if reference.is_empty() {
+            return None;
+        }
+
+        let mut inner = self.inner.lock().unwrap();
+        let pos = inner
+            .script_refs
+            .iter()
+            .position(|entry| entry.reference == reference)?;
+        let entry = inner.script_refs.remove(pos);
+        let source = Arc::clone(&entry.source);
+        inner.script_refs.push(entry);
+        Some(source)
     }
 
     /// Get or create a snapshot for the given bridge code.

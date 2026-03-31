@@ -62,6 +62,7 @@ pub enum BinaryFrame {
         mode: u8, // 0 = exec, 1 = run
         file_path: String,
         bridge_code_ref: String,
+        post_restore_script_ref: String,
         bridge_code: String,
         post_restore_script: String,
         user_code: String,
@@ -245,6 +246,7 @@ fn encode_body(buf: &mut Vec<u8>, frame: &BinaryFrame) -> io::Result<()> {
             mode,
             file_path,
             bridge_code_ref,
+            post_restore_script_ref,
             bridge_code,
             post_restore_script,
             user_code,
@@ -256,6 +258,8 @@ fn encode_body(buf: &mut Vec<u8>, frame: &BinaryFrame) -> io::Result<()> {
             write_len_prefixed_u16(buf, file_path)?;
             // bridge_code_ref length (u16 BE)
             write_len_prefixed_u16(buf, bridge_code_ref)?;
+            // post_restore_script_ref length (u16 BE)
+            write_len_prefixed_u16(buf, post_restore_script_ref)?;
             // bridge_code length (u32 BE)
             let bc_bytes = bridge_code.as_bytes();
             buf.extend_from_slice(&(bc_bytes.len() as u32).to_be_bytes());
@@ -416,6 +420,9 @@ fn decode_body(buf: &[u8]) -> io::Result<BinaryFrame> {
             let file_path = read_utf8(buf, &mut pos, fp_len)?;
             let bridge_code_ref_len = read_u16(buf, &mut pos)? as usize;
             let bridge_code_ref = read_utf8(buf, &mut pos, bridge_code_ref_len)?;
+            let post_restore_script_ref_len = read_u16(buf, &mut pos)? as usize;
+            let post_restore_script_ref =
+                read_utf8(buf, &mut pos, post_restore_script_ref_len)?;
             let bc_len = read_u32(buf, &mut pos)? as usize;
             let bridge_code = read_utf8(buf, &mut pos, bc_len)?;
             let prs_len = read_u32(buf, &mut pos)? as usize;
@@ -427,6 +434,7 @@ fn decode_body(buf: &[u8]) -> io::Result<BinaryFrame> {
                 mode,
                 file_path,
                 bridge_code_ref,
+                post_restore_script_ref,
                 bridge_code,
                 post_restore_script,
                 user_code,
@@ -717,6 +725,7 @@ mod tests {
             mode: 0,
             file_path: "".into(),
             bridge_code_ref: "".into(),
+            post_restore_script_ref: "".into(),
             bridge_code: "(function(){ /* bridge */ })()".into(),
             post_restore_script: "".into(),
             user_code: "console.log('hello')".into(),
@@ -730,6 +739,7 @@ mod tests {
             mode: 1,
             file_path: "/app/index.mjs".into(),
             bridge_code_ref: "bridge:abc123".into(),
+            post_restore_script_ref: "post-restore:def456".into(),
             bridge_code: "(function(){ /* bridge */ })()".into(),
             post_restore_script: "__runtimeApplyConfig({})".into(),
             user_code: "export default 42".into(),
@@ -996,6 +1006,7 @@ mod tests {
                 mode: 0,
                 file_path: "".into(),
                 bridge_code_ref: "".into(),
+                post_restore_script_ref: "".into(),
                 bridge_code: "bridge()".into(),
                 post_restore_script: "".into(),
                 user_code: "1+1".into(),
@@ -1092,6 +1103,7 @@ mod tests {
                 mode: 0,
                 file_path: "".into(),
                 bridge_code_ref: "".into(),
+                post_restore_script_ref: "".into(),
                 bridge_code: "".into(),
                 post_restore_script: "".into(),
                 user_code: "".into(),
@@ -1205,6 +1217,7 @@ mod tests {
                     mode: 0,
                     file_path: "".into(),
                     bridge_code_ref: "".into(),
+                    post_restore_script_ref: "".into(),
                     bridge_code: "".into(),
                     post_restore_script: "".into(),
                     user_code: "".into(),
@@ -1495,6 +1508,7 @@ mod tests {
             mode: 0,
             file_path: long_path,
             bridge_code_ref: "".into(),
+            post_restore_script_ref: "".into(),
             bridge_code: "".into(),
             post_restore_script: "".into(),
             user_code: "".into(),

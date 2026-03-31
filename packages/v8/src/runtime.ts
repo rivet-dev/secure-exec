@@ -37,6 +37,8 @@ const PLATFORM_PACKAGES: Record<string, string> = {
 const POLYFILL_CACHE_STORE_FIELD = "__secureExecPolyfillCacheStore";
 const POLYFILL_CACHE_REF_FIELD = "__secureExecPolyfillCacheRef";
 const BRIDGE_CODE_REF_MISS_ERROR = "ERR_BRIDGE_CODE_REF_MISS";
+const POST_RESTORE_SCRIPT_REF_MISS_ERROR =
+	"ERR_POST_RESTORE_SCRIPT_REF_MISS";
 
 interface CachedPolyfillBridgePayload {
 	payload: Buffer;
@@ -112,6 +114,10 @@ function buildPolyfillCacheKey(moduleName: string, code: string): string {
 
 function buildBridgeCodeCacheKey(bridgeCode: string): string {
 	return `bridge:${createHash("sha256").update(bridgeCode).digest("hex")}`;
+}
+
+function buildPostRestoreScriptCacheKey(postRestoreScript: string): string {
+	return `post-restore:${createHash("sha256").update(postRestoreScript).digest("hex")}`;
 }
 
 function shouldCachePolyfillPayload(
@@ -206,6 +212,9 @@ export async function createV8Runtime(
 	// Shared-runtime cache state for bridge snapshots that can be referenced by
 	// hash after an earlier execution has already transferred the full source.
 	const promotedBridgeCodeCacheKeys = new Set<string>();
+	// Shared-runtime cache state for post-restore bootstrap scripts that can be
+	// referenced by hash after an earlier execution has transferred the source.
+	const promotedPostRestoreScriptCacheKeys = new Set<string>();
 	let ipcClient: IpcClient | null = null;
 	let disposed = false;
 
@@ -504,9 +513,17 @@ export async function createV8Runtime(
 						execOptions.bridgeCode.length > 0
 							? buildBridgeCodeCacheKey(execOptions.bridgeCode)
 							: "";
+					const postRestoreScript = execOptions.postRestoreScript ?? "";
+					const postRestoreScriptRef =
+						postRestoreScript.length > 0
+							? buildPostRestoreScriptCacheKey(postRestoreScript)
+							: "";
 
 					const runExecute = async (
-						forceBridgeCodeTransfer: boolean,
+						options: {
+							forceBridgeCodeTransfer?: boolean;
+							forcePostRestoreScriptTransfer?: boolean;
+						} = {},
 					): Promise<V8ExecutionResult> => {
 						// Inject globals — V8-serialize { processConfig, osConfig }
 						const globalsPayload = v8.serialize({
@@ -524,16 +541,28 @@ export async function createV8Runtime(
 							const sessionPolyfillCacheKeys = new Set<string>();
 							const usePromotedBridgeCodeRef =
 								bridgeCodeRef.length > 0 &&
-								!forceBridgeCodeTransfer &&
+								!options.forceBridgeCodeTransfer &&
 								promotedBridgeCodeCacheKeys.has(bridgeCodeRef);
 							const sendBridgeCode =
-								forceBridgeCodeTransfer ||
+								options.forceBridgeCodeTransfer ||
 								(!usePromotedBridgeCodeRef &&
 									bridgeHash !== lastBridgeCodeHash);
 							if (sendBridgeCode) {
 								lastBridgeCodeHash = bridgeHash;
 							}
 							const bridgeCodeWasOmitted = !sendBridgeCode;
+							const usePromotedPostRestoreScriptRef =
+								postRestoreScriptRef.length > 0 &&
+								!options.forcePostRestoreScriptTransfer &&
+								promotedPostRestoreScriptCacheKeys.has(
+									postRestoreScriptRef,
+								);
+							const sendPostRestoreScript =
+								postRestoreScript.length > 0 &&
+								(options.forcePostRestoreScriptTransfer ||
+									!usePromotedPostRestoreScriptRef);
+							const postRestoreScriptWasOmitted =
+								postRestoreScript.length > 0 && !sendPostRestoreScript;
 							// Store reject so rejectPendingSessions can
 							// reject this promise on IPC close or process crash
 							sessionRejects.set(sessionId, reject);
@@ -669,6 +698,14 @@ export async function createV8Runtime(
 									if (sendBridgeCode && bridgeCodeRef.length > 0) {
 										promotedBridgeCodeCacheKeys.add(bridgeCodeRef);
 									}
+									if (
+										sendPostRestoreScript &&
+										postRestoreScriptRef.length > 0
+									) {
+										promotedPostRestoreScriptCacheKeys.add(
+											postRestoreScriptRef,
+										);
+									}
 									observability?.markExecuteFinish(sessionId, {
 										exitCode: frame.exitCode,
 										errorCode: frame.error?.code || undefined,
@@ -679,7 +716,23 @@ export async function createV8Runtime(
 										frame.error?.code === BRIDGE_CODE_REF_MISS_ERROR
 									) {
 										promotedBridgeCodeCacheKeys.delete(bridgeCodeRef);
-										void runExecute(true).then(resolve, reject);
+										void runExecute({
+											forceBridgeCodeTransfer: true,
+										}).then(resolve, reject);
+										return;
+									}
+									if (
+										postRestoreScriptWasOmitted &&
+										postRestoreScriptRef.length > 0 &&
+										frame.error?.code ===
+											POST_RESTORE_SCRIPT_REF_MISS_ERROR
+									) {
+										promotedPostRestoreScriptCacheKeys.delete(
+											postRestoreScriptRef,
+										);
+										void runExecute({
+											forcePostRestoreScriptTransfer: true,
+										}).then(resolve, reject);
 										return;
 									}
 									resolve({
@@ -718,8 +771,11 @@ export async function createV8Runtime(
 								type: "Execute",
 								sessionId,
 								bridgeCodeRef,
+								postRestoreScriptRef,
 								bridgeCode: sendBridgeCode ? execOptions.bridgeCode : "",
-								postRestoreScript: execOptions.postRestoreScript ?? "",
+								postRestoreScript: sendPostRestoreScript
+									? postRestoreScript
+									: "",
 								userCode: execOptions.userCode,
 								mode: execOptions.mode === "exec" ? 0 : 1,
 								filePath: execOptions.filePath ?? "",
@@ -733,7 +789,7 @@ export async function createV8Runtime(
 						});
 					};
 
-					return runExecute(false);
+					return runExecute();
 				},
 
 				async destroy(): Promise<void> {
