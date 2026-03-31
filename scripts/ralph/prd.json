@@ -134,8 +134,23 @@
         "Touched packages typecheck."
       ],
       "priority": 7,
+      "passes": true,
+      "notes": "Completed by extending the existing `_loadPolyfill` cache-envelope path to include dispatch-backed source loads (`__bd:_loadFile:*`, `__bd:_loadFileSync:*`) while still excluding other `__bd:*` results that can encode session-local state. The committed Pi startup artifacts cut `send:BridgeResponse` by `~4.02-4.03 MB` per iteration (`-53.78%`) and reduced warm wall time by `31.51%` for Pi SDK startup and `21.34%` for Pi CLI startup. Focused cache hit/miss regression coverage lives in `packages/v8/test/context-snapshot-behavior.test.ts`. Follow-up `US-015` tracks a separate full-suite `jszip-end-to-end` hang discovered during verification."
+    },
+    {
+      "id": "US-015",
+      "title": "Restore full-suite `jszip-end-to-end` benchmark completion",
+      "description": "As a maintainer, I need `pnpm --filter secure-exec bench:module-load` to finish through `jszip-end-to-end` again so later performance stories can rerun the full committed suite without falling back to ad hoc targeted scenarios.",
+      "acceptanceCriteria": [
+        "Running `pnpm --filter secure-exec bench:module-load` completes through `jszip-end-to-end` without hanging or manual intervention.",
+        "A focused reproducer or regression test proves the failure no longer appears when `jszip-end-to-end` runs after earlier scenarios in the full suite.",
+        "Committed `packages/secure-exec/benchmarks/results/module-load/jszip-end-to-end/*` artifacts stay valid for the restored full-suite path, and any benchmark movement is appended to `scripts/ralph/progress.txt`.",
+        "Relevant targeted tests pass.",
+        "Touched packages typecheck."
+      ],
+      "priority": 8,
       "passes": false,
-      "notes": "Pi startup paths currently move roughly `11 MB` send / `0.9 MB` receive per iteration, with BridgeResponse traffic contributing `~9.36-9.72 MB` per iteration. `_loadPolyfill` payload reuse is the first byte-level target."
+      "notes": "While verifying US-005, the full `bench:module-load` flow still stalled when it reached `jszip-end-to-end`. A direct A/B check with the new `_loadPolyfill` cache gate locally disabled still timed out, so this blocker is tracked separately from payload-caching work."
     },
     {
       "id": "US-006",

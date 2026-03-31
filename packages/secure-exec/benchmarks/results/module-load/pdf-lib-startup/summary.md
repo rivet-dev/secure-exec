@@ -66,26 +66,20 @@ Equivalent lifecycle phases come from `CreateSession -> InjectGlobals -> Execute
 
 ## Comparison To Previous Baseline
 
-Baseline scenario timestamp: 2026-03-31T05:47:26.381Z
+Baseline scenario timestamp: 2026-03-31T09:37:48.342Z
 
-- Warm wall: 314.083 -> 330.374 ms (+16.291 ms (+5.19%))
-- Bridge calls/iteration: 1651.000 -> 514.000 calls (-1137.000 calls (-68.87%))
-- Warm fixed overhead: 108.981 -> 111.281 ms (+2.300 ms (+2.11%))
-- Warm Create->InjectGlobals: 0.000 -> 0.500 ms (+0.500 ms)
+- Warm wall: 330.374 -> 330.374 ms (0.000 ms (0.00%))
+- Bridge calls/iteration: 514.000 -> 514.000 calls (0.000 calls (0.00%))
+- Warm fixed overhead: 111.281 -> 111.281 ms (0.000 ms (0.00%))
+- Warm Create->InjectGlobals: 0.500 -> 0.500 ms (0.000 ms (0.00%))
 - Warm InjectGlobals->Execute: 5.000 -> 5.000 ms (0.000 ms (0.00%))
-- Warm ExecutionResult->Destroy: 101.500 -> 102.500 ms (+1.000 ms (+0.98%))
-- Warm residual overhead: 2.481 -> 3.282 ms (+0.801 ms (+32.28%))
-- Bridge time/iteration: 64.700 -> 71.365 ms (+6.665 ms (+10.30%))
-- BridgeResponse encoded bytes/iteration: 1918520.000 -> 1617593.333 bytes (-300926.667 bytes (-15.69%))
-- _loadPolyfill real polyfill-body loads: calls 0.000 -> 7.000 calls (+7.000 calls); time 0.000 -> 22.105 ms (+22.105 ms); response bytes 0.000 -> 100059.333 bytes (+100059.333 bytes)
-- _loadPolyfill __bd:* bridge-dispatch wrappers: calls 1650.000 -> 506.000 calls (-1144.000 calls (-69.33%)); time 64.567 -> 49.172 ms (-15.395 ms (-23.84%)); response bytes 1918473.000 -> 1517487.000 bytes (-400986.000 bytes (-20.90%))
+- Warm ExecutionResult->Destroy: 102.500 -> 102.500 ms (0.000 ms (0.00%))
+- Warm residual overhead: 3.282 -> 3.282 ms (0.000 ms (0.00%))
+- Bridge time/iteration: 71.365 -> 71.365 ms (0.000 ms (0.00%))
+- BridgeResponse encoded bytes/iteration: 1617593.333 -> 1617593.333 bytes (0.000 bytes (0.00%))
+- _loadPolyfill real polyfill-body loads: calls 7.000 -> 7.000 calls (0.000 calls (0.00%)); time 22.105 -> 22.105 ms (0.000 ms (0.00%)); response bytes 100059.333 -> 100059.333 bytes (0.000 bytes (0.00%))
+- _loadPolyfill __bd:* bridge-dispatch wrappers: calls 506.000 -> 506.000 calls (0.000 calls (0.00%)); time 49.172 -> 49.172 ms (0.000 ms (0.00%)); response bytes 1517487.000 -> 1517487.000 bytes (0.000 bytes (0.00%))
 
 | Delta Type | Name | Before | After | Delta |
 | --- | --- | ---: | ---: | ---: |
-| Method time | `_loadPolyfill` | 64.567 | 71.276 | +6.709 |
-| Method time | `_log` | 0.133 | 0.089 | -0.044 |
-| Method bytes | `_loadPolyfill` | 1918473.000 | 1617546.333 | -300926.667 |
-| Frame bytes | `send:BridgeResponse` | 1918520.000 | 1617593.333 | -300926.667 |
-| Frame bytes | `recv:BridgeCall` | 247553.000 | 103142.000 | -144411.000 |
-| Frame bytes | `send:Execute` | 1240835.000 | 1242216.000 | +1381.000 |
 

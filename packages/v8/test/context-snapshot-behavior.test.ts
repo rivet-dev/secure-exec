@@ -468,6 +468,70 @@ describe.skipIf(skipUnlessBinary)("V8 context snapshot behavior", () => {
 			}
 		});
 
+		it("reuses cached dispatch-backed _loadPolyfill source payloads across fresh sessions", async () => {
+			const tempDir = await mkdtemp(
+				join(tmpdir(), "secure-exec-v8-dispatch-polyfill-hit-"),
+			);
+			const logFile = join(tempDir, "ipc.ndjson");
+			const dispatchTarget = '__bd:_loadFileSync:["/tmp/demo.js"]';
+			const sourceBody = `dispatch-hit:${"x".repeat(4096)}`;
+			const dispatchPayload = JSON.stringify({ __bd_result: sourceBody });
+			const runtime = await createRuntime({
+				observability: { logFile },
+			});
+			const execOptions = defaultExecOptions({
+				userCode: `
+					const payload = _loadPolyfill(${JSON.stringify(dispatchTarget)});
+					const parsed = JSON.parse(payload);
+					if (parsed.__bd_result !== ${JSON.stringify(sourceBody)}) {
+						throw new Error("unexpected dispatch payload");
+					}
+				`,
+				bridgeHandlers: {
+					_loadPolyfill: (name: unknown) => {
+						if (String(name) !== dispatchTarget) {
+							throw new Error(`unexpected dispatch target: ${String(name)}`);
+						}
+						return dispatchPayload;
+					},
+				},
+			});
+
+			try {
+				const firstSession = await runtime.createSession();
+				const firstResult = await firstSession.execute(execOptions);
+				expect(firstResult.code).toBe(0);
+				expect(firstResult.error).toBeFalsy();
+				await firstSession.destroy();
+
+				const secondSession = await runtime.createSession();
+				const secondResult = await secondSession.execute(execOptions);
+				expect(secondResult.code).toBe(0);
+				expect(secondResult.error).toBeFalsy();
+				await secondSession.destroy();
+
+				await runtime.dispose();
+				const runtimeIndex = runtimes.indexOf(runtime);
+				if (runtimeIndex !== -1) {
+					runtimes.splice(runtimeIndex, 1);
+				}
+
+				const bridgeResponses = (await readLogEntries(logFile)).filter(
+					(entry) =>
+						entry.kind === "ipc_frame" &&
+						entry.direction === "send" &&
+						entry.frameType === "BridgeResponse" &&
+						entry.status === 0,
+				);
+
+				expect(bridgeResponses).toHaveLength(2);
+				expect(bridgeResponses[0].payloadBytes).toBeGreaterThan(4000);
+				expect(bridgeResponses[1].payloadBytes).toBeLessThan(256);
+			} finally {
+				await rm(tempDir, { recursive: true, force: true });
+			}
+		});
+
 		it("treats changed _loadPolyfill payloads as cache misses", async () => {
 			const tempDir = await mkdtemp(
 				join(tmpdir(), "secure-exec-v8-polyfill-miss-"),
@@ -515,6 +579,97 @@ describe.skipIf(skipUnlessBinary)("V8 context snapshot behavior", () => {
 							_loadPolyfill: () => {
 								callCount += 1;
 								return secondPolyfillCode;
+							},
+						},
+					}),
+				);
+				expect(secondResult.code).toBe(0);
+				expect(secondResult.error).toBeFalsy();
+				await secondSession.destroy();
+
+				await runtime.dispose();
+				const runtimeIndex = runtimes.indexOf(runtime);
+				if (runtimeIndex !== -1) {
+					runtimes.splice(runtimeIndex, 1);
+				}
+
+				const bridgeResponses = (await readLogEntries(logFile)).filter(
+					(entry) =>
+						entry.kind === "ipc_frame" &&
+						entry.direction === "send" &&
+						entry.frameType === "BridgeResponse" &&
+						entry.status === 0,
+				);
+
+				expect(callCount).toBe(2);
+				expect(bridgeResponses).toHaveLength(2);
+				expect(bridgeResponses[0].payloadBytes).toBeGreaterThan(4000);
+				expect(bridgeResponses[1].payloadBytes).toBeGreaterThan(4000);
+			} finally {
+				await rm(tempDir, { recursive: true, force: true });
+			}
+		});
+
+		it("treats changed dispatch-backed _loadPolyfill source payloads as cache misses", async () => {
+			const tempDir = await mkdtemp(
+				join(tmpdir(), "secure-exec-v8-dispatch-polyfill-miss-"),
+			);
+			const logFile = join(tempDir, "ipc.ndjson");
+			const dispatchTarget = '__bd:_loadFileSync:["/tmp/demo.js"]';
+			const firstSourceBody = `dispatch-miss:a:${"a".repeat(4096)}`;
+			const secondSourceBody = `dispatch-miss:b:${"b".repeat(4096)}`;
+			const runtime = await createRuntime({
+				observability: { logFile },
+			});
+			let callCount = 0;
+
+			try {
+				const firstSession = await runtime.createSession();
+				const firstResult = await firstSession.execute(
+					defaultExecOptions({
+						userCode: `
+							const payload = _loadPolyfill(${JSON.stringify(dispatchTarget)});
+							const parsed = JSON.parse(payload);
+							if (parsed.__bd_result !== ${JSON.stringify(firstSourceBody)}) {
+								throw new Error("unexpected first dispatch payload");
+							}
+						`,
+						bridgeHandlers: {
+							_loadPolyfill: (name: unknown) => {
+								callCount += 1;
+								if (String(name) !== dispatchTarget) {
+									throw new Error(
+										`unexpected dispatch target: ${String(name)}`,
+									);
+								}
+								return JSON.stringify({ __bd_result: firstSourceBody });
+							},
+						},
+					}),
+				);
+				expect(firstResult.code).toBe(0);
+				expect(firstResult.error).toBeFalsy();
+				await firstSession.destroy();
+
+				const secondSession = await runtime.createSession();
+				const secondResult = await secondSession.execute(
+					defaultExecOptions({
+						userCode: `
+							const payload = _loadPolyfill(${JSON.stringify(dispatchTarget)});
+							const parsed = JSON.parse(payload);
+							if (parsed.__bd_result !== ${JSON.stringify(secondSourceBody)}) {
+								throw new Error("unexpected second dispatch payload");
+							}
+						`,
+						bridgeHandlers: {
+							_loadPolyfill: (name: unknown) => {
+								callCount += 1;
+								if (String(name) !== dispatchTarget) {
+									throw new Error(
+										`unexpected dispatch target: ${String(name)}`,
+									);
+								}
+								return JSON.stringify({ __bd_result: secondSourceBody });
 							},
 						},
 					}),

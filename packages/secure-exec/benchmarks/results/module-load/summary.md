@@ -1,10 +1,10 @@
 # Module Load Benchmark
 
-Generated: 2026-03-31T09:40:59.609Z
-Git commit: 4aae2210f7fa581952f107153f551fbe2530285c
+Generated: 2026-03-31T10:16:48.972Z
+Git commit: 15fe74822735b30a00317370009fb788e86855e3
 Host: {"node":"v24.13.0","platform":"linux","arch":"x64","cpu":"12th Gen Intel(R) Core(TM) i7-12700KF","cores":20,"ramGb":62.558}
 V8 binary: /home/nathan/se6/native/v8-runtime/target/release/secure-exec-v8
-Baseline summary: 2026-03-31T07:24:08.544Z
+Baseline summary: 2026-03-31T09:40:59.609Z
 
 Use `comparison.md` for before/after deltas, including the split between real `_loadPolyfill` bodies and `__bd:*` dispatch wrappers, and the per-scenario `summary.md` files for copy-ready progress numbers.
 
@@ -16,9 +16,9 @@ Use `comparison.md` for before/after deltas, including the split between real `_
 | pdf-lib End-to-End | 342.928 ms | 529.000 | 112.789 ms | `_loadPolyfill` 71.015 ms/iter | `send:BridgeResponse` 1618463.333 B/iter |
 | JSZip Startup | 206.266 ms | 179.000 | 109.216 ms | `_loadPolyfill` 53.063 ms/iter | `send:Execute` 1242215.000 B/iter |
 | JSZip End-to-End | 552.962 ms | 63.667 | - | `_loadPolyfill` 58.723 ms/iter | `send:Execute` 414582.000 B/iter |
-| Pi SDK Startup | 1729.225 ms | 2548.000 | 117.534 ms | `_loadPolyfill` 844.908 ms/iter | `send:BridgeResponse` 7475865.667 B/iter |
+| Pi SDK Startup | 1184.332 ms | 2548.000 | 112.421 ms | `_loadPolyfill` 576.566 ms/iter | `send:BridgeResponse` 3455603.667 B/iter |
 | Pi SDK End-to-End | 1949.559 ms | 929.333 | - | `_loadPolyfill` 403.905 ms/iter | `send:BridgeResponse` 3159486.000 B/iter |
-| Pi CLI Startup | 1697.463 ms | 2604.000 | 118.185 ms | `_loadPolyfill` 895.929 ms/iter | `send:BridgeResponse` 7494335.000 B/iter |
+| Pi CLI Startup | 1335.294 ms | 2604.000 | 117.153 ms | `_loadPolyfill` 648.443 ms/iter | `send:BridgeResponse` 3463902.000 B/iter |
 | Pi CLI End-to-End | 1770.193 ms | 2823.000 | 11.691 ms | `_loadPolyfill` 889.795 ms/iter | `send:BridgeResponse` 7831719.667 B/iter |
 
 ## Warm Session Phase Means
@@ -31,9 +31,9 @@ Use `comparison.md` for before/after deltas, including the split between real `_
 | pdf-lib End-to-End | 0.000 ms | 0.000 ms | 5.000 ms | 230.139 ms | 102.500 ms | 5.289 ms |
 | JSZip Startup | 0.000 ms | 0.500 ms | 4.000 ms | 97.050 ms | 102.000 ms | 2.716 ms |
 | JSZip End-to-End | 0.000 ms | - | - | - | - | - |
-| Pi SDK Startup | 0.000 ms | 0.500 ms | 4.500 ms | 1611.691 ms | 102.500 ms | 10.034 ms |
+| Pi SDK Startup | 0.000 ms | 0.500 ms | 4.500 ms | 1071.911 ms | 101.000 ms | 6.421 ms |
 | Pi SDK End-to-End | 1.000 ms | 1.000 ms | 6.000 ms | - | - | - |
-| Pi CLI Startup | 1.000 ms | 0.500 ms | 4.500 ms | 1579.278 ms | 102.500 ms | 10.685 ms |
+| Pi CLI Startup | 0.000 ms | 0.500 ms | 4.500 ms | 1218.141 ms | 102.000 ms | 10.152 ms |
 | Pi CLI End-to-End | 1.000 ms | 0.500 ms | 5.500 ms | 1758.502 ms | 0.000 ms | 5.691 ms |
 
 ## Transport RTT

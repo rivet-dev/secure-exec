@@ -74,26 +74,17 @@ Equivalent lifecycle phases come from `CreateSession -> InjectGlobals -> Execute
 Baseline scenario timestamp: 2026-03-31T07:23:03.772Z
 
 - Warm wall: 1949.559 -> 1949.559 ms (0.000 ms (0.00%))
-- Bridge calls/iteration: 2788.000 -> 929.333 calls (-1858.667 calls (-66.67%))
+- Bridge calls/iteration: 929.333 -> 929.333 calls (0.000 calls (0.00%))
 - Warm fixed overhead: -
-- Warm Create->InjectGlobals: 0.000 -> 1.000 ms (+1.000 ms)
+- Warm Create->InjectGlobals: 1.000 -> 1.000 ms (0.000 ms (0.00%))
 - Warm InjectGlobals->Execute: 6.000 -> 6.000 ms (0.000 ms (0.00%))
 - Warm ExecutionResult->Destroy: -
 - Warm residual overhead: -
-- Bridge time/iteration: 1048.088 -> 439.824 ms (-608.264 ms (-58.04%))
-- BridgeResponse encoded bytes/iteration: 9477120.000 -> 3159486.000 bytes (-6317634.000 bytes (-66.66%))
-- _loadPolyfill real polyfill-body loads: calls 0.000 -> 26.667 calls (+26.667 calls); time 0.000 -> 103.451 ms (+103.451 ms); response bytes 0.000 -> 835844.333 bytes (+835844.333 bytes)
-- _loadPolyfill __bd:* bridge-dispatch wrappers: calls 2718.000 -> 879.333 calls (-1838.667 calls (-67.65%)); time 938.412 -> 300.454 ms (-637.958 ms (-67.98%)); response bytes 9466974.000 -> 2320259.667 bytes (-7146714.333 bytes (-75.49%))
+- Bridge time/iteration: 439.824 -> 439.824 ms (0.000 ms (0.00%))
+- BridgeResponse encoded bytes/iteration: 3159486.000 -> 3159486.000 bytes (0.000 bytes (0.00%))
+- _loadPolyfill real polyfill-body loads: calls 26.667 -> 26.667 calls (0.000 calls (0.00%)); time 103.451 -> 103.451 ms (0.000 ms (0.00%)); response bytes 835844.333 -> 835844.333 bytes (0.000 bytes (0.00%))
+- _loadPolyfill __bd:* bridge-dispatch wrappers: calls 879.333 -> 879.333 calls (0.000 calls (0.00%)); time 300.454 -> 300.454 ms (0.000 ms (0.00%)); response bytes 2320259.667 -> 2320259.667 bytes (0.000 bytes (0.00%))
 
 | Delta Type | Name | Before | After | Delta |
 | --- | --- | ---: | ---: | ---: |
-| Method time | `_loadPolyfill` | 938.412 | 403.905 | -534.507 |
-| Method time | `_resolveModule` | 56.444 | 21.363 | -35.081 |
-| Method time | `_fsExists` | 43.058 | 10.364 | -32.694 |
-| Method bytes | `_loadPolyfill` | 9466974.000 | 3156104.000 | -6310870.000 |
-| Method bytes | `_fsReadFile` | 3453.000 | 1151.000 | -2302.000 |
-| Method bytes | `_resolveModule` | 2986.000 | 995.333 | -1990.667 |
-| Frame bytes | `send:BridgeResponse` | 9477120.000 | 3159486.000 | -6317634.000 |
-| Frame bytes | `send:Execute` | 1243116.000 | 828744.000 | -414372.000 |
-| Frame bytes | `recv:BridgeCall` | 606939.000 | 202313.000 | -404626.000 |
 

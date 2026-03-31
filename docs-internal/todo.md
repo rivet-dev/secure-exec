@@ -115,6 +115,10 @@ docs-internal/specs/cli-tool-e2e.md
 - [ ] Reduce repeated bootstrap, resolver, and filesystem probe overhead in module-load scenarios.
   - Current baseline shows `~1.24 MB` `Execute` payloads per iteration, `_resolveModule` at `34` calls and `~41-46 ms`, and `_fsExists` as high as `44` calls and `~54.9 ms`.
 
+- [ ] Restore full `bench:module-load` completion through `jszip-end-to-end`.
+  - Targeted `jszip-end-to-end` reruns still work, but the full `pnpm --filter secure-exec bench:module-load` flow currently stalls when it reaches that scenario, even when the US-005 `_loadPolyfill` cache gate is locally reverted. Track this separately from payload-caching work.
+  - Files: `packages/secure-exec/benchmarks/module-load/scenario-runner.ts`, `packages/secure-exec/benchmarks/module-load/scenario-catalog.ts`, `packages/secure-exec/benchmarks/results/module-load/jszip-end-to-end/*`
+
 - [ ] Attribute and reduce the fixed fresh-session overhead in the module-load benchmark.
   - Current baseline shows a stable `~109 ms` fixed per-session cost even on Hono, which is likely outside the actual module graph work.
 

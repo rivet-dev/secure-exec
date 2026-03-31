@@ -5,6 +5,7 @@ Started: Mon Mar 30 08:41:55 PM PDT 2026
 ## Codebase Patterns
 - Active module-load benchmark artifacts live in `packages/secure-exec/benchmarks/results/module-load/`; refresh them with the full `pnpm --filter secure-exec bench:module-load` run after each performance story.
 - Module-load benchmark `summary.md` / `comparison.md` now split `_loadPolyfill` into `real polyfill-body loads` and `__bd:* bridge-dispatch wrappers`; copy those fields directly for progress updates instead of using ad hoc probes.
+- Module-load scenario reruns load `@secure-exec/v8` from `packages/v8/dist`; after changing `packages/v8/src/*` behavior that the benchmark exercises, rebuild with `pnpm --filter @secure-exec/v8 build` before trusting fresh artifacts.
 - When deriving module-load baselines from committed `ipc.ndjson` via `git show`, set a large `maxBuffer`; Pi logs exceed Node's default sync buffer.
 - Module-load scenario reruns must start from a truncated `ipc.ndjson`; the V8 observability sink appends by default, so stale logs will corrupt per-scenario summaries and `comparison.md`.
 - Shared `createNodeV8Runtime()` reuse now depends on `session.destroy()` fully draining the runtime-side teardown path; if a workload generates lots of timer or stream events, use an ordered barrier like `DestroySession` -> `Ping/Pong` instead of treating session destroy as fire-and-forget.
@@ -115,4 +116,16 @@ Started: Mon Mar 30 08:41:55 PM PDT 2026
   - Module-load summary comparisons should be derived from committed `result.json` plus `ipc.ndjson` with the current classifier when the summary schema changes; older generated `summary.json` files may not have the fields new comparison code expects.
   - Pi benchmark IPC logs are large enough that `execFileSync('git', ['show', ...])` needs an explicit larger `maxBuffer`, or baseline reconstruction fails with `ENOBUFS`.
   - Pi startup `_loadPolyfill` attribution is now copy-ready in `packages/secure-exec/benchmarks/results/module-load/pi-sdk-startup/summary.md`, `packages/secure-exec/benchmarks/results/module-load/pi-cli-startup/summary.md`, and the top-level `comparison.md`; future stories should use those artifacts directly.
+---
+## [2026-03-31 03:19 PDT] - US-005
+- Extended the V8 `_loadPolyfill` cache-envelope path so repeated dispatch-backed source loads (`__bd:_loadFile:*`, `__bd:_loadFileSync:*`) can be replayed by cache reference across fresh sessions, while still excluding other `__bd:*` results that may encode session-local handles or mutable state. Added focused cache hit/miss regression coverage in `packages/v8/test/context-snapshot-behavior.test.ts`, rebuilt `@secure-exec/v8`, and regenerated the Pi startup benchmark artifacts plus top-level module-load summaries/comparisons.
+- Benchmark deltas:
+  - `pi-sdk-startup`: warm wall `1729.225 ms` -> `1184.332 ms`; bridge calls stayed `2548`/iteration; warm fixed overhead `117.534 ms` -> `112.421 ms`; `BridgeResponse` `7475865.667` -> `3455603.667` bytes/iteration; `_loadPolyfill` real polyfill-body loads `839171.667` -> `836805.667` response bytes/iteration; `_loadPolyfill` `__bd:*` bridge-dispatch wrappers `6630250.000` -> `2612354.000` response bytes/iteration.
+  - `pi-cli-startup`: warm wall `1697.463 ms` -> `1335.294 ms`; bridge calls stayed `2604`/iteration; warm fixed overhead `118.185 ms` -> `117.153 ms`; `BridgeResponse` `7494335.000` -> `3463902.000` bytes/iteration; `_loadPolyfill` real polyfill-body loads `839171.667` -> `836805.667` response bytes/iteration; `_loadPolyfill` `__bd:*` bridge-dispatch wrappers `6646025.000` -> `2617958.667` response bytes/iteration.
+- Added follow-up story `US-015` plus a `docs-internal/todo.md` note for the still-separate `jszip-end-to-end` full-suite hang: targeted reruns still work, but the full `pnpm --filter secure-exec bench:module-load` flow continues to stall when it reaches that scenario even with the US-005 cache gate locally disabled.
+- Files changed: `CLAUDE.md`, `docs-internal/todo.md`, `packages/v8/src/runtime.ts`, `packages/v8/test/context-snapshot-behavior.test.ts`, `packages/secure-exec/benchmarks/results/module-load/*`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Module-load scenario reruns use built `@secure-exec/v8` dist output; rebuild with `pnpm --filter @secure-exec/v8 build` after changing `packages/v8/src/*` or the artifacts can silently measure stale code.
+  - `_loadPolyfill` cache hits are safe for dispatch-backed source loads like `__bd:_loadFileSync:["/tmp/demo.js"]`, but arbitrary `__bd:*` responses may carry session-local handles or mutable state and must stay uncached.
+  - A full `bench:module-load` hang at `jszip-end-to-end` is currently independent of this payload-cache work; track it as a separate blocker instead of rolling it into byte-transfer regressions.
 ---

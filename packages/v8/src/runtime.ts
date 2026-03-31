@@ -105,6 +105,26 @@ function buildPolyfillCacheKey(moduleName: string, code: string): string {
 	return `polyfill:${moduleName}:${hash}`;
 }
 
+function shouldCachePolyfillPayload(
+	moduleName: string,
+	result: unknown,
+): result is string {
+	if (typeof result !== "string") {
+		return false;
+	}
+
+	if (!moduleName.startsWith("__bd:")) {
+		return true;
+	}
+
+	// Cache only dispatch-backed source loads. Other __bd:* handlers can return
+	// session-local handles or mutable state that must not be replayed.
+	return (
+		moduleName.startsWith("__bd:_loadFile:") ||
+		moduleName.startsWith("__bd:_loadFileSync:")
+	);
+}
+
 function buildCachedPolyfillBridgePayload(
 	method: string,
 	args: unknown[],
@@ -115,11 +135,10 @@ function buildCachedPolyfillBridgePayload(
 		return null;
 	}
 	const [moduleName] = args;
-	if (
-		typeof moduleName !== "string" ||
-		moduleName.startsWith("__bd:") ||
-		typeof result !== "string"
-	) {
+	if (typeof moduleName !== "string") {
+		return null;
+	}
+	if (!shouldCachePolyfillPayload(moduleName, result)) {
 		return null;
 	}
 
@@ -546,17 +565,17 @@ export async function createV8Runtime(
 													payload: Buffer.from(result),
 												});
 											} else {
-								const cachedPayload =
-									result !== undefined
-										? buildCachedPolyfillBridgePayload(
-												frame.method,
-												Array.isArray(args) ? args : [args],
-												result,
-												promotedPolyfillCacheKeys,
-											)
-										: null;
-								const payload =
-									result !== undefined
+												const cachedPayload =
+													result !== undefined
+														? buildCachedPolyfillBridgePayload(
+																frame.method,
+																Array.isArray(args) ? args : [args],
+																result,
+																promotedPolyfillCacheKeys,
+															)
+														: null;
+												const payload =
+													result !== undefined
 														? (cachedPayload?.payload ??
 															Buffer.from(v8.serialize(result)))
 														: Buffer.alloc(0);
@@ -573,11 +592,11 @@ export async function createV8Runtime(
 													sessionId,
 													callId: frame.callId,
 													status: 0,
-											payload,
-										});
-										if (cachedPayload?.rememberCacheKey) {
-											sessionPolyfillCacheKeys.add(
-												cachedPayload.rememberCacheKey,
+													payload,
+												});
+												if (cachedPayload?.rememberCacheKey) {
+													sessionPolyfillCacheKeys.add(
+														cachedPayload.rememberCacheKey,
 													);
 												}
 											}

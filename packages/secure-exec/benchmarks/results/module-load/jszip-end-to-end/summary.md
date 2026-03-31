@@ -66,24 +66,17 @@ Equivalent lifecycle phases come from `CreateSession -> InjectGlobals -> Execute
 Baseline scenario timestamp: 2026-03-31T05:47:31.678Z
 
 - Warm wall: 552.962 -> 552.962 ms (0.000 ms (0.00%))
-- Bridge calls/iteration: 519.000 -> 63.667 calls (-455.333 calls (-87.73%))
+- Bridge calls/iteration: 63.667 -> 63.667 calls (0.000 calls (0.00%))
 - Warm fixed overhead: -
 - Warm Create->InjectGlobals: -
 - Warm InjectGlobals->Execute: -
 - Warm ExecutionResult->Destroy: -
 - Warm residual overhead: -
-- Bridge time/iteration: 46.083 -> 58.723 ms (+12.640 ms (+27.43%))
-- BridgeResponse encoded bytes/iteration: 1214540.000 -> 396786.667 bytes (-817753.333 bytes (-67.33%))
-- _loadPolyfill real polyfill-body loads: calls 0.000 -> 5.667 calls (+5.667 calls); time 0.000 -> 41.549 ms (+41.549 ms); response bytes 0.000 -> 232670.667 bytes (+232670.667 bytes)
-- _loadPolyfill __bd:* bridge-dispatch wrappers: calls 518.000 -> 58.000 calls (-460.000 calls (-88.80%)); time 45.999 -> 17.174 ms (-28.825 ms (-62.66%)); response bytes 1214493.000 -> 164116.000 bytes (-1050377.000 bytes (-86.49%))
+- Bridge time/iteration: 58.723 -> 58.723 ms (0.000 ms (0.00%))
+- BridgeResponse encoded bytes/iteration: 396786.667 -> 396786.667 bytes (0.000 bytes (0.00%))
+- _loadPolyfill real polyfill-body loads: calls 5.667 -> 5.667 calls (0.000 calls (0.00%)); time 41.549 -> 41.549 ms (0.000 ms (0.00%)); response bytes 232670.667 -> 232670.667 bytes (0.000 bytes (0.00%))
+- _loadPolyfill __bd:* bridge-dispatch wrappers: calls 58.000 -> 58.000 calls (0.000 calls (0.00%)); time 17.174 -> 17.174 ms (0.000 ms (0.00%)); response bytes 164116.000 -> 164116.000 bytes (0.000 bytes (0.00%))
 
 | Delta Type | Name | Before | After | Delta |
 | --- | --- | ---: | ---: | ---: |
-| Method time | `_loadPolyfill` | 45.999 | 58.723 | +12.724 |
-| Method time | `_log` | 0.084 | 0.000 | -0.084 |
-| Method bytes | `_loadPolyfill` | 1214493.000 | 396786.667 | -817706.333 |
-| Method bytes | `_log` | 47.000 | 0.000 | -47.000 |
-| Frame bytes | `send:Execute` | 1242365.000 | 414582.000 | -827783.000 |
-| Frame bytes | `send:BridgeResponse` | 1214540.000 | 396786.667 | -817753.333 |
-| Frame bytes | `recv:BridgeCall` | 70253.000 | 11098.333 | -59154.667 |
 
