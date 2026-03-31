@@ -157,6 +157,21 @@ function decodeStringResult(value, encoding) {
 	return value;
 }
 
+function getBufferView(buffer) {
+	if (buffer instanceof Uint8Array) {
+		return buffer;
+	}
+	return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+}
+
+function copyIntoBufferView(buffer, offset, chunk) {
+	getBufferView(buffer).set(chunk, offset);
+}
+
+function sliceBufferView(buffer, offset, length) {
+	return getBufferView(buffer).subarray(offset, offset + length);
+}
+
 class UpstreamFsReqCallback {
 	constructor(bigint = false) {
 		this.bigint = bigint === true;
@@ -172,24 +187,42 @@ function dispatchReqCompletion(req, ...args) {
 	req.oncomplete(...args);
 }
 
+function isPromiseRequest(hostBinding, req) {
+	return req === hostBinding.kUsePromises;
+}
+
+function resolveSyncResult(operation) {
+	try {
+		return Promise.resolve(operation());
+	} catch (error) {
+		return Promise.reject(error);
+	}
+}
+
 function isKnownBackendFd(fdState, fd) {
 	return fdState.handles.has(fd);
 }
 
-function resolveBackendHandle(fdState, fd) {
+function createBadFdError(fd, syscall, path) {
+	return createBackendError(
+		{
+			code: "EBADF",
+			message: `bad file descriptor: ${fd}`,
+			syscall,
+			path,
+		},
+		{
+			message: `bad file descriptor: ${fd}`,
+			syscall,
+			path,
+		},
+	);
+}
+
+function resolveBackendHandle(fdState, fd, syscall = "fd") {
 	const handle = fdState.handles.get(fd);
 	if (!handle) {
-		throw createBackendError(
-			{
-				code: "EBADF",
-				message: `bad file descriptor: ${fd}`,
-				syscall: "fd",
-			},
-			{
-				message: `bad file descriptor: ${fd}`,
-				syscall: "fd",
-			},
-		);
+		throw createBadFdError(fd, syscall);
 	}
 	return handle;
 }
@@ -224,6 +257,8 @@ function normalizePosition(handle, position) {
 function allocBackendFd(fdState, handle) {
 	const fd = fdState.nextFd;
 	fdState.nextFd += 1;
+	handle.asyncId = fdState.nextAsyncId;
+	fdState.nextAsyncId += 1;
 	fdState.handles.set(fd, handle);
 	return fd;
 }
@@ -246,6 +281,7 @@ export function createUpstreamFsBinding({ internalBinding }) {
 	const fdState = {
 		handles: new Map(),
 		nextFd: 10_000,
+		nextAsyncId: 1,
 	};
 
 	function noteBackendOperation(operation) {
@@ -338,7 +374,26 @@ export function createUpstreamFsBinding({ internalBinding }) {
 		);
 	}
 
+	function createBackendFileHandle(fd) {
+		return {
+			fd,
+			close() {
+				return resolveSyncResult(() => {
+					resolveBackendHandle(fdState, fd, "close");
+					closeKnownFdSync(fd);
+				});
+			},
+			getAsyncId() {
+				return resolveBackendHandle(fdState, fd, "close").asyncId;
+			},
+		};
+	}
+
 	function readKnownFdSync(handle, buffer, offset, length, position) {
+		if (length === 0) {
+			return 0;
+		}
+
 		if (!handle.canRead) {
 			throw createBackendError(
 				{
@@ -365,7 +420,7 @@ export function createUpstreamFsBinding({ internalBinding }) {
 			syscall: "read",
 		});
 		const chunk = decodeBufferResult(result);
-		buffer.set(chunk, offset);
+		copyIntoBufferView(buffer, offset, chunk);
 		if (resolved.updatesCurrentOffset) {
 			handle.position += result.bytesRead;
 		}
@@ -407,7 +462,7 @@ export function createUpstreamFsBinding({ internalBinding }) {
 			},
 			createAsyncResultDispatcher(req, (result) => {
 				const chunk = decodeBufferResult(result);
-				buffer.set(chunk, offset);
+				copyIntoBufferView(buffer, offset, chunk);
 				if (resolved.updatesCurrentOffset) {
 					handle.position += result.bytesRead;
 				}
@@ -416,7 +471,45 @@ export function createUpstreamFsBinding({ internalBinding }) {
 		);
 	}
 
+	function readBuffersKnownFdSync(handle, buffers, position) {
+		if (buffers.length === 0) {
+			return 0;
+		}
+
+		let totalBytesRead = 0;
+		let nextPosition =
+			typeof position === "bigint" ? Number(position) : position;
+		const usesCurrentOffset = nextPosition == null || nextPosition < 0;
+
+		for (const buffer of buffers) {
+			if (buffer.byteLength === 0) {
+				continue;
+			}
+
+			const bytesRead = readKnownFdSync(
+				handle,
+				buffer,
+				0,
+				buffer.byteLength,
+				usesCurrentOffset ? null : nextPosition,
+			);
+			totalBytesRead += bytesRead;
+			if (!usesCurrentOffset) {
+				nextPosition += bytesRead;
+			}
+			if (bytesRead < buffer.byteLength) {
+				break;
+			}
+		}
+
+		return totalBytesRead;
+	}
+
 	function writeKnownFdSync(handle, bytes, position) {
+		if (bytes.byteLength === 0) {
+			return 0;
+		}
+
 		if (!handle.canWrite) {
 			throw createBackendError(
 				{
@@ -494,6 +587,38 @@ export function createUpstreamFsBinding({ internalBinding }) {
 		);
 	}
 
+	function writeBuffersKnownFdSync(handle, buffers, position) {
+		if (buffers.length === 0) {
+			return 0;
+		}
+
+		let totalBytesWritten = 0;
+		let nextPosition =
+			typeof position === "bigint" ? Number(position) : position;
+		const usesCurrentOffset = nextPosition == null || nextPosition < 0;
+
+		for (const buffer of buffers) {
+			if (buffer.byteLength === 0) {
+				continue;
+			}
+
+			const bytesWritten = writeKnownFdSync(
+				handle,
+				sliceBufferView(buffer, 0, buffer.byteLength),
+				usesCurrentOffset ? null : nextPosition,
+			);
+			totalBytesWritten += bytesWritten;
+			if (!usesCurrentOffset) {
+				nextPosition += bytesWritten;
+			}
+			if (bytesWritten < buffer.byteLength) {
+				break;
+			}
+		}
+
+		return totalBytesWritten;
+	}
+
 	function closeKnownFdSync(fd) {
 		fdState.handles.delete(fd);
 	}
@@ -510,20 +635,58 @@ export function createUpstreamFsBinding({ internalBinding }) {
 		FSReqCallback: UpstreamFsReqCallback,
 		statValues: hostBinding.statValues,
 		open(path, flags, mode, req) {
+			if (isPromiseRequest(hostBinding, req)) {
+				return resolveSyncResult(() => openHandleSync(path, flags, mode));
+			}
 			if (!req) {
 				return openHandleSync(path, flags, mode);
 			}
 			return openHandleAsync(path, flags, mode, req);
 		},
+		openFileHandle(path, flags, mode, req) {
+			if (!isPromiseRequest(hostBinding, req)) {
+				return hostBinding.openFileHandle(path, flags, mode, req);
+			}
+			return resolveSyncResult(() =>
+				createBackendFileHandle(openHandleSync(path, flags, mode)),
+			);
+		},
 		read(fd, buffer, offset, length, position, req) {
 			if (!isKnownBackendFd(fdState, fd)) {
 				return hostBinding.read(fd, buffer, offset, length, position, req);
 			}
-			const handle = resolveBackendHandle(fdState, fd);
+			const handle = resolveBackendHandle(fdState, fd, "read");
+			if (isPromiseRequest(hostBinding, req)) {
+				return resolveSyncResult(() =>
+					readKnownFdSync(handle, buffer, offset, length, position),
+				);
+			}
 			if (!req) {
 				return readKnownFdSync(handle, buffer, offset, length, position);
 			}
 			return readKnownFdAsync(handle, buffer, offset, length, position, req);
+		},
+		readBuffers(fd, buffers, position, req) {
+			if (!isKnownBackendFd(fdState, fd)) {
+				return hostBinding.readBuffers(fd, buffers, position, req);
+			}
+			const handle = resolveBackendHandle(fdState, fd, "read");
+			if (isPromiseRequest(hostBinding, req)) {
+				return resolveSyncResult(() =>
+					readBuffersKnownFdSync(handle, buffers, position),
+				);
+			}
+			queueMicrotask(() => {
+				try {
+					dispatchReqCompletion(
+						req,
+						null,
+						readBuffersKnownFdSync(handle, buffers, position),
+					);
+				} catch (error) {
+					dispatchReqCompletion(req, error);
+				}
+			});
 		},
 		writeBuffer(fd, buffer, offset, length, position, req, ctx) {
 			if (!isKnownBackendFd(fdState, fd)) {
@@ -537,8 +700,11 @@ export function createUpstreamFsBinding({ internalBinding }) {
 					ctx,
 				);
 			}
-			const handle = resolveBackendHandle(fdState, fd);
-			const bytes = buffer.subarray(offset, offset + length);
+			const handle = resolveBackendHandle(fdState, fd, "write");
+			const bytes = sliceBufferView(buffer, offset, length);
+			if (isPromiseRequest(hostBinding, req)) {
+				return resolveSyncResult(() => writeKnownFdSync(handle, bytes, position));
+			}
 			if (!req) {
 				return writeKnownFdSync(handle, bytes, position);
 			}
@@ -555,16 +721,44 @@ export function createUpstreamFsBinding({ internalBinding }) {
 					ctx,
 				);
 			}
-			const handle = resolveBackendHandle(fdState, fd);
+			const handle = resolveBackendHandle(fdState, fd, "write");
 			const bytes = Buffer.from(string, encoding ?? "utf8");
+			if (isPromiseRequest(hostBinding, req)) {
+				return resolveSyncResult(() => writeKnownFdSync(handle, bytes, position));
+			}
 			if (!req) {
 				return writeKnownFdSync(handle, bytes, position);
 			}
 			return writeKnownFdAsync(handle, bytes, position, req);
 		},
+		writeBuffers(fd, buffers, position, req) {
+			if (!isKnownBackendFd(fdState, fd)) {
+				return hostBinding.writeBuffers(fd, buffers, position, req);
+			}
+			const handle = resolveBackendHandle(fdState, fd, "write");
+			if (isPromiseRequest(hostBinding, req)) {
+				return resolveSyncResult(() =>
+					writeBuffersKnownFdSync(handle, buffers, position),
+				);
+			}
+			queueMicrotask(() => {
+				try {
+					dispatchReqCompletion(
+						req,
+						null,
+						writeBuffersKnownFdSync(handle, buffers, position),
+					);
+				} catch (error) {
+					dispatchReqCompletion(req, error);
+				}
+			});
+		},
 		close(fd, req) {
 			if (!isKnownBackendFd(fdState, fd)) {
 				return hostBinding.close(fd, req);
+			}
+			if (isPromiseRequest(hostBinding, req)) {
+				return resolveSyncResult(() => closeKnownFdSync(fd));
 			}
 			if (!req) {
 				return closeKnownFdSync(fd);
@@ -575,19 +769,34 @@ export function createUpstreamFsBinding({ internalBinding }) {
 			if (!isKnownBackendFd(fdState, fd)) {
 				return hostBinding.fstat(fd, bigint, req, throwIfNoEntry);
 			}
-			const handle = resolveBackendHandle(fdState, fd);
+			const handle = resolveBackendHandle(fdState, fd, "fstat");
+			if (isPromiseRequest(hostBinding, req)) {
+				return resolveSyncResult(() =>
+					statPathSync(handle.path, bigint, "stat", throwIfNoEntry),
+				);
+			}
 			if (!req) {
 				return statPathSync(handle.path, bigint, "stat", throwIfNoEntry);
 			}
 			return statPathAsync(handle.path, bigint, req, "stat");
 		},
 		stat(path, bigint, req, throwIfNoEntry) {
+			if (isPromiseRequest(hostBinding, req)) {
+				return resolveSyncResult(() =>
+					statPathSync(path, bigint, "stat", throwIfNoEntry),
+				);
+			}
 			if (!req) {
 				return statPathSync(path, bigint, "stat", throwIfNoEntry);
 			}
 			return statPathAsync(path, bigint, req, "stat");
 		},
 		lstat(path, bigint, req, throwIfNoEntry) {
+			if (isPromiseRequest(hostBinding, req)) {
+				return resolveSyncResult(() =>
+					statPathSync(path, bigint, "lstat", throwIfNoEntry),
+				);
+			}
 			if (!req) {
 				return statPathSync(path, bigint, "lstat", throwIfNoEntry);
 			}
@@ -596,6 +805,20 @@ export function createUpstreamFsBinding({ internalBinding }) {
 		readdir(path, encoding, withFileTypes, req) {
 			if (withFileTypes) {
 				return hostBinding.readdir(path, encoding, withFileTypes, req);
+			}
+			if (isPromiseRequest(hostBinding, req)) {
+				return resolveSyncResult(() => {
+					noteBackendOperation("readdir");
+					const result = invokeBackendSync({
+						op: "readdir",
+						path,
+						syscall: "readdir",
+					});
+					if (encoding === "buffer") {
+						return result.entries.map((entry) => Buffer.from(entry));
+					}
+					return result.entries;
+				});
 			}
 			if (!req) {
 				noteBackendOperation("readdir");
@@ -627,9 +850,20 @@ export function createUpstreamFsBinding({ internalBinding }) {
 						}
 						dispatchReqCompletion(req, null, result.entries);
 					}),
-				);
-			},
+			);
+		},
 		realpath(path, encoding, req) {
+			if (isPromiseRequest(hostBinding, req)) {
+				return resolveSyncResult(() => {
+					noteBackendOperation("realpath");
+					const result = invokeBackendSync({
+						op: "realpath",
+						path,
+						syscall: "realpath",
+					});
+					return decodeStringResult(result.path, encoding);
+				});
+			}
 			if (!req) {
 				noteBackendOperation("realpath");
 				const result = invokeBackendSync({

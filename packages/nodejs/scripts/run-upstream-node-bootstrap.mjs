@@ -30,6 +30,7 @@ const APPLIED_BINDING_SHIMS = Object.freeze([
 	"async_wrap.setupHooks-noop",
 	"trace_events.setTraceCategoryStateUpdateHandler-noop",
 	"internal/options-host-shim",
+	"fs_event_wrap-fsevent-subclass",
 	"public-builtin-host-fallback",
 ]);
 
@@ -219,6 +220,24 @@ function normalizeVendoredPublicBuiltins(values) {
 	return new Set(values.filter((value) => typeof value === "string"));
 }
 
+function createFsEventWrapBinding() {
+	const hostFsEventWrap = internalBinding("fs_event_wrap");
+	if (
+		!hostFsEventWrap ||
+		typeof hostFsEventWrap !== "object" ||
+		typeof hostFsEventWrap.FSEvent !== "function"
+	) {
+		return hostFsEventWrap;
+	}
+
+	class UpstreamFSEvent extends hostFsEventWrap.FSEvent {}
+
+	return {
+		...hostFsEventWrap,
+		FSEvent: UpstreamFSEvent,
+	};
+}
+
 function createProcessShim(payload, stdoutChunks, stderrChunks) {
 	const processShim = Object.create({});
 	const utilBinding = internalBinding("util");
@@ -328,6 +347,7 @@ function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 		vendoredPublicBuiltins.has("fs")
 			? createUpstreamFsBinding({ internalBinding })
 			: null;
+	const fsEventWrapBinding = createFsEventWrapBinding();
 	const optionsValues = {
 		"--eval": payload.code ?? "",
 		"--print": false,
@@ -484,6 +504,10 @@ function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 
 		if (name === "fs" && fsBindingProvider) {
 			return fsBindingProvider.binding;
+		}
+
+		if (name === "fs_event_wrap") {
+			return fsEventWrapBinding;
 		}
 
 		return internalBinding(name);
