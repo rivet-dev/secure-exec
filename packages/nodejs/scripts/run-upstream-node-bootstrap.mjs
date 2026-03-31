@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { serialize } from "node:v8";
 import {
 	clearImmediate as hostClearImmediate,
 	clearInterval as hostClearInterval,
@@ -592,6 +593,10 @@ function createInternalOptionsShim(optionInfo, optionsValues) {
 	};
 }
 
+function serializeExportsValue(value) {
+	return Buffer.from(serialize(value)).toString("base64");
+}
+
 async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 	const context = createContext({
 		console,
@@ -628,9 +633,24 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 	const vendoredPublicBuiltins = normalizeVendoredPublicBuiltins(
 		payload.vendoredPublicBuiltins,
 	);
-	const executeUserCodeDirectly = payload.awaitCompletionSignal === true;
+	const logicalUserFilePath =
+		typeof payload.filePath === "string" && payload.filePath.length > 0
+			? payload.filePath
+			: undefined;
+	const hostUserFilePath =
+		typeof payload.hostFilePath === "string" && payload.hostFilePath.length > 0
+			? payload.hostFilePath
+			: logicalUserFilePath;
+	const executeUserInlineFileCode =
+		typeof payload.code === "string" &&
+		typeof hostUserFilePath === "string" &&
+		hostUserFilePath.length > 0;
+	const executeUserCodeDirectly =
+		payload.returnExports === true || payload.awaitCompletionSignal === true;
 	const executeUserFileEntry =
-		typeof payload.filePath === "string" && payload.filePath.length > 0;
+		!executeUserInlineFileCode &&
+		typeof hostUserFilePath === "string" &&
+		hostUserFilePath.length > 0;
 	const vendoredPublicBuiltinsLoaded = new Set();
 	const optionInfo = internalBinding("options").getCLIOptionsInfo();
 	const fsBindingProvider =
@@ -823,12 +843,11 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 	async function executeUserFileCode(entryFilePath) {
 		const normalizedEntryPath = path.resolve(entryFilePath);
 		if (shouldUseEsmFileEntry(normalizedEntryPath)) {
-			await import(pathToFileURL(normalizedEntryPath).href);
-			return;
+			return { ...await import(pathToFileURL(normalizedEntryPath).href) };
 		}
 
 		const cjsLoader = requireBuiltin("internal/modules/cjs/loader");
-		cjsLoader.wrapModuleLoad(normalizedEntryPath, null, true);
+		return cjsLoader.wrapModuleLoad(normalizedEntryPath, null, true);
 	}
 
 	function requireBuiltin(id) {
@@ -1005,53 +1024,85 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 		return patchVmBuiltinExports(id, mod.exports);
 	}
 
-	function createUserRequire() {
+	function createUserRequire(referrerFilePath) {
 		const builtinRequire = capturedLoaders?.requireBuiltin ?? requireBuiltin;
+		const hostRequire =
+			typeof referrerFilePath === "string" && referrerFilePath.length > 0
+				? createRequire(pathToFileURL(referrerFilePath).href)
+				: HOST_REQUIRE;
 		const userRequire = (specifier) => {
 			const builtinId = normalizeBuiltinRequest(specifier);
 			if (builtinId) {
-			if (
-				executeUserCodeDirectly &&
-				vendoredPublicBuiltins.has(builtinId) &&
-				HOST_CONTEXT_BUILTINS.has(builtinId)
-			) {
-				return requireHostVendoredBuiltin(builtinId);
+				if (
+					executeUserCodeDirectly &&
+					vendoredPublicBuiltins.has(builtinId) &&
+					HOST_CONTEXT_BUILTINS.has(builtinId)
+				) {
+					return requireHostVendoredBuiltin(builtinId);
+				}
+				return patchVmBuiltinExports(builtinId, builtinRequire(builtinId));
 			}
-			return patchVmBuiltinExports(builtinId, builtinRequire(builtinId));
-		}
-			return HOST_REQUIRE(specifier);
+			return hostRequire(specifier);
 		};
 		userRequire.resolve = (specifier) => {
 			const builtinId = normalizeBuiltinRequest(specifier);
 			if (builtinId) {
 				return `node:${builtinId}`;
 			}
-			return HOST_REQUIRE.resolve(specifier);
+			return hostRequire.resolve(specifier);
 		};
-		userRequire.cache = HOST_REQUIRE.cache;
-		userRequire.main = HOST_REQUIRE.main;
+		userRequire.cache = hostRequire.cache;
+		userRequire.main = hostRequire.main;
 		return userRequire;
 	}
 
-	function executeUserEvalCode() {
+	function executeUserEvalCode({
+		hostFilePath,
+		logicalFilePath,
+	} = {}) {
 		Object.assign(context, hostTimerGlobals);
+		const visibleFilePath = logicalFilePath ?? "[eval]";
+		const visibleDirname =
+			logicalFilePath === undefined
+				? payload.cwd ?? process.cwd()
+				: path.posix.dirname(logicalFilePath);
 		const compiled = compileFunction(
 			payload.code ?? "",
 			["exports", "require", "module", "__filename", "__dirname"],
 			{
-				filename: "[eval]",
+				filename: visibleFilePath,
 				parsingContext: context,
 			},
 		);
-		const mod = { exports: {} };
-		const userRequire = createUserRequire();
-		return compiled(
+		const mod = {
+			exports: {},
+			filename: visibleFilePath,
+			id: visibleFilePath,
+			path: visibleDirname,
+		};
+		const userRequire = createUserRequire(hostFilePath);
+		const result = compiled(
 			mod.exports,
 			userRequire,
 			mod,
-			"[eval]",
-			payload.cwd ?? process.cwd(),
+			visibleFilePath,
+			visibleDirname,
 		);
+		if (result !== undefined) {
+			mod.exports = result;
+		}
+		return mod.exports;
+	}
+
+	async function executeUserInlineBackedFileCode(hostFilePath, logicalFilePath) {
+		const normalizedHostPath = path.resolve(hostFilePath);
+		if (shouldUseEsmFileEntry(normalizedHostPath)) {
+			return { ...await import(pathToFileURL(normalizedHostPath).href) };
+		}
+		return executeUserEvalCode({
+			hostFilePath: normalizedHostPath,
+			logicalFilePath: logicalFilePath ?? normalizedHostPath,
+		});
 	}
 
 	bootstrapPhases.push("internal/per_context/primordials");
@@ -1083,12 +1134,19 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 	);
 
 	let entrypoint = "internal/main/eval_string";
+	let userExports;
 	if (executeUserFileEntry) {
 		entrypoint = "secure_exec/file_entry";
-		await executeUserFileCode(payload.filePath);
+		userExports = await executeUserFileCode(hostUserFilePath);
+	} else if (executeUserInlineFileCode) {
+		entrypoint = "secure_exec/file_backed_eval";
+		userExports = await executeUserInlineBackedFileCode(
+			hostUserFilePath,
+			logicalUserFilePath,
+		);
 	} else if (executeUserCodeDirectly) {
 		entrypoint = "secure_exec/post_bootstrap_eval";
-		executeUserEvalCode();
+		userExports = executeUserEvalCode();
 	} else {
 		bootstrapPhases.push("internal/main/eval_string");
 		requireBuiltin("internal/main/eval_string");
@@ -1103,6 +1161,7 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 		publicBuiltinFallbacks: uniqueSorted(publicBuiltinFallbacks),
 		vendoredPublicBuiltinsLoaded: uniqueSorted(vendoredPublicBuiltinsLoaded),
 		describeFsBackendUsage: () => fsBindingProvider?.describeUsage(),
+		userExports,
 	};
 }
 
@@ -1167,6 +1226,10 @@ if (internalBinding) {
 					fsBackendOperations:
 						execution.describeFsBackendUsage?.()?.operations ?? [],
 					appliedBindingShims: [...APPLIED_BINDING_SHIMS],
+					serializedExports:
+						payload.returnExports === true
+							? serializeExportsValue(execution.userExports)
+							: undefined,
 				},
 				null,
 				2,
@@ -1209,6 +1272,10 @@ if (internalBinding) {
 						fsBackendOperations:
 							execution?.describeFsBackendUsage?.()?.operations ?? [],
 						appliedBindingShims: [...APPLIED_BINDING_SHIMS],
+						serializedExports:
+							payload.returnExports === true && execution
+								? serializeExportsValue(execution.userExports)
+								: undefined,
 					},
 					null,
 					2,

@@ -10,6 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { deserialize } from "node:v8";
 import type {
 	DriverProcess,
 	ExecOptions,
@@ -28,12 +29,14 @@ import type {
 export interface UpstreamBootstrapEvalRequest {
 	code?: string;
 	filePath?: string;
+	hostFilePath?: string;
 	cwd?: string;
 	env?: Record<string, string>;
 	argv?: string[];
 	execArgv?: string[];
 	vendoredPublicBuiltins?: string[];
 	awaitCompletionSignal?: boolean;
+	returnExports?: boolean;
 	liveStdio?: boolean;
 	stdinIsTTY?: boolean;
 	stdoutIsTTY?: boolean;
@@ -59,6 +62,7 @@ export interface UpstreamBootstrapEvalResult {
 	fsBackendArtifacts?: string[];
 	fsBackendOperations?: string[];
 	appliedBindingShims?: string[];
+	serializedExports?: string;
 }
 
 export interface ExperimentalUpstreamBootstrapOptions {
@@ -225,6 +229,15 @@ function parseTerminalDimension(value: string | undefined): number | undefined {
 	}
 	const parsed = Number.parseInt(value, 10);
 	return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function decodeSerializedExports<T>(
+	serializedExports: string | undefined,
+): T | undefined {
+	if (typeof serializedExports !== "string" || serializedExports.length === 0) {
+		return undefined;
+	}
+	return deserialize(Buffer.from(serializedExports, "base64")) as T;
 }
 
 interface StagedUpstreamEntry {
@@ -457,14 +470,40 @@ async function stageUpstreamEntryFromFilesystem(
 	);
 
 	try {
+		const stagedPaths = new Set<string>();
+		const visitedFiles = new Set<string>();
 		if (filesystem && await filesystem.exists(logicalFilePath)) {
 			await stageVirtualModuleClosure(
 				filesystem,
 				logicalFilePath,
 				stageRoot,
-				new Set<string>(),
-				new Set<string>(),
+				stagedPaths,
+				visitedFiles,
 			);
+		} else if (filesystem && typeof code === "string") {
+			await stageNearestVirtualPackageJson(
+				filesystem,
+				logicalFilePath,
+				stageRoot,
+				stagedPaths,
+			);
+			for (const specifier of extractRelativeSpecifiers(code)) {
+				const dependencyPath = await resolveVirtualModuleDependency(
+					filesystem,
+					logicalFilePath,
+					specifier,
+				);
+				if (!dependencyPath) {
+					continue;
+				}
+				await stageVirtualModuleClosure(
+					filesystem,
+					dependencyPath,
+					stageRoot,
+					stagedPaths,
+					visitedFiles,
+				);
+			}
 		}
 
 		const stagedEntryFilePath = getHostPathForVirtualPath(stageRoot, logicalFilePath);
@@ -513,27 +552,56 @@ class ExperimentalUpstreamBootstrapRuntimeDriver implements NodeRuntimeDriver {
 	}
 
 	async exec(code: string, options: ExecOptions = {}): Promise<ExecResult> {
+		const result = await this.#evaluate(code, options);
+		return {
+			code: result.code,
+			errorMessage: result.errorMessage,
+		};
+	}
+
+	async run<T = unknown>(code: string, filePath?: string): Promise<RunResult<T>> {
+		const result = await this.#evaluate<T>(code, {
+			mode: "run",
+			filePath,
+		});
+		return {
+			code: result.code,
+			errorMessage: result.errorMessage,
+			exports: result.exports,
+		};
+	}
+
+	async #evaluate<T = unknown>(
+		code: string,
+		options: ExecOptions = {},
+	): Promise<RunResult<T>> {
+		const requestedCwd = options.cwd ?? this.#runtime.process.cwd;
+		const logicalFilePath =
+			typeof options.filePath === "string" && options.filePath.length > 0
+				? normalizeVirtualPath(options.filePath, requestedCwd)
+				: undefined;
 		const stagedEntry = await stageUpstreamEntryFromFilesystem(
 			this.#filesystem,
 			options.filePath,
 			code,
-			options.cwd ?? this.#runtime.process.cwd,
+			requestedCwd,
 		);
 
 		try {
-			const effectiveFilePath = stagedEntry?.entryFilePath ?? options.filePath;
+			const effectiveFilePath = stagedEntry?.entryFilePath ?? logicalFilePath;
 			const effectiveCwd = stagedEntry?.cwd ?? options.cwd;
 			const result = await runUpstreamBootstrapEval({
 				code,
-				filePath: effectiveFilePath,
+				filePath: logicalFilePath,
+				hostFilePath: effectiveFilePath,
 				cwd: effectiveCwd,
 				env: {
 					...(this.#runtime.process.env ?? {}),
 					...(options.env ?? {}),
 				},
 				argv:
-					effectiveFilePath !== undefined
-						? [process.execPath, effectiveFilePath]
+					logicalFilePath !== undefined
+						? [process.execPath, logicalFilePath]
 						: this.#runtime.process.argv,
 				vendoredPublicBuiltins:
 					this.#vendoredPublicBuiltins.length > 0
@@ -543,6 +611,7 @@ class ExperimentalUpstreamBootstrapRuntimeDriver implements NodeRuntimeDriver {
 					this.#awaitCompletionSignalMode,
 					code,
 				),
+				returnExports: options.mode === "run",
 			});
 
 			emitBufferedStdio(
@@ -563,18 +632,11 @@ class ExperimentalUpstreamBootstrapRuntimeDriver implements NodeRuntimeDriver {
 				code: result.code,
 				errorMessage:
 					result.code === 0 ? undefined : result.stderr || result.summary,
+				exports: decodeSerializedExports<T>(result.serializedExports),
 			};
 		} finally {
 			await stagedEntry?.cleanup();
 		}
-	}
-
-	async run<T = unknown>(code: string, filePath?: string): Promise<RunResult<T>> {
-		const result = await this.exec(code, { mode: "run", filePath });
-		return {
-			code: result.code,
-			errorMessage: result.errorMessage,
-		};
 	}
 
 	dispose(): void {}

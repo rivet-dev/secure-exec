@@ -1,6 +1,7 @@
 # Ralph Progress Log
 Started: Mon Mar 30 06:07:03 PM PDT 2026
 ## Codebase Patterns
+- Inline replacement-runtime `exec(code, { filePath })` and `run(code, filePath)` need two paths: keep the logical `filePath` for entry-module `__filename`/`__dirname`/`argv[1]`, but stage the source into a temp host tree and copy relative dependencies from the inline code string when the entry file does not already exist in the VFS.
 - Run upstream Node bootstrap probes in isolated child host Node processes with `--expose-internals`; `internal/bootstrap/node` can abort on native asserts and kill the current test worker if run inline.
 - For bootstrap preflight work, read builtin source from `process.binding('natives')` and defer pinned vendored asset sync to the dedicated upstream-asset story instead of partially vendoring bootstrap files early.
 - WasmVM socket tests that create client sockets from the test harness must register a real kernel-owned PID first; fake PID literals like `999` are rejected by `SocketTable`.
@@ -169,4 +170,12 @@ Started: Mon Mar 30 06:07:03 PM PDT 2026
   - Patterns discovered: vendored `vm` first-light should stay opt-in like other public builtin bring-up work; when the helper-child runner turns on `--experimental-vm-modules`, patch `require('vm')` with vendored `internal/vm/module` exports before user code runs.
   - Gotchas encountered: patching `vm` only in the local helper `requireBuiltin()` path is not enough because post-bootstrap user `require('vm')` can resolve through the internal loaders captured from `internal/bootstrap/realm`; the vm-module patch has to run on the user-facing builtin return path too.
   - Useful context: the focused quality bar for this story is green with `pnpm vitest run packages/nodejs/test/upstream-bootstrap-bringup.test.ts packages/nodejs/test/upstream-vm-first-light.test.ts` and `pnpm --filter @secure-exec/nodejs check-types`.
+---
+## [2026-03-31 13:44 PDT] - US-035
+- What was implemented: restored filePath-aware replacement-runtime exec/run semantics by splitting the caller-visible logical `filePath` from the staged host entry path, staging relative dependencies from inline file-backed source before launching the helper child, preserving logical `__filename` / `__dirname` / `argv[1]` for entry modules, and serializing `run()` exports back through the helper-child protocol for both CommonJS and ESM. Added focused replacement-runtime tests for CommonJS `exec()`, ESM `exec()`, CommonJS `run()`, and ESM `run()` file-backed behavior.
+- Files changed: `packages/nodejs/src/upstream/bootstrap-execution.ts`, `packages/nodejs/scripts/run-upstream-node-bootstrap.mjs`, `packages/nodejs/test/replacement-runtime-filepath.test.ts`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Patterns discovered: file-backed inline replacement-runtime execution should stage dependency closure from the source string itself when the VFS entry file is synthetic for that run, otherwise relative `require()` / `import` lookups fail inside the temp host tree.
+  - Gotchas encountered: using only the staged host path fixes resolution but breaks the NodeRuntime contract because entry-module `__filename`, `__dirname`, and `argv[1]` leak `/tmp/...`; keep a separate logical path for user-visible metadata and a host path for actual loading.
+  - Useful context: the focused quality bar for this story is green with `pnpm --filter @secure-exec/nodejs check-types` and `pnpm vitest run packages/nodejs/test/replacement-runtime-filepath.test.ts packages/nodejs/test/upstream-modules-file-entry.test.ts packages/nodejs/test/upstream-bootstrap-bringup.test.ts`.
 ---

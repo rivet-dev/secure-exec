@@ -291,7 +291,7 @@
         "Typecheck passes"
       ],
       "priority": 17,
-      "passes": false,
+      "passes": true,
       "notes": "Issues encountered: always-wait mode can deadlock plain node -e runs; nested helpers spawned from forked workers can inherit NODE_CHANNEL_FD / NODE_UNIQUE_ID and silently stop producing buffered JSON output."
     },
     {
