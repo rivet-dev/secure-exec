@@ -968,6 +968,7 @@ async function main(): Promise<void> {
 	await mkdir(path.dirname(args.resultFile), { recursive: true });
 	await mkdir(path.dirname(args.metricsFile), { recursive: true });
 	await mkdir(path.dirname(args.logFile), { recursive: true });
+	await writeFile(args.logFile, "", "utf8");
 
 	const mockServer = await createMockLlmServer([]);
 	const v8Runtime = await createNodeV8Runtime({

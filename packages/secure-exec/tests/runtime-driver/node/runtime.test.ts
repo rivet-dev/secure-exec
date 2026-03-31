@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
 	NodeRuntime,
@@ -186,11 +189,146 @@ describe("runtime driver specific: node", () => {
 	});
 
 	it(
+		"memoizes repeated bare-specifier polyfill misses within a single workload",
+		async () => {
+			const runtime = createRuntime();
+			const result = await runtime.run(
+				`
+					const seen = [];
+					const original = _loadPolyfill.applySyncPromise;
+					_loadPolyfill.applySyncPromise = function(ctx, args) {
+						seen.push(args[0]);
+						return original.call(this, ctx, args);
+					};
+
+					for (let i = 0; i < 5; i += 1) {
+						try {
+							require("definitely-not-a-real-package");
+						} catch {}
+					}
+
+					module.exports = seen.filter(
+						(entry) =>
+							typeof entry === "string" && !entry.startsWith("__bd:"),
+					);
+				`,
+			);
+			expect(result.exports).toEqual(["definitely-not-a-real-package"]);
+		},
+		20_000,
+	);
+
+	it(
+		"skips repeated relative-specifier polyfill probes within a single workload",
+		async () => {
+			const runtime = createRuntime();
+			const result = await runtime.run(
+				`
+					const seen = [];
+					const original = _loadPolyfill.applySyncPromise;
+					_loadPolyfill.applySyncPromise = function(ctx, args) {
+						seen.push(args[0]);
+						return original.call(this, ctx, args);
+					};
+
+					for (let i = 0; i < 5; i += 1) {
+						try {
+							require("./definitely-not-a-real-relative.js");
+						} catch {}
+					}
+
+					module.exports = seen.filter(
+						(entry) =>
+							typeof entry === "string" && !entry.startsWith("__bd:"),
+					);
+				`,
+			);
+			expect(result.exports).toEqual([]);
+		},
+		20_000,
+	);
+
+	it(
+		"memoizes repeated node_modules internal resolutions within a single workload",
+		async () => {
+			const projectDir = await mkdtemp(
+				path.join(tmpdir(), "secure-exec-resolution-cache-"),
+			);
+			const packageDir = path.join(projectDir, "node_modules", "pkg");
+
+			try {
+				await mkdir(packageDir, { recursive: true });
+				await writeFile(
+					path.join(packageDir, "package.json"),
+					JSON.stringify({ name: "pkg", main: "index.js" }),
+					"utf8",
+				);
+				await writeFile(
+					path.join(packageDir, "inner.js"),
+					"module.exports = 42;\n",
+					"utf8",
+				);
+				await writeFile(
+					path.join(packageDir, "index.js"),
+					[
+						"for (let i = 0; i < 5; i += 1) {",
+						'  require.resolve("./inner.js");',
+						"}",
+						'module.exports = require("./inner.js");',
+						"",
+					].join("\n"),
+					"utf8",
+				);
+
+				const runtime = new NodeRuntime({
+					systemDriver: createNodeDriver({
+						moduleAccess: { cwd: projectDir },
+						permissions: allowAll,
+					}),
+					runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+				});
+				runtimes.add(runtime);
+
+				const result = await runtime.run(
+					`
+						const seen = [];
+						const original = _resolveModuleSync.applySync;
+						_resolveModuleSync.applySync = function(ctx, args) {
+							seen.push(args.join("\\u0000"));
+							return original.call(this, ctx, args);
+						};
+
+						const value = require(${JSON.stringify(
+							path.join(packageDir, "index.js"),
+						)});
+						module.exports = {
+							value,
+							innerResolveCalls: seen.filter(
+								(entry) =>
+									entry === ${JSON.stringify(
+										`./inner.js\u0000${packageDir}`,
+									)},
+							).length,
+						};
+					`,
+				);
+
+				expect(result.exports).toEqual({
+					value: 42,
+					innerResolveCalls: 1,
+				});
+			} finally {
+				await rm(projectDir, { recursive: true, force: true });
+			}
+		},
+		20_000,
+	);
+
+	it(
 		"reuses a shared V8 runtime across repeated compressed JSZip sessions",
 		async () => {
 			const v8Runtime = await createNodeV8Runtime();
 			const runtimeDriverFactory = createNodeRuntimeDriverFactory({ v8Runtime });
-			const runtimesForTest = new Set<NodeRuntime>();
 
 			try {
 				for (let iteration = 1; iteration <= 4; iteration += 1) {
@@ -208,42 +346,41 @@ describe("runtime driver specific: node", () => {
 						runtimeDriverFactory,
 					});
 					runtimes.add(runtime);
-					runtimesForTest.add(runtime);
-
-					const result = await Promise.race([
-						runtime.exec(buildJsZipDeflateWorkload(), {
-							cwd: SECURE_EXEC_ROOT,
-						}),
-						new Promise<never>((_, reject) => {
-							setTimeout(
-								() =>
-									reject(
-										new Error(
-											`timed out compressed JSZip iteration ${iteration}`,
+					try {
+						const result = await Promise.race([
+							runtime.exec(buildJsZipDeflateWorkload(), {
+								cwd: SECURE_EXEC_ROOT,
+							}),
+							new Promise<never>((_, reject) => {
+								setTimeout(
+									() =>
+										reject(
+											new Error(
+												`timed out compressed JSZip iteration ${iteration}`,
+											),
 										),
-									),
-								15_000,
-							);
-						}),
-					]);
+									15_000,
+								);
+							}),
+						]);
 
-					expect(result.code).toBe(0);
-					const payload = JSON.parse(stdout.join(""));
-					expect(payload).toMatchObject({
-						ok: true,
-						fileCount: 16,
-					});
-					expect(Number(payload.archiveBytes)).toBeLessThan(8_000);
+						expect(result.code).toBe(0);
+						const payload = JSON.parse(stdout.join(""));
+						expect(payload).toMatchObject({
+							ok: true,
+							fileCount: 16,
+						});
+						expect(Number(payload.archiveBytes)).toBeLessThan(8_000);
+					} finally {
+						try {
+							await runtime.terminate();
+						} catch {
+							runtime.dispose();
+						}
+						runtimes.delete(runtime);
+					}
 				}
 			} finally {
-				for (const runtime of runtimesForTest) {
-					try {
-						await runtime.terminate();
-					} catch {
-						runtime.dispose();
-					}
-					runtimes.delete(runtime);
-				}
 				await v8Runtime.dispose();
 			}
 		},

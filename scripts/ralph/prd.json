@@ -101,8 +101,24 @@
         "Touched packages typecheck."
       ],
       "priority": 6,
+      "passes": true,
+      "notes": "Completed by caching bare-specifier polyfill probes plus package-internal resolution results inside read-only `node_modules` trees. The committed benchmark artifacts cut Pi startup `_loadPolyfill` wrapper counts roughly in half (`5240 -> 2523` for Pi SDK startup, `5247 -> 2528` for Pi CLI startup), while a direct sandbox probe now shows the remaining `_loadPolyfill` wrapper calls are unique and only `77` real non-`__bd:*` polyfill-body loads remain during Pi SDK startup. Aggregate `_loadPolyfill` method time in `comparison.md` is still confounded by unique `__bd:*` bridge-dispatch wrappers, so attribution follow-up `US-014` tracks that measurement gap explicitly."
+    },
+    {
+      "id": "US-014",
+      "title": "Split `_loadPolyfill` benchmark attribution from `__bd:*` bridge dispatch",
+      "description": "As a maintainer, I need the module-load benchmark to distinguish real polyfill-body loads from generic `__bd:*` bridge-dispatch wrappers so future stories can tell whether `_loadPolyfill` regressions come from repeated polyfill misses or from other bridge work.",
+      "acceptanceCriteria": [
+        "Committed benchmark artifacts break the current `_loadPolyfill` bucket into at least two signals: real polyfill-body loads and generic `__bd:*` bridge-dispatch wrappers.",
+        "Pi startup scenarios expose copy-ready before/after deltas for both signals so later progress entries do not need ad hoc in-sandbox probes to understand `_loadPolyfill` changes.",
+        "Focused regression coverage or summary tests prove the new attribution stays stable across repeated benchmark reruns.",
+        "Append before/after benchmark deltas to `scripts/ralph/progress.txt` for the affected scenarios, including warm wall time, bridge calls per iteration, and the new `_loadPolyfill` attribution fields.",
+        "Relevant targeted tests pass.",
+        "Touched packages typecheck."
+      ],
+      "priority": 7,
       "passes": false,
-      "notes": "Baseline hotspot: `_loadPolyfill` is `5240` calls and `~860 ms` host bridge time per Pi SDK startup iteration, `5664` calls and `~911 ms` per Pi SDK end-to-end iteration, and `5247` calls with `~905 ms` per Pi CLI startup iteration."
+      "notes": "US-004 removed the repeated wrapper calls it targeted, but the aggregate `_loadPolyfill` method-time signal in `comparison.md` still includes unique `__bd:_resolveModuleSync` / `_loadFileSync` dispatches, which hides the real polyfill-only timing delta."
     },
     {
       "id": "US-005",

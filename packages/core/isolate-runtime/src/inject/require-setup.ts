@@ -4023,6 +4023,13 @@
 
       // Capture the real module cache for internal use before exposing a read-only view
       const __internalModuleCache = _moduleCache;
+      // Memoize polyfill bridge probes per session so repeated bare requires do not
+      // keep crossing the host bridge after the first hit or miss.
+      const __polyfillProbeCache = Object.create(null);
+      // Memoize resolution results for projected node_modules imports. Those trees
+      // are read-only inside moduleAccess, so repeated package-internal requires
+      // can safely reuse the same resolution result or miss.
+      const __moduleResolutionCache = Object.create(null);
 
       const __require = function require(moduleName) {
         return _requireFrom(moduleName, _currentModule.dirname);
@@ -4030,6 +4037,25 @@
       __requireExposeCustomGlobal("require", __require);
 
       function _resolveFrom(moduleName, fromDir) {
+        const resolutionCacheKey = _canMemoizeResolution(moduleName, fromDir)
+          ? fromDir + '\0' + moduleName
+          : null;
+        if (
+          resolutionCacheKey !== null &&
+          Object.prototype.hasOwnProperty.call(
+            __moduleResolutionCache,
+            resolutionCacheKey,
+          )
+        ) {
+          const cached = __moduleResolutionCache[resolutionCacheKey];
+          if (cached === null) {
+            const err = new Error("Cannot find module '" + moduleName + "'");
+            err.code = 'MODULE_NOT_FOUND';
+            throw err;
+          }
+          return cached;
+        }
+
         // Prefer truly synchronous handler when available — the async
         // applySyncPromise pattern can't nest inside synchronous bridge
         // callbacks (e.g. net socket data events that trigger require()).
@@ -4042,9 +4068,15 @@
           resolved = _resolveModule.applySyncPromise(undefined, [moduleName, fromDir, 'require']);
         }
         if (resolved === null) {
+          if (resolutionCacheKey !== null) {
+            __moduleResolutionCache[resolutionCacheKey] = null;
+          }
           const err = new Error("Cannot find module '" + moduleName + "'");
           err.code = 'MODULE_NOT_FOUND';
           throw err;
+        }
+        if (resolutionCacheKey !== null) {
+          __moduleResolutionCache[resolutionCacheKey] = resolved;
         }
         return resolved;
       }
@@ -4052,6 +4084,15 @@
       globalThis.require.resolve = function resolve(moduleName) {
         return _resolveFrom(moduleName, _currentModule.dirname);
       };
+
+      function _canMemoizeResolution(moduleName, fromDir) {
+        return (
+          typeof fromDir === 'string' &&
+          fromDir.indexOf('/node_modules/') !== -1 &&
+          typeof moduleName === 'string' &&
+          moduleName.length > 0
+        );
+      }
 
       function _debugRequire(phase, moduleName, extra) {
         if (globalThis.__sandboxRequireDebug !== true) {
@@ -4090,6 +4131,7 @@
 
         // Check if it's a relative import
         const isRelative = name.startsWith('./') || name.startsWith('../');
+        const isBare = !isRelative && !name.startsWith('/');
 
         // Get cached modules for bare/absolute specifiers up front.
         if (!isRelative && __internalModuleCache[name]) {
@@ -4519,8 +4561,18 @@
           throw new Error(name + ' is not supported in sandbox');
         }
 
-        // Try to load polyfill first (for built-in modules like path, events, etc.)
-        const polyfillCode = _loadPolyfill.applySyncPromise(undefined, [name]);
+        // Only bare specifiers can resolve through the polyfill bridge. Relative
+        // and absolute paths always fall through to regular module resolution, so
+        // skip the bridge entirely for those to avoid repeated null probes.
+        let polyfillCode = null;
+        if (isBare) {
+          if (Object.prototype.hasOwnProperty.call(__polyfillProbeCache, name)) {
+            polyfillCode = __polyfillProbeCache[name];
+          } else {
+            polyfillCode = _loadPolyfill.applySyncPromise(undefined, [name]);
+            __polyfillProbeCache[name] = polyfillCode;
+          }
+        }
         if (polyfillCode !== null) {
           if (__internalModuleCache[name]) return __internalModuleCache[name];
 

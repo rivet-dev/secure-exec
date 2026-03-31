@@ -108,6 +108,10 @@ docs-internal/specs/cli-tool-e2e.md
 - [ ] Reduce `_loadPolyfill` RPC count and repeated payload transfer on Pi startup paths.
   - Current baseline is `5240-5664` `_loadPolyfill` calls per Pi iteration and `~860-911 ms` host bridge time, with BridgeResponse bytes dominating total traffic.
 
+- [ ] Split module-load `_loadPolyfill` attribution between real polyfill loads and `__bd:*` bridge wrappers.
+  - The current benchmark bucket still mixes actual polyfill-body loads with generic dispatch wrappers like `_resolveModuleSync` and `_loadFileSync`, which hides whether a fix removed repeated polyfill misses or only shifted the remaining unique bridge work.
+  - Files: `packages/secure-exec/benchmarks/module-load/summary.ts`, `packages/v8/src/ipc-observability.ts`, `packages/core/isolate-runtime/src/inject/require-setup.ts`
+
 - [ ] Reduce repeated bootstrap, resolver, and filesystem probe overhead in module-load scenarios.
   - Current baseline shows `~1.24 MB` `Execute` payloads per iteration, `_resolveModule` at `34` calls and `~41-46 ms`, and `_fsExists` as high as `44` calls and `~54.9 ms`.
 

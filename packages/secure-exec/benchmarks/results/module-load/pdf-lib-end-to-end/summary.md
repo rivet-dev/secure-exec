@@ -57,22 +57,18 @@ Equivalent lifecycle phases come from `CreateSession -> InjectGlobals -> Execute
 
 ## Comparison To Previous Baseline
 
-Baseline scenario timestamp: 2026-03-31T05:29:25.657Z
+Baseline scenario timestamp: 2026-03-31T05:47:28.174Z
 
-- Warm wall: 346.978 -> 387.063 ms (+40.085 ms (+11.55%))
+- Warm wall: 387.063 -> 387.063 ms (0.000 ms (0.00%))
 - Bridge calls/iteration: 1666.000 -> 1666.000 calls (0.000 calls (0.00%))
-- Warm fixed overhead: 107.320 -> 109.839 ms (+2.519 ms (+2.35%))
-- Warm Create->InjectGlobals: 0.500 -> 0.000 ms (-0.500 ms (-100.00%))
-- Warm InjectGlobals->Execute: 5.000 -> 5.500 ms (+0.500 ms (+10.00%))
+- Warm fixed overhead: 109.839 -> 109.839 ms (0.000 ms (0.00%))
+- Warm Create->InjectGlobals: 0.000 -> 0.000 ms (0.000 ms)
+- Warm InjectGlobals->Execute: 5.500 -> 5.500 ms (0.000 ms (0.00%))
 - Warm ExecutionResult->Destroy: 102.000 -> 102.000 ms (0.000 ms (0.00%))
-- Warm residual overhead: -0.180 -> 2.338 ms (+2.518 ms (-1398.89%))
-- Bridge time/iteration: 64.197 -> 71.049 ms (+6.852 ms (+10.67%))
+- Warm residual overhead: 2.338 -> 2.338 ms (0.000 ms (0.00%))
+- Bridge time/iteration: 71.049 -> 71.049 ms (0.000 ms (0.00%))
 - BridgeResponse encoded bytes/iteration: 1919390.000 -> 1919390.000 bytes (0.000 bytes (0.00%))
 
 | Delta Type | Name | Before | After | Delta |
 | --- | --- | ---: | ---: | ---: |
-| Method time | `_loadPolyfill` | 64.109 | 70.926 | +6.817 |
-| Method time | `_log` | 0.088 | 0.123 | +0.035 |
-| Frame bytes | `send:Ping` | 0.000 | 38.000 | +38.000 |
-| Frame bytes | `recv:Pong` | 0.000 | 38.000 | +38.000 |
 
