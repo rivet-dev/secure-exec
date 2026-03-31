@@ -96,6 +96,7 @@
 - the module-load benchmark harness lives at `packages/secure-exec/benchmarks/module-load/`; run it with `pnpm --filter secure-exec bench:module-load`
 - benchmark artifacts are written under `packages/secure-exec/benchmarks/results/module-load/` and include per-scenario `result.json`, `metrics.prom`, `ipc.ndjson`, and `runner.log`
 - module-load progress reporting now comes from generated `summary.md` / `comparison.md` plus per-scenario `summary.json`; fixed session overhead is derived as `sample.wallMs - ipc_execute.finish.durationMs` from the matching session in `ipc.ndjson`
+- session phase attribution for module-load benchmarks comes from `CreateSession -> InjectGlobals -> Execute -> ExecutionResult -> DestroySession` timestamps in `ipc.ndjson`, and the raw authenticated IPC round-trip numbers live in `transport-rtt.json` / `transport-rtt.md`
 - when writing an ad hoc performance harness, prefer `createNodeV8Runtime({ observability: ... })` plus `createNodeRuntimeDriverFactory({ v8Runtime })` so the benchmark owns the runtime, the logs/metrics, and the cleanup path explicitly
 
 ## Dev Shell

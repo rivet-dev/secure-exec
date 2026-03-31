@@ -1,15 +1,17 @@
 # Pi CLI Startup
 
 Scenario: `pi-cli-startup`
-Generated: 2026-03-31T04:18:31.052Z
+Generated: 2026-03-31T04:43:44.364Z
 Description: Boots the Pi CLI help path inside the sandbox.
 
 ## Progress Copy Fields
 
-- Warm wall mean: 1899.870 ms
+- Warm wall mean: 1924.517 ms
 - Bridge calls/iteration: 5336.000
-- Warm fixed session overhead: 107.644 ms
-- Dominant bridge time: `_loadPolyfill` 964.642 ms/iteration across 5247.000 calls/iteration
+- Warm fixed session overhead: 107.356 ms
+- Scenario IPC connect RTT: 1.000 ms
+- Warm phase attribution: Create->InjectGlobals 0.000 ms, InjectGlobals->Execute 4.500 ms, ExecutionResult->Destroy 102.500 ms, residual 0.356 ms
+- Dominant bridge time: `_loadPolyfill` 897.458 ms/iteration across 5247.000 calls/iteration
 - Dominant bridge response bytes: `_loadPolyfill` 9370068.000 bytes/iteration
 - Dominant frame bytes: `send:BridgeResponse` 9381015.333 bytes/iteration
 
@@ -17,24 +19,34 @@ Description: Boots the Pi CLI help path inside the sandbox.
 
 | Iteration | Wall | Execute | Fixed Overhead | Bridge Calls | Bridge Time |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | 2691.391 ms | 2579.741 ms | 111.650 ms | 5336 | 1423.612 ms |
-| 2 | 1808.662 ms | 1699.966 ms | 108.696 ms | 5336 | 848.222 ms |
-| 3 | 1991.078 ms | 1884.486 ms | 106.592 ms | 5336 | 931.993 ms |
+| 1 | 2406.396 ms | 2291.732 ms | 114.664 ms | 5336 | 1228.403 ms |
+| 2 | 2004.928 ms | 1896.983 ms | 107.945 ms | 5336 | 946.716 ms |
+| 3 | 1844.106 ms | 1737.339 ms | 106.767 ms | 5336 | 818.012 ms |
+
+## Session Phase Attribution
+
+Equivalent lifecycle phases come from `CreateSession -> InjectGlobals -> Execute -> ExecutionResult -> DestroySession` timestamps in `ipc.ndjson`.
+
+| Iteration | Create->InjectGlobals | InjectGlobals->Execute | Execute | ExecutionResult->Destroy | Residual Overhead |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | 3.000 ms | 6.000 ms | 2291.732 ms | 105.000 ms | 0.664 ms |
+| 2 | 0.000 ms | 5.000 ms | 1896.983 ms | 103.000 ms | -0.055 ms |
+| 3 | 0.000 ms | 4.000 ms | 1737.339 ms | 102.000 ms | 0.767 ms |
 
 ## Bridge Methods By Time
 
 | Method | Calls/Iter | Time/Iter | Mean/Call | Response Bytes/Iter |
 | --- | ---: | ---: | ---: | ---: |
-| `_loadPolyfill` | 5247.000 | 964.642 ms | 0.184 ms | 9370068.000 |
-| `_fsExists` | 44.000 | 49.175 ms | 1.118 ms | 2200.000 |
-| `_resolveModule` | 34.000 | 39.102 ms | 1.150 ms | 4795.000 |
-| `_fsMkdir` | 1.000 | 5.269 ms | 5.269 ms | 47.000 |
-| `_fsReadFile` | 2.000 | 2.107 ms | 1.054 ms | 3364.000 |
-| `_fsStat` | 1.000 | 1.686 ms | 1.686 ms | 206.333 |
-| `_fsWriteFile` | 1.000 | 1.487 ms | 1.487 ms | 47.000 |
-| `_fsUtimes` | 1.000 | 1.435 ms | 1.435 ms | 47.000 |
-| `_fsChmod` | 1.000 | 1.420 ms | 1.420 ms | 47.000 |
-| `_fsRmdir` | 1.000 | 1.318 ms | 1.318 ms | 47.000 |
+| `_loadPolyfill` | 5247.000 | 897.458 ms | 0.171 ms | 9370068.000 |
+| `_fsExists` | 44.000 | 42.802 ms | 0.973 ms | 2200.000 |
+| `_resolveModule` | 34.000 | 39.630 ms | 1.166 ms | 4795.000 |
+| `_fsMkdir` | 1.000 | 7.181 ms | 7.181 ms | 47.000 |
+| `_fsReadFile` | 2.000 | 1.828 ms | 0.914 ms | 3364.000 |
+| `_fsWriteFile` | 1.000 | 1.727 ms | 1.727 ms | 47.000 |
+| `_fsUtimes` | 1.000 | 1.692 ms | 1.692 ms | 47.000 |
+| `_fsChmod` | 1.000 | 1.576 ms | 1.576 ms | 47.000 |
+| `_fsStat` | 1.000 | 1.531 ms | 1.531 ms | 206.333 |
+| `_fsReadDir` | 1.000 | 1.184 ms | 1.184 ms | 53.000 |
 
 ## Frame Bytes
 
@@ -52,19 +64,21 @@ Description: Boots the Pi CLI help path inside the sandbox.
 
 ## Comparison To Previous Baseline
 
-Baseline scenario timestamp: 2026-03-31T04:02:11.634Z
+Baseline scenario timestamp: 2026-03-31T04:38:46.573Z
 
-- Warm wall: 1919.521 -> 1899.870 ms (-19.651 ms (-1.02%))
+- Warm wall: 1800.466 -> 1924.517 ms (+124.051 ms (+6.89%))
 - Bridge calls/iteration: 5336.000 -> 5336.000 calls (0.000 calls (0.00%))
-- Warm fixed overhead: 107.798 -> 107.644 ms (-0.154 ms (-0.14%))
-- Bridge time/iteration: 1003.838 -> 1067.942 ms (+64.104 ms (+6.39%))
-- BridgeResponse encoded bytes/iteration: 9381014.667 -> 9381015.333 bytes (+0.666 bytes (0.00%))
+- Warm fixed overhead: 107.912 -> 107.356 ms (-0.556 ms (-0.52%))
+- Warm Create->InjectGlobals: 0.000 -> 0.000 ms (0.000 ms)
+- Warm InjectGlobals->Execute: 5.000 -> 4.500 ms (-0.500 ms (-10.00%))
+- Warm ExecutionResult->Destroy: 102.000 -> 102.500 ms (+0.500 ms (+0.49%))
+- Warm residual overhead: 0.911 -> 0.356 ms (-0.555 ms (-60.92%))
+- Bridge time/iteration: 885.364 -> 997.710 ms (+112.346 ms (+12.69%))
+- BridgeResponse encoded bytes/iteration: 9381015.333 -> 9381015.333 bytes (0.000 bytes (0.00%))
 
 | Delta Type | Name | Before | After | Delta |
 | --- | --- | ---: | ---: | ---: |
-| Method time | `_loadPolyfill` | 899.241 | 964.642 | +65.401 |
-| Method time | `_resolveModule` | 42.821 | 39.102 | -3.719 |
-| Method time | `_fsExists` | 50.061 | 49.175 | -0.886 |
-| Method bytes | `_fsStat` | 205.667 | 206.333 | +0.666 |
-| Frame bytes | `send:BridgeResponse` | 9381014.667 | 9381015.333 | +0.666 |
+| Method time | `_loadPolyfill` | 778.226 | 897.458 | +119.232 |
+| Method time | `_resolveModule` | 52.773 | 39.630 | -13.143 |
+| Method time | `_fsMkdir` | 4.771 | 7.181 | +2.410 |
 

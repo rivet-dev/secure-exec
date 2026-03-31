@@ -1,0 +1,1904 @@
+{
+  "project": "SecureExec",
+  "branchName": "ralph/nodejs-conformance-fixes",
+  "description": "Node.js Conformance Test Fixes — systematically fix bridge/polyfill gaps to maximize pass rate across crypto, http, net, tls, https, dgram, and http2 modules.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Fix crypto KeyObject metadata (asymmetricKeyType, asymmetricKeyDetails)",
+      "description": "As a developer, I need KeyObject instances returned by generateKeyPair to have correct metadata properties.",
+      "acceptanceCriteria": [
+        "KeyObject.asymmetricKeyType returns correct type string (rsa, ec, ed25519, ed448, rsa-pss, dsa, dh, x25519, x448)",
+        "KeyObject.asymmetricKeyDetails returns correct details object (modulusLength, publicExponent for RSA; namedCurve for EC)",
+        "KeyObject.toCryptoKey() converts to WebCrypto CryptoKey",
+        "KeyObject.export() with JWK format returns parsed object, not JSON string",
+        "Run conformance: pnpm vitest run packages/secure-exec/tests/node-conformance/runner.test.ts -t 'node/crypto' 2>&1 | grep -c 'now passes'",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "~11 tests fail on missing asymmetricKeyType/asymmetricKeyDetails. Bridge handler for generateKeyPair needs to populate these from the host crypto result. Check bridge-handlers.ts for crypto dispatch."
+    },
+    {
+      "id": "US-002",
+      "title": "Fix crypto key generation (generateKeyPair for ed25519/ed448, generateKey symmetric)",
+      "description": "As a developer, I need key generation to work for all key types including EdDSA curves and symmetric keys.",
+      "acceptanceCriteria": [
+        "crypto.generateKeyPair('ed25519', ...) invokes callback with valid key pair",
+        "crypto.generateKeyPair('ed448', ...) invokes callback with valid key pair",
+        "crypto.generateKeyPair with encrypted PEM/DER output returns valid encrypted key",
+        "crypto.generateKey('aes', { length: 256 }, ...) generates symmetric key",
+        "crypto.generatePrime() returns valid prime as Buffer",
+        "Run conformance: pnpm vitest run packages/secure-exec/tests/node-conformance/runner.test.ts -t 'node/crypto' — check newly passing tests",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": "~13 tests fail on key generation. generateKeyPair ed25519/ed448 callback not invoked. JWK output as JSON string not parsed object. DSA parameter validation too strict."
+    },
+    {
+      "id": "US-003",
+      "title": "Fix crypto DH/ECDH key agreement",
+      "description": "As a developer, I need Diffie-Hellman and ECDH key agreement to produce correct shared secrets.",
+      "acceptanceCriteria": [
+        "crypto.createDiffieHellman() returns working DH object",
+        "DiffieHellman.generateKeys() returns Buffer (not undefined)",
+        "DiffieHellman.computeSecret() returns correct shared secret Buffer",
+        "crypto.createECDH('secp256k1') and other curves work",
+        "ECDH.generateKeys() and computeSecret() produce correct results",
+        "crypto.diffieHellman({ privateKey, publicKey }) stateless function works",
+        "Buffer encoding parameter ('hex', 'base64') works for all DH methods",
+        "Run conformance for crypto module — check newly passing tests",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "passes": true,
+      "notes": "9 tests fail. DH.generateKeys() returns undefined, computeSecret() returns undefined, buffer encoding not supported, stateless diffieHellman() not implemented."
+    },
+    {
+      "id": "US-004",
+      "title": "Implement crypto.subtle WebCrypto bridge (basic operations)",
+      "description": "As a developer, I need the WebCrypto subtle API to be bridged to the host for core operations.",
+      "acceptanceCriteria": [
+        "crypto.subtle is available and is a SubtleCrypto instance",
+        "crypto.subtle.digest('SHA-256', data) returns ArrayBuffer",
+        "crypto.subtle.importKey() supports raw, pkcs8, spki, jwk formats",
+        "crypto.subtle.exportKey() supports raw, pkcs8, spki, jwk formats",
+        "crypto.subtle.encrypt() and decrypt() work for AES-GCM, AES-CBC, RSA-OAEP",
+        "crypto.getRandomValues() works for TypedArrays",
+        "crypto.randomUUID() returns valid UUID string",
+        "Run conformance for crypto module — check newly passing webcrypto tests",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 4,
+      "passes": true,
+      "notes": "~15 webcrypto tests. Bridge crypto.subtle operations through host dispatch. Check if globalThis.crypto is already exposed or needs wiring."
+    },
+    {
+      "id": "US-005",
+      "title": "Implement crypto.subtle sign/verify and key derivation",
+      "description": "As a developer, I need WebCrypto sign/verify and key derivation operations.",
+      "acceptanceCriteria": [
+        "crypto.subtle.sign() works for RSASSA-PKCS1-v1_5, RSA-PSS, ECDSA, HMAC, Ed25519",
+        "crypto.subtle.verify() works for all corresponding algorithms",
+        "crypto.subtle.generateKey() generates key pairs and symmetric keys",
+        "crypto.subtle.deriveKey() and deriveBits() work for HKDF, PBKDF2, ECDH",
+        "crypto.subtle.wrapKey() and unwrapKey() work for AES-KW",
+        "Run conformance for crypto module — check newly passing webcrypto tests",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 5,
+      "passes": true,
+      "notes": "~15 webcrypto tests for sign/verify/derive/wrap. These bridge through to host WebCrypto API."
+    },
+    {
+      "id": "US-006",
+      "title": "Fix Cipher/Decipher streaming and crypto error codes",
+      "description": "As a developer, I need Cipher/Decipher to work as Transform streams and crypto functions to throw proper ERR_* codes.",
+      "acceptanceCriteria": [
+        "crypto.createCipheriv() returns object that extends Transform stream (supports .pipe(), .on('data'))",
+        "crypto.createDecipheriv() returns object that extends Transform stream",
+        "crypto.createHash() returns object that extends Transform stream (supports .pipe())",
+        "CCM cipher mode with authTagLength parameter works",
+        "crypto.pbkdf2() throws ERR_INVALID_ARG_TYPE for invalid arguments (not plain TypeError)",
+        "crypto.publicEncrypt() returns Buffer (not undefined)",
+        "crypto.privateDecrypt() returns Buffer (not undefined)",
+        "Run conformance for crypto module — check newly passing tests",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 6,
+      "passes": true,
+      "notes": "4 Cipher/Decipher streaming tests + ~18 error code tests. Hash/Cipher objects need to extend Transform. Error validation needs ERR_* codes instead of plain TypeError."
+    },
+    {
+      "id": "US-007",
+      "title": "Update crypto expectations and regenerate conformance report",
+      "description": "As a developer, I need the crypto conformance expectations cleaned up and the report regenerated.",
+      "acceptanceCriteria": [
+        "Run full crypto conformance suite: pnpm vitest run packages/secure-exec/tests/node-conformance/runner.test.ts -t 'node/crypto'",
+        "All genuinely passing tests have their expectations removed from expectations.json",
+        "Remaining failures have specific, accurate reasons (not vague categories)",
+        "Vacuous self-skip tests (common.hasCrypto=false) are marked vacuous-skip with reason",
+        "Tests requiring --expose-internals are marked requires-v8-flags",
+        "Regenerate report: pnpm tsx scripts/generate-node-conformance-report.ts",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 7,
+      "passes": true,
+      "notes": "Cleanup story. ~13 tests will remain as vacuous-skip, ~8 as requires-v8-flags, ~4 as unsupported-module. All fixable tests should be passing by now."
+    },
+    {
+      "id": "US-008",
+      "title": "Fix bridge bootstrap so NodeRuntime works outside vitest",
+      "description": "As a developer, I need NodeRuntime.run() and NodeRuntime.exec() to work from standalone Node.js scripts, not only inside vitest.",
+      "acceptanceCriteria": [
+        "Identify why the bridge IIFE (isolate-runtime.ts) fails to inject CJS globals (require, module, exports, process, console, Buffer) when NodeRuntime is instantiated from a standalone script via dist/ output",
+        "Fix the bootstrap so that `new NodeRuntime({ systemDriver: createNodeDriver(), runtimeDriverFactory: createNodeRuntimeDriverFactory() })` followed by `runtime.exec('console.log(1)')` works from a standalone `node --input-type=module -e '...'` script",
+        "Verify: `runtime.exec('console.log(\"hello\")')` completes with code 0 and the onStdio hook receives 'hello'",
+        "Verify: `runtime.exec('const fs = require(\"node:fs\"); console.log(typeof fs.readFileSync)')` completes with code 0 (require works)",
+        "Add a smoke test in packages/secure-exec/tests/ that imports from dist/ (not source) and runs a basic exec — this prevents future regressions",
+        "Verify kernel path: kernel.spawn('node', ['-e', 'console.log(1)'], { onStdout }) captures '1' — same bridge bootstrap, just through kernel dispatch",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 8,
+      "passes": true,
+      "notes": "RELEASE BLOCKER. The bridge IIFE that injects CJS globals crashes during bootstrap when run outside vitest. Even `1+1` fails because the bootstrap itself references require. The vitest transform pipeline does something (likely TypeScript path resolution or module format handling) that makes it work. Check packages/core/src/generated/isolate-runtime.ts and how it's loaded by the runtime driver."
+    },
+    {
+      "id": "US-009",
+      "title": "Fix module.exports capture in NodeRuntime.run()",
+      "description": "As a developer, I need runtime.run() to return the module's exports so I can get typed return values from sandbox code.",
+      "acceptanceCriteria": [
+        "runtime.run('module.exports = { message: \"hello\" }') returns result with exports.message === 'hello'",
+        "runtime.run('module.exports = 42') returns result with exports === 42",
+        "runtime.run('export const answer = 42', '/entry.mjs') returns result with exports.answer === 42 (ESM mode)",
+        "runtime.run('module.exports = { a: 1, b: [2,3] }') preserves nested structures in exports",
+        "Verify from standalone script (not vitest): node --input-type=module -e 'import { NodeRuntime, createNodeDriver, createNodeRuntimeDriverFactory } from \"./packages/secure-exec/dist/index.js\"; ...'",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 9,
+      "passes": true,
+      "notes": "runtime.run() completes with exit code 0 but result.exports is always undefined. The export extraction in runtimeDriver.run() isn't capturing module.exports. May be related to US-008 bridge bootstrap issue — if require is undefined, module.exports assignment can't work either."
+    },
+    {
+      "id": "US-010",
+      "title": "Fix HTTP agent keepalive and connection management",
+      "description": "As a developer, I need HTTP agent connection pooling and keepalive to match Node.js behavior.",
+      "acceptanceCriteria": [
+        "http.Agent with keepAlive:true reuses connections for subsequent requests to same host:port",
+        "Agent.maxSockets limits concurrent connections per origin",
+        "Agent.maxTotalSockets limits total concurrent connections across all origins",
+        "Agent.maxFreeSockets limits idle connections in pool",
+        "Agent keepalive timeout closes idle connections after msecs",
+        "Agent.getName() returns correct key for connection pooling",
+        "Run conformance: pnpm vitest run packages/secure-exec/tests/node-conformance/runner.test.ts -t 'node/http' — check newly passing agent tests",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 10,
+      "passes": true,
+      "notes": "~8 agent tests fail: test-http-agent-keepalive.js, test-http-agent-maxsockets.js, test-http-agent-maxtotalsockets.js, test-http-agent-destroyed-socket.js, etc."
+    },
+    {
+      "id": "US-011",
+      "title": "Fix HTTP server edge cases (CONNECT, upgrade, 1xx responses)",
+      "description": "As a developer, I need HTTP server to handle CONNECT method, WebSocket upgrades, and informational responses.",
+      "acceptanceCriteria": [
+        "server.on('connect') fires for HTTP CONNECT requests with correct (req, socket, head) args",
+        "server.on('upgrade') fires for WebSocket upgrade requests",
+        "response.writeHead(100) sends HTTP 100 Continue informational response",
+        "response.writeHead(103) sends HTTP 103 Early Hints",
+        "response.writeProcessing() sends 102 Processing",
+        "Run conformance for http module — check newly passing tests",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 11,
+      "passes": true,
+      "notes": "test-http-after-connect.js, test-http-information-headers.js, test-http-upgrade-*.js. CONNECT and upgrade need socket tunneling support."
+    },
+    {
+      "id": "US-012",
+      "title": "Fix HTTP client timeout, abort, and error handling",
+      "description": "As a developer, I need HTTP client requests to handle timeouts, aborts, and errors correctly.",
+      "acceptanceCriteria": [
+        "request.setTimeout(ms) fires 'timeout' event after ms milliseconds",
+        "request.abort() triggers 'abort' event and closes underlying socket",
+        "AbortController signal aborts in-flight requests",
+        "Socket errors propagate as 'error' events on the request",
+        "request.destroy() immediately terminates the request",
+        "Run conformance for http module — check newly passing tests",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 12,
+      "passes": true,
+      "notes": "test-http-client-timeout-option.js, test-http-abort-client.js, test-http-client-abort-*.js. Timeout and abort lifecycle events."
+    },
+    {
+      "id": "US-013",
+      "title": "Fix HTTP header validation and method handling",
+      "description": "As a developer, I need HTTP header validation and method listing to match Node.js behavior.",
+      "acceptanceCriteria": [
+        "http.METHODS array contains all standard HTTP methods",
+        "Invalid header characters throw ERR_INVALID_HTTP_TOKEN",
+        "Invalid path characters throw ERR_UNESCAPED_CHARACTERS or equivalent",
+        "Header names are validated per RFC 7230",
+        "Duplicate headers are handled correctly (set-cookie arrays, comma-join others)",
+        "Run conformance for http module — check newly passing tests",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 13,
+      "passes": true,
+      "notes": "test-http-methods.js, test-http-client-invalid-path.js, test-http-invalidheaderfield2.js, test-http-invalid-path-chars.js."
+    },
+    {
+      "id": "US-014",
+      "title": "Fix HTTP pipeline, chunked encoding, and transfer edge cases",
+      "description": "As a developer, I need HTTP pipelining and transfer encoding to work correctly.",
+      "acceptanceCriteria": [
+        "HTTP pipelining: multiple requests on same connection are handled sequentially",
+        "Chunked transfer encoding: server sends chunked responses correctly",
+        "Transfer-Encoding and Content-Length interaction matches Node.js behavior",
+        "response.write() with cork/uncork batches data correctly",
+        "Trailer headers sent after chunked body",
+        "Run conformance for http module — check newly passing tests",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 14,
+      "passes": true,
+      "notes": "test-http-pipeline-*.js, test-http-chunk-problem.js, test-http-transfer-encoding-*.js, test-http-response-cork.js."
+    },
+    {
+      "id": "US-015",
+      "title": "Update HTTP expectations and regenerate conformance report",
+      "description": "As a developer, I need HTTP conformance expectations cleaned up after fixes.",
+      "acceptanceCriteria": [
+        "Run full http conformance: pnpm vitest run packages/secure-exec/tests/node-conformance/runner.test.ts -t 'node/http'",
+        "All genuinely passing tests have expectations removed",
+        "Remaining failures have specific reasons",
+        "Tests requiring --expose-internals or process.execPath are properly categorized",
+        "Regenerate report: pnpm tsx scripts/generate-node-conformance-report.ts",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 15,
+      "passes": true,
+      "notes": "Cleanup story for HTTP module. ~11 tests need --expose-internals, ~4 need execPath — these stay as expected failures."
+    },
+    {
+      "id": "US-016",
+      "title": "Fix net.Socket methods (setKeepAlive, setNoDelay, ref/unref, address)",
+      "description": "As a developer, I need net.Socket to expose all standard methods.",
+      "acceptanceCriteria": [
+        "socket.setKeepAlive(enable, initialDelay) configures TCP keepalive",
+        "socket.setNoDelay(noDelay) disables/enables Nagle's algorithm",
+        "socket.ref() and socket.unref() control event loop reference counting",
+        "socket.address() returns { port, family, address } for connected socket",
+        "socket.localAddress and socket.localPort return correct values",
+        "socket.remoteAddress, socket.remotePort, socket.remoteFamily return correct values",
+        "Run conformance: pnpm vitest run packages/secure-exec/tests/node-conformance/runner.test.ts -t 'node/net' — check newly passing tests",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 16,
+      "passes": true,
+      "notes": "net.Socket API surface gaps. setKeepAlive and setNoDelay should pass through to kernel socket options via setsockopt. ref/unref control event loop."
+    },
+    {
+      "id": "US-017",
+      "title": "Fix net.Socket events (close, end, error, timeout, drain, connect)",
+      "description": "As a developer, I need net.Socket to emit all standard events in the correct order.",
+      "acceptanceCriteria": [
+        "'connect' event fires when connection is established",
+        "'data' event fires with Buffer for each received chunk",
+        "'end' event fires when remote end sends FIN (half-close)",
+        "'close' event fires after socket is fully closed (after 'end')",
+        "'error' event fires for connection errors with proper Error object",
+        "'timeout' event fires after socket.setTimeout(ms) idle timeout",
+        "'drain' event fires when write buffer is flushed",
+        "Event ordering matches Node.js: connect → data → end → close",
+        "Run conformance for net module — check newly passing tests",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 17,
+      "passes": true,
+      "notes": "Most net test failures are missing events. The kernel socket table handles data transport but the bridge NetSocket class needs proper event emission."
+    },
+    {
+      "id": "US-018",
+      "title": "Fix net.Server API (getConnections, maxConnections, allowHalfOpen, listen options)",
+      "description": "As a developer, I need net.Server to support all standard configuration and query methods.",
+      "acceptanceCriteria": [
+        "server.getConnections(callback) returns current connection count",
+        "server.maxConnections limits accepted connections",
+        "net.createServer({ allowHalfOpen: true }) keeps socket readable after remote FIN",
+        "server.listen({ port, host, backlog, exclusive }) supports all options",
+        "server.listen(handle) accepts existing socket handle",
+        "server.close() stops accepting new connections, existing connections finish",
+        "server.address() returns { port, family, address } after listening",
+        "Run conformance for net module — check newly passing tests",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 18,
+      "passes": true,
+      "notes": "net.Server configuration gaps. getConnections needs kernel process table query. allowHalfOpen needs shutdown(SHUT_WR) support."
+    },
+    {
+      "id": "US-019",
+      "title": "Fix net.connect options and edge cases",
+      "description": "As a developer, I need net.connect to handle all connection options and edge cases.",
+      "acceptanceCriteria": [
+        "net.connect({ port, host }) with explicit host works",
+        "net.connect({ path }) connects to Unix domain socket",
+        "net.createConnection() is alias for net.connect()",
+        "net.isIP(), net.isIPv4(), net.isIPv6() validation functions work",
+        "socket.destroy() during connection emits close without error",
+        "Multiple writes before connect queues data (cork behavior)",
+        "Run conformance for net module — check newly passing tests",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 19,
+      "passes": true,
+      "notes": "net.connect option handling and edge cases. Unix path connects through kernel AF_UNIX sockets."
+    },
+    {
+      "id": "US-020",
+      "title": "Update net expectations and regenerate conformance report",
+      "description": "As a developer, I need net conformance expectations cleaned up after fixes.",
+      "acceptanceCriteria": [
+        "Run full net conformance: pnpm vitest run packages/secure-exec/tests/node-conformance/runner.test.ts -t 'node/net'",
+        "All genuinely passing tests have expectations removed",
+        "Update the test-net-*.js glob pattern reason to be specific about remaining gaps",
+        "Regenerate report: pnpm tsx scripts/generate-node-conformance-report.ts",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 20,
+      "passes": true,
+      "notes": "Cleanup story for net module."
+    },
+    {
+      "id": "US-021",
+      "title": "Load TLS fixture files into conformance test VFS",
+      "description": "As a developer, I need TLS test fixtures (certificates, keys) loaded into the VFS so TLS/HTTPS tests can find them.",
+      "acceptanceCriteria": [
+        "The conformance runner's loadFixtureFiles() function loads all files from fixtures/ recursively into VFS at /test/fixtures/",
+        "TLS certificate files (*.pem, *.crt, *.key, *.pfx) are loaded as binary (Uint8Array)",
+        "Verify fixtures are accessible: a test reading /test/fixtures/keys/agent1-cert.pem gets valid PEM content",
+        "Verify common/fixtures.js path helper resolves correctly inside VFS",
+        "Run conformance for tls module: pnpm vitest run packages/secure-exec/tests/node-conformance/runner.test.ts -t 'node/tls' — check if fixture-dependent tests now pass",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 21,
+      "passes": true,
+      "notes": "~169 TLS/HTTPS test failures are from missing fixture files. The runner already has loadFixtureFiles() but the fixtures directory may not have the upstream Node.js test fixtures vendored. Check if fixtures need to be copied from Node.js source."
+    },
+    {
+      "id": "US-022",
+      "title": "Fix TLS API gaps (createSecureContext, context options, certificate validation)",
+      "description": "As a developer, I need core TLS APIs to work for conformance tests.",
+      "acceptanceCriteria": [
+        "tls.createSecureContext({ key, cert, ca }) returns valid context",
+        "tls.connect({ host, port, secureContext }) establishes TLS connection",
+        "tls.createServer({ key, cert }) creates TLS server",
+        "Server and client exchange data over TLS",
+        "Certificate validation: rejectUnauthorized option works",
+        "tls.getCiphers() returns array of supported cipher names",
+        "Run conformance for tls module — check newly passing tests",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 22,
+      "passes": true,
+      "notes": "Core TLS API surface. TLS handshake happens in host adapter. Bridge needs to expose createSecureContext, connect, createServer."
+    },
+    {
+      "id": "US-023",
+      "title": "Fix TLS SNI, ALPN, and session resumption",
+      "description": "As a developer, I need advanced TLS features for conformance tests.",
+      "acceptanceCriteria": [
+        "SNI: server.addContext(hostname, context) for virtual hosting",
+        "SNI: servername option in tls.connect() sends SNI extension",
+        "ALPN: ALPNProtocols option in server and client for protocol negotiation",
+        "Session resumption: tlsSocket.getSession() returns session buffer",
+        "Session resumption: session option in tls.connect() resumes previous session",
+        "tlsSocket.getPeerCertificate() returns certificate details object",
+        "Run conformance for tls module — check newly passing tests",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 23,
+      "passes": true,
+      "notes": "Advanced TLS features. SNI and ALPN go through host adapter TLS options. Session resumption needs session state caching. Current exact remaining red vendored files include test-tls-legacy-pfx.js and test-tls-set-ciphers.js."
+    },
+    {
+      "id": "US-024",
+      "title": "Update tls/https expectations and regenerate conformance report",
+      "description": "As a developer, I need tls and https conformance expectations cleaned up after fixes.",
+      "acceptanceCriteria": [
+        "Run full tls conformance: pnpm vitest run packages/secure-exec/tests/node-conformance/runner.test.ts -t 'node/tls'",
+        "Run full https conformance: pnpm vitest run packages/secure-exec/tests/node-conformance/runner.test.ts -t 'node/https'",
+        "All genuinely passing tests have expectations removed",
+        "Vacuous self-skip tests (common.hasCrypto=false) properly categorized",
+        "Remaining failures have specific reasons",
+        "Regenerate report: pnpm tsx scripts/generate-node-conformance-report.ts",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 24,
+      "passes": true,
+      "notes": "Cleanup story for tls and https modules. Current vacuous/self-skip cleanup set includes test-https-client-renegotiation-limit.js, test-https-connect-address-family.js, test-https-foafssl.js, test-tls-alert-handling.js, test-tls-alert.js, test-tls-client-renegotiation-limit.js, test-tls-connect-address-family.js, test-tls-destroy-whilst-write.js, test-tls-dhe.js, test-tls-ecdh-auto.js, test-tls-ecdh-multiple.js, test-tls-ecdh.js, test-tls-ocsp-callback.js, test-tls-psk-server.js, test-tls-securepair-server.js, test-tls-server-verify.js, and test-tls-session-cache.js."
+    },
+    {
+      "id": "US-025",
+      "title": "Implement dgram.Socket API bridge (createSocket, bind, send, close)",
+      "description": "As a developer, I need the dgram module bridged so UDP socket operations work in the sandbox.",
+      "acceptanceCriteria": [
+        "dgram.createSocket('udp4') returns Socket instance",
+        "dgram.createSocket('udp6') returns Socket instance",
+        "socket.bind(port, address, callback) binds to local address via kernel UDP",
+        "socket.send(msg, port, address, callback) sends datagram",
+        "socket.close(callback) closes socket",
+        "socket.address() returns { address, family, port } after bind",
+        "'message' event fires with (msg, rinfo) on received datagram",
+        "'listening' event fires after successful bind",
+        "Run conformance: pnpm vitest run packages/secure-exec/tests/node-conformance/runner.test.ts -t 'node/dgram' — check newly passing tests",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 25,
+      "passes": true,
+      "notes": "Kernel UDP (SocketTable sendTo/recvFrom) already works. This story bridges the dgram Node.js API to kernel UDP sockets. ~30 tests depend on basic send/recv."
+    },
+    {
+      "id": "US-026",
+      "title": "Implement dgram multicast, broadcast, and socket options",
+      "description": "As a developer, I need dgram multicast and broadcast for conformance tests.",
+      "acceptanceCriteria": [
+        "socket.setBroadcast(flag) enables/disables broadcast",
+        "socket.setMulticastTTL(ttl) sets multicast time-to-live",
+        "socket.setMulticastLoopback(flag) enables/disables loopback",
+        "socket.addMembership(multicastAddress, multicastInterface) joins multicast group",
+        "socket.dropMembership(multicastAddress, multicastInterface) leaves multicast group",
+        "socket.setTTL(ttl) sets unicast TTL",
+        "socket.setRecvBufferSize(size) and socket.setSendBufferSize(size) work",
+        "Run conformance for dgram module — check newly passing tests",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 26,
+      "passes": true,
+      "notes": "Multicast operations go through host adapter. setBroadcast/setMulticastTTL are socket options passed through kernel setsockopt."
+    },
+    {
+      "id": "US-027",
+      "title": "Update dgram expectations and regenerate conformance report",
+      "description": "As a developer, I need dgram conformance expectations cleaned up after fixes.",
+      "acceptanceCriteria": [
+        "Run full dgram conformance: pnpm vitest run packages/secure-exec/tests/node-conformance/runner.test.ts -t 'node/dgram'",
+        "All genuinely passing tests have expectations removed",
+        "Update test-dgram-*.js glob pattern with specific remaining gap reasons",
+        "Regenerate report: pnpm tsx scripts/generate-node-conformance-report.ts",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 27,
+      "passes": true,
+      "notes": "Cleanup story for dgram module."
+    },
+    {
+      "id": "US-028",
+      "title": "Implement http2 session and stream basics (connect, request, respond)",
+      "description": "As a developer, I need basic HTTP/2 client and server functionality.",
+      "acceptanceCriteria": [
+        "http2.createServer(options) creates HTTP/2 server",
+        "http2.createSecureServer(options) creates HTTP/2 server over TLS",
+        "http2.connect(authority) creates client session",
+        "session.request(headers) creates client stream",
+        "Server 'stream' event fires with (stream, headers) for incoming requests",
+        "stream.respond(headers) sends response headers",
+        "stream.end(data) sends response body and closes stream",
+        "Run conformance: pnpm vitest run packages/secure-exec/tests/node-conformance/runner.test.ts -t 'node/http2' — check newly passing tests",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 28,
+      "passes": true,
+      "notes": "HTTP/2 is a major subsystem. This story covers basic request/response lifecycle. h2 framing goes through host adapter's http2 module. Current exact red vendored files for this bucket include test-http2-create-client-session.js, test-http2-create-client-connect.js, test-http2-connect.js, test-http2-connect-options.js, test-http2-create-client-secure-session.js, test-http2-client-request-options-errors.js, test-http2-client-onconnect-errors.js, and test-http2-server-startup.js."
+    },
+    {
+      "id": "US-029",
+      "title": "Implement http2 server push, settings, and GOAWAY",
+      "description": "As a developer, I need HTTP/2 server push, settings negotiation, and connection management.",
+      "acceptanceCriteria": [
+        "stream.pushStream(headers, callback) creates push promise stream",
+        "session.settings(settings) updates HTTP/2 settings",
+        "session.localSettings and session.remoteSettings return current settings",
+        "session.goaway(code) sends GOAWAY frame and closes session",
+        "session.close() gracefully closes the session",
+        "session.destroy() immediately destroys the session",
+        "'goaway' event fires when peer sends GOAWAY",
+        "Run conformance for http2 module — check newly passing tests",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 29,
+      "passes": true,
+      "notes": "HTTP/2 advanced features. Server push, settings frames, and GOAWAY connection management. Current exact red vendored files for this bucket include test-http2-server-push-stream.js, test-http2-server-push-stream-head.js, test-http2-server-push-stream-errors.js, test-http2-server-push-stream-errors-args.js, test-http2-session-settings.js, test-http2-update-settings.js, test-http2-goaway-delayed-request.js, and test-http2-goaway-opaquedata.js."
+    },
+    {
+      "id": "US-030",
+      "title": "Implement http2 flow control, errors, and compatibility mode",
+      "description": "As a developer, I need HTTP/2 flow control, error handling, and HTTP/1 compatibility.",
+      "acceptanceCriteria": [
+        "Stream flow control: window size updates, backpressure via 'drain' event",
+        "RST_STREAM: stream.close(code) resets individual streams",
+        "Error codes: NGHTTP2_* constants available",
+        "http2.createServer({ allowHTTP1: true }) handles HTTP/1 connections on same port",
+        "Compatibility API: req/res objects in 'request' event match http.IncomingMessage/ServerResponse",
+        "Run conformance for http2 module — check newly passing tests",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 30,
+      "passes": true,
+      "notes": "HTTP/2 flow control and compatibility. allowHTTP1 mode lets server handle both h1 and h2. Current exact red vendored files for this bucket include test-http2-misbehaving-flow-control.js, test-http2-misbehaving-flow-control-paused.js, test-http2-client-setLocalWindowSize.js, test-http2-server-setLocalWindowSize.js, test-http2-error-order.js, test-http2-status-code-invalid.js, test-h2-large-header-cause-client-to-hangup.js, and test-stream-pipeline-http2.js."
+    },
+    {
+      "id": "US-031",
+      "title": "Update http2 expectations and regenerate final conformance report",
+      "description": "As a developer, I need http2 expectations cleaned up and a final comprehensive report generated.",
+      "acceptanceCriteria": [
+        "Run full http2 conformance: pnpm vitest run packages/secure-exec/tests/node-conformance/runner.test.ts -t 'node/http2'",
+        "All genuinely passing tests have expectations removed",
+        "Update test-http2-*.js glob pattern with specific remaining gap reasons",
+        "Run FULL conformance suite (all modules): pnpm vitest run packages/secure-exec/tests/node-conformance/runner.test.ts",
+        "Regenerate report: pnpm tsx scripts/generate-node-conformance-report.ts",
+        "Commit updated conformance-report.json and nodejs-conformance-report.mdx",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 31,
+      "passes": true,
+      "notes": "Final cleanup story. Current generated baseline on 2026-03-25 is 915/3532 total pass, 882/3532 genuine pass, 2550 expected fail, and 72 skip. Run entire conformance suite, update all expectations, regenerate both JSON and docs reports after the remaining conformance buckets below land."
+    },
+    {
+      "id": "US-052",
+      "title": "Implement fs.promises FileHandle parity and FileHandle-backed stream support",
+      "description": "As a developer, I need Node-compatible FileHandle behavior so fs.promises and FileHandle-backed response paths stop failing conformance.",
+      "acceptanceCriteria": [
+        "fs.promises FileHandle objects support the open/read/write/close paths required by the vendored conformance suite",
+        "FileHandle-backed stream helpers behave closely enough for the remaining fs and http2 conformance paths",
+        "HTTP/2 respondWithFile/respondWithFD paths can consume FileHandle-backed resources where Node expects them to",
+        "Run focused conformance for the FileHandle-backed fs/http2 tests tracked in the story notes",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 31.1,
+      "passes": true,
+      "notes": "Current exact red vendored files for this bucket include test-fs-promises-file-handle-readFile.js, test-fs-promises-file-handle-stream.js, test-fs-promises-file-handle-writeFile.js, test-fs-promises-file-handle-read-worker.js, test-fs-read-stream-file-handle.js, test-fs-write-stream-file-handle.js, test-fs-write-stream-file-handle-2.js, and test-http2-respond-file-filehandle.js."
+    },
+    {
+      "id": "US-053",
+      "title": "Implement fs stream, fd overload, and binary parity",
+      "description": "As a developer, I need fs read/write overloads and stream behavior to match Node.js for the remaining binary and fd-path conformance tests.",
+      "acceptanceCriteria": [
+        "fs read/write overloads accept the fd and buffer forms used by the vendored conformance files",
+        "Read and write stream behavior matches Node.js closely enough for the remaining fs stream coverage",
+        "Binary/buffer-oriented fs operations no longer diverge on the remaining tracked conformance files",
+        "Run focused conformance for the fs stream/fd/binary tests tracked in the story notes",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 31.2,
+      "passes": true,
+      "notes": "Current exact red vendored files for this bucket include test-fs-buffertype-writesync.js, test-fs-write-buffer-large.js, test-fs-readSync-optional-params.js, test-fs-readv.js, test-fs-readv-sync.js, test-fs-write-sync-optional-params.js, test-fs-writev.js, test-fs-writev-sync.js, test-fs-read-stream.js, test-fs-read-stream-inherit.js, test-fs-write-stream.js, test-fs-stream-options.js, and test-fs-stream-fs-options.js."
+    },
+    {
+      "id": "US-054",
+      "title": "Implement fs validation, ERR_* parity, and monkey-patchable fs exports",
+      "description": "As a developer, I need Node-style fs validation and error-shape parity so Node-facing fs API tests stop failing on bridge/polyfill differences.",
+      "acceptanceCriteria": [
+        "fs validation paths throw Node-compatible ERR_* codes and messages for the tracked conformance files",
+        "Monkey-patchable fs export behavior remains compatible with the vendored Node tests",
+        "Node-specific fs surface gaps are fixed in the bridge/runtime layer rather than hidden behind generic POSIX stories",
+        "Run focused conformance for the validation and error-shape tests tracked in the story notes",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 31.3,
+      "passes": true,
+      "notes": "Current exact red vendored files for this bucket include test-fs-chmod.js, test-fs-fchmod.js, test-fs-fchown.js, test-fs-lchown.js, test-fs-close-errors.js, test-fs-exists.js, test-fs-open.js, test-fs-make-callback.js, test-fs-makeStatsCallback.js, test-fs-non-number-arguments-throw.js, test-fs-chown-type-check.js, test-fs-fsync.js, test-fs-link.js, test-fs-readlink-type-check.js, test-fs-rename-type-check.js, test-fs-rmdir-type-check.js, test-fs-unlink-type-check.js, and test-fs-assert-encoding-error.js."
+    },
+    {
+      "id": "US-055",
+      "title": "Implement fs.watch/fs.watchFile semantics or explicitly defer them as an architectural limitation",
+      "description": "As a developer, I need the remaining fs watcher failures either implemented honestly or explicitly deferred as unsupported architecture rather than left untracked.",
+      "acceptanceCriteria": [
+        "The remaining watcher cluster is either implemented with real semantics or reclassified with an explicit architectural limitation rationale",
+        "Any implementation routes through the real runtime/kernel path instead of test-only scaffolding",
+        "Expectation reasons for remaining watcher failures are specific and honest",
+        "Run focused conformance for the watcher tests tracked in the story notes",
+        "Update expectations/report/docs to reflect the implemented or explicitly deferred state",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 31.4,
+      "passes": true,
+      "notes": "Current exact watcher cluster includes test-fs-promises-watch.js, test-fs-watch.js, test-fs-watchfile.js, test-fs-options-immutable.js, test-fs-watch-encoding.js, test-fs-watch-file-enoent-after-deletion.js, test-fs-watch-recursive-add-file-to-existing-subfolder.js, test-fs-watch-recursive-add-file-to-new-folder.js, test-fs-watch-recursive-add-file.js, test-fs-watch-recursive-assert-leaks.js, test-fs-watch-recursive-delete.js, test-fs-watch-recursive-linux-parallel-remove.js, test-fs-watch-recursive-sync-write.js, test-fs-watch-recursive-update-file.js, test-fs-watch-stop-async.js, test-fs-watch-stop-sync.js, test-fs-watch-close-when-destroyed.js, test-fs-watch-ref-unref.js, and test-fs-watchfile-ref-unref.js."
+    },
+    {
+      "id": "US-056",
+      "title": "Implement WHATWG URL and URLSearchParams parity, including Node ERR_* behavior",
+      "description": "As a developer, I need WHATWG URL and URLSearchParams behavior to match Node.js on the remaining vendored conformance cases.",
+      "acceptanceCriteria": [
+        "URL and URLSearchParams behavior matches Node.js closely enough for the tracked conformance files",
+        "Node-specific ERR_* behavior around WHATWG URL operations is preserved where the vendored tests expect it",
+        "Run focused conformance for the WHATWG URL tests tracked in the story notes",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 31.5,
+      "passes": true,
+      "notes": "Current exact red vendored files for this bucket include test-whatwg-url-canparse.js, test-whatwg-url-custom-parsing.js, test-whatwg-url-custom-searchparams.js, test-whatwg-url-custom-searchparams-append.js, test-whatwg-url-custom-searchparams-delete.js, test-whatwg-url-custom-searchparams-get.js, test-whatwg-url-custom-searchparams-getall.js, test-whatwg-url-custom-searchparams-has.js, test-whatwg-url-custom-searchparams-set.js, test-whatwg-url-custom-deepequal.js, test-whatwg-url-custom-global.js, test-whatwg-url-custom-inspect.js, test-whatwg-url-custom-searchparams-sort.js, test-whatwg-url-custom-setters.js, test-whatwg-url-invalidthis.js, test-whatwg-url-override-hostname.js, and test-whatwg-url-properties.js."
+    },
+    {
+      "id": "US-057",
+      "title": "Implement WHATWG encoding and EventTarget parity",
+      "description": "As a developer, I need the remaining WHATWG encoding and EventTarget gaps closed so the vendored web-platform-facing tests stop failing.",
+      "acceptanceCriteria": [
+        "TextEncoder/TextDecoder and related WHATWG encoding behavior match Node.js closely enough for the tracked conformance files",
+        "EventTarget/Event/CustomEvent option handling and constructors match the remaining tracked Node tests",
+        "Run focused conformance for the WHATWG encoding and events tests tracked in the story notes",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 31.6,
+      "passes": true,
+      "notes": "Current exact red vendored files for this bucket include test-whatwg-encoding-custom-api-basics.js, test-whatwg-encoding-custom-fatal-streaming.js, test-whatwg-encoding-custom-textdecoder-api-invalid-label.js, test-whatwg-encoding-custom-textdecoder-fatal.js, test-whatwg-encoding-custom-textdecoder-ignorebom.js, test-whatwg-encoding-custom-textdecoder-invalid-arg.js, test-whatwg-encoding-custom-textdecoder-streaming.js, test-whatwg-encoding-custom-textdecoder-utf16-surrogates.js, test-whatwg-events-add-event-listener-options-passive.js, test-whatwg-events-add-event-listener-options-signal.js, test-whatwg-events-customevent.js, test-whatwg-events-eventtarget-this-of-listener.js, and test-whatwg-events-event-constructors.js."
+    },
+    {
+      "id": "US-058",
+      "title": "Implement stream/web, WHATWG Web Streams adapters, and util.MIMEType parity",
+      "description": "As a developer, I need the remaining Web Streams adapter and MIMEType behavior to match Node.js for the vendored WHATWG conformance cases.",
+      "acceptanceCriteria": [
+        "stream/web and WHATWG Web Streams adapters are exposed with Node-compatible behavior for the tracked conformance files",
+        "Readable byte stream, BYOB, transfer, compression, and encoding adapter paths behave closely enough for the tracked tests",
+        "util.MIMEType / related WHATWG MIME coverage works for the remaining tracked conformance files",
+        "Run focused conformance for the Web Streams and MIME tests tracked in the story notes",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 31.7,
+      "passes": true,
+      "notes": "Current exact red vendored files for this bucket include test-whatwg-readablebytestream.js, test-whatwg-readablebytestream-bad-buffers-and-views.js, test-whatwg-readablestream.js, test-whatwg-transformstream.js, test-whatwg-writablestream.js, test-whatwg-webstreams-adapters-streambase.js, test-whatwg-webstreams-adapters-to-readablestream.js, test-whatwg-webstreams-adapters-to-readablewritablepair.js, test-whatwg-webstreams-adapters-to-streamduplex.js, test-whatwg-webstreams-adapters-to-streamreadable.js, test-whatwg-webstreams-adapters-to-streamwritable.js, test-whatwg-webstreams-adapters-to-writablestream.js, test-whatwg-webstreams-coverage.js, test-whatwg-webstreams-transfer.js, test-whatwg-readablebytestreambyob.js, test-whatwg-webstreams-compression.js, test-whatwg-webstreams-encoding.js, and test-mime-whatwg.js."
+    },
+    {
+      "id": "US-059",
+      "title": "Implement http2 respondWithFile/respondWithFD/FileHandle parity",
+      "description": "As a developer, I need HTTP/2 file response helpers to match Node.js behavior for the remaining vendored file-serving tests.",
+      "acceptanceCriteria": [
+        "http2 respondWithFile/respondWithFD paths match Node.js closely enough for the tracked vendored conformance files",
+        "The implementation coordinates correctly with the fs/FileHandle stories instead of duplicating incompatible file abstractions",
+        "Range, error, abort, and push interactions for HTTP/2 file responses behave closely enough for the tracked tests",
+        "Run focused conformance for the http2 file-response tests tracked in the story notes",
+        "Remove expectations.json entries for tests that now pass",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 31.8,
+      "passes": true,
+      "notes": "Current exact red vendored files for this bucket include test-http2-respond-file.js, test-http2-respond-file-fd.js, test-http2-respond-file-fd-invalid.js, test-http2-respond-file-fd-range.js, test-http2-respond-file-range.js, test-http2-respond-file-errors.js, test-http2-respond-with-fd-errors.js, test-http2-respond-file-filehandle.js, test-http2-respond-file-with-pipe.js, test-http2-respond-file-push.js, and test-http2-respond-with-file-connection-abort.js."
+    },
+    {
+      "id": "US-032",
+      "title": "Fix cross-runtime kernel network integration regressions",
+      "description": "As a developer, I need the Node.js ↔ WasmVM kernel networking path to work end-to-end so the cross-runtime proof story is actually true.",
+      "acceptanceCriteria": [
+        "Fix packages/secure-exec/tests/kernel/cross-runtime-network.test.ts so all scenarios pass locally and in CI",
+        "WasmVM tcp_server ↔ Node.js net.connect exchanges data through kernel loopback and the Node side observes the reply",
+        "Node.js http.createServer ↔ WasmVM http_get registers a listener in kernel.socketTable and serves the response through the kernel path",
+        "Do not weaken or delete the failing assertions in cross-runtime-network.test.ts to make the story pass",
+        "Run: pnpm exec vitest run packages/secure-exec/tests/kernel/cross-runtime-network.test.ts",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 32,
+      "passes": true,
+      "notes": "US-036 from the previous PRD was marked done, but the signature cross-runtime proof test is currently red."
+    },
+    {
+      "id": "US-033",
+      "title": "Enforce deny-by-default kernel network permissions",
+      "description": "As a developer, I need kernel socket operations to fail closed when no network policy is configured.",
+      "acceptanceCriteria": [
+        "KernelImpl wires a network permission callback into SocketTable when the kernel is created",
+        "SocketTable.connect/listen/send/sendTo/externalListen deny by default when no allow rule is configured",
+        "Loopback routing to kernel-owned listeners remains allowed without requiring a host-network allow rule",
+        "packages/core/test/kernel/network-permissions.test.ts no longer treats 'no policy = no enforcement' as correct behavior",
+        "Add or update tests covering deny-by-default behavior at the kernel level, not only on standalone SocketTable instances",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 33,
+      "passes": true,
+      "notes": "Current code documents deny-by-default in SocketTable but only enforces when networkCheck exists, and KernelImpl does not provide one."
+    },
+    {
+      "id": "US-034",
+      "title": "Eliminate remaining Node bridge networking bypasses",
+      "description": "As a developer, I need Node.js networking to use the kernel path consistently instead of shortcutting around it.",
+      "acceptanceCriteria": [
+        "Loopback http.request/https.request no longer dispatch directly to an in-process server listener without opening a kernel socket",
+        "Bridge networkFetchRaw and networkHttpRequestRaw do not bypass kernel routing/policy with a direct adapter call for the kernel-backed path",
+        "SSRF and network policy checks for the kernel-backed path have a single source of truth in kernel-mediated permission enforcement",
+        "Any retained fallback path is explicitly documented as legacy and excluded from kernel-consolidation completion claims",
+        "Add or update tests proving loopback HTTP traffic exercises kernel socket routing rather than direct same-process dispatch",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 34,
+      "passes": true,
+      "notes": "Current loopback HTTP client requests short-circuit in bridge/network.ts, and external fetch/httpRequest still go straight through the adapter."
+    },
+    {
+      "id": "US-035",
+      "title": "Respect omitted network capability in standalone Node runtime",
+      "description": "As a developer, I need omitted network adapters to keep networking unavailable instead of silently provisioning host access.",
+      "acceptanceCriteria": [
+        "If SystemDriver.network is omitted, standalone NodeRuntime does not automatically provision host network access for net/http/socket operations",
+        "Any internal SocketTable provisioning for standalone mode respects capability omission and fails unavailable/denied by contract",
+        "Add regression tests covering omitted network adapter behavior for net.connect and http/fetch client operations",
+        "Update relevant contracts/docs if the intended capability model changes",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 35,
+      "passes": true,
+      "notes": "NodeExecutionDriver currently provisions createNodeHostNetworkAdapter() when no socket table is injected."
+    },
+    {
+      "id": "US-036",
+      "title": "Replace regex-based Node loader source transforms",
+      "description": "As a developer, I need Node module loading to stop relying on regex rewrites that violate repo policy and can drift from real semantics.",
+      "acceptanceCriteria": [
+        "Remove regex-based ESM detection/dynamic import rewriting from the active Node loader path",
+        "Do not use convertEsmToCjs/isESM/transformDynamicImport-style regex transforms in the bridge loading path for JavaScript/TypeScript source",
+        "Use parser-backed or engine-backed module classification and loading consistent with the repo's code transformation policy",
+        "Add regression coverage for tricky import/export cases that regex transforms previously mishandled",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 36,
+      "passes": true,
+      "notes": "US-056 improved targeted parity, but the implementation still depends on regex-based source transforms in active loader paths."
+    },
+    {
+      "id": "US-037",
+      "title": "Implement full WasmVM sigaction semantics",
+      "description": "As a developer, I need the WasmVM signal bridge to carry real sigaction semantics instead of a reduced signal()/default/ignore shim.",
+      "acceptanceCriteria": [
+        "The Wasm host import for signal registration carries enough information to represent handler disposition, mask, and flags",
+        "Kernel worker and driver preserve sigaction mask/flags instead of hardcoding empty mask and zero flags",
+        "WasmVM user code can exercise SA_RESTART and SA_RESETHAND semantics through the libc-facing signal API",
+        "The wasi-libc patch exposes the required sigaction behavior rather than only a signal() wrapper",
+        "Add or update WasmVM tests covering sigaction flags and masked delivery behavior",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 37,
+      "passes": true,
+      "notes": "Current WasmVM signal support is cooperative and minimal; it does not faithfully carry sigaction masks/flags through the stack."
+    },
+    {
+      "id": "US-038",
+      "title": "Validate socket ownership against the kernel process table",
+      "description": "As a developer, I need socket ownership to be tied to real kernel processes so process cleanup and isolation rules are meaningful.",
+      "acceptanceCriteria": [
+        "SocketTable.create validates that the owner pid exists when used in a kernel-mediated environment",
+        "Kernel-exposed socket creation paths do not allow allocating sockets for nonexistent processes",
+        "Tests no longer rely on creating sockets for arbitrary fake PIDs and treating that as correct behavior",
+        "Add regression coverage for invalid PID ownership errors and normal process-exit socket cleanup",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 38,
+      "passes": true,
+      "notes": "Current integration tests intentionally create sockets for nonexistent PID 99999, which undermines the ownership semantics claimed in the prior PRD."
+    },
+    {
+      "id": "US-039",
+      "title": "Correct vacuous pass accounting in Node conformance expectations",
+      "description": "As a developer, I need self-skipping conformance tests to stop inflating the genuine pass count.",
+      "acceptanceCriteria": [
+        "Node conformance expectations that pass only via self-skip are categorized as vacuous-skip instead of genuine pass",
+        "The runner summary does not count vacuous self-skips as genuine passing tests",
+        "Audit existing expectations.json entries for reasons like 'passes via common.hasCrypto skip path' and classify them correctly",
+        "Regenerate any derived conformance counts/docs affected by the classification change",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 39,
+      "passes": true,
+      "notes": "Current runner logic only special-cases category=vacuous-skip, but several pass entries already admit they only pass via self-skip."
+    },
+    {
+      "id": "US-040",
+      "title": "Add hard CI guards for story-critical Wasm C artifacts",
+      "description": "As a developer, I need CI to fail when required Wasm C binaries for story verification are missing instead of silently skipping the suites.",
+      "acceptanceCriteria": [
+        "CI has explicit hard-fail coverage for the C-built Wasm binaries required by net-server, net-udp, net-unix, signal-handler, and cross-runtime-network tests",
+        "Story-critical Wasm C integration suites do not rely solely on describe.skipIf(skipReason()) for missing artifacts in CI",
+        "Document the required build step or guard location for future contributors",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 40,
+      "passes": true,
+      "notes": "Standalone command binaries already have a CI guard, but the C-built story artifacts still disappear behind skip guards when missing."
+    },
+    {
+      "id": "US-041",
+      "title": "Strengthen kernel networking tests against overfitting",
+      "description": "As a developer, I need network verification that catches shared bugs instead of validating only mocked or same-code paths.",
+      "acceptanceCriteria": [
+        "Add real-server control tests for network features where the client side is validated independently of the server side",
+        "Add wire-level or protocol-level verification for loopback HTTP/TLS behavior where both ends currently go through project code",
+        "Add project-matrix or equivalent black-box coverage for kernel-backed HTTP server/client behavior using a real package where practical",
+        "Do not rely solely on MockHostSocket/MockHostListener unit tests for external routing stories",
+        "Update docs-internal/nodejs-compat-roadmap.md or related verification docs if the required mitigations change",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 41,
+      "passes": true,
+      "notes": "Current lower-level tests are heavily mock-based, and a same-repo loopback HTTP bridge test passing did not prevent the end-to-end cross-runtime failure."
+    },
+    {
+      "id": "US-042",
+      "title": "Retarget kernel-consolidation verification suites away from legacy adapter paths",
+      "description": "As a developer, I need the verification suites for kernel-consolidation work to exercise the kernel-backed runtime path instead of the legacy default-network adapter path.",
+      "acceptanceCriteria": [
+        "Identify tests that were used as evidence for kernel-consolidation stories but still instantiate createDefaultNetworkAdapter/useDefaultNetwork legacy paths",
+        "Add or migrate coverage so kernel-consolidation completion claims are backed by createNodeRuntime/kernel-mounted execution where appropriate",
+        "Preserve legacy adapter-path tests as compatibility coverage, but do not use them as proof that kernel migration work is complete",
+        "Document the distinction between legacy adapter-path coverage and kernel-backed coverage in the relevant roadmap/review docs",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 42,
+      "passes": true,
+      "notes": "Several existing Node suites still validate the standalone default-network path, which inflated confidence in the kernel migration stories."
+    },
+    {
+      "id": "US-043",
+      "title": "Implement VFS correctness primitives for POSIX file semantics",
+      "description": "As a developer, I need correct inode and directory semantics in the in-memory VFS so the kernel matches POSIX behavior for file creation, truncation, links, and readdir.",
+      "acceptanceCriteria": [
+        "Implement O_EXCL in kernel fdOpen so O_CREAT|O_EXCL returns EEXIST when the target already exists",
+        "Implement O_TRUNC in kernel fdOpen so opening an existing file with O_TRUNC truncates it to zero bytes",
+        "Add a monotonic inode allocator so each new file and directory gets a unique ino value instead of 0",
+        "Track nlink correctly for regular files, directories, and hard links",
+        "readdir/listDirEntries synthesizes '.' and '..' entries with correct parent/self behavior",
+        "Add kernel integration tests that exercise these behaviors through the real kernel and VFS, not mocks",
+        "Run targeted tests for packages/core kernel/VFS coverage",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 43,
+      "passes": true,
+      "notes": "Reference: docs-internal/posix-gaps-audit.md. Primary files: packages/core/src/kernel/kernel.ts and packages/core/src/shared/in-memory-fs.ts."
+    },
+    {
+      "id": "US-044",
+      "title": "Add unified blocking I/O wait primitives to the JS kernel",
+      "description": "As a developer, I need blocking kernel operations to suspend and wake correctly instead of returning EAGAIN for blocking callers.",
+      "acceptanceCriteria": [
+        "Add a reusable wait/wake mechanism with timeout support for kernel blocking operations",
+        "Blocking pipe write in pipe-manager.ts suspends the writer when the buffer is full and wakes when readers drain data",
+        "Blocking flock in file-lock.ts waits for lock release when LOCK_NB is not set and preserves non-blocking EAGAIN semantics for LOCK_NB",
+        "poll timeout -1 blocks indefinitely until an event occurs instead of hardcapping to 30 seconds",
+        "The implementation is exercised through real kernel integration tests rather than mocks",
+        "Add tests for blocking pipe writes, blocking flock, and indefinite poll wake-up behavior",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 44,
+      "passes": true,
+      "notes": "Reference: docs-internal/posix-gaps-audit.md. Primary files: packages/core/src/kernel/pipe-manager.ts, packages/core/src/kernel/file-lock.ts, and packages/core/src/drivers/."
+    },
+    {
+      "id": "US-045",
+      "title": "Implement deferred unlink with inode-backed open-file lifetime",
+      "description": "As a developer, I need unlinked files with open descriptors to remain accessible until the last FD closes.",
+      "acceptanceCriteria": [
+        "removeFile removes the directory entry immediately but preserves file data while open FD references remain",
+        "Kernel FD open/close paths maintain inode-backed open reference counts",
+        "The final close of an unlinked file releases the underlying inode data",
+        "Path lookups fail immediately after unlink while existing file descriptors continue to work",
+        "Add integration tests covering unlink-with-open-FD, access after unlink via FD, and deletion after final close",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 45,
+      "passes": true,
+      "notes": "This depends on inode allocation/refcount work from the VFS correctness story."
+    },
+    {
+      "id": "US-046",
+      "title": "Implement signal handler registry and signal masking in the JS kernel",
+      "description": "As a developer, I need sigaction and sigprocmask semantics so processes can catch, defer, and restart around signals.",
+      "acceptanceCriteria": [
+        "Add a per-process signal handler table supporting registered handlers, SIG_IGN, and SIG_DFL",
+        "Implement sigaction(signal, handler, flags) with support for SA_RESTART and SA_RESETHAND",
+        "Implement per-process signal masks via sigprocmask(how, set)",
+        "Blocked signals are queued in a pending signal queue and delivered when unmasked",
+        "When a handler is registered, signal delivery invokes the handler instead of the default action",
+        "Add real kernel integration tests for handler registration, masking/unmasking, pending delivery, SA_RESTART, and SA_RESETHAND",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 46,
+      "passes": true,
+      "notes": "Build on existing kernel signal delivery in packages/core/src/kernel/kernel.ts and process-table logic."
+    },
+    {
+      "id": "US-047",
+      "title": "Build TCP server socket lifecycle in the JS kernel",
+      "description": "As a developer, I need bind/listen/accept support so the kernel can host passive TCP listeners with proper backlog behavior.",
+      "acceptanceCriteria": [
+        "Implement bind(fd, addr, port) for server sockets",
+        "Implement listen(fd, backlog) and a pending connection queue with enforced backlog limit",
+        "Implement accept(fd) returning a new connected socket FD",
+        "Listening sockets report readable in poll when connections are pending",
+        "Driver-side integration uses Node.js net.createServer() for host-backed TCP listeners where required",
+        "Add kernel integration tests exercising bind/listen/accept/poll through the real kernel path",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 47,
+      "passes": true,
+      "notes": "Reference: docs-internal/posix-gaps-audit.md. This is the main server-socket foundation for POSIX networking."
+    },
+    {
+      "id": "US-048",
+      "title": "Implement AF_UNIX stream and datagram sockets in-kernel",
+      "description": "As a developer, I need Unix domain sockets for local IPC patterns like docker.sock, ssh-agent, and socket activation.",
+      "acceptanceCriteria": [
+        "Implement AF_UNIX namespace registration keyed by VFS path",
+        "Support bind/connect/listen/accept for AF_UNIX SOCK_STREAM sockets",
+        "Support AF_UNIX SOCK_DGRAM semantics with path-based addressing",
+        "Implement socketpair() for anonymous connected Unix socket pairs",
+        "Implement shutdown() half-close behavior for AF_UNIX streams",
+        "Binding a Unix socket path creates the appropriate VFS entry and cleanup behavior",
+        "Add kernel integration tests covering stream, datagram, socketpair, connect-by-path, and shutdown behavior through the real kernel",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 48,
+      "passes": true,
+      "notes": "AF_UNIX is entirely in-kernel and should not depend on host networking."
+    },
+    {
+      "id": "US-049",
+      "title": "Add UDP transport support to the JS kernel",
+      "description": "As a developer, I need connectionless datagram transport with source-address reporting.",
+      "acceptanceCriteria": [
+        "Implement sendto(fd, buf, addr, port) and recvfrom(fd, buf) with source address reporting",
+        "UDP sockets do not use the TCP connection state machine",
+        "Driver-side integration uses Node.js dgram for host-backed UDP where required",
+        "Add real kernel integration tests for UDP sendto/recvfrom behavior through the actual kernel path",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 49,
+      "passes": true,
+      "notes": "Reference: docs-internal/posix-gaps-audit.md. Keep the kernel transport semantics separate from later wasi-ext/C wiring."
+    },
+    {
+      "id": "US-050",
+      "title": "Implement socket options and per-call send/recv flags",
+      "description": "As a developer, I need basic setsockopt/getsockopt and per-call flags across socket types.",
+      "acceptanceCriteria": [
+        "Add a per-socket options map in the kernel with setsockopt/getsockopt support",
+        "Support at minimum SO_REUSEADDR, SO_KEEPALIVE, TCP_NODELAY, SO_RCVBUF, and SO_SNDBUF",
+        "TCP_NODELAY passes through to host TCP sockets where applicable",
+        "SO_REUSEADDR affects bind behavior for server sockets",
+        "Implement MSG_PEEK and MSG_DONTWAIT for send/recv style operations",
+        "Add real kernel integration tests for socket options and per-call flags across supported socket types",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 50,
+      "passes": true,
+      "notes": "This story enhances the socket types built by the TCP, AF_UNIX, and UDP stories."
+    },
+    {
+      "id": "US-051",
+      "title": "Populate /proc entries for process and FD introspection",
+      "description": "As a developer, I need core /proc entries so programs can inspect process metadata and open descriptors.",
+      "acceptanceCriteria": [
+        "Populate /proc/self/exe with the process binary path via symlink or readable entry semantics",
+        "Populate /proc/self/cwd as a symlink-like entry to the current working directory",
+        "Populate /proc/self/environ with process environment variables",
+        "Populate /proc/self/fd as a dynamic directory listing current open FD numbers",
+        "The implementation is provided by the real kernel/device layer rather than test-only scaffolding",
+        "Add integration tests covering the above /proc entries through the actual kernel",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 51,
+      "passes": true,
+      "notes": "Lower urgency than the core POSIX data path work, but required for many userland tools."
+    },
+    {
+      "id": "US-060",
+      "title": "Reclassify remaining Node conformance failures by implementation intent",
+      "description": "As a developer, I need the remaining Node.js conformance failures grouped by implementability so the project targets the achievable compatibility surface explicitly.",
+      "acceptanceCriteria": [
+        "Audit every remaining non-passing Node.js conformance test and classify it into exactly one of: implementable, will not implement, or cannot implement",
+        "Use specific, verifiable reasons for each classification rather than broad catch-all notes",
+        "The classification distinguishes product-policy exclusions from hard architectural/runtime impossibilities",
+        "Update the conformance expectations/reporting/docs so the grouped status is visible from the maintained conformance artifacts",
+        "Document that the conformance completion target for this PRD is 100% of the implementable bucket, not 100% of the upstream suite",
+        "Identify any tests currently misclassified between will not implement and cannot implement",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 52,
+      "passes": true,
+      "notes": "This story is the planning/cleanup boundary after the current pending implementation work. 'implementable' means achievable within the SecureExec sandbox model and current product direction; 'will not implement' means intentionally out of product scope or rejected by policy/contract; 'cannot implement' means blocked by fundamental sandbox/runtime constraints unless the architecture itself changes."
+    },
+    {
+      "id": "US-061",
+      "title": "Investigate Pi programmatic SDK path with real-provider tokens",
+      "description": "As a developer, I need Pi's highest-level programmatic integration surface to run end-to-end through SecureExec using real provider credentials so we know whether a true SDK path is viable before investing further in CLI-only coverage.",
+      "acceptanceCriteria": [
+        "Identify Pi's actual supported programmatic surface in this repo version (for example package import entrypoints such as createAgentSession) and document the exact API exercised",
+        "Add an opt-in end-to-end test or harness that runs Pi through the secure-exec sandbox using provider tokens loaded at runtime from ~/misc/env.txt or equivalent exported env vars, without committing secrets",
+        "The coverage uses real provider traffic rather than the mock LLM server, fetch-intercept.cjs, or a fake base URL redirect",
+        "Verify one prompt completes end-to-end and produces non-empty assistant output through the chosen Pi programmatic surface",
+        "Verify at least one real file/tool action works through the sandbox if the programmatic surface supports tools; otherwise document the exact limitation",
+        "If Pi does not expose a stable SDK/programmatic surface or sandbox execution fails because of an upstream/runtime/library issue, append a new blocked follow-up story to prd.json with exact package, version, repro, and proposed unblock path before marking this story complete",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 53,
+      "passes": true,
+      "notes": "Validated Pi v0.60.0's documented SDK surface (`createAgentSession()` + `SessionManager.inMemory()` + `createCodingTools()`) with runtime-loaded Anthropic credentials and an opt-in SecureExec harness. Host Node completes the prompt and `read` tool path successfully. The sandbox harness reproduces a real blocker instead of a mock-path success: importing Pi through NodeRuntime fails while compiling `dist/config.js` with `SyntaxError: Identifier '__filename' has already been declared`, so a blocked follow-up story is required before headless/PTY real-token proof can pass."
+    },
+    {
+      "id": "US-067",
+      "title": "Fix Pi SDK import in NodeRuntime when Pi modules declare __filename",
+      "description": "As a developer, I need Pi's SDK modules to import inside SecureExec's NodeRuntime without colliding with the runtime's CommonJS wrapper globals, so the real-provider SDK path can progress beyond bootstrap.",
+      "acceptanceCriteria": [
+        "Reproduce the current blocker with `SECURE_EXEC_PI_REAL_PROVIDER_E2E=1 pnpm vitest run packages/secure-exec/tests/cli-tools/pi-sdk-real-provider.test.ts`",
+        "SecureExec can import `@mariozechner/pi-coding-agent@0.60.0` through NodeRuntime without `SyntaxError: Identifier '__filename' has already been declared` while compiling `dist/config.js`",
+        "The fix applies at the runtime/module-loader layer rather than by patching Pi locally",
+        "The Pi SDK real-provider harness advances past bootstrap and either completes successfully or exposes the next concrete blocker",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 53.1,
+      "passes": true,
+      "notes": "Fixed in the SecureExec runtime/module-loader layer. `transformSourceForRequire*()` now injects an internal file-URL helper for `import.meta.url` and marks require-transformed ESM, while the isolate CommonJS loader keeps wrapper filename/dirname on private parameter names and only synthesizes local `__filename`/`__dirname` bindings for plain CommonJS sources. Result: importing `@mariozechner/pi-coding-agent@0.60.0` through NodeRuntime no longer fails with `SyntaxError: Identifier '__filename' has already been declared`; the Pi import chain now advances to the next concrete blocker (`ENOENT` for `dist/package.json`)."
+    },
+    {
+      "id": "US-068",
+      "title": "Fix Pi package asset discovery after SDK import bootstrap",
+      "description": "As a developer, I need Pi's package metadata and bundled assets to resolve correctly inside SecureExec after the import bootstrap succeeds, so the SDK can continue booting beyond `dist/config.js`.",
+      "acceptanceCriteria": [
+        "Reproduce the new blocker after US-067 by importing `@mariozechner/pi-coding-agent@0.60.0` through NodeRuntime and observing the `ENOENT` for `dist/package.json`",
+        "SecureExec resolves Pi's package metadata/assets from the actual package root instead of trying to open `dist/package.json`",
+        "The fix applies in SecureExec's runtime/module/filesystem layer rather than by patching Pi locally",
+        "The Pi SDK real-provider harness advances beyond package-dir/bootstrap asset discovery and either completes successfully or exposes the next concrete blocker",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 53.2,
+      "passes": true,
+      "notes": "Next blocker exposed by US-067. Exact repro as of 2026-03-26: after the `__filename` collision fix, importing `@mariozechner/pi-coding-agent@0.60.0` through NodeRuntime reaches `dist/config.js` and then fails with `ENOENT: no such file or directory, open '<repo>/node_modules/.pnpm/.../@mariozechner/pi-coding-agent/dist/package.json'`. Proposed unblock path: inspect how the sandboxed FS / path resolution is handling Pi's package-root detection and why `getPackageDir()` stops at `dist/` instead of the package root."
+    },
+    {
+      "id": "US-062",
+      "title": "Make Pi headless mode pass end-to-end with real-provider tokens",
+      "description": "As a developer, I need Pi's non-interactive/headless path to run through the sandbox with real credentials so the CLI/tooling path is verified without mocks.",
+      "acceptanceCriteria": [
+        "Run Pi headless mode through the secure-exec sandbox path, not a host-only spawn workaround",
+        "Load provider credentials at runtime from ~/misc/env.txt or exported env vars, without committing secrets",
+        "Do not use the mock LLM server or fetch-intercept.cjs for the success path; the test must exercise real outbound provider requests",
+        "Verify Pi can boot, answer a prompt, and exit cleanly in headless/print mode",
+        "Verify at least one filesystem action and one command/tool action work end-to-end through the sandboxed headless flow",
+        "Any existing host-spawn or mock-only Pi headless test that was previously treated as proof of end-to-end support is replaced, narrowed, or clearly relabeled so it is no longer mistaken for real-token sandbox coverage",
+        "If a Pi library/runtime/provider issue blocks completion, append a new blocked follow-up story to prd.json with exact repro details before marking this story complete",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 54,
+      "passes": true,
+      "notes": "Current Pi headless coverage in packages/secure-exec/tests/cli-tools/pi-headless.test.ts uses a mock Anthropic server plus NODE_OPTIONS preload interception. This story is specifically to prove the real-token path."
+    },
+    {
+      "id": "US-079",
+      "title": "Add sandbox Pi SDK file-edit coverage through createCodingTools",
+      "description": "As a developer, I need the Pi SDK sandbox tests to prove that Pi can actually create or edit files through SecureExec's filesystem layer, not just read them.",
+      "acceptanceCriteria": [
+        "Add a sandboxed Pi SDK regression under packages/secure-exec/tests/cli-tools/ that runs Pi through NodeRuntime with createAgentSession() and createCodingTools(workDir)",
+        "Use a deterministic tool-driving path that forces a Pi write/edit tool call from inside the sandbox, rather than mutating files directly from the host after the session starts",
+        "Assert that the expected file is created or modified on disk through the sandboxed NodeRuntime + NodeFileSystem path",
+        "Assert Pi emits tool_execution_start and tool_execution_end events for the write/edit operation",
+        "The test must execute Pi inside the SecureExec sandbox, not via host node spawn",
+        "The fix must land in SecureExec's filesystem/runtime/tool bridge layers so the unmodified Pi package works as-is inside the sandbox; do not patch Pi, special-case Pi in SecureExec, or paper over the failure in the test harness",
+        "If Pi's coding tools use a different file-mutation tool name than write/edit, document the exact surfaced tool contract in the test",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 54.1,
+      "passes": true,
+      "notes": "Current Pi SDK sandbox coverage proves bootstrap/import, real-provider session execution, and mock-driven bash execution, but it does not yet prove sandbox file mutation. The existing write proof in packages/secure-exec/tests/cli-tools/pi-headless.test.ts is host-spawn CLI compatibility coverage, not SDK-in-sandbox proof."
+    },
+    {
+      "id": "US-080",
+      "title": "Make Pi SDK coverage explicitly prove the real-token, subprocess, and filesystem matrix",
+      "description": "As a developer, I need the Pi SDK test suite to make it explicit which combinations of real-provider traffic, subprocess tools, and filesystem mutation are actually covered, so we do not overclaim end-to-end support.",
+      "acceptanceCriteria": [
+        "Document and enforce the intended Pi SDK coverage matrix across the sandbox test suite: real-provider session execution, sandbox subprocess/bash execution, and sandbox filesystem mutation",
+        "At least one sandboxed Pi SDK test uses real provider credentials loaded from exported env vars or ~/misc/env.txt",
+        "At least one sandboxed Pi SDK test proves a subprocess tool path such as bash through SecureExec's sandbox command routing",
+        "At least one sandboxed Pi SDK test proves filesystem mutation through createCodingTools(workDir) and verifies the resulting file contents",
+        "The matrix must reflect the behavior of the unmodified Pi package inside SecureExec; do not count host-spawn fallbacks, Pi patches, or Pi-specific runtime exceptions as proof of sandbox support",
+        "If any axis of the matrix is still only covered by a host-spawn compatibility test or a mock-only path, note that limitation explicitly in the PRD/test naming instead of treating it as full sandbox proof",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 54.2,
+      "passes": true,
+      "notes": "Coverage matrix documented and enforced: pi-sdk-coverage-matrix.test.ts declares all axes, verifies test files exist, and requires mock-only limitations to be documented. Test names include axis labels ([subprocess/bash], [filesystem/write], [filesystem/edit], [real-provider/read]). Real-provider covers read tool only; subprocess and filesystem mutation are mock-provider-backed (noted explicitly)."
+    },
+    {
+      "id": "US-081",
+      "title": "Prove Pi SDK permission-denial behavior in the sandbox",
+      "description": "As a developer, I need Pi SDK tool flows to fail cleanly when SecureExec denies filesystem, network, or subprocess capabilities, so the sandbox policy surface is trustworthy under the SDK.",
+      "acceptanceCriteria": [
+        "Add sandboxed Pi SDK regressions that deny filesystem mutation, outbound network, and subprocess execution separately while exercising createAgentSession() + createCodingTools(workDir)",
+        "Each regression proves Pi surfaces a clean tool failure or denied-operation result rather than hanging, crashing, or masking the denial",
+        "Verify the denied capability remains denied through the actual SecureExec permissions/kernel/runtime path, not by removing the tool from Pi or changing the prompt to avoid tool usage",
+        "At least one regression asserts that allowed capabilities continue to work while the denied capability fails, so the test does not collapse into a broad runtime misconfiguration",
+        "The fix must land in SecureExec's permissions/kernel/runtime layers so the unmodified Pi package behaves correctly under policy",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 54.3,
+      "passes": true,
+      "notes": "Three permission-denial regressions in pi-sdk-permission-denial.test.ts: (1) deny-fs-write — write tool fails with isError=true while read tool succeeds, (2) deny-subprocess — bash tool fails with isError=true while write tool succeeds and creates file, (3) deny-network — SDK surfaces clean error when network is denied, mock server receives zero requests. Coverage matrix updated with three new axes."
+    },
+    {
+      "id": "US-082",
+      "title": "Harden Pi SDK filesystem path safety against traversal and escape paths",
+      "description": "As a developer, I need Pi SDK file tools to respect sandbox filesystem boundaries even when prompts or tool inputs try relative traversal, symlinks, or host-absolute escape paths.",
+      "acceptanceCriteria": [
+        "Add sandboxed Pi SDK regressions for path traversal attempts such as ../ escapes, host-absolute targets outside the intended worktree, and symlink-mediated escapes if the underlying filesystem supports them",
+        "Verify Pi can still read and edit allowed in-workdir files while out-of-bound targets are denied by SecureExec's real filesystem/permission path",
+        "Do not fix the issue by filtering prompts, patching Pi's tool implementation, or adding Pi-specific path allowlists in SecureExec",
+        "Any fix must land in SecureExec's filesystem, module-access, or permissions layers so the unmodified Pi package works correctly and safely",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 54.4,
+      "passes": true,
+      "notes": "Pi's coding tools accept filesystem paths from model tool-use payloads. SecureExec needs explicit regression coverage proving those paths cannot escape the sandbox boundary through traversal or symlink tricks."
+    },
+    {
+      "id": "US-083",
+      "title": "Prove Pi SDK subprocess semantics for bash success, failure, stderr, and interruption",
+      "description": "As a developer, I need Pi SDK subprocess tools to preserve SecureExec's command semantics for stdout, stderr, exit status, and interruption, so command-based automation behaves like a real shell inside the sandbox.",
+      "acceptanceCriteria": [
+        "Extend sandboxed Pi SDK coverage beyond the current bash happy path to include a successful command, a non-zero exit, stderr-producing output, and an interrupted or cancelled long-running command",
+        "Assert the surfaced Pi tool result preserves stdout/stderr content and exit status rather than flattening everything into an opaque generic error",
+        "Verify the interruption path actually terminates the sandbox subprocess rather than only cancelling the outer test task",
+        "Do not patch Pi or special-case bash output formatting in SecureExec to satisfy the test",
+        "Any fix must land in SecureExec's WasmVM/kernel/process/child-process bridge layers so the unmodified Pi package sees correct command behavior",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 54.5,
+      "passes": true,
+      "notes": "Created createNodeHostCommandExecutor() in packages/nodejs/src/host-command-executor.ts to provide real subprocess execution for standalone NodeRuntime. Tests in pi-sdk-subprocess-semantics.test.ts prove: (1) stdout content preserved in tool result, (2) non-zero exit status and output preserved, (3) stderr content preserved, (4) session disposal terminates long-running subprocess within timeout. The root cause was that standalone NodeRuntime had no CommandExecutor — it defaulted to an ENOSYS stub."
+    },
+    {
+      "id": "US-084",
+      "title": "Validate Pi SDK session lifecycle and multi-turn reuse in SecureExec",
+      "description": "As a developer, I need createAgentSession() to survive repeated turns and disposal/recreation patterns inside SecureExec without leaking state or tripping disposed-runtime failures.",
+      "acceptanceCriteria": [
+        "Add sandboxed Pi SDK regressions that reuse one createAgentSession() across multiple turns and also create, dispose, and recreate sessions against the same runtime/workdir",
+        "Verify repeated turns can perform filesystem and tool actions without stale state, leaked handles, or disposed-runtime/isolate errors",
+        "If a failure appears, fix the underlying SecureExec runtime/session/bridge lifecycle bug rather than resetting more state in the test harness or altering Pi's usage pattern",
+        "The final behavior must support the unmodified Pi SDK lifecycle expected by downstream embedders",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 54.6,
+      "passes": true,
+      "notes": "This is the Pi-specific follow-through for the broader NodeRuntime lifecycle questions: the SDK path should prove what is supported for repeated sequential agent turns inside one SecureExec runtime."
+    },
+    {
+      "id": "US-085",
+      "title": "Fix or document Pi SDK tool event contract mismatches in the sandbox",
+      "description": "As a developer, I need Pi SDK tool_execution events inside SecureExec to be trustworthy enough for automation and debugging, especially around success versus failure reporting.",
+      "acceptanceCriteria": [
+        "Add focused sandboxed Pi SDK regressions that record tool_execution_start and tool_execution_end across successful filesystem and subprocess tool calls plus at least one intentional failure case",
+        "Assert event ordering and payload shape across multi-tool runs, including whether isError matches the observed result",
+        "If isError or another event field is wrong only inside SecureExec, fix the root cause in SecureExec's runtime/bridge/integration layers rather than suppressing the assertion",
+        "If the observed behavior matches upstream Pi semantics, document that limitation explicitly in the regression and PRD instead of silently treating the event flag as authoritative",
+        "The test coverage must exercise the unmodified Pi package",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 54.7,
+      "passes": true,
+      "notes": "Verified: Pi SDK tool_execution_end.isError semantics are correct in the sandbox — isError===false for bash(exit 0)/write/edit success, isError===true for bash(nonzero exit)/edit(file not found). Event ordering (start→end per tool) and payload shape (toolCallId consistency) are also proven. The earlier suspicion was resolved by prior subprocess-semantics and tool-integration work. Coverage in pi-sdk-tool-event-contract.test.ts."
+    },
+    {
+      "id": "US-086",
+      "title": "Prove Pi SDK network behavior under SecureExec allow and deny policies",
+      "description": "As a developer, I need Pi SDK sessions and network-using tools to obey SecureExec's outbound-network policy exactly, including allowed requests and denied private or blocked destinations.",
+      "acceptanceCriteria": [
+        "Add sandboxed Pi SDK regressions that prove an allowed outbound provider or HTTP request succeeds through SecureExec's real network path",
+        "Add a paired regression showing a denied or blocked destination fails through the same sandbox path with a clear surfaced error",
+        "Verify the denied case is enforced by SecureExec's network adapter/permissions path rather than by rewriting Pi config, removing tools, or intercepting requests in the test",
+        "Do not special-case Pi in SecureExec's network stack; the unmodified Pi package should work correctly once SecureExec networking is correct",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 54.8,
+      "passes": true,
+      "notes": "Three regressions in pi-sdk-network-policy.test.ts: (1) [network-allow] proves allowed outbound request reaches mock server through SecureExec's real network path, (2) [network-deny-destination] proves denied fetch/http ops surface clean error and zero requests reach server, (3) [network-selective] proves hostname-level selective policy allows loopback while denying non-loopback. Coverage matrix updated with three new axes."
+    },
+    {
+      "id": "US-087",
+      "title": "Cover Pi SDK filesystem edge cases in the sandbox",
+      "description": "As a developer, I need Pi SDK file tools to behave correctly on the less-forgiving filesystem cases that often expose sandbox bugs: binary data, larger files, missing paths, and unusual filenames.",
+      "acceptanceCriteria": [
+        "Add sandboxed Pi SDK regressions covering at least: missing files, overwrite versus append semantics, non-ASCII filenames when supported by the repo encoding policy, binary or non-text content handling, and a larger file payload that would catch buffering/truncation bugs",
+        "Verify the observed behavior matches SecureExec's actual filesystem/runtime semantics rather than host-side helper shortcuts",
+        "Do not fix failures by narrowing the test prompt or substituting a Pi-specific fake filesystem layer",
+        "Any fix must land in SecureExec's filesystem/runtime bridge so the unmodified Pi package behaves correctly across these cases",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 54.9,
+      "passes": true,
+      "notes": "Five filesystem edge case regressions in pi-sdk-filesystem-edge-cases.test.ts: (1) missing file read surfaces isError, (2) write tool overwrites existing content completely, (3) non-ASCII Unicode filenames, (4) binary-like content with control chars/emoji/astral plane, (5) ~50KB large payload without truncation. Coverage matrix updated with five new axes."
+    },
+    {
+      "id": "US-088",
+      "title": "Verify Pi SDK cwd and environment correctness inside the sandbox",
+      "description": "As a developer, I need Pi SDK sessions and tools to observe the correct cwd, HOME, temp directories, and relative-path behavior inside SecureExec so they do not accidentally depend on leaked host environment state.",
+      "acceptanceCriteria": [
+        "Add sandboxed Pi SDK regressions that prove relative file paths, subprocess cwd, HOME-scoped state, and temporary-directory behavior all resolve inside the intended SecureExec workdir",
+        "Include at least one regression where incorrect cwd or env propagation would produce the wrong visible result, such as reading the wrong relative file or writing state outside the intended HOME",
+        "Do not paper over failures by hardcoding absolute paths in the test or by injecting Pi-specific env rewrites beyond the intended SecureExec runtime contract",
+        "Any fix must land in SecureExec's cwd/env/runtime layers so the unmodified Pi package sees the correct process environment",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 55,
+      "passes": true,
+      "notes": "Recent dev-shell work surfaced cwd propagation bugs elsewhere in the sandbox. Pi SDK coverage should explicitly prove that the SDK does not accidentally succeed only because of leaked or misrouted cwd/HOME state."
+    },
+    {
+      "id": "US-089",
+      "title": "Prove Pi SDK timeout, cancellation, and resource-cleanup behavior in SecureExec",
+      "description": "As a developer, I need Pi SDK runs that time out, get cancelled, or produce large tool output to clean up correctly inside SecureExec instead of leaking subprocesses, handles, or buffered state.",
+      "acceptanceCriteria": [
+        "Add sandboxed Pi SDK regressions covering at least one timed-out run, one cancelled in-flight tool or command, and one large-output tool result that would expose buffering or cleanup issues",
+        "Verify cancellation or timeout actually tears down the underlying sandbox work rather than only resolving the outer Promise while the process keeps running",
+        "Assert no follow-on session reuse breakage from leaked handles or stuck subprocess state",
+        "Do not fix failures by weakening the test, truncating output in Pi-specific code, or adding Pi-only cleanup hooks in SecureExec",
+        "Any fix must land in SecureExec's runtime/kernel/process/log-buffering layers so the unmodified Pi package benefits automatically",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 55.05,
+      "passes": true,
+      "notes": "This is the resource-safety side of Pi SDK coverage. Happy-path success is not enough if timed-out or cancelled runs leave behind zombie work in the sandbox."
+    },
+    {
+      "id": "US-090",
+      "title": "Prove cross-surface Pi parity across PTY, headless, and SDK",
+      "description": "As a developer, I need one core Pi workflow to pass across PTY, headless, and SDK surfaces so we know SecureExec is exposing one coherent integration rather than three accidentally different paths.",
+      "acceptanceCriteria": [
+        "Define one shared end-to-end Pi scenario that includes at minimum a file read, a file mutation, a subprocess action such as pwd, and a final natural-language answer",
+        "Run that scenario through Pi PTY, Pi headless, and Pi SDK sandbox paths using the unmodified Pi package",
+        "Verify the observable outcome is equivalent across the three surfaces, including final file contents on disk and the final assistant-visible result",
+        "If one surface diverges, fix the underlying SecureExec runtime/kernel/bridge behavior rather than narrowing the scenario or introducing Pi-specific branching",
+        "Do not treat a host-spawn fallback as proof for any of the three surfaces",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 55.06,
+      "passes": true,
+      "notes": "Today the Pi surfaces are tested independently. A cross-surface parity story is needed to prove they are functionally aligned rather than passing for unrelated reasons."
+    },
+    {
+      "id": "US-091",
+      "title": "Add real-provider tool-use E2E coverage for Pi PTY, headless, and SDK",
+      "description": "As a developer, I need each Pi surface to prove at least one real-token run where the model actually performs both filesystem and subprocess tool work, so real provider success is not limited to answer-only flows.",
+      "acceptanceCriteria": [
+        "Add or extend opt-in real-provider E2E tests so PTY, headless, and SDK each include at least one successful run with live provider traffic that performs both a filesystem action and a subprocess action",
+        "Verify the test observes the resulting file contents on disk and the subprocess output, not just a generic final answer",
+        "Do not replace this with a mock-server tool-forcing path; the primary success path must use real credentials loaded from exported env vars or ~/misc/env.txt",
+        "If a surface cannot reliably trigger tool use with the current prompt/model setup, fix the underlying SecureExec integration issue or document the exact provider-side limitation explicitly before marking the story complete",
+        "The package under test must remain the unmodified Pi package",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 55.07,
+      "passes": true,
+      "notes": "Current real-provider Pi coverage proves live traffic, but not every surface yet proves both filesystem and subprocess tool execution under real provider behavior."
+    },
+    {
+      "id": "US-092",
+      "title": "Prove Pi can mutate a real temp worktree end-to-end across all surfaces",
+      "description": "As a developer, I need Pi PTY, headless, and SDK runs to demonstrate real file creation and editing in a temp worktree so SecureExec's filesystem integration is proven in realistic agent workflows.",
+      "acceptanceCriteria": [
+        "Add end-to-end tests for PTY, headless, and SDK where Pi creates or edits files in a temporary worktree and the test verifies the final on-disk contents after the run",
+        "At least one scenario operates inside an initialized project or repo-shaped directory rather than a single loose file",
+        "The file mutation must be performed by Pi through its normal tool flow, not by host-side setup after the run begins",
+        "Any failure must be fixed in SecureExec's filesystem/runtime/bridge layers so the unmodified Pi package works as-is",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 55.08,
+      "passes": true,
+      "notes": "This is the concrete worktree-mutation complement to the broader coverage matrix story. Agent workflows are not well proven until the final files on disk are validated."
+    },
+    {
+      "id": "US-093",
+      "title": "Validate Pi session resume and second-turn behavior across PTY and SDK",
+      "description": "As a developer, I need Pi sessions to preserve state across follow-up turns in PTY and SDK modes so SecureExec supports realistic multi-step agent interaction.",
+      "acceptanceCriteria": [
+        "Add PTY and SDK regressions that perform an initial turn with a filesystem or subprocess action, then issue a second instruction in the same session and verify Pi observes the prior state",
+        "Verify the follow-up turn can continue working without stale-session, disposed-runtime, or lost-context failures",
+        "If the behavior differs between PTY and SDK, fix the underlying SecureExec session/runtime/PTY layers rather than splitting the expected behavior by surface",
+        "The tests must exercise the unmodified Pi package",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 55.09,
+      "passes": true,
+      "notes": "Single-turn success is not enough for real agent use. PTY and SDK especially need explicit reuse and continuation coverage."
+    },
+    {
+      "id": "US-094",
+      "title": "Prove Pi repo-aware workflows inside SecureExec",
+      "description": "As a developer, I need Pi to operate correctly inside an initialized repo so common agent workflows like editing files and inspecting git state work end-to-end in the sandbox.",
+      "acceptanceCriteria": [
+        "Add end-to-end Pi tests in a temporary initialized git repo that exercise file edits plus at least one repo-aware subprocess such as git status or git diff",
+        "Cover at least one non-PTY surface and one PTY or SDK surface",
+        "Verify the observed git output reflects the sandbox worktree mutations made by Pi",
+        "Do not special-case git for Pi; any required fix must land in SecureExec's command/filesystem/runtime layers",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 55.1,
+      "passes": true,
+      "notes": "Pi is most useful in repo-shaped workflows. This story ensures the sandbox behavior lines up with real development use rather than only isolated file examples."
+    },
+    {
+      "id": "US-095",
+      "title": "Stabilize Pi helper-tool bootstrap across PTY, headless, and SDK",
+      "description": "As a developer, I need Pi's managed helper tools and first-run bootstrap flow to work consistently across all supported surfaces so E2E runs do not depend on ad hoc PATH or extraction quirks.",
+      "acceptanceCriteria": [
+        "Add end-to-end coverage for Pi helper-tool/bootstrap behavior across PTY, headless, and SDK where applicable",
+        "Verify first-run helper discovery, download or extraction, and PATH wiring behave correctly inside SecureExec without host-only assumptions",
+        "If a surface does not use helper bootstrap, document that explicitly; otherwise it must be covered by regression tests",
+        "Any fix must land in SecureExec's runtime/filesystem/command-routing layers rather than by patching Pi or pre-seeding test-only shortcuts that production users would not have",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 55.11,
+      "passes": true,
+      "notes": "Recent PTY work showed helper bootstrap is a real integration surface. It should be treated as first-class E2E behavior, not incidental setup."
+    },
+    {
+      "id": "US-096",
+      "title": "Prove clean Pi shutdown and no-zombie-process behavior across all surfaces",
+      "description": "As a developer, I need successful, failed, interrupted, and cancelled Pi runs to shut down cleanly in PTY, headless, and SDK modes so SecureExec does not leak lingering work after agent sessions end.",
+      "acceptanceCriteria": [
+        "Add end-to-end coverage across PTY, headless, and SDK for clean exit after success plus at least one interrupted, cancelled, or failed run",
+        "Verify the surface returns control to the caller cleanly and that no subordinate sandbox work is left running after teardown",
+        "If a surface currently exits through a brittle workaround, fix the underlying SecureExec process/PTY/runtime cleanup path instead of codifying the workaround",
+        "The tests must use the unmodified Pi package",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 55.12,
+      "passes": true,
+      "notes": "This broadens the SDK cleanup story into a full cross-surface invariant: Pi should not leave zombie work behind regardless of entrypoint."
+    },
+    {
+      "id": "US-097",
+      "title": "Align Pi error-reporting semantics across PTY, headless, and SDK",
+      "description": "As a developer, I need Pi failures to surface clearly and consistently across PTY transcripts, headless output, and SDK events so debugging sandbox integration issues is practical.",
+      "acceptanceCriteria": [
+        "Add paired failing E2E scenarios across PTY, headless, and SDK for at least one filesystem failure and one subprocess failure",
+        "Verify each surface exposes enough concrete error detail to diagnose the underlying denied operation or execution failure",
+        "If the same failure is surfaced inconsistently across surfaces due to SecureExec behavior, fix the underlying runtime/bridge/PTY path rather than weakening assertions",
+        "If the difference is upstream Pi behavior, document it explicitly instead of letting the mismatch stay implicit",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 55.13,
+      "passes": true,
+      "notes": "Cross-surface consistency matters for embedder ergonomics. A bug that is debuggable in SDK mode but opaque in PTY or headless is still an integration gap."
+    },
+    {
+      "id": "US-098",
+      "title": "Prove Pi provider and config discovery through SecureExec's supported environment contract",
+      "description": "As a developer, I need Pi PTY, headless, and SDK runs to discover credentials and config through the documented SecureExec environment contract rather than accidental host state.",
+      "acceptanceCriteria": [
+        "Add end-to-end coverage showing PTY, headless, and SDK runs can discover provider credentials/config from exported env vars or ~/misc/env.txt as intended",
+        "Verify the runs do not depend on unrelated host-global state beyond the supported credential/config paths",
+        "If a surface currently requires extra undocumented env shaping, either remove that requirement by fixing SecureExec or document it explicitly and keep the story open",
+        "Do not patch Pi or inject Pi-specific hidden config paths to satisfy the tests",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 55.14,
+      "passes": true,
+      "notes": "This makes the config-discovery contract explicit across all three Pi entrypoints and guards against hidden host-environment coupling."
+    },
+    {
+      "id": "US-101",
+      "title": "Prove Pi PTY Ctrl+C end-to-end with visible boot output",
+      "description": "As a developer, I need Pi running inside SecureExec's PTY to render recognizable startup output and then exit cleanly when I send Ctrl+C, so interrupt behavior is trustworthy during real interactive use.",
+      "acceptanceCriteria": [
+        "Add an end-to-end Pi PTY regression that launches the unmodified Pi package through kernel.openShell() and @xterm/headless",
+        "The regression must wait for and assert exact visible startup output or screen content before sending Ctrl+C; use a fixed-size terminal and snapshot or exact-string assertions rather than loose substrings",
+        "Send a real PTY Ctrl+C / VINTR path through the terminal input stream instead of killing the process from the host harness",
+        "Assert Pi exits cleanly and returns control to the caller or shell within the timeout after Ctrl+C",
+        "If the expected output or interrupt behavior is unclear, capture the same host Pi flow as a control and compare the sandbox transcript/screen against it",
+        "Any fix must land in SecureExec's PTY, line-discipline, signal-delivery, or process layers so the unmodified Pi package works as-is",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 55.15,
+      "passes": true,
+      "notes": "Three E2E tests prove the VINTR -> PTY -> signal delivery path end-to-end: (1) boot screen at fixed 80x24 with exact content assertions, (2) Ctrl+C during mock response cancels and Pi stays alive, (3) Ctrl+C at idle keeps Pi responsive then /exit exits cleanly. Also fixed EBADF uncaught exception during TLS teardown in kernel socket duplex write path."
+    },
+    {
+      "id": "US-102",
+      "title": "Reproduce and fix Pi node tool `Capabilities insufficient` failures with real-token coverage",
+      "description": "As a developer, I need Pi to execute `node` from within SecureExec without random `i/o error: Capabilities insufficient (os error 76)` failures, so tool execution through the sandbox is reliable.",
+      "acceptanceCriteria": [
+        "Start with a sandboxed Pi SDK regression that uses real provider credentials from exported env vars or ~/misc/env.txt and instructs Pi to run `node`, capturing the exact surfaced output and tool/result events",
+        "If the SDK path does not deterministically reproduce the failure, add a second sandboxed Pi surface regression (such as PTY or headless) that reproduces the same `node` execution failure without patching Pi",
+        "The broken-state regression must assert the current exact failure text `i/o error: Capabilities insufficient (os error 76)` before the fix or else record the next concrete surfaced blocker",
+        "After the SecureExec fix lands, the same regression must prove `node` execution succeeds or advances to a new concrete non-capability blocker",
+        "The test must execute the unmodified Pi package inside the SecureExec sandbox; no host-spawn fallback or Pi-specific workaround counts as proof",
+        "Any fix must land in SecureExec's runtime, permissions, process, stdio, or command-routing layers rather than in Pi",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 55.16,
+      "passes": true,
+      "notes": "Fixed. Root cause: standalone NodeRuntime had no commandExecutor, so child_process.spawn threw ENOSYS for all commands including `node`. Fix: createSandboxCommandExecutor() routes `node` commands and `bash -c node` wrappers through child V8 isolates without host spawning. The concrete surfaced blocker was ENOSYS (not Capabilities insufficient which is kernel/WasmVM specific). Mock-provider regression test deterministically proves Pi bash tool executes `node -e` through sandbox; real-provider test also available (opt-in)."
+    },
+    {
+      "id": "US-103",
+      "title": "Snapshot and fix Pi PTY width/rendering parity against expected terminal output",
+      "description": "As a developer, I need Pi's sandbox PTY rendering to honor terminal width correctly, so wrapped lines, status regions, and other layout-sensitive output match what a real terminal would show.",
+      "acceptanceCriteria": [
+        "Add a Pi PTY regression that boots the unmodified Pi package under a fixed rows/cols size and captures the exact rendered screen output",
+        "Assert terminal rendering with exact-string or exact-screen snapshot comparisons, not loose substring checks",
+        "Cover at least one width-sensitive case where incorrect terminal sizing would visibly change the output, such as wrapping, truncation, prompt layout, or a status/help region",
+        "If the expected rendering is unclear, capture the same Pi flow on the host at the same terminal size and use it as the comparison oracle or explicitly document the remaining justified delta",
+        "Any fix must land in SecureExec's PTY sizing, terminal protocol, or rendering path rather than by adding Pi-specific width hacks or prompt rewrites",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 55.17,
+      "passes": true,
+      "notes": "Fixed. Root cause: process.stdout.columns and process.stdout.rows were hardcoded to 80/24 in the bridge and never reflected actual PTY dimensions. Fix: (1) kernel.openShell() now sets COLUMNS/LINES env vars, (2) kernel-runtime reads them into processConfig.cols/rows, (3) execution-driver injects them into __runtimeTtyConfig, (4) bridge process.ts reads them via dynamic getters. Test proves Pi renders width-sensitive separator lines at different sizes (80 vs 120 cols) with exact screen snapshots."
+    },
+    {
+      "id": "US-104",
+      "title": "Add a separate structured debug-log channel for Pi and dev-shell investigations",
+      "description": "As a developer debugging complex Pi and dev-shell sessions, I need an opt-in debug data channel that writes structured logs to a file path without polluting stdout/stderr, so manual repro runs produce artifacts we can actually analyze later.",
+      "acceptanceCriteria": [
+        "Add a supported opt-in debug log path for the relevant Pi and dev-shell entrypoints so a caller can request a debug artifact file during manual or automated runs",
+        "The debug data channel must not print to stdout or otherwise contaminate PTY rendering, CLI protocol output, or JSON/event streams",
+        "Use structured `pino` logging for this sink instead of ad hoc console logging",
+        "Log records must include timestamps plus enough stable context to correlate a run/session across PTY, SDK, headless, runtime, and kernel layers",
+        "Secrets and provider credentials must be redacted or omitted from the debug log output",
+        "Add regression coverage proving the log file is created when requested and that stdout/stderr remain clean",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 55.18,
+      "passes": true,
+      "notes": "Implemented. Added `pino` as a dependency. Created `packages/dev-shell/src/debug-logger.ts` with `createDebugLogger(filePath)` (file-only sink, pino structured JSON, secret redaction) and `createNoopLogger()` for the opt-out path. Wired `debugLogPath` option through `DevShellOptions` → `createDevShellKernel()` → CLI `--debug-log <path>`. Logger emits session-init, runtime-mount, ready, and dispose records with timestamps. Regression tests prove: (1) log file is created with valid JSON lines including timestamps, (2) stdout/stderr are not contaminated, (3) secrets like ANTHROPIC_API_KEY are redacted."
+    },
+    {
+      "id": "US-105",
+      "title": "Instrument Pi, PTY, and command-execution paths with liberal structured diagnostics",
+      "description": "As a developer chasing intermittent Pi failures, I need broad structured diagnostics around PTY, signal, subprocess, command-routing, timeout, and permission paths so we can reconstruct what actually happened during a complex user session.",
+      "acceptanceCriteria": [
+        "Add liberal structured logging, routed through the separate debug sink, around Pi-related session lifecycle, prompt submission, PTY attach/read/write/resize/control input, signal delivery, command dispatch, subprocess spawn/exit, stderr/stdout bridging, timeout/cancellation, and permission/capability-denial decisions",
+        "Include logging around `node` tool execution and other likely failure points so `Capabilities insufficient`, timeout, cancellation, or routing errors can be distinguished after the fact",
+        "Include enough identifiers in the logs to correlate kernel process IDs, PTY sessions, SDK sessions, and tool invocations within one run",
+        "Do not fix the observability gap by dumping raw debug output into the user-visible terminal stream",
+        "Any sensitive data in prompts, credentials, headers, or environment variables must be redacted or intentionally excluded",
+        "Add at least one regression or smoke assertion proving that representative diagnostic records are emitted into the debug sink for a Pi/dev-shell session",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 55.19,
+      "passes": true,
+      "notes": "Implemented. Added `KernelLogger` interface to `@secure-exec/core` kernel types with `noopKernelLogger` default. Threaded logger through `KernelImpl` → `PtyManager` (child: pty) and `ProcessTable` (child: process). Instrumented: mount/dispose, exec start/timeout, spawn start/permission-denied/process-limit/spawned, process exit, openShell PTY attach/resize, PTY create/close/SIGHUP/setTermios/setForegroundPgid/setSessionLeader/signal-char/SIGINT-interception/signal-delivery, kill/deliverSignal/applyDefaultAction, connectTerminal. Dev-shell passes its pino DebugLogger as kernel logger. Regression test verifies spawn, exit, and mount records appear with timestamps."
+    },
+    {
+      "id": "US-069",
+      "title": "Complete modern Web API bootstrap for Pi PTY's undici dependency chain",
+      "description": "As a developer, I need kernel-mounted NodeRuntime PTY sessions to expose the modern Web API and helper surface that Pi's CLI pulls in through undici before the interactive UI can boot.",
+      "acceptanceCriteria": [
+        "Running Pi's real-provider PTY harness through kernel.openShell() no longer exits during undici module bootstrap",
+        "A kernel PTY probe of `node -e \"require('undici'); console.log('ok')\"` succeeds without missing-global or deferred-stub errors",
+        "The sandbox bootstrap provides the undici-required pre-network globals/helpers at module scope, including File/Blob/FormData, MessagePort/MessageChannel/MessageEvent, DOMException, and worker_threads helper compatibility where Node exposes it",
+        "The fix lands in the runtime/bootstrap layer, not as a Pi-specific redirect or mock",
+        "Add regression coverage for the kernel/openShell undici bootstrap path",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 55.1,
+      "passes": true,
+      "notes": "Blocked follow-up from US-063. Exact repro as of 2026-03-26: with `createKernel({ filesystem: overlayVfs, permissions: allowAll, hostNetworkAdapter: createNodeHostNetworkAdapter() })`, `await kernel.mount(createNodeRuntime({ permissions: allowAll }))`, and `kernel.openShell({ command: 'node', args: [PI_CLI, '--verbose', '--no-session', '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-themes', '--provider', 'anthropic', '--model', 'claude-sonnet-4-20250514'] })`, Pi exits with code 1 before rendering. Raw blockers advanced from `File is not defined` to `MessagePort is not defined` to `worker_threads.markAsUncloneable is not supported in sandbox`, and the latest raw failure is `ReferenceError: DOMException is not defined` from `undici/lib/web/websocket/stream/websocketerror.js`. This proves the next unblock is a broader runtime bootstrap gap, not a Pi-specific PTY/rendering bug."
+    },
+    {
+      "id": "US-070",
+      "title": "Make Pi PTY helper-tool bootstrap compatible with sandbox command routing",
+      "description": "As a developer, I need Pi's interactive PTY path to survive helper-binary discovery and extraction inside the sandbox so the TUI can stay alive long enough for real interaction and prompt submission.",
+      "acceptanceCriteria": [
+        "Running Pi's real-provider PTY harness through kernel.openShell() no longer fails on missing or incompatible helper tools such as `tar`, `fd`, or `rg`",
+        "If the sandbox exposes helper commands itself, the exposed `fd` / `rg` surfaces satisfy Pi's version probes; otherwise the supported path is documented and tested as extractor-only sandbox support plus Pi-downloaded upstream helper binaries",
+        "A real kernel/openShell PTY probe pins the helper-tool bootstrap path without mock servers or fake provider redirects",
+        "The chosen command-runtime composition is reflected in regression coverage so future PTY runs do not fall back to `ENOENT: command not found: tar`, `fd 0.1.0 (secure-exec)`, or `rg --version` incompatibilities",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 55.2,
+      "passes": true,
+      "notes": "Blocked follow-up from US-063 after the undici/runtime bootstrap fixes. Exact repro as of 2026-03-26: with `createKernel({ filesystem: overlayVfs, permissions: allowAll, hostNetworkAdapter: createNodeHostNetworkAdapter() })` and `await kernel.mount(createNodeRuntime({ permissions: allowAll }))`, Pi now gets past `AbortSignal.timeout` / `Readable.fromWeb` and fails during helper install with `ENOENT: command not found: tar`. Mounting the full WasmVM commands dir changes the failure to Pi rejecting sandbox helper binaries (`fd 0.1.0 (secure-exec)` and `rg: unrecognized option '--version'`). Mounting a tar-only WasmVM runtime lets Pi download and install upstream `fd` / `rg` into `~/.pi/agent/bin`, flips the PTY into bracketed-paste mode (`\\u001b[?2004h`), and then exits with code 1 plus final raw output `IPC connection closed`. This isolates the next unblock to helper-tool/runtime composition and the post-boot PTY exit path, not the earlier undici bootstrap gap."
+    },
+    {
+      "id": "US-063",
+      "title": "Make Pi PTY mode pass end-to-end with real-provider tokens",
+      "description": "As a developer, I need Pi's interactive terminal UI to work through SecureExec's PTY stack using real credentials so the full TUI path is validated.",
+      "acceptanceCriteria": [
+        "Run Pi interactive mode through kernel.openShell() and @xterm/headless, not host PTY wrappers like script -qefc",
+        "Load provider credentials at runtime from ~/misc/env.txt or exported env vars, without committing secrets",
+        "Do not use the mock LLM server or a fake base URL redirect for the primary success path",
+        "Verify Pi reaches a visible boot-ready screen state in the sandbox PTY",
+        "Verify prompt submission from the PTY yields a real provider response visible in the terminal transcript",
+        "Verify at least one interactive control path works correctly end-to-end, such as interrupt, clear, resize, or clean exit",
+        "If Pi cannot load or render in the sandbox PTY because of a runtime/library issue (for example module syntax/regex support, TTY semantics, stdin streaming, or signal handling), append a new blocked follow-up story to prd.json with exact repro details before marking this story complete",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 55,
+      "passes": true,
+      "notes": "Current Pi PTY coverage already probes kernel.openShell(), but it still relies on a mock server and archived work notes prior import/runtime blockers. This story is the real-token interactive proof point."
+    },
+    {
+      "id": "US-064",
+      "title": "Investigate OpenCode SDK/server path with real-provider tokens",
+      "description": "As a developer, I need OpenCode's SDK/server integration layer to work end-to-end through SecureExec using real provider credentials so we know whether the supported automation surface is viable beyond the CLI.",
+      "acceptanceCriteria": [
+        "Exercise @opencode-ai/sdk against an OpenCode server/process launched through the supported SecureExec path",
+        "Load provider credentials at runtime from ~/misc/env.txt or exported env vars, without committing secrets",
+        "The coverage uses real provider traffic rather than the mock LLM server",
+        "Verify the SDK can connect, create or access a working session/run context, submit a prompt, and receive non-empty assistant output",
+        "Verify at least one filesystem/tool action succeeds through the SDK/server path if the surface supports tools; otherwise document the exact limitation",
+        "If OpenCode's SDK/server flow requires an unsupported bridge capability or fails because of an upstream/runtime/library issue, append a new blocked follow-up story to prd.json with exact package, version, repro, and proposed unblock path before marking this story complete",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 56,
+      "passes": true,
+      "notes": "Added an opt-in real-provider SDK/server harness at `packages/secure-exec/tests/cli-tools/opencode-sdk-real-provider.test.ts`. The investigation result is split cleanly: direct host `opencode serve` with real Anthropic credentials works, and direct `kernel.spawn('opencode', ['--version'])` through the mounted host-binary driver works, but the supported sandbox path still blocks earlier. A sandboxed Node process that calls `require('child_process').spawn('opencode', ['--version'])` through the kernel-mounted child_process bridge hangs with no stdout/stderr and times out, so the test now pins that exact blocker and only proceeds to the full SDK/server flow once the bridge path is fixed. Follow-up story `US-071` tracks the bridge/runtime fix."
+    },
+    {
+      "id": "US-071",
+      "title": "Fix sandbox child_process bridge for mounted host-binary commands",
+      "description": "As a developer, I need sandboxed Node `child_process.spawn()` calls to mounted host-binary commands like OpenCode to deliver stdout/stderr and exit normally, so the OpenCode SDK/server automation path can progress beyond the current bridge hang.",
+      "acceptanceCriteria": [
+        "Reproduce the current blocker with `SECURE_EXEC_OPENCODE_REAL_PROVIDER_E2E=1 pnpm vitest run packages/secure-exec/tests/cli-tools/opencode-sdk-real-provider.test.ts` and confirm the sandbox `spawn('opencode', ['--version'])` bridge probe times out with empty stdout/stderr while direct `kernel.spawn('opencode', ['--version'])` succeeds",
+        "A kernel-mounted sandboxed Node process can call `require('child_process').spawn('opencode', ['--version'])` and receive the version on stdout plus `EXIT:0` within the test timeout",
+        "The fix lands in SecureExec's Node child_process bridge / kernel command-routing path rather than by bypassing the sandbox or spawning OpenCode directly from the host test",
+        "After the bridge fix, the OpenCode real-provider SDK/server harness advances beyond the minimal `--version` probe and either completes the full `opencode serve` + `@opencode-ai/sdk` flow or exposes the next concrete blocker",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 56.1,
+      "passes": true,
+      "notes": "Exact repro as of 2026-03-26: direct host `opencode serve --hostname=127.0.0.1 --port=0` with the same real Anthropic credentials, XDG dir, and `OPENCODE_CONFIG_CONTENT` prints `opencode server listening on http://127.0.0.1:<port>` quickly, and direct `kernel.spawn('opencode', ['--version'])` returns `1.3.3`. But a kernel-mounted sandboxed Node process running `const { spawn } = require('child_process'); spawn('opencode', ['--version'], { env: process.env })` via the bridge produces no stdout/stderr and times out after 10s. That pins the blocker to the Node child_process bridge path for mounted host-binary commands, not to OpenCode config/provider setup."
+    },
+    {
+      "id": "US-065",
+      "title": "Make OpenCode headless mode pass end-to-end with real-provider tokens",
+      "description": "As a developer, I need OpenCode's non-interactive/headless mode to run through SecureExec with real credentials so the CLI automation path is verified end-to-end.",
+      "acceptanceCriteria": [
+        "Run OpenCode headless mode through the secure-exec sandbox path, not a host-only direct spawn used as a substitute for sandbox execution",
+        "Load provider credentials at runtime from ~/misc/env.txt or exported env vars, without committing secrets",
+        "Do not use the mock LLM server for the primary success path",
+        "Verify OpenCode can boot, answer a prompt, and exit cleanly in headless mode",
+        "Verify at least one filesystem action and one command/tool action work end-to-end through the sandboxed headless flow",
+        "Verify whichever output format is treated as canonical for automation (default or json/NDJSON) is parsed and asserted with real-token traffic",
+        "If a Bun/OpenCode/runtime/library issue blocks completion, append a new blocked follow-up story to prd.json with exact repro details before marking this story complete",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 57,
+      "passes": true,
+      "notes": "Current OpenCode headless coverage is explicitly binary-spawn based and mock-server driven. This story must distinguish true sandbox E2E from host-side substitution."
+    },
+    {
+      "id": "US-066",
+      "title": "Make OpenCode PTY mode pass end-to-end with real-provider tokens",
+      "description": "As a developer, I need OpenCode's interactive terminal UI to work through SecureExec's PTY stack using real credentials so the full TUI path is validated.",
+      "acceptanceCriteria": [
+        "Run OpenCode interactive mode through kernel.openShell() and @xterm/headless, not host PTY wrappers like script -qefc",
+        "Load provider credentials at runtime from ~/misc/env.txt or exported env vars, without committing secrets",
+        "Do not use the mock LLM server for the primary success path",
+        "Verify OpenCode reaches a visible boot-ready screen state in the sandbox PTY",
+        "Verify prompt submission from the PTY yields a real provider response visible in the terminal transcript",
+        "Verify at least one interactive control path works correctly end-to-end, such as kitty-keyboard submit, interrupt, resize, or clean exit",
+        "If OpenCode PTY support is blocked by Bun/runtime/bridge issues such as streaming stdin, child_process spawning, terminal protocol handling, or signal delivery, append a new blocked follow-up story to prd.json with exact repro details before marking this story complete",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 58,
+      "passes": true,
+      "notes": "Validated the policy-compliant PTY path: kernel.openShell() dispatches 'opencode' through HostBinaryDriver, version probe completes successfully (exit 0), and xterm/headless correctly processes responses. The TUI rendering is blocked because HostBinaryDriver spawns the host binary with `stdio: ['pipe', 'pipe', 'pipe']` — OpenCode's bubbletea requires real TTY FDs and refuses to render when stdin/stdout are pipes (outputs only the database migration text, then hangs waiting for terminal capability responses on /dev/tty). Follow-up story US-081 tracks adding host-side PTY allocation to the HostBinaryDriver when ctx.stdinIsTTY is true."
+    },
+    {
+      "id": "US-072",
+      "title": "Make localhost RPC exemptions a supported createNodeDriver SSRF configuration path",
+      "description": "As a developer embedding SecureExec tool loops, I need a supported way to allow sandbox fetches to specific loopback RPC ports without disabling SSRF protection or constructing private adapters by guesswork.",
+      "acceptanceCriteria": [
+        "Add a regression that reproduces the current failure mode: sandbox code calling `fetch('http://127.0.0.1:<rpcPort>')` against a host-side RPC server fails under the default SSRF guard with a private-host rejection",
+        "Define and implement the supported configuration path for exempting specific localhost or loopback ports when using `createNodeDriver`, rather than requiring embedders to import `createDefaultNetworkAdapter` directly unless that direct-construction path is explicitly documented as the intended public API",
+        "The final API keeps SSRF protection enabled by default and only exempts explicitly configured ports",
+        "Add coverage proving that an allowed loopback RPC port succeeds while a different unlisted loopback port still fails the SSRF guard",
+        "Update the relevant public docs for `createNodeDriver` / Node system-driver configuration so embedders know how to wire localhost RPC safely",
+        "If the recommended answer is to construct and pass a custom `networkAdapter`, document that as the supported pattern and make the option surface explicit and tested",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 59,
+      "passes": true,
+      "notes": "External embedder report: sandbox code needs to call host-side tool RPC over `fetch('http://127.0.0.1:<port>')`, but the default adapter's `assertNotPrivateHost` blocks loopback. The adapter already supports `initialExemptPorts`, yet the intended way to thread that through `createNodeDriver` is unclear, so the current workaround is to import `createDefaultNetworkAdapter` manually and pass it via `createNodeDriver({ networkAdapter })`."
+    },
+    {
+      "id": "US-073",
+      "title": "Validate and document NodeRuntime reuse across multi-step exec loops",
+      "description": "As a developer running AI SDK tool loops, I need clear supported lifecycle guidance for `NodeRuntime` across repeated executions so sequential `.exec()` calls do not fail with disposed-isolate errors.",
+      "acceptanceCriteria": [
+        "Add a focused reproduction for the reported lifecycle confusion in a multi-step tool loop shape where code executes multiple times in sequence against the same logical session",
+        "Determine whether reusing one `NodeRuntime` across many `.exec()` calls is the supported pattern, and encode that answer in regression coverage and public docs",
+        "If there is a real runtime bug around disposal, recreation, or stale execution-driver state, fix it in the runtime/driver layer and cover the exact repro",
+        "If the existing behavior is correct and the issue is lifecycle misuse, document the required ownership model clearly, including when a runtime may be disposed and when it must be kept alive",
+        "Include at least one regression proving that the supported repeated-execution pattern works across multiple `.exec()` calls in sequence without `Isolate is disposed` errors",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 60,
+      "passes": true,
+      "notes": "External embedder report: in an AI SDK tool loop, `execute()` is invoked once per model step. Disposing and recreating the `NodeRuntime` between calls led to `Isolate is disposed` failures, while keeping one runtime alive and reusing it across sequential `.exec()` calls worked. This story should turn that anecdote into a supported contract or a runtime fix."
+    },
+    {
+      "id": "US-074",
+      "title": "Clarify NodeRuntime exec() versus run() for automation and export-based flows",
+      "description": "As a developer embedding SecureExec, I need the `NodeRuntime` API docs and examples to make it obvious when to use `run()` versus `exec()` so stdout-driven automation and export-driven evaluation are not confused.",
+      "acceptanceCriteria": [
+        "Audit the current NodeRuntime docs, examples, and test-facing guidance for places that imply `run()` is the default answer when an embedder actually needs `exec()` and `onStdio`",
+        "Update the relevant public docs and examples to explain the intended split: `run()` for returned exports/results and `exec()` for process-style execution with stdout/stderr observation",
+        "Include at least one concise example of each API in the docs, using the same domain/problem where practical so the difference is obvious",
+        "If any existing example or guide currently nudges code-mode or CLI-style integrations toward the wrong API, correct it",
+        "Typecheck passes"
+      ],
+      "priority": 61,
+      "passes": true,
+      "notes": "External embedder report: code originally followed a `runtime.run()` example that returns exports, but the real integration needed `runtime.exec()` plus `onStdio` to capture stdout/stderr in code mode. This is not a correctness bug, but it is a documentation/usability gap that keeps surfacing during tool integration work."
+    },
+    {
+      "id": "US-075",
+      "title": "Fix WasmVM path-based command dispatch for /bin stubs and child-process shell launches",
+      "description": "As a developer using the shell or sandboxed CLI tools, I need path-based command execution like `/bin/ls` and `/bin/bash` to resolve to the correct Wasm binary instead of failing with an empty-path compile error.",
+      "acceptanceCriteria": [
+        "Add a focused regression proving that `kernel.spawn('/bin/printf', ...)` and similar path-based dispatch resolves through the WasmVM command registry to the real command binary",
+        "Add a shell-facing regression proving that brush-shell PATH resolution through `/bin/<cmd>` works for standard commands such as `ls` and `printf`",
+        "Add a Pi-facing regression proving that the Pi SDK's bash tool path no longer surfaces `wasmvm: failed to compile module for '/bin/bash' at : ENOENT: no such file or directory, open ''` during sandbox execution",
+        "The fix normalizes path-style commands before WasmVM binary lookup instead of relying on bare command names only",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 62,
+      "passes": true,
+      "notes": "Discovered during dev-shell and Pi SDK testing. `CommandRegistry.resolve('/bin/ls')` correctly returned the WasmVM driver, but the driver was looking up the literal `/bin/ls` key instead of the basename `ls`, so `_resolveBinaryPath()` fell back to an empty path and failed compilation. The same failure shape appeared in Pi tool execution as `/bin/bash`."
+    },
+    {
+      "id": "US-076",
+      "title": "Fix interactive Wasm shell cwd propagation to spawned child commands",
+      "description": "As a developer using the interactive sandbox shell, I need the shell's current working directory to be honored consistently by spawned commands, not just by shell builtins.",
+      "acceptanceCriteria": [
+        "Add an interactive PTY regression proving that opening the shell with a non-root cwd and then running `pwd` reports that cwd",
+        "Add a regression proving that after `cd /some/path`, both shell builtins and spawned commands like `pwd`, `ls`, and `/bin/pwd` execute in `/some/path` rather than `/`",
+        "Verify the same cwd behavior through the `just dev-shell` wrapper with `--work-dir <path>`",
+        "Document whether the bug is in brush-shell's proc_spawn cwd forwarding, the WASI spawn bridge, or kernel cwd bookkeeping, and fix the responsible layer rather than papering over it in the wrapper",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 63,
+      "passes": true,
+      "notes": "Discovered while validating `just dev-shell -- sh` end to end. The shell banner and wrapper reported the requested work dir, but commands run from the interactive Wasm shell still executed in `/`. For example, `pwd` inside the shell returned `/`, and `ls` listed root unless given an absolute target path."
+    },
+    {
+      "id": "US-077",
+      "title": "Fix PTY resize handling for interactive Wasm shell sessions",
+      "description": "As a developer using the interactive sandbox shell or TUI apps, I need terminal resize handling to work without killing the foreground shell session.",
+      "acceptanceCriteria": [
+        "Add a regression that reproduces the current failure mode where the initial PTY resize path causes an interactive Wasm shell session to exit before the first prompt",
+        "Re-enable resize forwarding in `connectTerminal()` only after the PTY and signal-delivery path is fixed end to end",
+        "Verify that interactive shells and PTY apps stay alive across initial attach and subsequent resize events",
+        "Verify that foreground-process `SIGWINCH` delivery still occurs after the fix",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 64,
+      "passes": true,
+      "notes": "Discovered during real `just dev-shell` PTY verification. `openShell()` alone stayed alive, but the `connectTerminal()` path exited with code 28 when it forwarded the initial resize event. Current behavior was mitigated by disabling resize forwarding; this story is to restore the intended POSIX behavior properly."
+    },
+    {
+      "id": "US-078",
+      "title": "Clarify or fix Pi SDK tool_execution_end error semantics in sandbox tool loops",
+      "description": "As a developer integrating the Pi SDK programmatically, I need `tool_execution_end` events in sandbox runs to distinguish real tool failures from successful executions that still produce expected output.",
+      "acceptanceCriteria": [
+        "Add a focused Pi SDK sandbox regression that records `tool_execution_start` and `tool_execution_end` for a simple successful tool call such as `bash: pwd`",
+        "Determine whether `tool_execution_end.isError === true` for that successful path is expected Pi semantics or a sandbox integration bug",
+        "If it is a sandbox or bridge bug, fix it and assert `isError === false` for successful tool execution",
+        "If it is expected upstream Pi behavior, document that clearly in the test and PRD notes so downstream consumers do not treat the current flag as a trustworthy success signal without inspecting the result payload",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 65,
+      "passes": true,
+      "notes": "Resolved: the `isError: true` on bash:pwd was a sandbox integration bug, not a Pi SDK contract issue. The kernel's bash-command dispatch previously failed with ENOENT for /bin/bash, causing the tool to report an error. After the dispatch fix landed, Pi correctly reports `isError === false` for successful tool execution. Added a focused US-078 regression test in pi-sdk-tool-event-contract.test.ts that asserts `isError === false` for bash:pwd and verifies the result contains the working directory path."
+    },
+    {
+      "id": "US-081",
+      "title": "Add host-side PTY allocation to HostBinaryDriver when kernel context indicates TTY",
+      "description": "As a developer running interactive TUI binaries through the sandbox PTY, I need the HostBinaryDriver to allocate a real host-side PTY for the spawned binary when the kernel's ProcessContext indicates TTY FDs, so bubbletea and other terminal-aware programs can render their TUI.",
+      "acceptanceCriteria": [
+        "HostBinaryDriver detects ctx.stdinIsTTY/stdoutIsTTY/stderrIsTTY from ProcessContext and allocates a host-side PTY for the child process instead of plain pipes",
+        "OpenCode's bubbletea TUI renders through the sandbox PTY when launched via kernel.openShell() with the enhanced HostBinaryDriver",
+        "Terminal query responses from xterm/headless reach the host binary through the PTY chain: xterm → kernel PTY master → kernel PTY slave → driver stdin pump → host PTY master → host binary stdin",
+        "Fallback: when isTTY is false, HostBinaryDriver continues using pipes as before",
+        "The real-provider PTY test in opencode-pty-real-provider.test.ts advances past the current blocker and validates TUI boot, prompt submission, and provider response",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 66,
+      "passes": true,
+      "notes": "HostBinaryDriver in opencode-pty-real-provider.test.ts now detects ctx.stdinIsTTY/stdoutIsTTY and spawns host binaries via node-pty with a real host PTY. Virtual kernel PTY is set to raw mode via tcsetattr. A stdin pump reads from the kernel PTY slave and forwards to the host PTY, completing the bidirectional chain. Pipe fallback preserved for non-TTY context. Test validates --version dispatch and TUI boot+prompt+provider response."
+    },
+    {
+      "id": "US-099",
+      "title": "Fix hardcoded pnpm path for web-streams-polyfill in polyfills.ts",
+      "description": "As a consumer installing @secure-exec/nodejs from npm/yarn, I need the web-streams-polyfill ponyfill path to resolve correctly instead of using a hardcoded pnpm monorepo-relative path.",
+      "acceptanceCriteria": [
+        "WEB_STREAMS_PONYFILL_PATH uses createRequire(import.meta.url).resolve() instead of hardcoded relative path",
+        "web-streams-polyfill is listed as a dependency in packages/nodejs/package.json",
+        "polyfill bundling for stream/web and internal/webstreams/* works correctly after the change",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "## Reproduction\nIn packages/nodejs/src/polyfills.ts, WEB_STREAMS_PONYFILL_PATH was:\n  fileURLToPath(new URL('../../../node_modules/.pnpm/node_modules/web-streams-polyfill/dist/ponyfill.js', import.meta.url))\n\nThis breaks outside the monorepo because:\n1. The ../../../ depth assumes packages/nodejs/dist/ → monorepo root — npm consumers have node_modules/@secure-exec/nodejs/dist/, a completely different depth\n2. The .pnpm/node_modules/ layout is pnpm-specific — npm uses flat node_modules/, yarn uses its own structure\n3. web-streams-polyfill was never declared as a dependency — it was a phantom transitive dep that happened to be hoisted by pnpm\n\nTo verify: run `pnpm pack` in packages/nodejs/ and extract the tarball — dist/polyfills.js contains the hardcoded path but web-streams-polyfill is not in the dependency list.\n\n## Fix\n1. Import createRequire from 'node:module'\n2. Replace hardcoded URL with: createRequire(import.meta.url).resolve('web-streams-polyfill/dist/ponyfill.js')\n3. Add web-streams-polyfill to dependencies in package.json"
+    },
+    {
+      "id": "US-100",
+      "title": "Include src/polyfills/ in published @secure-exec/nodejs package",
+      "description": "As a consumer installing @secure-exec/nodejs from npm, I need the src/polyfills/ directory to be included in the published package so that resolveCustomPolyfillSource() can find the custom polyfill source files at runtime.",
+      "acceptanceCriteria": [
+        "packages/nodejs/package.json files array includes 'src/polyfills'",
+        "All 13 polyfill .js files under src/polyfills/ are included when packing the package",
+        "resolveCustomPolyfillSource() resolves correctly from dist/polyfills.js to ../src/polyfills/*.js",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "## Reproduction\nIn packages/nodejs/src/polyfills.ts, resolveCustomPolyfillSource() resolves:\n  fileURLToPath(new URL(`../src/polyfills/${fileName}`, import.meta.url))\n\nAfter tsc compiles to dist/polyfills.js, this resolves to packages/nodejs/src/polyfills/*.js.\nBut package.json 'files' only listed ['dist', 'README.md'], so src/polyfills/ was excluded from npm publish.\n\nTo verify: run `pnpm pack` in packages/nodejs/ — the tarball does not contain any src/polyfills/ files.\nAll 13 custom polyfills (crypto.js, stream-web.js, util-types.js, internal-webstreams-*.js, etc.) are missing.\nAt runtime, bundlePolyfill() for any CUSTOM_POLYFILL_ENTRY_POINTS module throws ENOENT.\n\n## Fix\nAdd 'src/polyfills' to the 'files' array in packages/nodejs/package.json."
+    },
+    {
+      "id": "US-101",
+      "title": "Audit all publishable packages for hardcoded monorepo/pnpm dependency paths",
+      "description": "As a release engineer, I need to ensure no publishable package resolves dependencies at runtime via hardcoded pnpm or monorepo-relative paths, so that all packages work correctly when installed from npm/yarn.",
+      "acceptanceCriteria": [
+        "Grep all packages/*/dist/ and packages/*/src/ for patterns: node_modules/.pnpm, ../../../node_modules, ../../node_modules (in runtime code, not comments or bundled string artifacts)",
+        "For each hit, verify whether it's a runtime path resolution (bug) vs. a module-resolution probe candidate or bundled artifact (acceptable)",
+        "Any runtime hardcoded paths are replaced with createRequire().resolve() or standard Node module resolution",
+        "Any dependencies resolved this way are declared in the package's dependencies",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": "## Context\nUS-099 fixed a hardcoded pnpm path in packages/nodejs/src/polyfills.ts. This story audits all other publishable packages for the same class of bug.\n\n## Known acceptable patterns (not bugs):\n- packages/nodejs/src/package-bundler.ts and packages/core/src/package-bundler.ts: these probe .pnpm/node_modules/ as runtime module resolution candidates — this is correct behavior for a module resolver that needs to find packages under any package manager\n- packages/core/src/generated/polyfills.ts: contains pre-bundled polyfill source as string literals — .pnpm references inside are esbuild bundle comment artifacts, not runtime lookups\n- packages/playground/secure-exec-worker.js: esbuild bundle with module ID comments containing .pnpm paths — not runtime lookups\n- packages/secure-exec/tests/node-conformance/: vendored upstream Node.js test files with their own node_modules references\n\n## What to look for:\n- new URL('...node_modules...', import.meta.url) with hardcoded relative depth\n- path.join/resolve with hardcoded '../../../node_modules' or similar\n- Any runtime fileURLToPath() that assumes monorepo directory structure"
+    },
+    {
+      "id": "US-102",
+      "title": "Audit all publishable packages for missing runtime-referenced paths in files array",
+      "description": "As a release engineer, I need to ensure every publishable package's 'files' array includes all directories that dist/ code references at runtime, so that npm consumers don't hit ENOENT.",
+      "acceptanceCriteria": [
+        "For each publishable package (those with a 'files' array), check whether any dist/ .js file resolves paths outside dist/ at runtime (e.g., ../src/, ../lib/, ../assets/)",
+        "Verify those referenced directories are listed in the 'files' array",
+        "Add any missing directories to the 'files' array",
+        "Validate by running `pnpm pack` in each package and confirming all runtime-referenced files are in the tarball",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": "## Context\nUS-100 fixed packages/nodejs missing src/polyfills/ from its files array. This story audits all 7 publishable packages for the same class of bug.\n\n## Publishable packages to audit:\n- @secure-exec/browser (packages/browser)\n- @secure-exec/core (packages/core)\n- @secure-exec/nodejs (packages/nodejs) — already fixed in US-100\n- @secure-exec/python (packages/python)\n- @secure-exec/v8 (packages/v8)\n- @secure-exec/typescript (packages/typescript)\n- @secure-exec/wasmvm (packages/wasmvm)\n\n## How to check each package:\n1. Build the package (pnpm --filter <pkg> build)\n2. Grep dist/**/*.js for patterns like '../src/', '../lib/', '../assets/', import.meta.url with relative ../ outside dist/\n3. Cross-reference against the 'files' array in package.json\n4. Run `pnpm pack` and inspect the tarball contents\n\n## Note:\nSource map references to ../src/ are acceptable (they're debug metadata, not runtime paths).\nOnly flag paths that are used in fileURLToPath(), readFileSync(), require(), import(), or similar runtime resolution."
+    }
+  ]
+}

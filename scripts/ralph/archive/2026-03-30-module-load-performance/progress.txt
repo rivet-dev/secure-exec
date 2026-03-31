@@ -1,0 +1,33 @@
+# Ralph Progress Log
+Started: 2026-03-30 19:46 PDT
+---
+
+## Codebase Patterns
+- Active module-load benchmark artifacts live in `packages/secure-exec/benchmarks/results/module-load/`; use `summary.md`, `summary.json`, and `analysis.md` as the baseline source of truth before changing perf-sensitive code.
+- Every performance story must rerun `pnpm --filter secure-exec bench:module-load` before completion. If a full run is blocked, record the targeted scenario command, blocker, and follow-up story in this file and in `scripts/ralph/prd.json`.
+- Each perf progress entry must record before/after warm wall time for the affected scenarios, bridge calls per iteration, and the dominant IPC counters touched by the story (`_loadPolyfill`, `_resolveModule`, `_fsExists`, `Execute` bytes, `BridgeResponse` bytes, or new UDS/session metrics).
+- Hono is the low-RPC control; Pi SDK and Pi CLI are the high-RPC workloads. Do not claim success from a single aggregate number without scenario-by-scenario deltas.
+- `_loadPolyfill` is the dominant hotspot today, so any bridge/bootstrap/snapshot change must compare `_loadPolyfill` call count, host bridge time, and response bytes against the baseline artifacts.
+- The current benchmark excludes `createNodeV8Runtime()` startup from wall time; only the dedicated cold-start control story should change how that number is interpreted.
+- New optimization ideas discovered during a story belong in both `docs-internal/todo.md` and a new `passes: false` follow-up entry in `scripts/ralph/prd.json` before the story is marked complete.
+
+## [2026-03-30 19:46 PDT] - PERF-BASELINE
+- Archived the completed `ralph/nodejs-conformance-fixes` Ralph state and switched the active plan to a new module-load performance track.
+- Baseline warm wall times and bridge counts from `packages/secure-exec/benchmarks/results/module-load/summary.md` and `analysis.md`:
+  - Hono startup: `143.791 ms` warm, `102` bridge calls/iteration, `_loadPolyfill = 101` calls/iteration
+  - Hono end-to-end: `146.734 ms` warm, `102` bridge calls/iteration, `_loadPolyfill = 101` calls/iteration
+  - Pi SDK startup: `1874.052 ms` warm, `5278` bridge calls/iteration, `_loadPolyfill = 5240` calls/iteration, `~860 ms` host bridge time
+  - Pi SDK end-to-end: `1901.765 ms` warm, `5747` bridge calls/iteration, `_loadPolyfill = 5664` calls/iteration, `~911 ms` host bridge time
+  - Pi CLI startup: `1810.580 ms` warm, `5336` bridge calls/iteration, `_loadPolyfill = 5247` calls/iteration, `~905 ms` host bridge time
+  - Pi CLI end-to-end: failing baseline (`code = 0`, `mockRequests = 0`, no stdout/stderr)
+- Baseline transport and lifecycle notes:
+  - fixed per-session overhead is `~109 ms` across passing scenarios
+  - `Execute` payload is `~1.24 MB` per iteration
+  - `WarmSnapshot` payload is `~1.05 MB` once per scenario
+  - Pi startup paths move about `11 MB` send and `0.9 MB` receive per iteration
+- Files changed: `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`, `docs-internal/todo.md`, `scripts/ralph/.last-branch`
+- **Learnings for future iterations:**
+  - The first job is to keep the benchmark artifacts trustworthy: fix the broken Pi CLI end-to-end scenario before using it as a performance datapoint.
+  - The current data points hardest at `_loadPolyfill`, repeated payload transfer, resolver/fs probe churn, and fixed session overhead; UDS RTT is still missing direct attribution.
+  - Future progress entries should quote committed artifact paths and before/after deltas, not verbal claims without numbers.
+---

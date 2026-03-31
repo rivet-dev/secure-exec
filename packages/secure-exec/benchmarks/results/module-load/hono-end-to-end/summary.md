@@ -1,15 +1,17 @@
 # Hono End-to-End
 
 Scenario: `hono-end-to-end`
-Generated: 2026-03-31T04:18:10.561Z
+Generated: 2026-03-31T04:43:25.240Z
 Description: Loads Hono, builds an app, serves a request, and reads the response.
 
 ## Progress Copy Fields
 
-- Warm wall mean: 145.024 ms
+- Warm wall mean: 146.134 ms
 - Bridge calls/iteration: 102.000
-- Warm fixed session overhead: 107.840 ms
-- Dominant bridge time: `_loadPolyfill` 29.381 ms/iteration across 101.000 calls/iteration
+- Warm fixed session overhead: 107.780 ms
+- Scenario IPC connect RTT: 0.000 ms
+- Warm phase attribution: Create->InjectGlobals 0.500 ms, InjectGlobals->Execute 5.000 ms, ExecutionResult->Destroy 102.000 ms, residual 0.280 ms
+- Dominant bridge time: `_loadPolyfill` 17.628 ms/iteration across 101.000 calls/iteration
 - Dominant bridge response bytes: `_loadPolyfill` 408083.000 bytes/iteration
 - Dominant frame bytes: `send:Execute` 1240830.000 bytes/iteration
 
@@ -17,16 +19,26 @@ Description: Loads Hono, builds an app, serves a request, and reads the response
 
 | Iteration | Wall | Execute | Fixed Overhead | Bridge Calls | Bridge Time |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | 348.304 ms | 233.860 ms | 114.444 ms | 102 | 78.740 ms |
-| 2 | 140.848 ms | 32.693 ms | 108.155 ms | 102 | 4.004 ms |
-| 3 | 149.201 ms | 41.675 ms | 107.526 ms | 102 | 5.673 ms |
+| 1 | 279.186 ms | 165.092 ms | 114.094 ms | 102 | 42.627 ms |
+| 2 | 143.614 ms | 35.638 ms | 107.976 ms | 102 | 4.379 ms |
+| 3 | 148.654 ms | 41.070 ms | 107.584 ms | 102 | 6.006 ms |
+
+## Session Phase Attribution
+
+Equivalent lifecycle phases come from `CreateSession -> InjectGlobals -> Execute -> ExecutionResult -> DestroySession` timestamps in `ipc.ndjson`.
+
+| Iteration | Create->InjectGlobals | InjectGlobals->Execute | Execute | ExecutionResult->Destroy | Residual Overhead |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | 3.000 ms | 5.000 ms | 165.092 ms | 105.000 ms | 1.094 ms |
+| 2 | 0.000 ms | 6.000 ms | 35.638 ms | 101.000 ms | 0.976 ms |
+| 3 | 1.000 ms | 4.000 ms | 41.070 ms | 103.000 ms | -0.416 ms |
 
 ## Bridge Methods By Time
 
 | Method | Calls/Iter | Time/Iter | Mean/Call | Response Bytes/Iter |
 | --- | ---: | ---: | ---: | ---: |
-| `_loadPolyfill` | 101.000 | 29.381 ms | 0.291 ms | 408083.000 |
-| `_log` | 1.000 | 0.092 ms | 0.092 ms | 47.000 |
+| `_loadPolyfill` | 101.000 | 17.628 ms | 0.175 ms | 408083.000 |
+| `_log` | 1.000 | 0.043 ms | 0.043 ms | 47.000 |
 
 ## Frame Bytes
 
@@ -44,16 +56,20 @@ Description: Loads Hono, builds an app, serves a request, and reads the response
 
 ## Comparison To Previous Baseline
 
-Baseline scenario timestamp: 2026-03-31T04:01:52.147Z
+Baseline scenario timestamp: 2026-03-31T04:38:27.531Z
 
-- Warm wall: 143.365 -> 145.024 ms (+1.659 ms (+1.16%))
+- Warm wall: 145.766 -> 146.134 ms (+0.368 ms (+0.25%))
 - Bridge calls/iteration: 102.000 -> 102.000 calls (0.000 calls (0.00%))
-- Warm fixed overhead: 107.237 -> 107.840 ms (+0.603 ms (+0.56%))
-- Bridge time/iteration: 16.426 -> 29.472 ms (+13.046 ms (+79.42%))
+- Warm fixed overhead: 107.660 -> 107.780 ms (+0.120 ms (+0.11%))
+- Warm Create->InjectGlobals: 0.000 -> 0.500 ms (+0.500 ms)
+- Warm InjectGlobals->Execute: 5.000 -> 5.000 ms (0.000 ms (0.00%))
+- Warm ExecutionResult->Destroy: 102.500 -> 102.000 ms (-0.500 ms (-0.49%))
+- Warm residual overhead: 0.161 -> 0.280 ms (+0.119 ms (+73.91%))
+- Bridge time/iteration: 21.043 -> 17.671 ms (-3.372 ms (-16.02%))
 - BridgeResponse encoded bytes/iteration: 408130.000 -> 408130.000 bytes (0.000 bytes (0.00%))
 
 | Delta Type | Name | Before | After | Delta |
 | --- | --- | ---: | ---: | ---: |
-| Method time | `_loadPolyfill` | 16.322 | 29.381 | +13.059 |
-| Method time | `_log` | 0.104 | 0.092 | -0.012 |
+| Method time | `_loadPolyfill` | 20.887 | 17.628 | -3.259 |
+| Method time | `_log` | 0.156 | 0.043 | -0.113 |
 

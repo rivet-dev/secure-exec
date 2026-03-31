@@ -406,6 +406,12 @@ function summarizeFrame(
 				...base,
 				bridgeCodeBytes: Buffer.byteLength(frame.bridgeCode, "utf8"),
 			};
+		case "Ping":
+		case "Pong":
+			return {
+				...base,
+				payloadBytes: frame.payload.length,
+			};
 		case "BridgeCall":
 			return {
 				...base,

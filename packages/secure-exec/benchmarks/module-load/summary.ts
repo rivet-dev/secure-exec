@@ -109,6 +109,10 @@ export type ScenarioIterationSummary = {
 	sandboxMs?: number;
 	executeDurationMs?: number;
 	fixedSessionOverheadMs?: number;
+	createToInjectGlobalsMs?: number;
+	injectGlobalsToExecuteSendMs?: number;
+	executeResultToDestroyMs?: number;
+	residualFixedOverheadMs?: number;
 	bridgeCalls: number;
 	bridgeDurationMs: number;
 	bridgeCallEncodedBytes: number;
@@ -161,6 +165,10 @@ export type ScenarioMetricComparison = {
 	warmWallMsMean?: NumericDelta;
 	bridgeCallsPerIteration?: NumericDelta;
 	fixedSessionOverheadWarmMsMean?: NumericDelta;
+	createToInjectGlobalsWarmMsMean?: NumericDelta;
+	injectGlobalsToExecuteSendWarmMsMean?: NumericDelta;
+	executeResultToDestroyWarmMsMean?: NumericDelta;
+	residualFixedOverheadWarmMsMean?: NumericDelta;
 	bridgeDurationPerIterationMs?: NumericDelta;
 	bridgeResponseFrameBytesPerIteration?: NumericDelta;
 	executeWarmMsMean?: NumericDelta;
@@ -207,6 +215,7 @@ export type ScenarioDerivedSummary = {
 		summaryMarkdownFile: string;
 	};
 	timing: {
+		connectRttMs?: number;
 		coldWallMs: number;
 		warmWallMsMean?: number;
 		coldSandboxMs?: number;
@@ -215,6 +224,14 @@ export type ScenarioDerivedSummary = {
 		warmExecuteDurationMsMean?: number;
 		coldFixedSessionOverheadMs?: number;
 		warmFixedSessionOverheadMsMean?: number;
+		coldCreateToInjectGlobalsMs?: number;
+		warmCreateToInjectGlobalsMsMean?: number;
+		coldInjectGlobalsToExecuteSendMs?: number;
+		warmInjectGlobalsToExecuteSendMsMean?: number;
+		coldExecuteResultToDestroyMs?: number;
+		warmExecuteResultToDestroyMsMean?: number;
+		coldResidualFixedOverheadMs?: number;
+		warmResidualFixedOverheadMsMean?: number;
 	};
 	iterationsDetail: ScenarioIterationSummary[];
 	bridge: {
@@ -255,6 +272,40 @@ export type ScenarioDerivedSummary = {
 	comparisonToPrevious?: ScenarioComparisonSummary;
 };
 
+export type TransportRttPayloadSummary = {
+	label: string;
+	payloadBytes: number;
+	sampleCount: number;
+	samplesMs: number[];
+	minRttMs: number;
+	meanRttMs: number;
+	p95RttMs: number;
+	maxRttMs: number;
+};
+
+export type TransportRttPayloadComparison = {
+	label: string;
+	payloadBytes: number;
+	meanRttMs?: NumericDelta;
+	p95RttMs?: NumericDelta;
+};
+
+export type TransportRttComparison = {
+	baselineCreatedAt?: string;
+	connectRttMs?: NumericDelta;
+	payloads: TransportRttPayloadComparison[];
+};
+
+export type TransportRttReport = {
+	createdAt: string;
+	measurement: "ipc_ping_pong";
+	warmupIterations: number;
+	sampleIterations: number;
+	connectRttMs: number;
+	payloads: TransportRttPayloadSummary[];
+	comparisonToPrevious?: TransportRttComparison;
+};
+
 export type BenchmarkBaselineMetadata = {
 	createdAt?: string;
 	gitCommit?: string;
@@ -266,6 +317,7 @@ export type BenchmarkBaselineMetadata = {
 export type BenchmarkBaseline = {
 	metadata?: BenchmarkBaselineMetadata;
 	scenarioSummaries: Map<string, ScenarioDerivedSummary>;
+	transportRtt?: TransportRttReport;
 };
 
 export type BenchmarkScenarioOverview = {
@@ -289,6 +341,7 @@ export type BenchmarkSummaryReport = {
 	v8BinaryPath: string;
 	iterations: number;
 	baseline?: BenchmarkBaselineMetadata;
+	transportRtt?: TransportRttReport;
 	progressGuide: {
 		copyTheseFields: string[];
 		comparisonArtifact: string;
@@ -305,6 +358,16 @@ function round(value: number): number {
 function mean(values: number[]): number | undefined {
 	if (values.length === 0) return undefined;
 	return round(values.reduce((sum, value) => sum + value, 0) / values.length);
+}
+
+function percentile(values: number[], ratio: number): number | undefined {
+	if (values.length === 0) return undefined;
+	const sorted = [...values].sort((left, right) => left - right);
+	const index = Math.min(
+		sorted.length - 1,
+		Math.max(0, Math.ceil(sorted.length * ratio) - 1),
+	);
+	return round(sorted[index]);
 }
 
 function formatMetric(value: number | undefined, unit = "ms"): string {
@@ -417,8 +480,20 @@ export function deriveScenarioSummary(
 	const sessions = new Map<string, MutableSessionStats>();
 	const methods = new Map<string, MutableBridgeMethodStats>();
 	const frames = new Map<string, MutableFrameStats>();
+	let connectStartTs: number | undefined;
+	let connectOkTs: number | undefined;
 
 	for (const entry of entries) {
+		if (entry.kind === "ipc_connection") {
+			const timestamp = toTimestamp(entry.ts);
+			if (entry.event === "connect_start") {
+				connectStartTs = timestamp;
+			} else if (entry.event === "connect_ok") {
+				connectOkTs = timestamp;
+			}
+			continue;
+		}
+
 		if (entry.kind === "ipc_frame") {
 			const direction = entry.direction ?? "unknown";
 			const frameType = entry.frameType ?? "unknown";
@@ -489,14 +564,43 @@ export function deriveScenarioSummary(
 		const session = sessionId ? sessions.get(sessionId) : undefined;
 		const executeDurationMs =
 			session?.executeDurationMs === undefined ? undefined : round(session.executeDurationMs);
+		const fixedSessionOverheadMs =
+			executeDurationMs === undefined ? undefined : round(sample.wallMs - executeDurationMs);
+		const createToInjectGlobalsMs =
+			session?.createTs !== undefined && session.injectGlobalsTs !== undefined
+				? round(session.injectGlobalsTs - session.createTs)
+				: undefined;
+		const injectGlobalsToExecuteSendMs =
+			session?.injectGlobalsTs !== undefined && session.executeSendTs !== undefined
+				? round(session.executeSendTs - session.injectGlobalsTs)
+				: undefined;
+		const executeResultToDestroyMs =
+			session?.executeFinishTs !== undefined && session.destroyTs !== undefined
+				? round(session.destroyTs - session.executeFinishTs)
+				: undefined;
+		const residualFixedOverheadMs =
+			fixedSessionOverheadMs === undefined ||
+			createToInjectGlobalsMs === undefined ||
+			injectGlobalsToExecuteSendMs === undefined ||
+			executeResultToDestroyMs === undefined
+				? undefined
+				: round(
+						fixedSessionOverheadMs -
+							createToInjectGlobalsMs -
+							injectGlobalsToExecuteSendMs -
+							executeResultToDestroyMs,
+					);
 		return {
 			iteration: sample.iteration,
 			sessionId,
 			wallMs: sample.wallMs,
 			sandboxMs: sample.sandboxMs,
 			executeDurationMs,
-			fixedSessionOverheadMs:
-				executeDurationMs === undefined ? undefined : round(sample.wallMs - executeDurationMs),
+			fixedSessionOverheadMs,
+			createToInjectGlobalsMs,
+			injectGlobalsToExecuteSendMs,
+			executeResultToDestroyMs,
+			residualFixedOverheadMs,
 			bridgeCalls: session?.bridgeCalls ?? 0,
 			bridgeDurationMs: round(session?.bridgeDurationMs ?? 0),
 			bridgeCallEncodedBytes: session?.bridgeCallEncodedBytes ?? 0,
@@ -578,6 +682,10 @@ export function deriveScenarioSummary(
 			summaryMarkdownFile: path.posix.join(result.scenarioId, "summary.md"),
 		},
 		timing: {
+			connectRttMs:
+				connectStartTs !== undefined && connectOkTs !== undefined
+					? round(connectOkTs - connectStartTs)
+					: undefined,
 			coldWallMs: result.summary.coldWallMs,
 			warmWallMsMean: result.summary.warmWallMsMean,
 			coldSandboxMs: result.summary.coldSandboxMs,
@@ -592,6 +700,32 @@ export function deriveScenarioSummary(
 			warmFixedSessionOverheadMsMean: mean(
 				warmIterations
 					.map((entry) => entry.fixedSessionOverheadMs)
+					.filter((value): value is number => typeof value === "number"),
+			),
+			coldCreateToInjectGlobalsMs: iterationsDetail[0]?.createToInjectGlobalsMs,
+			warmCreateToInjectGlobalsMsMean: mean(
+				warmIterations
+					.map((entry) => entry.createToInjectGlobalsMs)
+					.filter((value): value is number => typeof value === "number"),
+			),
+			coldInjectGlobalsToExecuteSendMs:
+				iterationsDetail[0]?.injectGlobalsToExecuteSendMs,
+			warmInjectGlobalsToExecuteSendMsMean: mean(
+				warmIterations
+					.map((entry) => entry.injectGlobalsToExecuteSendMs)
+					.filter((value): value is number => typeof value === "number"),
+			),
+			coldExecuteResultToDestroyMs:
+				iterationsDetail[0]?.executeResultToDestroyMs,
+			warmExecuteResultToDestroyMsMean: mean(
+				warmIterations
+					.map((entry) => entry.executeResultToDestroyMs)
+					.filter((value): value is number => typeof value === "number"),
+			),
+			coldResidualFixedOverheadMs: iterationsDetail[0]?.residualFixedOverheadMs,
+			warmResidualFixedOverheadMsMean: mean(
+				warmIterations
+					.map((entry) => entry.residualFixedOverheadMs)
 					.filter((value): value is number => typeof value === "number"),
 			),
 		},
@@ -744,6 +878,22 @@ export function compareScenarioSummaries(
 				baseline.timing.warmFixedSessionOverheadMsMean,
 				current.timing.warmFixedSessionOverheadMsMean,
 			),
+			createToInjectGlobalsWarmMsMean: compareNumeric(
+				baseline.timing.warmCreateToInjectGlobalsMsMean,
+				current.timing.warmCreateToInjectGlobalsMsMean,
+			),
+			injectGlobalsToExecuteSendWarmMsMean: compareNumeric(
+				baseline.timing.warmInjectGlobalsToExecuteSendMsMean,
+				current.timing.warmInjectGlobalsToExecuteSendMsMean,
+			),
+			executeResultToDestroyWarmMsMean: compareNumeric(
+				baseline.timing.warmExecuteResultToDestroyMsMean,
+				current.timing.warmExecuteResultToDestroyMsMean,
+			),
+			residualFixedOverheadWarmMsMean: compareNumeric(
+				baseline.timing.warmResidualFixedOverheadMsMean,
+				current.timing.warmResidualFixedOverheadMsMean,
+			),
 			bridgeDurationPerIterationMs: compareNumeric(
 				baseline.bridge.durationMsPerIteration,
 				current.bridge.durationMsPerIteration,
@@ -819,6 +969,7 @@ export async function loadBenchmarkBaseline(resultsRoot: string): Promise<Benchm
 	}
 
 	let metadata: BenchmarkBaselineMetadata | undefined;
+	let transportRtt: TransportRttReport | undefined;
 	try {
 		const rawSummary = JSON.parse(
 			await readFile(path.join(resultsRoot, "summary.json"), "utf8"),
@@ -839,11 +990,96 @@ export async function loadBenchmarkBaseline(resultsRoot: string): Promise<Benchm
 			iterations:
 				typeof rawSummary.iterations === "number" ? rawSummary.iterations : undefined,
 		};
+		if (
+			rawSummary.transportRtt &&
+			typeof rawSummary.transportRtt === "object" &&
+			!Array.isArray(rawSummary.transportRtt)
+		) {
+			transportRtt = rawSummary.transportRtt as unknown as TransportRttReport;
+		}
 	} catch {
 		metadata = undefined;
+		transportRtt = undefined;
 	}
 
-	return { metadata, scenarioSummaries };
+	return { metadata, scenarioSummaries, transportRtt };
+}
+
+export function compareTransportRtt(
+	current: TransportRttReport,
+	baseline: TransportRttReport,
+): TransportRttComparison {
+	const baselinePayloads = new Map(
+		baseline.payloads.map((entry) => [entry.payloadBytes, entry]),
+	);
+	const currentPayloads = new Map(
+		current.payloads.map((entry) => [entry.payloadBytes, entry]),
+	);
+	const payloadBytes = new Set([
+		...baselinePayloads.keys(),
+		...currentPayloads.keys(),
+	]);
+
+	return {
+		baselineCreatedAt: baseline.createdAt,
+		connectRttMs: compareNumeric(baseline.connectRttMs, current.connectRttMs),
+		payloads: Array.from(payloadBytes)
+			.map((bytes) => {
+				const before = baselinePayloads.get(bytes);
+				const after = currentPayloads.get(bytes);
+				return {
+					label: after?.label ?? before?.label ?? `${bytes} B`,
+					payloadBytes: bytes,
+					meanRttMs: compareNumeric(before?.meanRttMs, after?.meanRttMs),
+					p95RttMs: compareNumeric(before?.p95RttMs, after?.p95RttMs),
+				};
+			})
+			.sort((left, right) => left.payloadBytes - right.payloadBytes),
+	};
+}
+
+export function buildTransportRttMarkdown(report: TransportRttReport): string {
+	const lines = [
+		"# Transport RTT",
+		"",
+		`Generated: ${report.createdAt}`,
+		"Measurement: authenticated IPC Ping/Pong on a dedicated Unix domain socket connection.",
+		`Connect RTT: ${formatMetric(report.connectRttMs)}`,
+		`Warmup iterations/payload: ${report.warmupIterations}`,
+		`Measured iterations/payload: ${report.sampleIterations}`,
+		"",
+		"| Payload | Samples | Min RTT | Mean RTT | P95 RTT | Max RTT |",
+		"| --- | ---: | ---: | ---: | ---: | ---: |",
+	];
+
+	for (const payload of report.payloads) {
+		lines.push(
+			`| ${payload.label} | ${payload.sampleCount} | ${formatMetric(payload.minRttMs)} | ${formatMetric(payload.meanRttMs)} | ${formatMetric(payload.p95RttMs)} | ${formatMetric(payload.maxRttMs)} |`,
+		);
+	}
+
+	if (report.comparisonToPrevious) {
+		lines.push("");
+		lines.push("## Comparison To Previous Baseline");
+		lines.push("");
+		lines.push(
+			`Baseline transport timestamp: ${report.comparisonToPrevious.baselineCreatedAt ?? "unknown"}`,
+		);
+		lines.push(
+			`- Connect RTT: ${formatDelta(report.comparisonToPrevious.connectRttMs)}`,
+		);
+		for (const payload of report.comparisonToPrevious.payloads) {
+			lines.push(
+				`- ${payload.label} mean RTT: ${formatDelta(payload.meanRttMs)}`,
+			);
+			lines.push(
+				`- ${payload.label} P95 RTT: ${formatDelta(payload.p95RttMs)}`,
+			);
+		}
+	}
+
+	lines.push("");
+	return `${lines.join("\n")}\n`;
 }
 
 export function buildScenarioSummaryMarkdown(summary: ScenarioDerivedSummary): string {
@@ -860,6 +1096,12 @@ export function buildScenarioSummaryMarkdown(summary: ScenarioDerivedSummary): s
 		`- Bridge calls/iteration: ${summary.progressSignals.bridgeCallsPerIteration.toFixed(3)}`,
 		`- Warm fixed session overhead: ${formatMetric(summary.progressSignals.fixedSessionOverheadWarmMsMean)}`,
 	];
+	if (summary.timing.connectRttMs !== undefined) {
+		lines.push(`- Scenario IPC connect RTT: ${formatMetric(summary.timing.connectRttMs)}`);
+	}
+	lines.push(
+		`- Warm phase attribution: Create->InjectGlobals ${formatMetric(summary.timing.warmCreateToInjectGlobalsMsMean)}, InjectGlobals->Execute ${formatMetric(summary.timing.warmInjectGlobalsToExecuteSendMsMean)}, ExecutionResult->Destroy ${formatMetric(summary.timing.warmExecuteResultToDestroyMsMean)}, residual ${formatMetric(summary.timing.warmResidualFixedOverheadMsMean)}`,
+	);
 
 	if (summary.progressSignals.dominantBridgeMethodByTime) {
 		lines.push(
@@ -885,6 +1127,23 @@ export function buildScenarioSummaryMarkdown(summary: ScenarioDerivedSummary): s
 	for (const iteration of summary.iterationsDetail) {
 		lines.push(
 			`| ${iteration.iteration} | ${formatMetric(iteration.wallMs)} | ${formatMetric(iteration.executeDurationMs)} | ${formatMetric(iteration.fixedSessionOverheadMs)} | ${iteration.bridgeCalls} | ${formatMetric(iteration.bridgeDurationMs)} |`,
+		);
+	}
+
+	lines.push("");
+	lines.push("## Session Phase Attribution");
+	lines.push("");
+	lines.push(
+		"Equivalent lifecycle phases come from `CreateSession -> InjectGlobals -> Execute -> ExecutionResult -> DestroySession` timestamps in `ipc.ndjson`.",
+	);
+	lines.push("");
+	lines.push(
+		"| Iteration | Create->InjectGlobals | InjectGlobals->Execute | Execute | ExecutionResult->Destroy | Residual Overhead |",
+	);
+	lines.push("| --- | ---: | ---: | ---: | ---: | ---: |");
+	for (const iteration of summary.iterationsDetail) {
+		lines.push(
+			`| ${iteration.iteration} | ${formatMetric(iteration.createToInjectGlobalsMs)} | ${formatMetric(iteration.injectGlobalsToExecuteSendMs)} | ${formatMetric(iteration.executeDurationMs)} | ${formatMetric(iteration.executeResultToDestroyMs)} | ${formatMetric(iteration.residualFixedOverheadMs)} |`,
 		);
 	}
 
@@ -924,6 +1183,18 @@ export function buildScenarioSummaryMarkdown(summary: ScenarioDerivedSummary): s
 		);
 		lines.push(
 			`- Warm fixed overhead: ${formatDelta(summary.comparisonToPrevious.metrics.fixedSessionOverheadWarmMsMean)}`,
+		);
+		lines.push(
+			`- Warm Create->InjectGlobals: ${formatDelta(summary.comparisonToPrevious.metrics.createToInjectGlobalsWarmMsMean)}`,
+		);
+		lines.push(
+			`- Warm InjectGlobals->Execute: ${formatDelta(summary.comparisonToPrevious.metrics.injectGlobalsToExecuteSendWarmMsMean)}`,
+		);
+		lines.push(
+			`- Warm ExecutionResult->Destroy: ${formatDelta(summary.comparisonToPrevious.metrics.executeResultToDestroyWarmMsMean)}`,
+		);
+		lines.push(
+			`- Warm residual overhead: ${formatDelta(summary.comparisonToPrevious.metrics.residualFixedOverheadWarmMsMean)}`,
 		);
 		lines.push(
 			`- Bridge time/iteration: ${formatDelta(summary.comparisonToPrevious.metrics.bridgeDurationPerIterationMs)}`,
@@ -978,6 +1249,36 @@ export function buildBenchmarkSummaryMarkdown(report: BenchmarkSummaryReport): s
 	}
 
 	lines.push("");
+	lines.push("## Warm Session Phase Means");
+	lines.push("");
+	lines.push(
+		"| Scenario | Connect RTT | Create->InjectGlobals | InjectGlobals->Execute | Execute | ExecutionResult->Destroy | Residual |",
+	);
+	lines.push("| --- | ---: | ---: | ---: | ---: | ---: | ---: |");
+	for (const scenario of report.scenarioSummaries) {
+		lines.push(
+			`| ${scenario.title} | ${formatMetric(scenario.timing.connectRttMs)} | ${formatMetric(scenario.timing.warmCreateToInjectGlobalsMsMean)} | ${formatMetric(scenario.timing.warmInjectGlobalsToExecuteSendMsMean)} | ${formatMetric(scenario.timing.warmExecuteDurationMsMean)} | ${formatMetric(scenario.timing.warmExecuteResultToDestroyMsMean)} | ${formatMetric(scenario.timing.warmResidualFixedOverheadMsMean)} |`,
+		);
+	}
+
+	if (report.transportRtt) {
+		lines.push("");
+		lines.push("## Transport RTT");
+		lines.push("");
+		lines.push(
+			`Dedicated IPC connect RTT: ${formatMetric(report.transportRtt.connectRttMs)}`,
+		);
+		lines.push("");
+		lines.push("| Payload | Mean RTT | P95 RTT | Max RTT |");
+		lines.push("| --- | ---: | ---: | ---: |");
+		for (const payload of report.transportRtt.payloads) {
+			lines.push(
+				`| ${payload.label} | ${formatMetric(payload.meanRttMs)} | ${formatMetric(payload.p95RttMs)} | ${formatMetric(payload.maxRttMs)} |`,
+			);
+		}
+	}
+
+	lines.push("");
 	lines.push("## Progress Guide");
 	lines.push("");
 	for (const field of report.progressGuide.copyTheseFields) {
@@ -991,6 +1292,9 @@ export function buildBenchmarkSummaryMarkdown(report: BenchmarkSummaryReport): s
 		lines.push(
 			`- \`${scenario.scenarioId}\`: \`${scenario.artifacts.summaryFile}\`, \`${scenario.artifacts.summaryMarkdownFile}\``,
 		);
+	}
+	if (report.transportRtt) {
+		lines.push("- `transport-rtt`: `transport-rtt.json`, `transport-rtt.md`");
 	}
 	lines.push("");
 	return `${lines.join("\n")}\n`;
@@ -1025,6 +1329,18 @@ export function buildBenchmarkComparisonMarkdown(report: BenchmarkSummaryReport)
 			`- Warm fixed overhead: ${formatDelta(scenario.comparisonToPrevious.metrics.fixedSessionOverheadWarmMsMean)}`,
 		);
 		lines.push(
+			`- Warm Create->InjectGlobals: ${formatDelta(scenario.comparisonToPrevious.metrics.createToInjectGlobalsWarmMsMean)}`,
+		);
+		lines.push(
+			`- Warm InjectGlobals->Execute: ${formatDelta(scenario.comparisonToPrevious.metrics.injectGlobalsToExecuteSendWarmMsMean)}`,
+		);
+		lines.push(
+			`- Warm ExecutionResult->Destroy: ${formatDelta(scenario.comparisonToPrevious.metrics.executeResultToDestroyWarmMsMean)}`,
+		);
+		lines.push(
+			`- Warm residual overhead: ${formatDelta(scenario.comparisonToPrevious.metrics.residualFixedOverheadWarmMsMean)}`,
+		);
+		lines.push(
 			`- Bridge time/iteration: ${formatDelta(scenario.comparisonToPrevious.metrics.bridgeDurationPerIterationMs)}`,
 		);
 		lines.push(
@@ -1049,6 +1365,28 @@ export function buildBenchmarkComparisonMarkdown(report: BenchmarkSummaryReport)
 			);
 		}
 		lines.push("");
+	}
+
+	if (report.transportRtt) {
+		lines.push("## Transport RTT");
+		lines.push("");
+		if (!report.transportRtt.comparisonToPrevious) {
+			lines.push("- No previous baseline was available for transport RTT.");
+			lines.push("");
+		} else {
+			lines.push(
+				`- Connect RTT: ${formatDelta(report.transportRtt.comparisonToPrevious.connectRttMs)}`,
+			);
+			for (const payload of report.transportRtt.comparisonToPrevious.payloads) {
+				lines.push(
+					`- ${payload.label} mean RTT: ${formatDelta(payload.meanRttMs)}`,
+				);
+				lines.push(
+					`- ${payload.label} P95 RTT: ${formatDelta(payload.p95RttMs)}`,
+				);
+			}
+			lines.push("");
+		}
 	}
 
 	return `${lines.join("\n")}\n`;

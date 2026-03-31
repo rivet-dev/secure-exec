@@ -264,6 +264,43 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 		expect(messages.length).toBe(0);
 	});
 
+	it("round-trips Ping/Pong payloads after authentication", async () => {
+		const { child, socketPath, authToken } = await spawnRustBinary();
+		children.push(child);
+
+		const messages: BinaryFrame[] = [];
+		const client = await connectClient(socketPath, (msg) => messages.push(msg));
+		clients.push(client);
+		client.authenticate(authToken);
+
+		client.send({
+			type: "Ping",
+			payload: Buffer.from("transport-probe", "utf8"),
+		});
+
+		await new Promise((resolve, reject) => {
+			const deadline = Date.now() + 5_000;
+			const poll = () => {
+				const pong = messages.find((msg) => msg.type === "Pong");
+				if (pong) {
+					resolve(undefined);
+					return;
+				}
+				if (Date.now() >= deadline) {
+					reject(new Error("Timed out waiting for Pong"));
+					return;
+				}
+				setTimeout(poll, 20);
+			};
+			poll();
+		});
+
+		expect(messages).toContainEqual({
+			type: "Pong",
+			payload: Buffer.from("transport-probe", "utf8"),
+		});
+	});
+
 	// --- Cross-session access prevention ---
 
 	it("connection B cannot send messages to connection A's sessions", async () => {

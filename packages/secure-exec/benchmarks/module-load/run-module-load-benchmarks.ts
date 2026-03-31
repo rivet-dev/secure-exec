@@ -1,11 +1,14 @@
-import { spawn } from "node:child_process";
+import { spawn, execFileSync, type ChildProcess } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { rm, mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { performance } from "node:perf_hooks";
+import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
+import { IpcClient, type BinaryFrame } from "../../../v8/src/index.js";
 import {
 	MODULE_LOAD_SCENARIOS,
 	type ModuleLoadScenarioDefinition,
@@ -14,12 +17,15 @@ import {
 	buildBenchmarkComparisonMarkdown,
 	buildBenchmarkSummaryMarkdown,
 	buildScenarioSummaryMarkdown,
+	buildTransportRttMarkdown,
 	compareScenarioSummaries,
+	compareTransportRtt,
 	loadBenchmarkBaseline,
 	loadScenarioDerivedSummary,
 	type BenchmarkSummaryReport,
 	type ScenarioDerivedSummary,
 	type ScenarioRunResult,
+	type TransportRttReport,
 } from "./summary.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -55,8 +61,31 @@ type ScenarioFailureResult = {
 
 type ScenarioResult = ScenarioSuccessResult | ScenarioFailureResult;
 
+type TransportProbeHandle = {
+	child: ChildProcess;
+	socketPath: string;
+	authToken: string;
+};
+
+const TRANSPORT_RTT_WARMUP_ITERATIONS = 3;
+const TRANSPORT_RTT_SAMPLE_ITERATIONS = 20;
+const TRANSPORT_RTT_PAYLOADS = [
+	{ label: "1 B", payloadBytes: 1 },
+	{ label: "1 KB", payloadBytes: 1024 },
+	{ label: "64 KB", payloadBytes: 64 * 1024 },
+] as const;
+
 function round(value: number): number {
 	return Number(value.toFixed(3));
+}
+
+function percentile(values: number[], ratio: number): number {
+	const sorted = [...values].sort((left, right) => left - right);
+	const index = Math.min(
+		sorted.length - 1,
+		Math.max(0, Math.ceil(sorted.length * ratio) - 1),
+	);
+	return round(sorted[index] ?? 0);
 }
 
 async function getAvailablePort(): Promise<number> {
@@ -101,6 +130,214 @@ function getGitCommit(): string {
 		}).trim();
 	} catch {
 		return "unknown";
+	}
+}
+
+async function readSocketPath(child: ChildProcess): Promise<string> {
+	return new Promise<string>((resolve, reject) => {
+		const stdout = child.stdout;
+		if (!stdout) {
+			reject(new Error("V8 runtime did not expose stdout for socket path discovery"));
+			return;
+		}
+
+		let settled = false;
+		const timeout = setTimeout(() => {
+			if (settled) return;
+			settled = true;
+			reject(new Error("Timed out waiting for V8 runtime socket path"));
+		}, 10_000);
+
+		const rl = createInterface({ input: stdout });
+		rl.on("line", (line) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timeout);
+			rl.close();
+			resolve(line.trim());
+		});
+		rl.on("close", () => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timeout);
+			reject(new Error("V8 runtime stdout closed before reporting a socket path"));
+		});
+	});
+}
+
+async function spawnTransportProbe(binaryPath: string): Promise<TransportProbeHandle> {
+	const authToken = randomBytes(16).toString("hex");
+	const child = spawn(binaryPath, [], {
+		stdio: ["ignore", "pipe", "pipe"],
+		env: {
+			...process.env,
+			SECURE_EXEC_V8_TOKEN: authToken,
+			NO_COLOR: "1",
+		},
+	});
+	const socketPath = await readSocketPath(child);
+	return { child, socketPath, authToken };
+}
+
+async function killChild(child: ChildProcess): Promise<void> {
+	if (child.exitCode !== null) {
+		return;
+	}
+	child.kill("SIGTERM");
+	await new Promise<void>((resolve) => {
+		const timeout = setTimeout(() => {
+			if (child.exitCode === null) {
+				child.kill("SIGKILL");
+			}
+			resolve();
+		}, 5_000);
+		child.once("exit", () => {
+			clearTimeout(timeout);
+			resolve();
+		});
+	});
+}
+
+async function measureTransportRtt(binaryPath: string): Promise<TransportRttReport> {
+	const probe = await spawnTransportProbe(binaryPath);
+	let client: IpcClient | null = null;
+	let pendingPong:
+		| {
+				payload: Buffer;
+				resolve: (value: number) => void;
+				reject: (reason?: unknown) => void;
+				timeout: NodeJS.Timeout;
+				startedAt: number;
+		  }
+		| null = null;
+	let clientError: Error | null = null;
+
+	try {
+		client = new IpcClient({
+			socketPath: probe.socketPath,
+			onMessage: (frame: BinaryFrame) => {
+				if (frame.type !== "Pong") {
+					return;
+				}
+				const current = pendingPong;
+				if (!current) {
+					return;
+				}
+				pendingPong = null;
+				clearTimeout(current.timeout);
+				if (!frame.payload.equals(current.payload)) {
+					current.reject(
+						new Error(
+							`Ping payload mismatch for ${current.payload.length} byte probe`,
+						),
+					);
+					return;
+				}
+				current.resolve(round(performance.now() - current.startedAt));
+			},
+			onError: (error) => {
+				clientError = error;
+				if (pendingPong) {
+					const current = pendingPong;
+					pendingPong = null;
+					clearTimeout(current.timeout);
+					current.reject(error);
+				}
+			},
+			onClose: () => {
+				if (pendingPong) {
+					const current = pendingPong;
+					pendingPong = null;
+					clearTimeout(current.timeout);
+					current.reject(new Error("IPC connection closed during Ping/Pong probe"));
+				}
+			},
+		});
+
+		const connectStartedAt = performance.now();
+		await client.connect();
+		const connectRttMs = round(performance.now() - connectStartedAt);
+		client.authenticate(probe.authToken);
+
+		const ping = async (payload: Buffer): Promise<number> =>
+			new Promise<number>((resolve, reject) => {
+				if (!client) {
+					reject(new Error("IPC client is not connected"));
+					return;
+				}
+				if (clientError) {
+					reject(clientError);
+					return;
+				}
+				if (pendingPong) {
+					reject(new Error("Ping/Pong probe already has an in-flight request"));
+					return;
+				}
+				const timeout = setTimeout(() => {
+					if (!pendingPong) {
+						return;
+					}
+					pendingPong = null;
+					reject(
+						new Error(
+							`Timed out waiting for Pong (${payload.length} byte payload)`,
+						),
+					);
+				}, 5_000);
+				pendingPong = {
+					payload,
+					resolve,
+					reject,
+					timeout,
+					startedAt: performance.now(),
+				};
+				try {
+					client.send({
+						type: "Ping",
+						payload,
+					});
+				} catch (error) {
+					pendingPong = null;
+					clearTimeout(timeout);
+					reject(error);
+				}
+			});
+
+		const payloads: TransportRttReport["payloads"] = [];
+		for (const spec of TRANSPORT_RTT_PAYLOADS) {
+			const payload = Buffer.alloc(spec.payloadBytes, 0x61);
+			for (let index = 0; index < TRANSPORT_RTT_WARMUP_ITERATIONS; index += 1) {
+				await ping(payload);
+			}
+			const samplesMs: number[] = [];
+			for (let index = 0; index < TRANSPORT_RTT_SAMPLE_ITERATIONS; index += 1) {
+				samplesMs.push(await ping(payload));
+			}
+			payloads.push({
+				label: spec.label,
+				payloadBytes: spec.payloadBytes,
+				sampleCount: samplesMs.length,
+				samplesMs,
+				minRttMs: round(Math.min(...samplesMs)),
+				meanRttMs: round(
+					samplesMs.reduce((sum, value) => sum + value, 0) / samplesMs.length,
+				),
+				p95RttMs: percentile(samplesMs, 0.95),
+				maxRttMs: round(Math.max(...samplesMs)),
+			});
+		}
+
+		return {
+			createdAt: new Date().toISOString(),
+			measurement: "ipc_ping_pong",
+			warmupIterations: TRANSPORT_RTT_WARMUP_ITERATIONS,
+			sampleIterations: TRANSPORT_RTT_SAMPLE_ITERATIONS,
+			connectRttMs,
+			payloads,
+		};
+	} finally {
+		client?.close();
+		await killChild(probe.child);
 	}
 }
 
@@ -295,6 +532,14 @@ async function main(): Promise<void> {
 		}
 	}
 
+	const transportRtt = await measureTransportRtt(binaryPath);
+	if (baseline?.transportRtt) {
+		transportRtt.comparisonToPrevious = compareTransportRtt(
+			transportRtt,
+			baseline.transportRtt,
+		);
+	}
+
 	const { results: passedResults, scenarioSummaries } = await collectScenarioSummaries(
 		baseline,
 	);
@@ -318,11 +563,14 @@ async function main(): Promise<void> {
 		v8BinaryPath: binaryPath,
 		iterations,
 		baseline: baseline?.metadata,
+		transportRtt,
 		progressGuide: {
 			copyTheseFields: [
 				"Warm wall mean",
 				"Bridge calls per iteration",
 				"Warm fixed session overhead",
+				"Warm phase attribution when fixed overhead changes",
+				"Transport RTT means from transport-rtt.md for transport-sensitive changes",
 				"Dominant bridge method time and byte deltas from comparison.md",
 			],
 			comparisonArtifact: "comparison.md",
@@ -351,6 +599,8 @@ async function main(): Promise<void> {
 		createdAt: report.createdAt,
 		gitCommit: report.gitCommit,
 		baseline: report.baseline ?? null,
+		transportRtt: report.transportRtt ?? null,
+		transportRttComparison: report.transportRtt?.comparisonToPrevious ?? null,
 		scenarios: report.scenarioOverview.map((scenario) => ({
 			scenarioId: scenario.scenarioId,
 			title: scenario.title,
@@ -382,6 +632,16 @@ async function main(): Promise<void> {
 	await writeFile(
 		path.join(RESULTS_ROOT, "comparison.md"),
 		buildBenchmarkComparisonMarkdown(report),
+		"utf8",
+	);
+	await writeFile(
+		path.join(RESULTS_ROOT, "transport-rtt.json"),
+		`${JSON.stringify(transportRtt, null, 2)}\n`,
+		"utf8",
+	);
+	await writeFile(
+		path.join(RESULTS_ROOT, "transport-rtt.md"),
+		buildTransportRttMarkdown(transportRtt),
 		"utf8",
 	);
 }

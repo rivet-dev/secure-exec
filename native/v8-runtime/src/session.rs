@@ -246,6 +246,15 @@ impl SessionManager {
     pub fn call_id_router(&self) -> &CallIdRouter {
         &self.call_id_router
     }
+
+    /// Send a connection-scoped frame through the dedicated writer thread.
+    pub fn send_connection_frame(&self, frame: &BinaryFrame) -> Result<(), String> {
+        let bytes = crate::ipc_binary::frame_to_bytes(frame)
+            .map_err(|e| format!("failed to encode IPC message: {}", e))?;
+        self.ipc_tx
+            .send(bytes)
+            .map_err(|e| format!("failed to send IPC message: {}", e))
+    }
 }
 
 /// Serialize and send a BinaryFrame via the per-connection IPC channel.

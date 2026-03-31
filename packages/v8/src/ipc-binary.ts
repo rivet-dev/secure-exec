@@ -26,12 +26,14 @@ const MSG_BRIDGE_RESPONSE = 0x06;
 const MSG_STREAM_EVENT = 0x07;
 const MSG_TERMINATE_EXECUTION = 0x08;
 const MSG_WARM_SNAPSHOT = 0x09;
+const MSG_PING = 0x0a;
 
 // Rust → Host message type codes
 const MSG_BRIDGE_CALL = 0x81;
 const MSG_EXECUTION_RESULT = 0x82;
 const MSG_LOG = 0x83;
 const MSG_STREAM_CALLBACK = 0x84;
+const MSG_PONG = 0x85;
 
 // ExecutionResult flags
 const FLAG_HAS_EXPORTS = 0x01;
@@ -81,6 +83,7 @@ export type BinaryFrame =
 	  }
 	| { type: "TerminateExecution"; sessionId: string }
 	| { type: "WarmSnapshot"; bridgeCode: string }
+	| { type: "Ping"; payload: Buffer }
 	// Rust → Host
 	| {
 			type: "BridgeCall";
@@ -102,7 +105,8 @@ export type BinaryFrame =
 			sessionId: string;
 			callbackType: string;
 			payload: Buffer;
-	  };
+	  }
+	| { type: "Pong"; payload: Buffer };
 
 /**
  * Encode a binary frame into a Buffer with 4-byte length prefix.
@@ -205,6 +209,10 @@ export function decodeFrame(buf: Buffer): BinaryFrame {
 			const bridgeCode = buf.toString("utf8", pos, pos + bcLen);
 			return { type: "WarmSnapshot", bridgeCode };
 		}
+		case MSG_PING: {
+			const payload = Buffer.from(buf.subarray(pos));
+			return { type: "Ping", payload };
+		}
 		case MSG_BRIDGE_CALL: {
 			const callId = Number(buf.readBigUInt64BE(pos));
 			pos += 8;
@@ -257,6 +265,10 @@ export function decodeFrame(buf: Buffer): BinaryFrame {
 			const payload = Buffer.from(buf.subarray(pos));
 			return { type: "StreamCallback", sessionId, callbackType, payload };
 		}
+		case MSG_PONG: {
+			const payload = Buffer.from(buf.subarray(pos));
+			return { type: "Pong", payload };
+		}
 		default:
 			throw new Error(
 				`Unknown message type: 0x${msgType.toString(16).padStart(2, "0")}`,
@@ -267,14 +279,19 @@ export function decodeFrame(buf: Buffer): BinaryFrame {
 /**
  * Extract session_id from raw frame bytes without full deserialization.
  * `raw` starts at the first byte after the 4-byte length prefix (i.e. the msg_type byte).
- * Returns null for Authenticate (which has no session_id).
+ * Returns null for frames without a session_id.
  */
 export function extractSessionId(raw: Buffer): string | null {
 	if (raw.length < 2) {
 		throw new Error("Frame too short");
 	}
 	const msgType = raw[0];
-	if (msgType === MSG_AUTHENTICATE || msgType === MSG_WARM_SNAPSHOT) {
+	if (
+		msgType === MSG_AUTHENTICATE ||
+		msgType === MSG_WARM_SNAPSHOT ||
+		msgType === MSG_PING ||
+		msgType === MSG_PONG
+	) {
 		return null;
 	}
 	const sidLen = raw[1];
@@ -376,6 +393,11 @@ function encodeBody(frame: BinaryFrame): Buffer {
 			parts.push(bcBuf);
 			break;
 		}
+		case "Ping": {
+			parts.push(Buffer.from([MSG_PING, 0])); // no session_id
+			parts.push(frame.payload);
+			break;
+		}
 		case "BridgeCall": {
 			parts.push(Buffer.from([MSG_BRIDGE_CALL]));
 			parts.push(encodeSessionId(frame.sessionId));
@@ -429,6 +451,11 @@ function encodeBody(frame: BinaryFrame): Buffer {
 			ctLen.writeUInt16BE(ctBuf.length, 0);
 			parts.push(ctLen);
 			parts.push(ctBuf);
+			parts.push(frame.payload);
+			break;
+		}
+		case "Pong": {
+			parts.push(Buffer.from([MSG_PONG, 0])); // no session_id
 			parts.push(frame.payload);
 			break;
 		}

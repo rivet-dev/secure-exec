@@ -3,11 +3,14 @@ import { getModuleLoadScenario } from "../benchmarks/module-load/scenario-catalo
 import {
 	buildBenchmarkComparisonMarkdown,
 	buildBenchmarkSummaryMarkdown,
+	buildTransportRttMarkdown,
 	compareScenarioSummaries,
+	compareTransportRtt,
 	deriveScenarioSummary,
 	parseIpcLog,
 	type BenchmarkSummaryReport,
 	type ScenarioRunResult,
+	type TransportRttReport,
 } from "../benchmarks/module-load/summary.js";
 
 function buildLog(lines: Array<Record<string, unknown>>): string {
@@ -63,6 +66,16 @@ describe("module-load summary generation", () => {
 		};
 
 		const logText = buildLog([
+			{
+				ts: "2026-03-31T05:00:00.000Z",
+				kind: "ipc_connection",
+				event: "connect_start",
+			},
+			{
+				ts: "2026-03-31T05:00:00.004Z",
+				kind: "ipc_connection",
+				event: "connect_ok",
+			},
 			{
 				ts: "2026-03-31T05:00:00.001Z",
 				kind: "ipc_frame",
@@ -301,10 +314,20 @@ describe("module-load summary generation", () => {
 
 		const summary = deriveScenarioSummary(scenario, result, parseIpcLog(logText));
 
+		expect(summary.timing.connectRttMs).toBe(4);
 		expect(summary.timing.warmExecuteDurationMsMean).toBe(120);
 		expect(summary.timing.coldFixedSessionOverheadMs).toBe(120);
 		expect(summary.timing.warmFixedSessionOverheadMsMean).toBe(90);
+		expect(summary.timing.coldCreateToInjectGlobalsMs).toBe(1);
+		expect(summary.timing.warmCreateToInjectGlobalsMsMean).toBe(1);
+		expect(summary.timing.warmInjectGlobalsToExecuteSendMsMean).toBe(1);
+		expect(summary.timing.warmExecuteResultToDestroyMsMean).toBe(18);
+		expect(summary.timing.warmResidualFixedOverheadMsMean).toBe(70);
 		expect(summary.iterationsDetail[0].bridgeCalls).toBe(2);
+		expect(summary.iterationsDetail[0].createToInjectGlobalsMs).toBe(1);
+		expect(summary.iterationsDetail[0].injectGlobalsToExecuteSendMs).toBe(1);
+		expect(summary.iterationsDetail[0].executeResultToDestroyMs).toBe(38);
+		expect(summary.iterationsDetail[0].residualFixedOverheadMs).toBe(80);
 		expect(summary.bridge.callsPerIteration).toBe(2);
 		expect(summary.bridge.durationMsPerIteration).toBe(30);
 		expect(summary.progressSignals.dominantBridgeMethodByTime).toEqual({
@@ -384,9 +407,12 @@ describe("module-load summary generation", () => {
 		};
 
 		const currentLog = buildLog([
+			{ ts: "2026-03-31T05:59:59.995Z", kind: "ipc_connection", event: "connect_start" },
+			{ ts: "2026-03-31T05:59:59.999Z", kind: "ipc_connection", event: "connect_ok" },
 			{ ts: "2026-03-31T06:00:00.001Z", kind: "ipc_frame", direction: "send", frameType: "WarmSnapshot", encodedBytes: 90, payloadBytes: 80 },
 			{ ts: "2026-03-31T06:00:00.010Z", kind: "ipc_frame", direction: "send", frameType: "CreateSession", sessionId: "c1", encodedBytes: 10 },
-			{ ts: "2026-03-31T06:00:00.011Z", kind: "ipc_frame", direction: "send", frameType: "Execute", sessionId: "c1", encodedBytes: 30, payloadBytes: 25 },
+			{ ts: "2026-03-31T06:00:00.011Z", kind: "ipc_frame", direction: "send", frameType: "InjectGlobals", sessionId: "c1", encodedBytes: 20, payloadBytes: 15 },
+			{ ts: "2026-03-31T06:00:00.012Z", kind: "ipc_frame", direction: "send", frameType: "Execute", sessionId: "c1", encodedBytes: 30, payloadBytes: 25 },
 			{ ts: "2026-03-31T06:00:00.020Z", kind: "ipc_frame", direction: "recv", frameType: "BridgeCall", sessionId: "c1", callId: 1, method: "_loadPolyfill", encodedBytes: 80, payloadBytes: 20 },
 			{ ts: "2026-03-31T06:00:00.050Z", kind: "ipc_bridge_call", event: "finish", sessionId: "c1", callId: 1, method: "_loadPolyfill", status: 0, durationMs: 30 },
 			{ ts: "2026-03-31T06:00:00.051Z", kind: "ipc_frame", direction: "send", frameType: "BridgeResponse", sessionId: "c1", callId: 1, status: 0, encodedBytes: 180, payloadBytes: 120 },
@@ -397,7 +423,8 @@ describe("module-load summary generation", () => {
 			{ ts: "2026-03-31T06:00:00.210Z", kind: "ipc_execute", event: "finish", sessionId: "c1", durationMs: 200 },
 			{ ts: "2026-03-31T06:00:00.250Z", kind: "ipc_frame", direction: "send", frameType: "DestroySession", sessionId: "c1", encodedBytes: 10 },
 			{ ts: "2026-03-31T06:00:01.010Z", kind: "ipc_frame", direction: "send", frameType: "CreateSession", sessionId: "c2", encodedBytes: 10 },
-			{ ts: "2026-03-31T06:00:01.011Z", kind: "ipc_frame", direction: "send", frameType: "Execute", sessionId: "c2", encodedBytes: 30, payloadBytes: 25 },
+			{ ts: "2026-03-31T06:00:01.011Z", kind: "ipc_frame", direction: "send", frameType: "InjectGlobals", sessionId: "c2", encodedBytes: 20, payloadBytes: 15 },
+			{ ts: "2026-03-31T06:00:01.012Z", kind: "ipc_frame", direction: "send", frameType: "Execute", sessionId: "c2", encodedBytes: 30, payloadBytes: 25 },
 			{ ts: "2026-03-31T06:00:01.020Z", kind: "ipc_frame", direction: "recv", frameType: "BridgeCall", sessionId: "c2", callId: 1, method: "_loadPolyfill", encodedBytes: 50, payloadBytes: 10 },
 			{ ts: "2026-03-31T06:00:01.035Z", kind: "ipc_bridge_call", event: "finish", sessionId: "c2", callId: 1, method: "_loadPolyfill", status: 0, durationMs: 15 },
 			{ ts: "2026-03-31T06:00:01.036Z", kind: "ipc_frame", direction: "send", frameType: "BridgeResponse", sessionId: "c2", callId: 1, status: 0, encodedBytes: 90, payloadBytes: 60 },
@@ -410,9 +437,12 @@ describe("module-load summary generation", () => {
 		]);
 
 		const baselineLog = buildLog([
+			{ ts: "2026-03-30T05:59:59.994Z", kind: "ipc_connection", event: "connect_start" },
+			{ ts: "2026-03-30T05:59:59.999Z", kind: "ipc_connection", event: "connect_ok" },
 			{ ts: "2026-03-30T06:00:00.001Z", kind: "ipc_frame", direction: "send", frameType: "WarmSnapshot", encodedBytes: 90, payloadBytes: 80 },
 			{ ts: "2026-03-30T06:00:00.010Z", kind: "ipc_frame", direction: "send", frameType: "CreateSession", sessionId: "b1", encodedBytes: 10 },
-			{ ts: "2026-03-30T06:00:00.011Z", kind: "ipc_frame", direction: "send", frameType: "Execute", sessionId: "b1", encodedBytes: 30, payloadBytes: 25 },
+			{ ts: "2026-03-30T06:00:00.011Z", kind: "ipc_frame", direction: "send", frameType: "InjectGlobals", sessionId: "b1", encodedBytes: 20, payloadBytes: 15 },
+			{ ts: "2026-03-30T06:00:00.012Z", kind: "ipc_frame", direction: "send", frameType: "Execute", sessionId: "b1", encodedBytes: 30, payloadBytes: 25 },
 			{ ts: "2026-03-30T06:00:00.020Z", kind: "ipc_frame", direction: "recv", frameType: "BridgeCall", sessionId: "b1", callId: 1, method: "_loadPolyfill", encodedBytes: 80, payloadBytes: 20 },
 			{ ts: "2026-03-30T06:00:00.055Z", kind: "ipc_bridge_call", event: "finish", sessionId: "b1", callId: 1, method: "_loadPolyfill", status: 0, durationMs: 35 },
 			{ ts: "2026-03-30T06:00:00.056Z", kind: "ipc_frame", direction: "send", frameType: "BridgeResponse", sessionId: "b1", callId: 1, status: 0, encodedBytes: 200, payloadBytes: 140 },
@@ -426,7 +456,8 @@ describe("module-load summary generation", () => {
 			{ ts: "2026-03-30T06:00:00.260Z", kind: "ipc_execute", event: "finish", sessionId: "b1", durationMs: 220 },
 			{ ts: "2026-03-30T06:00:00.300Z", kind: "ipc_frame", direction: "send", frameType: "DestroySession", sessionId: "b1", encodedBytes: 10 },
 			{ ts: "2026-03-30T06:00:01.010Z", kind: "ipc_frame", direction: "send", frameType: "CreateSession", sessionId: "b2", encodedBytes: 10 },
-			{ ts: "2026-03-30T06:00:01.011Z", kind: "ipc_frame", direction: "send", frameType: "Execute", sessionId: "b2", encodedBytes: 30, payloadBytes: 25 },
+			{ ts: "2026-03-30T06:00:01.011Z", kind: "ipc_frame", direction: "send", frameType: "InjectGlobals", sessionId: "b2", encodedBytes: 20, payloadBytes: 15 },
+			{ ts: "2026-03-30T06:00:01.012Z", kind: "ipc_frame", direction: "send", frameType: "Execute", sessionId: "b2", encodedBytes: 30, payloadBytes: 25 },
 			{ ts: "2026-03-30T06:00:01.020Z", kind: "ipc_frame", direction: "recv", frameType: "BridgeCall", sessionId: "b2", callId: 1, method: "_loadPolyfill", encodedBytes: 60, payloadBytes: 15 },
 			{ ts: "2026-03-30T06:00:01.045Z", kind: "ipc_bridge_call", event: "finish", sessionId: "b2", callId: 1, method: "_loadPolyfill", status: 0, durationMs: 25 },
 			{ ts: "2026-03-30T06:00:01.046Z", kind: "ipc_frame", direction: "send", frameType: "BridgeResponse", sessionId: "b2", callId: 1, status: 0, encodedBytes: 110, payloadBytes: 70 },
@@ -464,6 +495,63 @@ describe("module-load summary generation", () => {
 			delta: -1,
 		});
 
+		const transportRtt: TransportRttReport = {
+			createdAt: "2026-03-31T06:05:00.000Z",
+			measurement: "ipc_ping_pong",
+			warmupIterations: 3,
+			sampleIterations: 5,
+			connectRttMs: 0.45,
+			payloads: [
+				{
+					label: "1 B",
+					payloadBytes: 1,
+					sampleCount: 5,
+					samplesMs: [0.12, 0.13, 0.14, 0.15, 0.16],
+					minRttMs: 0.12,
+					meanRttMs: 0.14,
+					p95RttMs: 0.16,
+					maxRttMs: 0.16,
+				},
+				{
+					label: "64 KB",
+					payloadBytes: 64 * 1024,
+					sampleCount: 5,
+					samplesMs: [0.9, 1.0, 1.1, 1.2, 1.3],
+					minRttMs: 0.9,
+					meanRttMs: 1.1,
+					p95RttMs: 1.3,
+					maxRttMs: 1.3,
+				},
+			],
+		};
+		transportRtt.comparisonToPrevious = compareTransportRtt(transportRtt, {
+			...transportRtt,
+			createdAt: "2026-03-30T06:05:00.000Z",
+			connectRttMs: 0.5,
+			payloads: [
+				{
+					label: "1 B",
+					payloadBytes: 1,
+					sampleCount: 5,
+					samplesMs: [0.15, 0.16, 0.17, 0.18, 0.19],
+					minRttMs: 0.15,
+					meanRttMs: 0.17,
+					p95RttMs: 0.19,
+					maxRttMs: 0.19,
+				},
+				{
+					label: "64 KB",
+					payloadBytes: 64 * 1024,
+					sampleCount: 5,
+					samplesMs: [1.1, 1.2, 1.3, 1.4, 1.5],
+					minRttMs: 1.1,
+					meanRttMs: 1.3,
+					p95RttMs: 1.5,
+					maxRttMs: 1.5,
+				},
+			],
+		});
+
 		const report: BenchmarkSummaryReport = {
 			createdAt: "2026-03-31T06:05:00.000Z",
 			gitCommit: "abc123",
@@ -474,6 +562,7 @@ describe("module-load summary generation", () => {
 				createdAt: "2026-03-30T06:05:00.000Z",
 				gitCommit: "def456",
 			},
+			transportRtt,
 			progressGuide: {
 				copyTheseFields: ["Warm wall mean", "Bridge calls per iteration"],
 				comparisonArtifact: "comparison.md",
@@ -501,7 +590,10 @@ describe("module-load summary generation", () => {
 		};
 
 		expect(buildBenchmarkSummaryMarkdown(report)).toContain("comparison.md");
+		expect(buildBenchmarkSummaryMarkdown(report)).toContain("Transport RTT");
 		expect(buildBenchmarkComparisonMarkdown(report)).toContain("BridgeResponse encoded bytes/iteration");
+		expect(buildBenchmarkComparisonMarkdown(report)).toContain("Transport RTT");
 		expect(buildBenchmarkComparisonMarkdown(report)).toContain("_fsExists");
+		expect(buildTransportRttMarkdown(transportRtt)).toContain("64 KB");
 	});
 });

@@ -50,7 +50,7 @@
         "Touched packages typecheck."
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": "Today the benchmark measures full `Execute` and host-side `BridgeCall -> BridgeResponse`, but not raw UDS RTT. The analysis shows a stable `~109 ms` fixed per-session cost that needs phase attribution before we guess at a fix."
     },
     {

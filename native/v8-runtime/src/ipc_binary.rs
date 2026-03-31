@@ -25,12 +25,14 @@ const MSG_BRIDGE_RESPONSE: u8 = 0x06;
 const MSG_STREAM_EVENT: u8 = 0x07;
 const MSG_TERMINATE_EXECUTION: u8 = 0x08;
 const MSG_WARM_SNAPSHOT: u8 = 0x09;
+const MSG_PING: u8 = 0x0a;
 
 // Rust → Host message type codes
 const MSG_BRIDGE_CALL: u8 = 0x81;
 const MSG_EXECUTION_RESULT: u8 = 0x82;
 const MSG_LOG: u8 = 0x83;
 const MSG_STREAM_CALLBACK: u8 = 0x84;
+const MSG_PONG: u8 = 0x85;
 
 // ExecutionResult flags
 const FLAG_HAS_EXPORTS: u8 = 0x01;
@@ -80,6 +82,9 @@ pub enum BinaryFrame {
     WarmSnapshot {
         bridge_code: String,
     },
+    Ping {
+        payload: Vec<u8>,
+    },
 
     // Rust → Host
     BridgeCall {
@@ -103,6 +108,9 @@ pub enum BinaryFrame {
         session_id: String,
         callback_type: String,
         payload: Vec<u8>, // V8-serialized payload
+    },
+    Pong {
+        payload: Vec<u8>,
     },
 }
 
@@ -170,7 +178,7 @@ pub fn read_frame<R: Read>(reader: &mut R) -> io::Result<BinaryFrame> {
 
 /// Extract session_id from raw frame bytes without full deserialization.
 /// `raw` starts at the first byte after the 4-byte length prefix (i.e. the msg_type byte).
-/// Returns None for Authenticate (which has no session_id).
+/// Returns None for frames without a session_id.
 #[allow(dead_code)]
 pub fn extract_session_id(raw: &[u8]) -> io::Result<Option<&str>> {
     if raw.len() < 2 {
@@ -180,7 +188,11 @@ pub fn extract_session_id(raw: &[u8]) -> io::Result<Option<&str>> {
         ));
     }
     let msg_type = raw[0];
-    if msg_type == MSG_AUTHENTICATE || msg_type == MSG_WARM_SNAPSHOT {
+    if msg_type == MSG_AUTHENTICATE
+        || msg_type == MSG_WARM_SNAPSHOT
+        || msg_type == MSG_PING
+        || msg_type == MSG_PONG
+    {
         return Ok(None);
     }
     let sid_len = raw[1] as usize;
@@ -284,6 +296,11 @@ fn encode_body(buf: &mut Vec<u8>, frame: &BinaryFrame) -> io::Result<()> {
             buf.extend_from_slice(&(bc_bytes.len() as u32).to_be_bytes());
             buf.extend_from_slice(bc_bytes);
         }
+        BinaryFrame::Ping { payload } => {
+            buf.push(MSG_PING);
+            buf.push(0); // no session_id
+            buf.extend_from_slice(payload);
+        }
         BinaryFrame::BridgeCall {
             session_id,
             call_id,
@@ -342,6 +359,11 @@ fn encode_body(buf: &mut Vec<u8>, frame: &BinaryFrame) -> io::Result<()> {
             buf.push(MSG_STREAM_CALLBACK);
             write_session_id(buf, session_id)?;
             write_len_prefixed_u16(buf, callback_type)?;
+            buf.extend_from_slice(payload);
+        }
+        BinaryFrame::Pong { payload } => {
+            buf.push(MSG_PONG);
+            buf.push(0); // no session_id
             buf.extend_from_slice(payload);
         }
     }
@@ -430,6 +452,10 @@ fn decode_body(buf: &[u8]) -> io::Result<BinaryFrame> {
             let bridge_code = read_utf8(buf, &mut pos, bc_len)?;
             Ok(BinaryFrame::WarmSnapshot { bridge_code })
         }
+        MSG_PING => {
+            let payload = buf[pos..].to_vec();
+            Ok(BinaryFrame::Ping { payload })
+        }
         MSG_BRIDGE_CALL => {
             let call_id = read_u64(buf, &mut pos)?;
             let m_len = read_u16(buf, &mut pos)? as usize;
@@ -492,6 +518,10 @@ fn decode_body(buf: &[u8]) -> io::Result<BinaryFrame> {
                 callback_type,
                 payload,
             })
+        }
+        MSG_PONG => {
+            let payload = buf[pos..].to_vec();
+            Ok(BinaryFrame::Pong { payload })
         }
         _ => Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -733,6 +763,13 @@ mod tests {
         });
     }
 
+    #[test]
+    fn roundtrip_ping() {
+        roundtrip(&BinaryFrame::Ping {
+            payload: b"ping-payload".to_vec(),
+        });
+    }
+
     // -- Rust → Host message types --
 
     #[test]
@@ -835,6 +872,13 @@ mod tests {
             session_id: "sess-1".into(),
             callback_type: "child_dispatch".into(),
             payload: vec![0x92, 0x01, 0xa3, 0x66, 0x6f, 0x6f],
+        });
+    }
+
+    #[test]
+    fn roundtrip_pong() {
+        roundtrip(&BinaryFrame::Pong {
+            payload: b"pong-payload".to_vec(),
         });
     }
 
@@ -1094,6 +1138,24 @@ mod tests {
     }
 
     #[test]
+    fn extract_session_id_ping_and_pong_return_none() {
+        for frame in [
+            BinaryFrame::Ping {
+                payload: b"a".to_vec(),
+            },
+            BinaryFrame::Pong {
+                payload: b"b".to_vec(),
+            },
+        ] {
+            let mut buf = Vec::new();
+            write_frame(&mut buf, &frame).expect("write");
+            let raw = &buf[4..];
+            let result = extract_session_id(raw).expect("extract");
+            assert_eq!(result, None);
+        }
+    }
+
+    #[test]
     fn extract_session_id_too_short() {
         let result = extract_session_id(&[0x02]); // msg_type only, no sid_len
         assert!(result.is_err());
@@ -1167,6 +1229,12 @@ mod tests {
                 0x09,
             ),
             (
+                BinaryFrame::Ping {
+                    payload: vec![],
+                },
+                0x0a,
+            ),
+            (
                 BinaryFrame::BridgeCall {
                     session_id: "s".into(),
                     call_id: 0,
@@ -1199,6 +1267,12 @@ mod tests {
                     payload: vec![],
                 },
                 0x84,
+            ),
+            (
+                BinaryFrame::Pong {
+                    payload: vec![],
+                },
+                0x85,
             ),
         ];
         for (frame, expected_type) in &cases {

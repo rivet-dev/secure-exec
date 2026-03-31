@@ -279,6 +279,13 @@ fn handle_connection(
                     eprintln!("connection {}: WarmSnapshot failed: {}", connection_id, e);
                 }
             }
+            BinaryFrame::Ping { payload } => {
+                let mgr = session_mgr.lock().unwrap();
+                if let Err(e) = mgr.send_connection_frame(&BinaryFrame::Pong { payload }) {
+                    eprintln!("connection {}: Ping response failed: {}", connection_id, e);
+                    break;
+                }
+            }
             _ => {
                 eprintln!("connection {}: unexpected frame type", connection_id);
             }

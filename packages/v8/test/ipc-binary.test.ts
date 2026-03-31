@@ -137,6 +137,13 @@ describe("Host → Rust messages", () => {
 	it("round-trips WarmSnapshot with large bridge code", () => {
 		roundtrip({ type: "WarmSnapshot", bridgeCode: "x".repeat(100_000) });
 	});
+
+	it("round-trips Ping", () => {
+		roundtrip({
+			type: "Ping",
+			payload: Buffer.from("ping-payload", "utf8"),
+		});
+	});
 });
 
 // -- Rust → Host message types --
@@ -216,6 +223,13 @@ describe("Rust → Host messages", () => {
 			exitCode: 0,
 			exports: null,
 			error: null,
+		});
+	});
+
+	it("round-trips Pong", () => {
+		roundtrip({
+			type: "Pong",
+			payload: Buffer.from("pong-payload", "utf8"),
 		});
 	});
 
@@ -440,6 +454,17 @@ describe("session_id extraction", () => {
 		expect(extractSessionId(raw)).toBeNull();
 	});
 
+	it("returns null for Ping and Pong", () => {
+		for (const frame of [
+			{ type: "Ping", payload: Buffer.from("a", "utf8") },
+			{ type: "Pong", payload: Buffer.from("b", "utf8") },
+		] satisfies BinaryFrame[]) {
+			const encoded = encodeFrame(frame);
+			const raw = encoded.subarray(4);
+			expect(extractSessionId(raw)).toBeNull();
+		}
+	});
+
 	it("throws on too-short buffer", () => {
 		expect(() => extractSessionId(Buffer.from([0x02]))).toThrow(
 			"Frame too short",
@@ -500,6 +525,7 @@ describe("wire format interop", () => {
 			],
 			[{ type: "TerminateExecution", sessionId: "s" }, 0x08],
 			[{ type: "WarmSnapshot", bridgeCode: "bridge()" }, 0x09],
+			[{ type: "Ping", payload: Buffer.alloc(0) }, 0x0a],
 			[
 				{
 					type: "BridgeCall",
@@ -530,6 +556,7 @@ describe("wire format interop", () => {
 				},
 				0x84,
 			],
+			[{ type: "Pong", payload: Buffer.alloc(0) }, 0x85],
 		];
 
 		for (const [frame, expectedType] of cases) {
