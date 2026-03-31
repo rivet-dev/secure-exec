@@ -4,7 +4,7 @@
   "target": "hono",
   "kind": "end_to_end",
   "description": "Loads Hono, builds an app, serves a request, and reads the response.",
-  "createdAt": "2026-03-31T22:12:14.681Z",
+  "createdAt": "2026-03-31T22:51:01.313Z",
   "iterations": 3,
   "artifacts": {
     "resultFile": "hono-end-to-end/result.json",
@@ -16,9 +16,9 @@
   "benchmarkModes": {
     "sandboxTrueColdStart": {
       "warmSnapshotEnabled": {
-        "totalWallMs": 143.22,
-        "runtimeCreateMs": 107.649,
-        "firstPassWallMs": 35.571,
+        "totalWallMs": 211.348,
+        "runtimeCreateMs": 102.211,
+        "firstPassWallMs": 109.137,
         "firstPassSandboxMs": 0,
         "checks": {
           "status": 200,
@@ -26,9 +26,9 @@
         }
       },
       "warmSnapshotDisabled": {
-        "totalWallMs": 126.328,
-        "runtimeCreateMs": 2.978,
-        "firstPassWallMs": 123.35,
+        "totalWallMs": 178.313,
+        "runtimeCreateMs": 5.046,
+        "firstPassWallMs": 173.267,
         "firstPassSandboxMs": 0,
         "checks": {
           "status": 200,
@@ -38,20 +38,20 @@
     },
     "sandboxNewSessionReplay": {
       "warmSnapshotEnabled": {
-        "coldWallMs": 101.774,
-        "warmWallMsMean": 37.44,
+        "coldWallMs": 83.373,
+        "warmWallMsMean": 36.873,
         "coldSandboxMs": 0,
         "warmSandboxMsMean": 0
       },
       "warmSnapshotDisabled": {
-        "coldWallMs": 124.082,
-        "warmWallMsMean": 32.519,
+        "coldWallMs": 172.998,
+        "warmWallMsMean": 46.279,
         "coldSandboxMs": 0,
         "warmSandboxMsMean": 0
       }
     },
     "sandboxSameSessionReplay": {
-      "totalWallMs": 36.245,
+      "totalWallMs": 162.678,
       "firstPassMs": 0,
       "replayPassMs": 0,
       "firstPassChecks": {
@@ -64,9 +64,9 @@
       }
     },
     "hostSameSessionControl": {
-      "totalWallMs": 24.213,
-      "firstPassMs": 23.868,
-      "replayPassMs": 0.343,
+      "totalWallMs": 25.39,
+      "firstPassMs": 25.027,
+      "replayPassMs": 0.361,
       "firstPassChecks": {
         "status": 200,
         "body": "{\"ok\":true,\"framework\":\"hono\"}"
@@ -78,38 +78,38 @@
     }
   },
   "timing": {
-    "connectRttMs": 0,
-    "coldWallMs": 101.774,
-    "warmWallMsMean": 37.44,
+    "connectRttMs": 1,
+    "coldWallMs": 83.373,
+    "warmWallMsMean": 36.873,
     "coldSandboxMs": 0,
     "warmSandboxMsMean": 0,
-    "coldExecuteDurationMs": 85.667,
-    "warmExecuteDurationMsMean": 31.956,
-    "coldFixedSessionOverheadMs": 16.107,
-    "warmFixedSessionOverheadMsMean": 5.484,
-    "coldCreateToInjectGlobalsMs": 12,
-    "warmCreateToInjectGlobalsMsMean": 4.5,
+    "coldExecuteDurationMs": 68.535,
+    "warmExecuteDurationMsMean": 31.401,
+    "coldFixedSessionOverheadMs": 14.838,
+    "warmFixedSessionOverheadMsMean": 5.472,
+    "coldCreateToInjectGlobalsMs": 13,
+    "warmCreateToInjectGlobalsMsMean": 4,
     "coldInjectGlobalsToExecuteSendMs": 0,
     "warmInjectGlobalsToExecuteSendMsMean": 0,
-    "coldExecuteResultToDestroyMs": 1,
+    "coldExecuteResultToDestroyMs": 0,
     "warmExecuteResultToDestroyMsMean": 0,
-    "coldResidualFixedOverheadMs": 3.107,
-    "warmResidualFixedOverheadMsMean": 0.984
+    "coldResidualFixedOverheadMs": 1.838,
+    "warmResidualFixedOverheadMsMean": 1.472
   },
   "iterationsDetail": [
     {
       "iteration": 1,
-      "sessionId": "a1843449b26b4c7af71eacb666776ef4",
-      "wallMs": 101.774,
+      "sessionId": "2dd7ac9b38aacc97abecf9c77ea5a5f3",
+      "wallMs": 83.373,
       "sandboxMs": 0,
-      "executeDurationMs": 85.667,
-      "fixedSessionOverheadMs": 16.107,
-      "createToInjectGlobalsMs": 12,
+      "executeDurationMs": 68.535,
+      "fixedSessionOverheadMs": 14.838,
+      "createToInjectGlobalsMs": 13,
       "injectGlobalsToExecuteSendMs": 0,
-      "executeResultToDestroyMs": 1,
-      "residualFixedOverheadMs": 3.107,
+      "executeResultToDestroyMs": 0,
+      "residualFixedOverheadMs": 1.838,
       "bridgeCalls": 59,
-      "bridgeDurationMs": 43.572,
+      "bridgeDurationMs": 38.158,
       "bridgeCallEncodedBytes": 10752,
       "bridgeResponseEncodedBytes": 404107,
       "bridgeCallPayloadBytes": 7052,
@@ -123,17 +123,17 @@
     },
     {
       "iteration": 2,
-      "sessionId": "88f86c575228f7ece90221e83d82842f",
-      "wallMs": 36.591,
+      "sessionId": "2d23c51f302dd427ce1e9925d3f398a9",
+      "wallMs": 34.08,
       "sandboxMs": 0,
-      "executeDurationMs": 30.95,
-      "fixedSessionOverheadMs": 5.641,
-      "createToInjectGlobalsMs": 5,
+      "executeDurationMs": 28.751,
+      "fixedSessionOverheadMs": 5.329,
+      "createToInjectGlobalsMs": 4,
       "injectGlobalsToExecuteSendMs": 0,
       "executeResultToDestroyMs": 0,
-      "residualFixedOverheadMs": 0.641,
+      "residualFixedOverheadMs": 1.329,
       "bridgeCalls": 59,
-      "bridgeDurationMs": 3.954,
+      "bridgeDurationMs": 3.821,
       "bridgeCallEncodedBytes": 10752,
       "bridgeResponseEncodedBytes": 8569,
       "bridgeCallPayloadBytes": 7052,
@@ -147,17 +147,17 @@
     },
     {
       "iteration": 3,
-      "sessionId": "feddde54f767540f66c04a3b99ae40e5",
-      "wallMs": 38.289,
+      "sessionId": "a5a2d8240a8df4aaf2f0fda8c3d9b04b",
+      "wallMs": 39.665,
       "sandboxMs": 0,
-      "executeDurationMs": 32.962,
-      "fixedSessionOverheadMs": 5.327,
+      "executeDurationMs": 34.05,
+      "fixedSessionOverheadMs": 5.615,
       "createToInjectGlobalsMs": 4,
       "injectGlobalsToExecuteSendMs": 0,
       "executeResultToDestroyMs": 0,
-      "residualFixedOverheadMs": 1.327,
+      "residualFixedOverheadMs": 1.615,
       "bridgeCalls": 59,
-      "bridgeDurationMs": 4.893,
+      "bridgeDurationMs": 4.892,
       "bridgeCallEncodedBytes": 10752,
       "bridgeResponseEncodedBytes": 8569,
       "bridgeCallPayloadBytes": 7052,
@@ -173,16 +173,16 @@
   "bridge": {
     "totalCalls": 177,
     "callsPerIteration": 59,
-    "totalDurationMs": 52.419,
-    "durationMsPerIteration": 17.473,
+    "totalDurationMs": 46.871,
+    "durationMsPerIteration": 15.624,
     "methodsByCount": [
       {
         "method": "_bridgeDispatch",
         "callsTotal": 165,
         "callsPerIteration": 55,
-        "totalDurationMs": 16.7,
-        "durationMsPerIteration": 5.567,
-        "meanDurationMsPerCall": 0.101,
+        "totalDurationMs": 13.498,
+        "durationMsPerIteration": 4.499,
+        "meanDurationMsPerCall": 0.082,
         "requestEncodedBytesTotal": 31116,
         "requestEncodedBytesPerIteration": 10372,
         "requestPayloadBytesTotal": 20721,
@@ -199,9 +199,9 @@
         "method": "_loadPolyfill",
         "callsTotal": 9,
         "callsPerIteration": 3,
-        "totalDurationMs": 35.533,
-        "durationMsPerIteration": 11.844,
-        "meanDurationMsPerCall": 3.948,
+        "totalDurationMs": 33.224,
+        "durationMsPerIteration": 11.075,
+        "meanDurationMsPerCall": 3.692,
         "requestEncodedBytesTotal": 699,
         "requestEncodedBytesPerIteration": 233,
         "requestPayloadBytesTotal": 150,
@@ -218,9 +218,9 @@
         "method": "_log",
         "callsTotal": 3,
         "callsPerIteration": 1,
-        "totalDurationMs": 0.186,
-        "durationMsPerIteration": 0.062,
-        "meanDurationMsPerCall": 0.062,
+        "totalDurationMs": 0.149,
+        "durationMsPerIteration": 0.05,
+        "meanDurationMsPerCall": 0.05,
         "requestEncodedBytesTotal": 441,
         "requestEncodedBytesPerIteration": 147,
         "requestPayloadBytesTotal": 285,
@@ -239,9 +239,9 @@
         "method": "_loadPolyfill",
         "callsTotal": 9,
         "callsPerIteration": 3,
-        "totalDurationMs": 35.533,
-        "durationMsPerIteration": 11.844,
-        "meanDurationMsPerCall": 3.948,
+        "totalDurationMs": 33.224,
+        "durationMsPerIteration": 11.075,
+        "meanDurationMsPerCall": 3.692,
         "requestEncodedBytesTotal": 699,
         "requestEncodedBytesPerIteration": 233,
         "requestPayloadBytesTotal": 150,
@@ -258,9 +258,9 @@
         "method": "_bridgeDispatch",
         "callsTotal": 165,
         "callsPerIteration": 55,
-        "totalDurationMs": 16.7,
-        "durationMsPerIteration": 5.567,
-        "meanDurationMsPerCall": 0.101,
+        "totalDurationMs": 13.498,
+        "durationMsPerIteration": 4.499,
+        "meanDurationMsPerCall": 0.082,
         "requestEncodedBytesTotal": 31116,
         "requestEncodedBytesPerIteration": 10372,
         "requestPayloadBytesTotal": 20721,
@@ -277,9 +277,9 @@
         "method": "_log",
         "callsTotal": 3,
         "callsPerIteration": 1,
-        "totalDurationMs": 0.186,
-        "durationMsPerIteration": 0.062,
-        "meanDurationMsPerCall": 0.062,
+        "totalDurationMs": 0.149,
+        "durationMsPerIteration": 0.05,
+        "meanDurationMsPerCall": 0.05,
         "requestEncodedBytesTotal": 441,
         "requestEncodedBytesPerIteration": 147,
         "requestPayloadBytesTotal": 285,
@@ -298,9 +298,9 @@
         "method": "_loadPolyfill",
         "callsTotal": 9,
         "callsPerIteration": 3,
-        "totalDurationMs": 35.533,
-        "durationMsPerIteration": 11.844,
-        "meanDurationMsPerCall": 3.948,
+        "totalDurationMs": 33.224,
+        "durationMsPerIteration": 11.075,
+        "meanDurationMsPerCall": 3.692,
         "requestEncodedBytesTotal": 699,
         "requestEncodedBytesPerIteration": 233,
         "requestPayloadBytesTotal": 150,
@@ -317,9 +317,9 @@
         "method": "_bridgeDispatch",
         "callsTotal": 165,
         "callsPerIteration": 55,
-        "totalDurationMs": 16.7,
-        "durationMsPerIteration": 5.567,
-        "meanDurationMsPerCall": 0.101,
+        "totalDurationMs": 13.498,
+        "durationMsPerIteration": 4.499,
+        "meanDurationMsPerCall": 0.082,
         "requestEncodedBytesTotal": 31116,
         "requestEncodedBytesPerIteration": 10372,
         "requestPayloadBytesTotal": 20721,
@@ -336,9 +336,9 @@
         "method": "_log",
         "callsTotal": 3,
         "callsPerIteration": 1,
-        "totalDurationMs": 0.186,
-        "durationMsPerIteration": 0.062,
-        "meanDurationMsPerCall": 0.062,
+        "totalDurationMs": 0.149,
+        "durationMsPerIteration": 0.05,
+        "meanDurationMsPerCall": 0.05,
         "requestEncodedBytesTotal": 441,
         "requestEncodedBytesPerIteration": 147,
         "requestPayloadBytesTotal": 285,
@@ -358,8 +358,8 @@
         "label": "real polyfill-body loads",
         "callsTotal": 9,
         "callsPerIteration": 3,
-        "totalDurationMs": 35.533,
-        "durationMsPerIteration": 11.844,
+        "totalDurationMs": 33.224,
+        "durationMsPerIteration": 11.075,
         "requestEncodedBytesTotal": 699,
         "requestEncodedBytesPerIteration": 233,
         "responseEncodedBytesTotal": 299578,
@@ -369,8 +369,8 @@
             "target": "hono",
             "callsTotal": 3,
             "callsPerIteration": 1,
-            "totalDurationMs": 0.171,
-            "durationMsPerIteration": 0.057,
+            "totalDurationMs": 0.111,
+            "durationMsPerIteration": 0.037,
             "responseEncodedBytesTotal": 150,
             "responseEncodedBytesPerIteration": 50
           },
@@ -378,8 +378,8 @@
             "target": "stream/web",
             "callsTotal": 3,
             "callsPerIteration": 1,
-            "totalDurationMs": 16.726,
-            "durationMsPerIteration": 5.575,
+            "totalDurationMs": 17.275,
+            "durationMsPerIteration": 5.758,
             "responseEncodedBytesTotal": 173950,
             "responseEncodedBytesPerIteration": 57983.333
           },
@@ -387,66 +387,66 @@
             "target": "url",
             "callsTotal": 3,
             "callsPerIteration": 1,
-            "totalDurationMs": 18.636,
-            "durationMsPerIteration": 6.212,
+            "totalDurationMs": 15.838,
+            "durationMsPerIteration": 5.279,
             "responseEncodedBytesTotal": 125478,
             "responseEncodedBytesPerIteration": 41826
           }
         ],
         "topTargetsByCalls": [
           {
-            "target": "url",
-            "callsTotal": 3,
-            "callsPerIteration": 1,
-            "totalDurationMs": 18.636,
-            "durationMsPerIteration": 6.212,
-            "responseEncodedBytesTotal": 125478,
-            "responseEncodedBytesPerIteration": 41826
-          },
-          {
             "target": "stream/web",
             "callsTotal": 3,
             "callsPerIteration": 1,
-            "totalDurationMs": 16.726,
-            "durationMsPerIteration": 5.575,
+            "totalDurationMs": 17.275,
+            "durationMsPerIteration": 5.758,
             "responseEncodedBytesTotal": 173950,
             "responseEncodedBytesPerIteration": 57983.333
+          },
+          {
+            "target": "url",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 15.838,
+            "durationMsPerIteration": 5.279,
+            "responseEncodedBytesTotal": 125478,
+            "responseEncodedBytesPerIteration": 41826
           },
           {
             "target": "hono",
             "callsTotal": 3,
             "callsPerIteration": 1,
-            "totalDurationMs": 0.171,
-            "durationMsPerIteration": 0.057,
+            "totalDurationMs": 0.111,
+            "durationMsPerIteration": 0.037,
             "responseEncodedBytesTotal": 150,
             "responseEncodedBytesPerIteration": 50
           }
         ],
         "topTargetsByTime": [
           {
-            "target": "url",
-            "callsTotal": 3,
-            "callsPerIteration": 1,
-            "totalDurationMs": 18.636,
-            "durationMsPerIteration": 6.212,
-            "responseEncodedBytesTotal": 125478,
-            "responseEncodedBytesPerIteration": 41826
-          },
-          {
             "target": "stream/web",
             "callsTotal": 3,
             "callsPerIteration": 1,
-            "totalDurationMs": 16.726,
-            "durationMsPerIteration": 5.575,
+            "totalDurationMs": 17.275,
+            "durationMsPerIteration": 5.758,
             "responseEncodedBytesTotal": 173950,
             "responseEncodedBytesPerIteration": 57983.333
+          },
+          {
+            "target": "url",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 15.838,
+            "durationMsPerIteration": 5.279,
+            "responseEncodedBytesTotal": 125478,
+            "responseEncodedBytesPerIteration": 41826
           },
           {
             "target": "hono",
             "callsTotal": 3,
             "callsPerIteration": 1,
-            "totalDurationMs": 0.171,
-            "durationMsPerIteration": 0.057,
+            "totalDurationMs": 0.111,
+            "durationMsPerIteration": 0.037,
             "responseEncodedBytesTotal": 150,
             "responseEncodedBytesPerIteration": 50
           }
@@ -456,8 +456,8 @@
             "target": "stream/web",
             "callsTotal": 3,
             "callsPerIteration": 1,
-            "totalDurationMs": 16.726,
-            "durationMsPerIteration": 5.575,
+            "totalDurationMs": 17.275,
+            "durationMsPerIteration": 5.758,
             "responseEncodedBytesTotal": 173950,
             "responseEncodedBytesPerIteration": 57983.333
           },
@@ -465,8 +465,8 @@
             "target": "url",
             "callsTotal": 3,
             "callsPerIteration": 1,
-            "totalDurationMs": 18.636,
-            "durationMsPerIteration": 6.212,
+            "totalDurationMs": 15.838,
+            "durationMsPerIteration": 5.279,
             "responseEncodedBytesTotal": 125478,
             "responseEncodedBytesPerIteration": 41826
           },
@@ -474,8 +474,8 @@
             "target": "hono",
             "callsTotal": 3,
             "callsPerIteration": 1,
-            "totalDurationMs": 0.171,
-            "durationMsPerIteration": 0.057,
+            "totalDurationMs": 0.111,
+            "durationMsPerIteration": 0.037,
             "responseEncodedBytesTotal": 150,
             "responseEncodedBytesPerIteration": 50
           }
@@ -762,18 +762,18 @@
     ]
   },
   "progressSignals": {
-    "warmWallMsMean": 37.44,
+    "warmWallMsMean": 36.873,
     "bridgeCallsPerIteration": 59,
-    "fixedSessionOverheadWarmMsMean": 5.484,
+    "fixedSessionOverheadWarmMsMean": 5.472,
     "dominantBridgeMethodByTime": {
       "method": "_loadPolyfill",
-      "durationMsPerIteration": 11.844,
+      "durationMsPerIteration": 11.075,
       "callsPerIteration": 3
     },
     "dominantBridgeMethodByCount": {
       "method": "_bridgeDispatch",
       "callsPerIteration": 55,
-      "durationMsPerIteration": 5.567
+      "durationMsPerIteration": 4.499
     },
     "dominantBridgeMethodByResponseBytes": {
       "method": "_loadPolyfill",
@@ -782,7 +782,7 @@
     "loadPolyfillAttribution": {
       "polyfill_body": {
         "callsPerIteration": 3,
-        "durationMsPerIteration": 11.844,
+        "durationMsPerIteration": 11.075,
         "responseEncodedBytesPerIteration": 99859.333
       },
       "bridge_dispatch": {
@@ -798,13 +798,13 @@
     }
   },
   "comparisonToPrevious": {
-    "baselineScenarioCreatedAt": "2026-03-31T22:12:14.681Z",
+    "baselineScenarioCreatedAt": "2026-03-31T22:34:39.328Z",
     "metrics": {
       "warmWallMsMean": {
-        "before": 37.44,
-        "after": 37.44,
-        "delta": 0,
-        "deltaPercent": 0
+        "before": 39.684,
+        "after": 36.873,
+        "delta": -2.811,
+        "deltaPercent": -7.083
       },
       "bridgeCallsPerIteration": {
         "before": 59,
@@ -813,16 +813,16 @@
         "deltaPercent": 0
       },
       "fixedSessionOverheadWarmMsMean": {
-        "before": 5.484,
-        "after": 5.484,
-        "delta": 0,
-        "deltaPercent": 0
+        "before": 6.224,
+        "after": 5.472,
+        "delta": -0.752,
+        "deltaPercent": -12.082
       },
       "createToInjectGlobalsWarmMsMean": {
-        "before": 4.5,
-        "after": 4.5,
-        "delta": 0,
-        "deltaPercent": 0
+        "before": 5,
+        "after": 4,
+        "delta": -1,
+        "deltaPercent": -20
       },
       "injectGlobalsToExecuteSendWarmMsMean": {
         "before": 0,
@@ -835,16 +835,16 @@
         "delta": 0
       },
       "residualFixedOverheadWarmMsMean": {
-        "before": 0.984,
-        "after": 0.984,
-        "delta": 0,
-        "deltaPercent": 0
+        "before": 1.224,
+        "after": 1.472,
+        "delta": 0.248,
+        "deltaPercent": 20.261
       },
       "bridgeDurationPerIterationMs": {
-        "before": 17.473,
-        "after": 17.473,
-        "delta": 0,
-        "deltaPercent": 0
+        "before": 15.364,
+        "after": 15.624,
+        "delta": 0.26,
+        "deltaPercent": 1.692
       },
       "bridgeResponseFrameBytesPerIteration": {
         "before": 140415,
@@ -853,13 +853,32 @@
         "deltaPercent": 0
       },
       "executeWarmMsMean": {
-        "before": 31.956,
-        "after": 31.956,
-        "delta": 0,
-        "deltaPercent": 0
+        "before": 33.46,
+        "after": 31.401,
+        "delta": -2.059,
+        "deltaPercent": -6.154
       }
     },
-    "bridgeMethodDurationDeltas": [],
+    "bridgeMethodDurationDeltas": [
+      {
+        "method": "_loadPolyfill",
+        "before": 10.295,
+        "after": 11.075,
+        "delta": 0.78
+      },
+      {
+        "method": "_bridgeDispatch",
+        "before": 4.994,
+        "after": 4.499,
+        "delta": -0.495
+      },
+      {
+        "method": "_log",
+        "before": 0.076,
+        "after": 0.05,
+        "delta": -0.026
+      }
+    ],
     "bridgeMethodCountDeltas": [],
     "bridgeMethodResponseByteDeltas": [],
     "frameEncodedByteDeltas": [],
@@ -874,10 +893,10 @@
           "deltaPercent": 0
         },
         "durationMsPerIteration": {
-          "before": 11.844,
-          "after": 11.844,
-          "delta": 0,
-          "deltaPercent": 0
+          "before": 10.295,
+          "after": 11.075,
+          "delta": 0.78,
+          "deltaPercent": 7.576
         },
         "responseEncodedBytesPerIteration": {
           "before": 99859.333,
@@ -910,10 +929,10 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 5.575,
-              "after": 5.575,
-              "delta": 0,
-              "deltaPercent": 0
+              "before": 5.344,
+              "after": 5.758,
+              "delta": 0.414,
+              "deltaPercent": 7.747
             },
             "responseEncodedBytesPerIteration": {
               "before": 57983.333,
@@ -931,10 +950,10 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 6.212,
-              "after": 6.212,
-              "delta": 0,
-              "deltaPercent": 0
+              "before": 4.887,
+              "after": 5.279,
+              "delta": 0.392,
+              "deltaPercent": 8.021
             },
             "responseEncodedBytesPerIteration": {
               "before": 41826,
@@ -952,10 +971,10 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 0.057,
-              "after": 0.057,
-              "delta": 0,
-              "deltaPercent": 0
+              "before": 0.063,
+              "after": 0.037,
+              "delta": -0.026,
+              "deltaPercent": -41.27
             },
             "responseEncodedBytesPerIteration": {
               "before": 50,
@@ -967,27 +986,6 @@
         ],
         "targetDeltasByTime": [
           {
-            "target": "url",
-            "callsPerIteration": {
-              "before": 1,
-              "after": 1,
-              "delta": 0,
-              "deltaPercent": 0
-            },
-            "durationMsPerIteration": {
-              "before": 6.212,
-              "after": 6.212,
-              "delta": 0,
-              "deltaPercent": 0
-            },
-            "responseEncodedBytesPerIteration": {
-              "before": 41826,
-              "after": 41826,
-              "delta": 0,
-              "deltaPercent": 0
-            }
-          },
-          {
             "target": "stream/web",
             "callsPerIteration": {
               "before": 1,
@@ -996,14 +994,35 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 5.575,
-              "after": 5.575,
-              "delta": 0,
-              "deltaPercent": 0
+              "before": 5.344,
+              "after": 5.758,
+              "delta": 0.414,
+              "deltaPercent": 7.747
             },
             "responseEncodedBytesPerIteration": {
               "before": 57983.333,
               "after": 57983.333,
+              "delta": 0,
+              "deltaPercent": 0
+            }
+          },
+          {
+            "target": "url",
+            "callsPerIteration": {
+              "before": 1,
+              "after": 1,
+              "delta": 0,
+              "deltaPercent": 0
+            },
+            "durationMsPerIteration": {
+              "before": 4.887,
+              "after": 5.279,
+              "delta": 0.392,
+              "deltaPercent": 8.021
+            },
+            "responseEncodedBytesPerIteration": {
+              "before": 41826,
+              "after": 41826,
               "delta": 0,
               "deltaPercent": 0
             }
@@ -1017,10 +1036,10 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 0.057,
-              "after": 0.057,
-              "delta": 0,
-              "deltaPercent": 0
+              "before": 0.063,
+              "after": 0.037,
+              "delta": -0.026,
+              "deltaPercent": -41.27
             },
             "responseEncodedBytesPerIteration": {
               "before": 50,
@@ -1040,10 +1059,10 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 5.575,
-              "after": 5.575,
-              "delta": 0,
-              "deltaPercent": 0
+              "before": 5.344,
+              "after": 5.758,
+              "delta": 0.414,
+              "deltaPercent": 7.747
             },
             "responseEncodedBytesPerIteration": {
               "before": 57983.333,
@@ -1061,10 +1080,10 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 6.212,
-              "after": 6.212,
-              "delta": 0,
-              "deltaPercent": 0
+              "before": 4.887,
+              "after": 5.279,
+              "delta": 0.392,
+              "deltaPercent": 8.021
             },
             "responseEncodedBytesPerIteration": {
               "before": 41826,
@@ -1082,10 +1101,10 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 0.057,
-              "after": 0.057,
-              "delta": 0,
-              "deltaPercent": 0
+              "before": 0.063,
+              "after": 0.037,
+              "delta": -0.026,
+              "deltaPercent": -41.27
             },
             "responseEncodedBytesPerIteration": {
               "before": 50,

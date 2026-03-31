@@ -14,6 +14,11 @@ import {
 	type ModuleLoadScenarioDefinition,
 } from "./scenario-catalog.js";
 import {
+	runModuleLoadScenario,
+	type ScenarioFailureResult,
+	type ScenarioResult,
+} from "./orchestration.js";
+import {
 	buildBenchmarkComparisonMarkdown,
 	buildBenchmarkSummaryMarkdown,
 	buildLoadPolyfillAttributionClassifier,
@@ -37,30 +42,6 @@ const SCENARIO_RUNNER = path.resolve(__dirname, "scenario-runner.ts");
 const NATIVE_V8_ROOT = path.resolve(REPO_ROOT, "native/v8-runtime");
 const LOCAL_V8_RELEASE_BINARY = path.join(NATIVE_V8_ROOT, "target/release/secure-exec-v8");
 const LOCAL_V8_DEBUG_BINARY = path.join(NATIVE_V8_ROOT, "target/debug/secure-exec-v8");
-
-type ScenarioSuccessResult = ScenarioRunResult & {
-	status: "passed";
-};
-
-type ScenarioFailureResult = {
-	status: "failed";
-	scenarioId: string;
-	title: string;
-	target: string;
-	kind: string;
-	description: string;
-	createdAt: string;
-	iterations: number;
-	artifacts: {
-		resultFile: string;
-		metricsFile: string;
-		logFile: string;
-		runnerLogFile: string;
-	};
-	error: string;
-};
-
-type ScenarioResult = ScenarioSuccessResult | ScenarioFailureResult;
 
 type TransportProbeHandle = {
 	child: ChildProcess;
@@ -342,121 +323,6 @@ async function measureTransportRtt(binaryPath: string): Promise<TransportRttRepo
 	}
 }
 
-async function runScenario(
-	scenario: ModuleLoadScenarioDefinition,
-	iterations: number,
-	binaryPath: string,
-): Promise<ScenarioResult> {
-	const scenarioDir = path.join(RESULTS_ROOT, scenario.id);
-	await mkdir(scenarioDir, { recursive: true });
-
-	const resultFile = path.join(scenarioDir, "result.json");
-	const metricsFile = path.join(scenarioDir, "metrics.prom");
-	const logFile = path.join(scenarioDir, "ipc.ndjson");
-	const runnerLogFile = path.join(scenarioDir, "runner.log");
-	const metricsPort = await getAvailablePort();
-	const runnerArgs = [
-		"--import",
-		"tsx",
-		SCENARIO_RUNNER,
-		"--scenario",
-		scenario.id,
-		"--result-file",
-		resultFile,
-		"--metrics-file",
-		metricsFile,
-		"--log-file",
-		logFile,
-		"--binary-path",
-		binaryPath,
-		"--metrics-host",
-		"127.0.0.1",
-		"--metrics-port",
-		String(metricsPort),
-		"--metrics-path",
-		"/metrics",
-		"--iterations",
-		String(iterations),
-	];
-
-	const outputChunks: string[] = [];
-	let childExitCode: number | null = null;
-	let childError: Error | null = null;
-	try {
-		await new Promise<void>((resolve, reject) => {
-			const child = spawn(process.execPath, runnerArgs, {
-				cwd: PACKAGE_ROOT,
-				env: {
-					...process.env,
-					NO_COLOR: "1",
-				},
-				stdio: ["ignore", "pipe", "pipe"],
-			});
-
-			child.stdout.on("data", (chunk: Buffer) => {
-				outputChunks.push(`[stdout] ${chunk.toString()}`);
-			});
-			child.stderr.on("data", (chunk: Buffer) => {
-				outputChunks.push(`[stderr] ${chunk.toString()}`);
-			});
-			child.on("error", (error) => {
-				childError = error;
-				reject(error);
-			});
-			child.on("close", (code) => {
-				childExitCode = code;
-				resolve();
-			});
-		});
-	} finally {
-		await writeFile(runnerLogFile, outputChunks.join(""), "utf8");
-	}
-
-	if (childError) {
-		throw childError;
-	}
-
-	const artifactPaths = {
-		resultFile: path.relative(RESULTS_ROOT, resultFile),
-		metricsFile: path.relative(RESULTS_ROOT, metricsFile),
-		logFile: path.relative(RESULTS_ROOT, logFile),
-		runnerLogFile: path.relative(RESULTS_ROOT, runnerLogFile),
-	};
-	const rawResult = await readFile(resultFile, "utf8").then((content) => JSON.parse(content) as Record<string, unknown>).catch(() => null);
-	if (childExitCode === 0 && rawResult) {
-		const success = rawResult as Omit<ScenarioSuccessResult, "status" | "artifacts"> & {
-			artifacts?: Omit<ScenarioSuccessResult["artifacts"], "runnerLogFile">;
-		};
-		return {
-			status: "passed",
-			...success,
-			artifacts: {
-				resultFile: success.artifacts?.resultFile ?? artifactPaths.resultFile,
-				metricsFile: success.artifacts?.metricsFile ?? artifactPaths.metricsFile,
-				logFile: success.artifacts?.logFile ?? artifactPaths.logFile,
-				runnerLogFile: artifactPaths.runnerLogFile,
-			},
-		};
-	}
-
-	const error =
-		typeof rawResult?.error === "string"
-			? rawResult.error
-			: `Scenario ${scenario.id} exited with code ${childExitCode}`;
-	return {
-		status: "failed",
-		scenarioId: scenario.id,
-		title: scenario.title,
-		target: scenario.target,
-		kind: scenario.kind,
-		description: scenario.description,
-		createdAt: new Date().toISOString(),
-		iterations,
-		artifacts: artifactPaths,
-		error,
-	};
-}
-
 function resolveBenchmarkV8Binary(): string {
 	const override = process.env.SECURE_EXEC_BENCH_V8_BINARY?.trim();
 	if (override) {
@@ -525,6 +391,9 @@ async function main(): Promise<void> {
 	const iterations = 3;
 	const reuseExistingResults = process.env.SECURE_EXEC_BENCH_REUSE_RESULTS === "1";
 	const baselineRoot = process.env.SECURE_EXEC_BENCH_BASELINE_ROOT ?? RESULTS_ROOT;
+	const stageTimeoutMs = process.env.SECURE_EXEC_BENCH_STAGE_TIMEOUT_MS
+		? Number(process.env.SECURE_EXEC_BENCH_STAGE_TIMEOUT_MS)
+		: undefined;
 	const binaryPath = resolveBenchmarkV8Binary();
 	const loadPolyfillAttributionClassifier =
 		await buildLoadPolyfillAttributionClassifier();
@@ -540,7 +409,15 @@ async function main(): Promise<void> {
 	if (!reuseExistingResults) {
 		for (const scenario of MODULE_LOAD_SCENARIOS) {
 			console.error(`\n=== ${scenario.id} ===`);
-			const result = await runScenario(scenario, iterations, binaryPath);
+			const result = await runModuleLoadScenario({
+				scenario,
+				iterations,
+				binaryPath,
+				packageRoot: PACKAGE_ROOT,
+				resultsRoot: RESULTS_ROOT,
+				scenarioRunnerPath: SCENARIO_RUNNER,
+				stageTimeoutMs,
+			});
 			results.push(result);
 			if (result.status === "failed") {
 				console.error(`Scenario ${scenario.id} failed: ${result.error}`);

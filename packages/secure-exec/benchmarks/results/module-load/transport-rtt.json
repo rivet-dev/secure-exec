@@ -1,161 +1,102 @@
 {
-  "createdAt": "2026-03-31T22:29:20.656Z",
+  "createdAt": "2026-03-31T22:52:39.906Z",
   "measurement": "ipc_ping_pong",
   "warmupIterations": 3,
   "sampleIterations": 20,
-  "connectRttMs": 0.2,
+  "connectRttMs": 0.286,
   "payloads": [
     {
       "label": "1 B",
       "payloadBytes": 1,
       "sampleCount": 20,
       "samplesMs": [
-        0.037,
+        0.071,
+        0.086,
+        0.07,
+        0.059,
+        0.071,
+        0.08,
+        0.063,
+        0.047,
+        0.036,
+        0.036,
+        0.035,
         0.032,
-        0.055,
-        0.026,
-        0.029,
-        0.041,
-        0.03,
-        0.045,
-        0.021,
-        0.017,
+        0.033,
+        0.032,
+        0.036,
+        0.078,
+        0.035,
+        0.019,
         0.016,
-        0.024,
-        0.016,
-        0.015,
-        0.017,
-        0.042,
-        0.021,
-        0.015,
-        0.015,
-        0.021
+        0.015
       ],
       "minRttMs": 0.015,
-      "meanRttMs": 0.027,
-      "p95RttMs": 0.045,
-      "maxRttMs": 0.055
+      "meanRttMs": 0.048,
+      "p95RttMs": 0.08,
+      "maxRttMs": 0.086
     },
     {
       "label": "1 KB",
       "payloadBytes": 1024,
       "sampleCount": 20,
       "samplesMs": [
+        0.018,
+        0.016,
         0.017,
         0.016,
-        0.018,
         0.015,
         0.017,
-        0.03,
-        0.024,
-        0.016,
+        0.014,
         0.017,
-        0.019,
-        0.019,
-        0.018,
-        0.018,
-        0.018,
-        0.016,
-        0.021,
         0.016,
         0.016,
-        0.018,
+        0.014,
+        0.015,
+        0.016,
+        0.016,
+        0.015,
+        0.015,
+        0.016,
+        0.015,
+        0.014,
         0.015
       ],
-      "minRttMs": 0.015,
-      "meanRttMs": 0.018,
-      "p95RttMs": 0.024,
-      "maxRttMs": 0.03
+      "minRttMs": 0.014,
+      "meanRttMs": 0.016,
+      "p95RttMs": 0.017,
+      "maxRttMs": 0.018
     },
     {
       "label": "64 KB",
       "payloadBytes": 65536,
       "sampleCount": 20,
       "samplesMs": [
-        0.112,
-        0.112,
-        0.136,
+        0.111,
         0.11,
         0.109,
         0.11,
-        0.108,
-        0.118,
-        0.116,
-        0.114,
-        0.115,
-        0.115,
-        0.115,
+        0.112,
         0.111,
-        0.137,
-        0.11,
-        0.115,
-        0.116,
-        0.11,
-        0.11
+        0.113,
+        0.117,
+        0.117,
+        0.121,
+        0.117,
+        0.122,
+        0.124,
+        0.123,
+        0.152,
+        0.196,
+        0.205,
+        0.19,
+        0.181,
+        0.276
       ],
-      "minRttMs": 0.108,
-      "meanRttMs": 0.115,
-      "p95RttMs": 0.136,
-      "maxRttMs": 0.137
+      "minRttMs": 0.109,
+      "meanRttMs": 0.141,
+      "p95RttMs": 0.205,
+      "maxRttMs": 0.276
     }
-  ],
-  "comparisonToPrevious": {
-    "baselineCreatedAt": "2026-03-31T22:18:09.805Z",
-    "connectRttMs": {
-      "before": 0.196,
-      "after": 0.2,
-      "delta": 0.004,
-      "deltaPercent": 2.041
-    },
-    "payloads": [
-      {
-        "label": "1 B",
-        "payloadBytes": 1,
-        "meanRttMs": {
-          "before": 0.024,
-          "after": 0.027,
-          "delta": 0.003,
-          "deltaPercent": 12.5
-        },
-        "p95RttMs": {
-          "before": 0.041,
-          "after": 0.045,
-          "delta": 0.004,
-          "deltaPercent": 9.756
-        }
-      },
-      {
-        "label": "1 KB",
-        "payloadBytes": 1024,
-        "meanRttMs": {
-          "before": 0.018,
-          "after": 0.018,
-          "delta": 0,
-          "deltaPercent": 0
-        },
-        "p95RttMs": {
-          "before": 0.023,
-          "after": 0.024,
-          "delta": 0.001,
-          "deltaPercent": 4.348
-        }
-      },
-      {
-        "label": "64 KB",
-        "payloadBytes": 65536,
-        "meanRttMs": {
-          "before": 0.131,
-          "after": 0.115,
-          "delta": -0.016,
-          "deltaPercent": -12.214
-        },
-        "p95RttMs": {
-          "before": 0.176,
-          "after": 0.136,
-          "delta": -0.04,
-          "deltaPercent": -22.727
-        }
-      }
-    ]
-  }
+  ]
 }

@@ -4,8 +4,8 @@
   "target": "pdf_lib",
   "kind": "end_to_end",
   "description": "Creates a multi-page PDF with 50 form fields and serializes the document.",
-  "createdAt": "2026-03-31T22:12:20.777Z",
   "iterations": 3,
+  "createdAt": "2026-03-31T22:51:10.673Z",
   "artifacts": {
     "resultFile": "pdf-lib-end-to-end/result.json",
     "metricsFile": "pdf-lib-end-to-end/metrics.prom",
@@ -14,7 +14,7 @@
   "samples": [
     {
       "iteration": 1,
-      "wallMs": 274.007,
+      "wallMs": 275.958,
       "code": 0,
       "stdoutBytes": 73,
       "stderrBytes": 0,
@@ -29,7 +29,7 @@
     },
     {
       "iteration": 2,
-      "wallMs": 288.703,
+      "wallMs": 188.126,
       "code": 0,
       "stdoutBytes": 73,
       "stderrBytes": 0,
@@ -44,7 +44,7 @@
     },
     {
       "iteration": 3,
-      "wallMs": 221.162,
+      "wallMs": 298.413,
       "code": 0,
       "stdoutBytes": 73,
       "stderrBytes": 0,
@@ -61,9 +61,9 @@
   "benchmarkModes": {
     "sandboxTrueColdStart": {
       "warmSnapshotEnabled": {
-        "totalWallMs": 384.66,
-        "runtimeCreateMs": 119.024,
-        "firstPassWallMs": 265.636,
+        "totalWallMs": 334.75,
+        "runtimeCreateMs": 99.385,
+        "firstPassWallMs": 235.365,
         "firstPassSandboxMs": 0,
         "checks": {
           "pageCount": 5,
@@ -72,9 +72,9 @@
         }
       },
       "warmSnapshotDisabled": {
-        "totalWallMs": 273.41,
-        "runtimeCreateMs": 5.146,
-        "firstPassWallMs": 268.264,
+        "totalWallMs": 417.929,
+        "runtimeCreateMs": 4.83,
+        "firstPassWallMs": 413.099,
         "firstPassSandboxMs": 0,
         "checks": {
           "pageCount": 5,
@@ -85,20 +85,20 @@
     },
     "sandboxNewSessionReplay": {
       "warmSnapshotEnabled": {
-        "coldWallMs": 274.007,
-        "warmWallMsMean": 254.933,
+        "coldWallMs": 275.958,
+        "warmWallMsMean": 243.269,
         "coldSandboxMs": 0,
         "warmSandboxMsMean": 0
       },
       "warmSnapshotDisabled": {
-        "coldWallMs": 283.417,
-        "warmWallMsMean": 221.947,
+        "coldWallMs": 454.124,
+        "warmWallMsMean": 227.464,
         "coldSandboxMs": 0,
         "warmSandboxMsMean": 0
       }
     },
     "sandboxSameSessionReplay": {
-      "totalWallMs": 206.97,
+      "totalWallMs": 218.839,
       "firstPassMs": 0,
       "replayPassMs": 0,
       "firstPassChecks": {
@@ -111,9 +111,9 @@
       }
     },
     "hostSameSessionControl": {
-      "totalWallMs": 80.021,
-      "firstPassMs": 71.635,
-      "replayPassMs": 8.382,
+      "totalWallMs": 82.065,
+      "firstPassMs": 74.601,
+      "replayPassMs": 7.46,
       "firstPassChecks": {
         "pageCount": 5,
         "fieldCount": 50
@@ -125,8 +125,8 @@
     }
   },
   "summary": {
-    "coldWallMs": 274.007,
-    "warmWallMsMean": 254.933,
+    "coldWallMs": 275.958,
+    "warmWallMsMean": 243.269,
     "coldSandboxMs": 0,
     "warmSandboxMsMean": 0
   }

@@ -4,6 +4,7 @@ Started: Mon Mar 30 08:41:55 PM PDT 2026
 
 ## Codebase Patterns
 - Active module-load benchmark artifacts live in `packages/secure-exec/benchmarks/results/module-load/`; refresh them with the full `pnpm --filter secure-exec bench:module-load` run after each performance story.
+- The top-level module-load driver should orchestrate scenario stages in isolated child processes; only the `samples` stage needs to own the committed `ipc.ndjson` / `metrics.prom`, while the benchmark-mode stages can return partial benchmark-mode JSON that the parent merges into the final `result.json`.
 - If you already have fresh per-scenario module-load `result.json` files, rebuild the top-level `summary.*`, `comparison.*`, and `transport-rtt.*` artifacts with `SECURE_EXEC_BENCH_REUSE_RESULTS=1`; point `SECURE_EXEC_BENCH_BASELINE_ROOT` at a copied results tree first if you still need before/after comparisons.
 - Package type checks in this repo usually live behind `check-types` or `check-types:benchmarks`, not a generic `typecheck` script.
 - Module-load benchmark `summary.md` / `comparison.md` now split `_loadPolyfill` into `real polyfill-body loads` and `__bd:* bridge-dispatch wrappers`; copy those fields directly for progress updates instead of using ad hoc probes.
@@ -286,4 +287,13 @@ Started: Mon Mar 30 08:41:55 PM PDT 2026
   - If a summary-only module-load story needs copy-ready `comparison.md` hotspot tables without changing the workload data, keep zero-delta targets ranked by their current `after` values instead of filtering them away; otherwise the comparison artifact collapses to empty target sections.
   - `_loadPolyfill` target rankings should only count explicitly attributed `bridgeTarget` entries; older logs need a separate unattributed remainder bucket so legacy traffic is still visible without fabricating exact file-level winners.
   - `SECURE_EXEC_BENCH_REUSE_RESULTS=1` is enough for summary-schema stories, but it also re-measures `transport-rtt.*`; treat those transport numbers as fresh measurements, not as proof of a runtime performance change unless the workload artifacts changed too.
+---
+## [2026-03-31 15:53 PDT] - US-024
+- Reworked the top-level module-load harness to run each scenario as isolated child stages instead of one long-lived `scenario-runner.ts` process. The parent now executes `samples` plus each benchmark-mode stage separately, merges the returned benchmark-mode fragments into the final `result.json`, preserves the committed `ipc.ndjson` / `metrics.prom` from the `samples` stage, and writes a per-scenario `runner.log` that records each stage. A clean `SECURE_EXEC_BENCH_STAGE_TIMEOUT_MS=45000 pnpm --filter secure-exec bench:module-load` run now completes across the full catalog; the previous repro that stalled after printing `=== pdf-lib-end-to-end ===` no longer blocks the suite.
+- Added deterministic orchestration coverage with a fake stage runner that hangs whenever `--stage` is omitted. The new test proves the parent never falls back to the old monolithic child path by requiring one successful isolated invocation for every stage in `pdf-lib-end-to-end`.
+- Files changed: `CLAUDE.md`, `docs-internal/todo.md`, `packages/secure-exec/benchmarks/module-load/orchestration.ts`, `packages/secure-exec/benchmarks/module-load/run-module-load-benchmarks.ts`, `packages/secure-exec/benchmarks/module-load/scenario-runner.ts`, `packages/secure-exec/tests/fixtures/module-load-stage-runner.ts`, `packages/secure-exec/tests/module-load-orchestration.test.ts`, `packages/secure-exec/benchmarks/results/module-load/*`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - If a module-load scenario hangs only after multiple benchmark phases have already run, split the orchestration at the parent layer before trying to “fix” the workload itself; `pdf-lib-end-to-end` still succeeds when its stages run in fresh child processes.
+  - The module-load `samples` stage is the only one that feeds `summary.ts` via `ipc.ndjson` / `metrics.prom`; later benchmark-mode stages only need partial benchmark-mode JSON, which keeps staged recovery simple.
+  - The fake `module-load-stage-runner.ts` fixture is intentionally hostile to monolithic execution by hanging without `--stage`; keep that behavior so future refactors cannot silently regress to the old orchestration path.
 ---

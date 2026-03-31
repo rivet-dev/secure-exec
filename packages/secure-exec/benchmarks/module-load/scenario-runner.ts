@@ -23,6 +23,13 @@ import {
 	getModuleLoadScenario,
 	type ModuleLoadScenarioId,
 } from "./scenario-catalog.js";
+import {
+	isScenarioRunStage,
+	summarizeNewSessionSamples,
+	type ScenarioBenchmarkModesFragment,
+	type ScenarioRunStage,
+	type ScenarioStageResult,
+} from "./orchestration.js";
 import type {
 	ScenarioBenchmarkModes,
 	ScenarioChecks,
@@ -139,6 +146,7 @@ type ScenarioArgs = {
 	metricsPort: number;
 	metricsPath: string;
 	iterations: number;
+	stage?: ScenarioRunStage;
 };
 
 const BENCH_DEBUG = process.env.SECURE_EXEC_BENCH_DEBUG === "1";
@@ -159,6 +167,15 @@ function readArg(name: string): string {
 	return process.argv[index + 1];
 }
 
+function readOptionalArg(name: string): string | undefined {
+	const flag = `--${name}`;
+	const index = process.argv.indexOf(flag);
+	if (index === -1 || index + 1 >= process.argv.length) {
+		return undefined;
+	}
+	return process.argv[index + 1];
+}
+
 function parseArgs(): ScenarioArgs {
 	const metricsPort = Number(readArg("metrics-port"));
 	if (
@@ -172,6 +189,10 @@ function parseArgs(): ScenarioArgs {
 	if (!Number.isInteger(iterations) || iterations <= 0) {
 		throw new Error(`Invalid --iterations: ${iterations}`);
 	}
+	const stageArg = readOptionalArg("stage");
+	if (stageArg && !isScenarioRunStage(stageArg)) {
+		throw new Error(`Invalid --stage: ${stageArg}`);
+	}
 	return {
 		scenarioId: readArg("scenario") as ModuleLoadScenarioId,
 		resultFile: readArg("result-file"),
@@ -182,6 +203,7 @@ function parseArgs(): ScenarioArgs {
 		metricsPort,
 		metricsPath: readArg("metrics-path"),
 		iterations,
+		stage: stageArg as ScenarioRunStage | undefined,
 	};
 }
 
@@ -418,26 +440,6 @@ globalThis.__dynamicImport = async (modulePath) => import(pathToFileURL(modulePa
 		});
 		child.stdin.end(options.stdin ?? "");
 	});
-}
-
-function summarizeNewSessionSamples(
-	samples: BenchmarkSample[],
-): ScenarioNewSessionReplayModeResult {
-	const warmSamples = samples.slice(1);
-	const mockRequests = warmSamples
-		.map((sample) => sample.mockRequests)
-		.filter((sample): sample is number => typeof sample === "number");
-	return {
-		coldWallMs: samples[0]?.wallMs ?? 0,
-		warmWallMsMean: mean(warmSamples.map((sample) => sample.wallMs)),
-		coldSandboxMs: samples[0]?.sandboxMs,
-		warmSandboxMsMean: mean(
-			warmSamples
-				.map((sample) => sample.sandboxMs)
-				.filter((sample): sample is number => typeof sample === "number"),
-		),
-		mockRequestsMean: mean(mockRequests),
-	};
 }
 
 function parseSameSessionReplayPayload(
@@ -1900,6 +1902,174 @@ async function runScenarioIteration(
 	throw new Error(`Unhandled scenario: ${String(scenarioId)}`);
 }
 
+function buildStageResult(
+	scenario: ReturnType<typeof getModuleLoadScenario>,
+	iterations: number,
+	stage: ScenarioRunStage,
+	extras: {
+		samples?: BenchmarkSample[];
+		benchmarkModes?: ScenarioBenchmarkModesFragment;
+	},
+): ScenarioStageResult {
+	return {
+		stage,
+		scenarioId: scenario.id,
+		title: scenario.title,
+		target: scenario.target,
+		kind: scenario.kind,
+		description: scenario.description,
+		createdAt: new Date().toISOString(),
+		iterations,
+		...extras,
+	};
+}
+
+async function runSamplesStage(
+	args: ScenarioArgs,
+	scenario: ReturnType<typeof getModuleLoadScenario>,
+): Promise<ScenarioStageResult> {
+	const mockServer = await createMockLlmServer([]);
+	const snapshotPreloadedPolyfills = getSnapshotPreloadedPolyfills(
+		args.scenarioId,
+	);
+	const v8Runtime = await createNodeV8Runtime({
+		binaryPath: args.binaryPath,
+		snapshotPreloadedPolyfills,
+		observability: {
+			logFile: args.logFile,
+			metrics: {
+				host: args.metricsHost,
+				port: args.metricsPort,
+				path: args.metricsPath,
+			},
+		},
+	});
+
+	try {
+		const samples: BenchmarkSample[] = [];
+		for (let iteration = 1; iteration <= args.iterations; iteration += 1) {
+			samples.push(
+				await runScenarioIteration(
+					v8Runtime,
+					args.scenarioId,
+					mockServer,
+					iteration,
+				),
+			);
+		}
+		const metricsResponse = await fetch(
+			`http://${args.metricsHost}:${args.metricsPort}${args.metricsPath}`,
+		);
+		if (!metricsResponse.ok) {
+			throw new Error(
+				`Failed to scrape metrics: HTTP ${metricsResponse.status}`,
+			);
+		}
+		await writeFile(args.metricsFile, await metricsResponse.text(), "utf8");
+		return buildStageResult(scenario, args.iterations, "samples", {
+			samples,
+			benchmarkModes: {
+				sandboxNewSessionReplay: {
+					warmSnapshotEnabled: summarizeNewSessionSamples(samples),
+				},
+			},
+		});
+	} finally {
+		await v8Runtime.dispose();
+		await mockServer.close();
+	}
+}
+
+async function runBenchmarkModeStage(
+	args: ScenarioArgs,
+	scenario: ReturnType<typeof getModuleLoadScenario>,
+	stage: Exclude<ScenarioRunStage, "samples">,
+): Promise<ScenarioStageResult> {
+	const mockServer = await createMockLlmServer([]);
+	try {
+		switch (stage) {
+			case "sandbox_true_cold_start_warm_snapshot_enabled":
+				return buildStageResult(scenario, args.iterations, stage, {
+					benchmarkModes: {
+						sandboxTrueColdStart: {
+							warmSnapshotEnabled: await measureTrueColdStartMode(
+								args.binaryPath,
+								args.scenarioId,
+								mockServer,
+								true,
+							),
+						},
+					},
+				});
+			case "sandbox_true_cold_start_warm_snapshot_disabled":
+				return buildStageResult(scenario, args.iterations, stage, {
+					benchmarkModes: {
+						sandboxTrueColdStart: {
+							warmSnapshotDisabled: await measureTrueColdStartMode(
+								args.binaryPath,
+								args.scenarioId,
+								mockServer,
+								false,
+							),
+						},
+					},
+				});
+			case "sandbox_new_session_replay_warm_snapshot_disabled":
+				return buildStageResult(scenario, args.iterations, stage, {
+					benchmarkModes: {
+						sandboxNewSessionReplay: {
+							warmSnapshotDisabled: await measureNewSessionReplayMode(
+								args.binaryPath,
+								args.scenarioId,
+								mockServer,
+								false,
+								args.iterations,
+							),
+						},
+					},
+				});
+			case "sandbox_same_session_replay":
+				return buildStageResult(scenario, args.iterations, stage, {
+					benchmarkModes: {
+						sandboxSameSessionReplay: await measureSameSessionReplayMode(
+							args.binaryPath,
+							args.scenarioId,
+							mockServer,
+							"sandbox",
+						),
+					},
+				});
+			case "host_same_session_control":
+				return buildStageResult(scenario, args.iterations, stage, {
+					benchmarkModes: {
+						hostSameSessionControl: await measureSameSessionReplayMode(
+							args.binaryPath,
+							args.scenarioId,
+							mockServer,
+							"host",
+						),
+					},
+				});
+		}
+		throw new Error(`Unhandled stage: ${stage}`);
+	} finally {
+		await mockServer.close();
+	}
+}
+
+async function runRequestedStage(
+	args: ScenarioArgs,
+	scenario: ReturnType<typeof getModuleLoadScenario>,
+): Promise<ScenarioStageResult> {
+	if (!args.stage) {
+		throw new Error("runRequestedStage requires args.stage");
+	}
+	if (args.stage === "samples") {
+		return runSamplesStage(args, scenario);
+	}
+	return runBenchmarkModeStage(args, scenario, args.stage);
+}
+
 async function main(): Promise<void> {
 	assertInstalled();
 	const args = parseArgs();
@@ -1912,6 +2082,19 @@ async function main(): Promise<void> {
 	await mkdir(path.dirname(args.metricsFile), { recursive: true });
 	await mkdir(path.dirname(args.logFile), { recursive: true });
 	await writeFile(args.logFile, "", "utf8");
+	if (args.stage) {
+		const stageResult = await runRequestedStage(args, scenario);
+		if (args.stage !== "samples") {
+			await writeFile(args.metricsFile, "", "utf8");
+		}
+		await writeFile(
+			args.resultFile,
+			`${JSON.stringify(stageResult, null, 2)}\n`,
+			"utf8",
+		);
+		console.error(`Completed ${scenario.id} stage ${args.stage}.`);
+		return;
+	}
 
 	const mockServer = await createMockLlmServer([]);
 	const snapshotPreloadedPolyfills = getSnapshotPreloadedPolyfills(

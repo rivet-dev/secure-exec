@@ -4,8 +4,8 @@
   "target": "jszip",
   "kind": "startup",
   "description": "Loads JSZip, creates an archive, and stages a starter file.",
-  "createdAt": "2026-03-31T22:12:22.700Z",
   "iterations": 3,
+  "createdAt": "2026-03-31T22:51:14.756Z",
   "artifacts": {
     "resultFile": "jszip-startup/result.json",
     "metricsFile": "jszip-startup/metrics.prom",
@@ -14,7 +14,7 @@
   "samples": [
     {
       "iteration": 1,
-      "wallMs": 214.879,
+      "wallMs": 176.772,
       "code": 0,
       "stdoutBytes": 93,
       "stderrBytes": 0,
@@ -29,7 +29,7 @@
     },
     {
       "iteration": 2,
-      "wallMs": 112.04,
+      "wallMs": 68.909,
       "code": 0,
       "stdoutBytes": 93,
       "stderrBytes": 0,
@@ -44,7 +44,7 @@
     },
     {
       "iteration": 3,
-      "wallMs": 110.385,
+      "wallMs": 66.819,
       "code": 0,
       "stdoutBytes": 93,
       "stderrBytes": 0,
@@ -61,9 +61,9 @@
   "benchmarkModes": {
     "sandboxTrueColdStart": {
       "warmSnapshotEnabled": {
-        "totalWallMs": 191.478,
-        "runtimeCreateMs": 117.749,
-        "firstPassWallMs": 73.729,
+        "totalWallMs": 385.43,
+        "runtimeCreateMs": 102.795,
+        "firstPassWallMs": 282.635,
         "firstPassSandboxMs": 0,
         "checks": {
           "jszipType": "function",
@@ -72,9 +72,9 @@
         }
       },
       "warmSnapshotDisabled": {
-        "totalWallMs": 154.39,
-        "runtimeCreateMs": 7.171,
-        "firstPassWallMs": 147.219,
+        "totalWallMs": 329.272,
+        "runtimeCreateMs": 4.666,
+        "firstPassWallMs": 324.606,
         "firstPassSandboxMs": 0,
         "checks": {
           "jszipType": "function",
@@ -85,20 +85,20 @@
     },
     "sandboxNewSessionReplay": {
       "warmSnapshotEnabled": {
-        "coldWallMs": 214.879,
-        "warmWallMsMean": 111.213,
+        "coldWallMs": 176.772,
+        "warmWallMsMean": 67.864,
         "coldSandboxMs": 0,
         "warmSandboxMsMean": 0
       },
       "warmSnapshotDisabled": {
-        "coldWallMs": 150.242,
-        "warmWallMsMean": 78.558,
+        "coldWallMs": 277.093,
+        "warmWallMsMean": 76.983,
         "coldSandboxMs": 0,
         "warmSandboxMsMean": 0
       }
     },
     "sandboxSameSessionReplay": {
-      "totalWallMs": 58.075,
+      "totalWallMs": 291.762,
       "firstPassMs": 0,
       "replayPassMs": 0,
       "firstPassChecks": {
@@ -113,9 +113,9 @@
       }
     },
     "hostSameSessionControl": {
-      "totalWallMs": 16.059,
-      "firstPassMs": 16.003,
-      "replayPassMs": 0.051,
+      "totalWallMs": 14.565,
+      "firstPassMs": 14.507,
+      "replayPassMs": 0.055,
       "firstPassChecks": {
         "jszipType": "function",
         "generateAsyncType": "function",
@@ -129,8 +129,8 @@
     }
   },
   "summary": {
-    "coldWallMs": 214.879,
-    "warmWallMsMean": 111.213,
+    "coldWallMs": 176.772,
+    "warmWallMsMean": 67.864,
     "coldSandboxMs": 0,
     "warmSandboxMsMean": 0
   }

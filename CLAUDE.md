@@ -96,6 +96,7 @@
 - opt-in IPC logs with `SECURE_EXEC_V8_IPC_LOG_FILE=/abs/path/ipc.ndjson`
 - opt-in Prometheus metrics with `SECURE_EXEC_V8_METRICS_PORT=<port>`; optional overrides: `SECURE_EXEC_V8_METRICS_HOST=127.0.0.1` and `SECURE_EXEC_V8_METRICS_PATH=/metrics`
 - the module-load benchmark harness lives at `packages/secure-exec/benchmarks/module-load/`; run it with `pnpm --filter secure-exec bench:module-load`
+- the top-level module-load driver now runs each scenario as isolated stages; `samples` is the only stage that writes the committed `ipc.ndjson` / `metrics.prom`, while later benchmark-mode stages only need to return partial benchmark-mode JSON for the final merged `result.json`
 - if you already have fresh per-scenario `result.json` files, regenerate the top-level module-load `summary.*`, `comparison.*`, and `transport-rtt.*` files with `SECURE_EXEC_BENCH_REUSE_RESULTS=1`; point `SECURE_EXEC_BENCH_BASELINE_ROOT` at a copied results tree first if you still need before/after comparisons
 - benchmark artifacts are written under `packages/secure-exec/benchmarks/results/module-load/` and include per-scenario `result.json`, `metrics.prom`, `ipc.ndjson`, and `runner.log`
 - module-load progress reporting now comes from generated `summary.md` / `comparison.md` plus per-scenario `summary.json`; fixed session overhead is derived as `sample.wallMs - ipc_execute.finish.durationMs` from the matching session in `ipc.ndjson`

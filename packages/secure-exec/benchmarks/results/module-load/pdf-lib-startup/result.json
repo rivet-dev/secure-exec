@@ -4,8 +4,8 @@
   "target": "pdf_lib",
   "kind": "startup",
   "description": "Loads pdf-lib, creates a document, and embeds a standard font.",
-  "createdAt": "2026-03-31T22:12:17.517Z",
   "iterations": 3,
+  "createdAt": "2026-03-31T22:51:05.703Z",
   "artifacts": {
     "resultFile": "pdf-lib-startup/result.json",
     "metricsFile": "pdf-lib-startup/metrics.prom",
@@ -14,7 +14,7 @@
   "samples": [
     {
       "iteration": 1,
-      "wallMs": 357.511,
+      "wallMs": 267.28,
       "code": 0,
       "stdoutBytes": 99,
       "stderrBytes": 0,
@@ -29,7 +29,7 @@
     },
     {
       "iteration": 2,
-      "wallMs": 113.083,
+      "wallMs": 233.829,
       "code": 0,
       "stdoutBytes": 99,
       "stderrBytes": 0,
@@ -44,7 +44,7 @@
     },
     {
       "iteration": 3,
-      "wallMs": 122.028,
+      "wallMs": 114.79,
       "code": 0,
       "stdoutBytes": 99,
       "stderrBytes": 0,
@@ -61,9 +61,9 @@
   "benchmarkModes": {
     "sandboxTrueColdStart": {
       "warmSnapshotEnabled": {
-        "totalWallMs": 291.115,
-        "runtimeCreateMs": 98.471,
-        "firstPassWallMs": 192.644,
+        "totalWallMs": 254.172,
+        "runtimeCreateMs": 98.721,
+        "firstPassWallMs": 155.451,
         "firstPassSandboxMs": 0,
         "checks": {
           "pdfDocumentType": "function",
@@ -72,9 +72,9 @@
         }
       },
       "warmSnapshotDisabled": {
-        "totalWallMs": 210.397,
-        "runtimeCreateMs": 9.781,
-        "firstPassWallMs": 200.616,
+        "totalWallMs": 262.14,
+        "runtimeCreateMs": 4.956,
+        "firstPassWallMs": 257.184,
         "firstPassSandboxMs": 0,
         "checks": {
           "pdfDocumentType": "function",
@@ -85,20 +85,20 @@
     },
     "sandboxNewSessionReplay": {
       "warmSnapshotEnabled": {
-        "coldWallMs": 357.511,
-        "warmWallMsMean": 117.555,
+        "coldWallMs": 267.28,
+        "warmWallMsMean": 174.31,
         "coldSandboxMs": 0,
         "warmSandboxMsMean": 0
       },
       "warmSnapshotDisabled": {
-        "coldWallMs": 231.015,
-        "warmWallMsMean": 230.905,
+        "coldWallMs": 457.529,
+        "warmWallMsMean": 108.619,
         "coldSandboxMs": 0,
         "warmSandboxMsMean": 0
       }
     },
     "sandboxSameSessionReplay": {
-      "totalWallMs": 199.569,
+      "totalWallMs": 234.997,
       "firstPassMs": 0,
       "replayPassMs": 0,
       "firstPassChecks": {
@@ -113,9 +113,9 @@
       }
     },
     "hostSameSessionControl": {
-      "totalWallMs": 50.239,
-      "firstPassMs": 50.089,
-      "replayPassMs": 0.147,
+      "totalWallMs": 52.675,
+      "firstPassMs": 52.518,
+      "replayPassMs": 0.154,
       "firstPassChecks": {
         "pdfDocumentType": "function",
         "standardFontName": "Helvetica",
@@ -129,8 +129,8 @@
     }
   },
   "summary": {
-    "coldWallMs": 357.511,
-    "warmWallMsMean": 117.555,
+    "coldWallMs": 267.28,
+    "warmWallMsMean": 174.31,
     "coldSandboxMs": 0,
     "warmSandboxMsMean": 0
   }
