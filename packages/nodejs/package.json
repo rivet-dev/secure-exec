@@ -8,7 +8,10 @@
   "files": [
     "dist",
     "assets/upstream-node",
+    "assets/upstream-node-backend",
     "scripts/run-upstream-node-bootstrap.mjs",
+    "scripts/run-upstream-node-fs-backend.mjs",
+    "scripts/upstream-node-fs-binding.mjs",
     "src/polyfills",
     "README.md"
   ],
@@ -110,6 +113,7 @@
   },
   "dependencies": {
     "@secure-exec/core": "workspace:*",
+    "@secure-exec/wasmvm": "workspace:*",
     "@secure-exec/v8": "workspace:*",
     "cjs-module-lexer": "^2.1.0",
     "es-module-lexer": "^1.7.0",

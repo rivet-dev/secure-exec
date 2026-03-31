@@ -43,7 +43,7 @@ const bytesRead = fs.readSync(readFd, target, 0, target.length, 0);
 fs.closeSync(readFd);
 const stat = fs.statSync(file);
 const entries = fs.readdirSync(path.dirname(file)).filter((entry) => entry === path.basename(file));
-const realpath = fs.realpathSync(file);
+const realpath = fs.realpathSync.native(file);
 process.stdout.write(JSON.stringify({
   file,
   bytesRead,
@@ -89,7 +89,7 @@ fs.open(file, 'w+', (openErr, writeFd) => {
               if (statErr) return finish(statErr);
               fs.readdir(path.dirname(file), (readdirErr, entries) => {
                 if (readdirErr) return finish(readdirErr);
-                fs.realpath(file, (realpathErr, realpath) => {
+                fs.realpath.native(file, (realpathErr, realpath) => {
                   if (realpathErr) return finish(realpathErr);
                   succeed({
                     file,
@@ -127,6 +127,7 @@ function parseFsSummary(stdout: string): FsFirstLightSummary {
 
 function cleanupSummary(summary: FsFirstLightSummary): void {
 	rmSync(summary.file, { force: true });
+	rmSync(summary.realpath, { force: true });
 }
 
 function expectFirstLightSummary(
@@ -166,6 +167,18 @@ describe("upstream fs first-light", () => {
 			expect.arrayContaining(["fs"]),
 		);
 		expect(result.publicBuiltinFallbacks).not.toContain("fs");
+		expect(result.fsBackendAbiVersion).toBe(1);
+		expect(result.fsBackendArtifacts).toEqual(["node_fs_backend"]);
+		expect(result.fsBackendOperations).toEqual(
+			expect.arrayContaining([
+				"open",
+				"read",
+				"readdir",
+				"realpath",
+				"stat",
+				"write",
+			]),
+		);
 
 		const summary = parseFsSummary(result.stdout);
 		try {
@@ -187,6 +200,18 @@ describe("upstream fs first-light", () => {
 			expect.arrayContaining(["fs"]),
 		);
 		expect(result.publicBuiltinFallbacks).not.toContain("fs");
+		expect(result.fsBackendAbiVersion).toBe(1);
+		expect(result.fsBackendArtifacts).toEqual(["node_fs_backend"]);
+		expect(result.fsBackendOperations).toEqual(
+			expect.arrayContaining([
+				"open",
+				"read",
+				"readdir",
+				"realpath",
+				"stat",
+				"write",
+			]),
+		);
 
 		const summary = parseFsSummary(result.stdout);
 		try {

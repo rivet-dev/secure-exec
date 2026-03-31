@@ -37,6 +37,9 @@ export interface UpstreamBootstrapEvalResult {
 	internalBindings?: string[];
 	publicBuiltinFallbacks?: string[];
 	vendoredPublicBuiltinsLoaded?: string[];
+	fsBackendAbiVersion?: number;
+	fsBackendArtifacts?: string[];
+	fsBackendOperations?: string[];
 	appliedBindingShims?: string[];
 }
 

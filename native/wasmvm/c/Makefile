@@ -414,6 +414,16 @@ $(NATIVE_DIR)/json_parse: programs/json_parse.c libs/cjson/cJSON.c
 	@mkdir -p $(NATIVE_DIR)
 	$(NATIVE_CC) $(NATIVE_CFLAGS) -Ilibs/cjson -o $@ programs/json_parse.c libs/cjson/cJSON.c
 
+$(BUILD_DIR)/node_fs_backend: programs/node_fs_backend.c libs/cjson/cJSON.c $(WASI_SDK_DIR)/bin/clang
+	@mkdir -p $(BUILD_DIR)
+	$(CC) $(WASM_CFLAGS) -Ilibs/cjson -o $@.wasm programs/node_fs_backend.c libs/cjson/cJSON.c
+	wasm-opt -O3 --strip-debug $@.wasm -o $@
+	@rm -f $@.wasm
+
+$(NATIVE_DIR)/node_fs_backend: programs/node_fs_backend.c libs/cjson/cJSON.c
+	@mkdir -p $(NATIVE_DIR)
+	$(NATIVE_CC) $(NATIVE_CFLAGS) -Ilibs/cjson -o $@ programs/node_fs_backend.c libs/cjson/cJSON.c
+
 # sqlite3_mem: links SQLite amalgamation
 SQLITE_COMMON  := -DSQLITE_OMIT_WAL -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_THREADSAFE=0 \
                   -DSQLITE_OMIT_LOCALTIME

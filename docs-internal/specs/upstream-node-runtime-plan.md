@@ -905,6 +905,7 @@ At this phase, do not promise:
 - `module_wrap`, `contextify`, `process_methods`, `cares_wrap`, and `modules` remain explicit planned entries rather than implicit gaps, while `fs`, `fs_dir`, and `fs_event_wrap` are marked deferred for the fs-first story with host-owned callback/wrapper/close semantics called out directly in the notes
 - US-008 keeps that same isolated-child bring-up path but now allows selected public builtins to stay vendored; the current first-light set is only `require('fs')`, backed by vendored `lib/fs.js` plus vendored `internal/fs/*` dependencies, while other public builtins like `path`, `os`, `buffer`, and `module` still fall back to host `node:` modules
 - the explicit fs v1 subset is `open`, `read`, `write`, `close`, `stat`, `readdir`, and `realpath` in both sync and callback styles; `fs.promises`, streams, directory handles, watchers, and `fs_event_wrap` remain deferred to later parity stories
+- US-009 moves the fs first-light bottom half behind a packaged WasmVM artifact: `native/wasmvm/c/programs/node_fs_backend.c` compiles through the normal WasmVM C toolchain, the packaged binary lives at `packages/nodejs/assets/upstream-node-backend/node_fs_backend`, and the host `internalBinding('fs')` shim in `packages/nodejs/scripts/upstream-node-fs-binding.mjs` calls it through ABI v1 JSON requests for `open`, `read`, `write`, `stat`, `lstat`, `readdir`, and `realpath` while keeping callback delivery, public fd allocation, and close semantics on the host side
 
 ### Exit Criteria
 

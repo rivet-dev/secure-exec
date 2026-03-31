@@ -3,6 +3,7 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { compileFunction, createContext } from "node:vm";
+import { createUpstreamFsBinding } from "./upstream-node-fs-binding.mjs";
 
 const require = createRequire(import.meta.url);
 const ASSET_ROOT_URL = new URL("../assets/upstream-node/", import.meta.url);
@@ -13,6 +14,7 @@ const BUILTIN_ENTRIES = new Map(
 	BUILTIN_MANIFEST.builtins.map((entry) => [entry.id, entry]),
 );
 const HOST_REQUIRE = createRequire(import.meta.url);
+const CJS_LEXER = HOST_REQUIRE("cjs-module-lexer");
 const OPTION_DEFAULTS_BY_TYPE = new Map([
 	[0, undefined],
 	[1, undefined],
@@ -49,6 +51,17 @@ try {
 		)}\n`,
 	);
 	process.exitCode = 1;
+}
+
+let cjsLexerReady = false;
+
+function parseWithCjsLexer(source) {
+	if (!cjsLexerReady) {
+		CJS_LEXER.initSync();
+		cjsLexerReady = true;
+	}
+	const { exports, reexports } = CJS_LEXER.parse(source);
+	return [new Set(exports), reexports];
 }
 
 class ProcessExitSignal extends Error {
@@ -311,6 +324,10 @@ function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 	);
 	const vendoredPublicBuiltinsLoaded = new Set();
 	const optionInfo = internalBinding("options").getCLIOptionsInfo();
+	const fsBindingProvider =
+		vendoredPublicBuiltins.has("fs")
+			? createUpstreamFsBinding({ internalBinding })
+			: null;
 	const optionsValues = {
 		"--eval": payload.code ?? "",
 		"--print": false,
@@ -459,6 +476,16 @@ function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 			};
 		}
 
+		if (name === "cjs_lexer") {
+			return {
+				parse: parseWithCjsLexer,
+			};
+		}
+
+		if (name === "fs" && fsBindingProvider) {
+			return fsBindingProvider.binding;
+		}
+
 		return internalBinding(name);
 	}
 
@@ -543,6 +570,7 @@ function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 		requestedBindings: uniqueSorted(requestedBindings),
 		publicBuiltinFallbacks: uniqueSorted(publicBuiltinFallbacks),
 		vendoredPublicBuiltinsLoaded: uniqueSorted(vendoredPublicBuiltinsLoaded),
+		describeFsBackendUsage: () => fsBindingProvider?.describeUsage(),
 	};
 }
 
@@ -591,6 +619,11 @@ if (internalBinding) {
 					publicBuiltinFallbacks: execution.publicBuiltinFallbacks,
 					vendoredPublicBuiltinsLoaded:
 						execution.vendoredPublicBuiltinsLoaded,
+					fsBackendAbiVersion: execution.describeFsBackendUsage?.()?.abiVersion,
+					fsBackendArtifacts:
+						execution.describeFsBackendUsage?.()?.artifacts ?? [],
+					fsBackendOperations:
+						execution.describeFsBackendUsage?.()?.operations ?? [],
 					appliedBindingShims: [...APPLIED_BINDING_SHIMS],
 				},
 				null,
@@ -623,6 +656,12 @@ if (internalBinding) {
 						publicBuiltinFallbacks: execution?.publicBuiltinFallbacks ?? [],
 						vendoredPublicBuiltinsLoaded:
 							execution?.vendoredPublicBuiltinsLoaded ?? [],
+						fsBackendAbiVersion:
+							execution?.describeFsBackendUsage?.()?.abiVersion,
+						fsBackendArtifacts:
+							execution?.describeFsBackendUsage?.()?.artifacts ?? [],
+						fsBackendOperations:
+							execution?.describeFsBackendUsage?.()?.operations ?? [],
 						appliedBindingShims: [...APPLIED_BINDING_SHIMS],
 					},
 					null,
