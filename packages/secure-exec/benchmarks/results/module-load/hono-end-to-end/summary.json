@@ -364,6 +364,128 @@
         "requestEncodedBytesPerIteration": 233,
         "responseEncodedBytesTotal": 299578,
         "responseEncodedBytesPerIteration": 99859.333,
+        "targets": [
+          {
+            "target": "hono",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 0.171,
+            "durationMsPerIteration": 0.057,
+            "responseEncodedBytesTotal": 150,
+            "responseEncodedBytesPerIteration": 50
+          },
+          {
+            "target": "stream/web",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 16.726,
+            "durationMsPerIteration": 5.575,
+            "responseEncodedBytesTotal": 173950,
+            "responseEncodedBytesPerIteration": 57983.333
+          },
+          {
+            "target": "url",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 18.636,
+            "durationMsPerIteration": 6.212,
+            "responseEncodedBytesTotal": 125478,
+            "responseEncodedBytesPerIteration": 41826
+          }
+        ],
+        "topTargetsByCalls": [
+          {
+            "target": "url",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 18.636,
+            "durationMsPerIteration": 6.212,
+            "responseEncodedBytesTotal": 125478,
+            "responseEncodedBytesPerIteration": 41826
+          },
+          {
+            "target": "stream/web",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 16.726,
+            "durationMsPerIteration": 5.575,
+            "responseEncodedBytesTotal": 173950,
+            "responseEncodedBytesPerIteration": 57983.333
+          },
+          {
+            "target": "hono",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 0.171,
+            "durationMsPerIteration": 0.057,
+            "responseEncodedBytesTotal": 150,
+            "responseEncodedBytesPerIteration": 50
+          }
+        ],
+        "topTargetsByTime": [
+          {
+            "target": "url",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 18.636,
+            "durationMsPerIteration": 6.212,
+            "responseEncodedBytesTotal": 125478,
+            "responseEncodedBytesPerIteration": 41826
+          },
+          {
+            "target": "stream/web",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 16.726,
+            "durationMsPerIteration": 5.575,
+            "responseEncodedBytesTotal": 173950,
+            "responseEncodedBytesPerIteration": 57983.333
+          },
+          {
+            "target": "hono",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 0.171,
+            "durationMsPerIteration": 0.057,
+            "responseEncodedBytesTotal": 150,
+            "responseEncodedBytesPerIteration": 50
+          }
+        ],
+        "topTargetsByResponseBytes": [
+          {
+            "target": "stream/web",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 16.726,
+            "durationMsPerIteration": 5.575,
+            "responseEncodedBytesTotal": 173950,
+            "responseEncodedBytesPerIteration": 57983.333
+          },
+          {
+            "target": "url",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 18.636,
+            "durationMsPerIteration": 6.212,
+            "responseEncodedBytesTotal": 125478,
+            "responseEncodedBytesPerIteration": 41826
+          },
+          {
+            "target": "hono",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 0.171,
+            "durationMsPerIteration": 0.057,
+            "responseEncodedBytesTotal": 150,
+            "responseEncodedBytesPerIteration": 50
+          }
+        ],
+        "unattributedCallsTotal": 0,
+        "unattributedCallsPerIteration": 0,
+        "unattributedDurationMsTotal": 0,
+        "unattributedDurationMsPerIteration": 0,
+        "unattributedResponseEncodedBytesTotal": 0,
+        "unattributedResponseEncodedBytesPerIteration": 0,
         "exampleTargets": [
           "hono",
           "stream/web",
@@ -381,6 +503,16 @@
         "requestEncodedBytesPerIteration": 0,
         "responseEncodedBytesTotal": 0,
         "responseEncodedBytesPerIteration": 0,
+        "targets": [],
+        "topTargetsByCalls": [],
+        "topTargetsByTime": [],
+        "topTargetsByResponseBytes": [],
+        "unattributedCallsTotal": 0,
+        "unattributedCallsPerIteration": 0,
+        "unattributedDurationMsTotal": 0,
+        "unattributedDurationMsPerIteration": 0,
+        "unattributedResponseEncodedBytesTotal": 0,
+        "unattributedResponseEncodedBytesPerIteration": 0,
         "exampleTargets": []
       }
     ],
@@ -666,13 +798,13 @@
     }
   },
   "comparisonToPrevious": {
-    "baselineScenarioCreatedAt": "2026-03-31T20:56:14.964Z",
+    "baselineScenarioCreatedAt": "2026-03-31T22:12:14.681Z",
     "metrics": {
       "warmWallMsMean": {
-        "before": 35.979,
+        "before": 37.44,
         "after": 37.44,
-        "delta": 1.461,
-        "deltaPercent": 4.061
+        "delta": 0,
+        "deltaPercent": 0
       },
       "bridgeCallsPerIteration": {
         "before": 59,
@@ -681,16 +813,16 @@
         "deltaPercent": 0
       },
       "fixedSessionOverheadWarmMsMean": {
-        "before": 5.543,
+        "before": 5.484,
         "after": 5.484,
-        "delta": -0.059,
-        "deltaPercent": -1.064
+        "delta": 0,
+        "deltaPercent": 0
       },
       "createToInjectGlobalsWarmMsMean": {
-        "before": 5,
+        "before": 4.5,
         "after": 4.5,
-        "delta": -0.5,
-        "deltaPercent": -10
+        "delta": 0,
+        "deltaPercent": 0
       },
       "injectGlobalsToExecuteSendWarmMsMean": {
         "before": 0,
@@ -703,16 +835,16 @@
         "delta": 0
       },
       "residualFixedOverheadWarmMsMean": {
-        "before": 0.543,
+        "before": 0.984,
         "after": 0.984,
-        "delta": 0.441,
-        "deltaPercent": 81.215
+        "delta": 0,
+        "deltaPercent": 0
       },
       "bridgeDurationPerIterationMs": {
-        "before": 23.407,
+        "before": 17.473,
         "after": 17.473,
-        "delta": -5.934,
-        "deltaPercent": -25.351
+        "delta": 0,
+        "deltaPercent": 0
       },
       "bridgeResponseFrameBytesPerIteration": {
         "before": 140415,
@@ -721,32 +853,13 @@
         "deltaPercent": 0
       },
       "executeWarmMsMean": {
-        "before": 30.435,
+        "before": 31.956,
         "after": 31.956,
-        "delta": 1.521,
-        "deltaPercent": 4.998
+        "delta": 0,
+        "deltaPercent": 0
       }
     },
-    "bridgeMethodDurationDeltas": [
-      {
-        "method": "_loadPolyfill",
-        "before": 17.284,
-        "after": 11.844,
-        "delta": -5.44
-      },
-      {
-        "method": "_bridgeDispatch",
-        "before": 6.071,
-        "after": 5.567,
-        "delta": -0.504
-      },
-      {
-        "method": "_log",
-        "before": 0.051,
-        "after": 0.062,
-        "delta": 0.011
-      }
-    ],
+    "bridgeMethodDurationDeltas": [],
     "bridgeMethodCountDeltas": [],
     "bridgeMethodResponseByteDeltas": [],
     "frameEncodedByteDeltas": [],
@@ -761,17 +874,227 @@
           "deltaPercent": 0
         },
         "durationMsPerIteration": {
-          "before": 17.284,
+          "before": 11.844,
           "after": 11.844,
-          "delta": -5.44,
-          "deltaPercent": -31.474
+          "delta": 0,
+          "deltaPercent": 0
         },
         "responseEncodedBytesPerIteration": {
           "before": 99859.333,
           "after": 99859.333,
           "delta": 0,
           "deltaPercent": 0
-        }
+        },
+        "unattributedCallsPerIteration": {
+          "before": 0,
+          "after": 0,
+          "delta": 0
+        },
+        "unattributedDurationMsPerIteration": {
+          "before": 0,
+          "after": 0,
+          "delta": 0
+        },
+        "unattributedResponseEncodedBytesPerIteration": {
+          "before": 0,
+          "after": 0,
+          "delta": 0
+        },
+        "targetDeltasByCalls": [
+          {
+            "target": "stream/web",
+            "callsPerIteration": {
+              "before": 1,
+              "after": 1,
+              "delta": 0,
+              "deltaPercent": 0
+            },
+            "durationMsPerIteration": {
+              "before": 5.575,
+              "after": 5.575,
+              "delta": 0,
+              "deltaPercent": 0
+            },
+            "responseEncodedBytesPerIteration": {
+              "before": 57983.333,
+              "after": 57983.333,
+              "delta": 0,
+              "deltaPercent": 0
+            }
+          },
+          {
+            "target": "url",
+            "callsPerIteration": {
+              "before": 1,
+              "after": 1,
+              "delta": 0,
+              "deltaPercent": 0
+            },
+            "durationMsPerIteration": {
+              "before": 6.212,
+              "after": 6.212,
+              "delta": 0,
+              "deltaPercent": 0
+            },
+            "responseEncodedBytesPerIteration": {
+              "before": 41826,
+              "after": 41826,
+              "delta": 0,
+              "deltaPercent": 0
+            }
+          },
+          {
+            "target": "hono",
+            "callsPerIteration": {
+              "before": 1,
+              "after": 1,
+              "delta": 0,
+              "deltaPercent": 0
+            },
+            "durationMsPerIteration": {
+              "before": 0.057,
+              "after": 0.057,
+              "delta": 0,
+              "deltaPercent": 0
+            },
+            "responseEncodedBytesPerIteration": {
+              "before": 50,
+              "after": 50,
+              "delta": 0,
+              "deltaPercent": 0
+            }
+          }
+        ],
+        "targetDeltasByTime": [
+          {
+            "target": "url",
+            "callsPerIteration": {
+              "before": 1,
+              "after": 1,
+              "delta": 0,
+              "deltaPercent": 0
+            },
+            "durationMsPerIteration": {
+              "before": 6.212,
+              "after": 6.212,
+              "delta": 0,
+              "deltaPercent": 0
+            },
+            "responseEncodedBytesPerIteration": {
+              "before": 41826,
+              "after": 41826,
+              "delta": 0,
+              "deltaPercent": 0
+            }
+          },
+          {
+            "target": "stream/web",
+            "callsPerIteration": {
+              "before": 1,
+              "after": 1,
+              "delta": 0,
+              "deltaPercent": 0
+            },
+            "durationMsPerIteration": {
+              "before": 5.575,
+              "after": 5.575,
+              "delta": 0,
+              "deltaPercent": 0
+            },
+            "responseEncodedBytesPerIteration": {
+              "before": 57983.333,
+              "after": 57983.333,
+              "delta": 0,
+              "deltaPercent": 0
+            }
+          },
+          {
+            "target": "hono",
+            "callsPerIteration": {
+              "before": 1,
+              "after": 1,
+              "delta": 0,
+              "deltaPercent": 0
+            },
+            "durationMsPerIteration": {
+              "before": 0.057,
+              "after": 0.057,
+              "delta": 0,
+              "deltaPercent": 0
+            },
+            "responseEncodedBytesPerIteration": {
+              "before": 50,
+              "after": 50,
+              "delta": 0,
+              "deltaPercent": 0
+            }
+          }
+        ],
+        "targetDeltasByResponseBytes": [
+          {
+            "target": "stream/web",
+            "callsPerIteration": {
+              "before": 1,
+              "after": 1,
+              "delta": 0,
+              "deltaPercent": 0
+            },
+            "durationMsPerIteration": {
+              "before": 5.575,
+              "after": 5.575,
+              "delta": 0,
+              "deltaPercent": 0
+            },
+            "responseEncodedBytesPerIteration": {
+              "before": 57983.333,
+              "after": 57983.333,
+              "delta": 0,
+              "deltaPercent": 0
+            }
+          },
+          {
+            "target": "url",
+            "callsPerIteration": {
+              "before": 1,
+              "after": 1,
+              "delta": 0,
+              "deltaPercent": 0
+            },
+            "durationMsPerIteration": {
+              "before": 6.212,
+              "after": 6.212,
+              "delta": 0,
+              "deltaPercent": 0
+            },
+            "responseEncodedBytesPerIteration": {
+              "before": 41826,
+              "after": 41826,
+              "delta": 0,
+              "deltaPercent": 0
+            }
+          },
+          {
+            "target": "hono",
+            "callsPerIteration": {
+              "before": 1,
+              "after": 1,
+              "delta": 0,
+              "deltaPercent": 0
+            },
+            "durationMsPerIteration": {
+              "before": 0.057,
+              "after": 0.057,
+              "delta": 0,
+              "deltaPercent": 0
+            },
+            "responseEncodedBytesPerIteration": {
+              "before": 50,
+              "after": 50,
+              "delta": 0,
+              "deltaPercent": 0
+            }
+          }
+        ]
       },
       {
         "kind": "bridge_dispatch",
@@ -790,7 +1113,25 @@
           "before": 0,
           "after": 0,
           "delta": 0
-        }
+        },
+        "unattributedCallsPerIteration": {
+          "before": 0,
+          "after": 0,
+          "delta": 0
+        },
+        "unattributedDurationMsPerIteration": {
+          "before": 0,
+          "after": 0,
+          "delta": 0
+        },
+        "unattributedResponseEncodedBytesPerIteration": {
+          "before": 0,
+          "after": 0,
+          "delta": 0
+        },
+        "targetDeltasByCalls": [],
+        "targetDeltasByTime": [],
+        "targetDeltasByResponseBytes": []
       }
     ]
   }

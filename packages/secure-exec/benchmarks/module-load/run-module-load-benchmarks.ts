@@ -594,6 +594,7 @@ async function main(): Promise<void> {
 				"Warm fixed session overhead",
 				"Benchmark mode controls from per-scenario summary.md: true cold start on/off, same-session replay, new-session replay on/off, and host same-session control",
 				"`_loadPolyfill` real polyfill-body vs `__bd:*` bridge-dispatch splits from comparison.md",
+				"`_loadPolyfill` ranked target hotspots from per-scenario summary.md and target-level deltas from comparison.md",
 				"Warm phase attribution when fixed overhead changes",
 				"Transport RTT means from transport-rtt.md for transport-sensitive changes",
 				"Dominant bridge method time and byte deltas from comparison.md",

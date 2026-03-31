@@ -402,6 +402,9 @@ describe("module-load summary generation", () => {
 			{ ts: "2026-03-31T05:30:00.040Z", kind: "ipc_frame", direction: "recv", frameType: "BridgeCall", sessionId: "c1", callId: 2, method: "_loadPolyfill", encodedBytes: 210, payloadBytes: 130, bridgeTarget: "__bd:_loadFileSync:[\"/tmp/demo.js\"]", bridgeTargetKind: "bridge_dispatch" },
 			{ ts: "2026-03-31T05:30:00.070Z", kind: "ipc_bridge_call", event: "finish", sessionId: "c1", callId: 2, method: "_loadPolyfill", status: 0, payloadBytes: 125, durationMs: 40 },
 			{ ts: "2026-03-31T05:30:00.071Z", kind: "ipc_frame", direction: "send", frameType: "BridgeResponse", sessionId: "c1", callId: 2, status: 0, encodedBytes: 170, payloadBytes: 125 },
+			{ ts: "2026-03-31T05:30:00.080Z", kind: "ipc_frame", direction: "recv", frameType: "BridgeCall", sessionId: "c1", callId: 3, method: "_loadPolyfill", encodedBytes: 50, payloadBytes: 20, bridgeTargetKind: "bridge_dispatch" },
+			{ ts: "2026-03-31T05:30:00.090Z", kind: "ipc_bridge_call", event: "finish", sessionId: "c1", callId: 3, method: "_loadPolyfill", status: 0, payloadBytes: 60, durationMs: 10 },
+			{ ts: "2026-03-31T05:30:00.091Z", kind: "ipc_frame", direction: "send", frameType: "BridgeResponse", sessionId: "c1", callId: 3, status: 0, encodedBytes: 90, payloadBytes: 60 },
 			{ ts: "2026-03-31T05:30:00.180Z", kind: "ipc_frame", direction: "recv", frameType: "ExecutionResult", sessionId: "c1", encodedBytes: 12 },
 			{ ts: "2026-03-31T05:30:00.180Z", kind: "ipc_execute", event: "finish", sessionId: "c1", durationMs: 160 },
 			{ ts: "2026-03-31T05:30:00.220Z", kind: "ipc_frame", direction: "send", frameType: "DestroySession", sessionId: "c1", encodedBytes: 10 },
@@ -448,20 +451,145 @@ describe("module-load summary generation", () => {
 				requestEncodedBytesPerIteration: 80,
 				responseEncodedBytesTotal: 6500,
 				responseEncodedBytesPerIteration: 6500,
+				targets: [
+					{
+						target: "querystring",
+						callsTotal: 1,
+						callsPerIteration: 1,
+						totalDurationMs: 25,
+						durationMsPerIteration: 25,
+						responseEncodedBytesTotal: 6500,
+						responseEncodedBytesPerIteration: 6500,
+					},
+				],
+				topTargetsByCalls: [
+					{
+						target: "querystring",
+						callsTotal: 1,
+						callsPerIteration: 1,
+						totalDurationMs: 25,
+						durationMsPerIteration: 25,
+						responseEncodedBytesTotal: 6500,
+						responseEncodedBytesPerIteration: 6500,
+					},
+				],
+				topTargetsByTime: [
+					{
+						target: "querystring",
+						callsTotal: 1,
+						callsPerIteration: 1,
+						totalDurationMs: 25,
+						durationMsPerIteration: 25,
+						responseEncodedBytesTotal: 6500,
+						responseEncodedBytesPerIteration: 6500,
+					},
+				],
+				topTargetsByResponseBytes: [
+					{
+						target: "querystring",
+						callsTotal: 1,
+						callsPerIteration: 1,
+						totalDurationMs: 25,
+						durationMsPerIteration: 25,
+						responseEncodedBytesTotal: 6500,
+						responseEncodedBytesPerIteration: 6500,
+					},
+				],
+				unattributedCallsTotal: 0,
+				unattributedCallsPerIteration: 0,
+				unattributedDurationMsTotal: 0,
+				unattributedDurationMsPerIteration: 0,
+				unattributedResponseEncodedBytesTotal: 0,
+				unattributedResponseEncodedBytesPerIteration: 0,
 				exampleTargets: ["querystring"],
 			},
 			{
 				kind: "bridge_dispatch",
 				label: "__bd:* bridge-dispatch wrappers",
-				callsTotal: 1,
-				callsPerIteration: 1,
-				totalDurationMs: 40,
-				durationMsPerIteration: 40,
-				requestEncodedBytesTotal: 210,
-				requestEncodedBytesPerIteration: 210,
-				responseEncodedBytesTotal: 170,
-				responseEncodedBytesPerIteration: 170,
+				callsTotal: 2,
+				callsPerIteration: 2,
+				totalDurationMs: 50,
+				durationMsPerIteration: 50,
+				requestEncodedBytesTotal: 260,
+				requestEncodedBytesPerIteration: 260,
+				responseEncodedBytesTotal: 260,
+				responseEncodedBytesPerIteration: 260,
+				targets: [
+					{
+						target: "__bd:_loadFileSync:[\"/tmp/demo.js\"]",
+						callsTotal: 1,
+						callsPerIteration: 1,
+						totalDurationMs: 40,
+						durationMsPerIteration: 40,
+						responseEncodedBytesTotal: 170,
+						responseEncodedBytesPerIteration: 170,
+					},
+				],
+				topTargetsByCalls: [
+					{
+						target: "__bd:_loadFileSync:[\"/tmp/demo.js\"]",
+						callsTotal: 1,
+						callsPerIteration: 1,
+						totalDurationMs: 40,
+						durationMsPerIteration: 40,
+						responseEncodedBytesTotal: 170,
+						responseEncodedBytesPerIteration: 170,
+					},
+				],
+				topTargetsByTime: [
+					{
+						target: "__bd:_loadFileSync:[\"/tmp/demo.js\"]",
+						callsTotal: 1,
+						callsPerIteration: 1,
+						totalDurationMs: 40,
+						durationMsPerIteration: 40,
+						responseEncodedBytesTotal: 170,
+						responseEncodedBytesPerIteration: 170,
+					},
+				],
+				topTargetsByResponseBytes: [
+					{
+						target: "__bd:_loadFileSync:[\"/tmp/demo.js\"]",
+						callsTotal: 1,
+						callsPerIteration: 1,
+						totalDurationMs: 40,
+						durationMsPerIteration: 40,
+						responseEncodedBytesTotal: 170,
+						responseEncodedBytesPerIteration: 170,
+					},
+				],
+				unattributedCallsTotal: 1,
+				unattributedCallsPerIteration: 1,
+				unattributedDurationMsTotal: 10,
+				unattributedDurationMsPerIteration: 10,
+				unattributedResponseEncodedBytesTotal: 90,
+				unattributedResponseEncodedBytesPerIteration: 90,
 				exampleTargets: ["__bd:_loadFileSync:[\"/tmp/demo.js\"]"],
+			},
+		]);
+		expect(
+			baselineSummary.bridge.loadPolyfillAttribution.map((entry) => ({
+				kind: entry.kind,
+				targets: entry.targets,
+				unattributedCallsTotal: entry.unattributedCallsTotal,
+				unattributedDurationMsTotal: entry.unattributedDurationMsTotal,
+				unattributedResponseEncodedBytesTotal:
+					entry.unattributedResponseEncodedBytesTotal,
+			})),
+		).toEqual([
+			{
+				kind: "polyfill_body",
+				targets: [],
+				unattributedCallsTotal: 1,
+				unattributedDurationMsTotal: 35,
+				unattributedResponseEncodedBytesTotal: 7000,
+			},
+			{
+				kind: "bridge_dispatch",
+				targets: [],
+				unattributedCallsTotal: 1,
+				unattributedDurationMsTotal: 55,
+				unattributedResponseEncodedBytesTotal: 190,
 			},
 		]);
 		expect(comparison.loadPolyfillAttributionDeltas).toEqual([
@@ -471,13 +599,67 @@ describe("module-load summary generation", () => {
 				callsPerIteration: { before: 1, after: 1, delta: 0, deltaPercent: 0 },
 				durationMsPerIteration: { before: 35, after: 25, delta: -10, deltaPercent: -28.571 },
 				responseEncodedBytesPerIteration: { before: 7000, after: 6500, delta: -500, deltaPercent: -7.143 },
+				unattributedCallsPerIteration: { before: 1, after: 0, delta: -1, deltaPercent: -100 },
+				unattributedDurationMsPerIteration: { before: 35, after: 0, delta: -35, deltaPercent: -100 },
+				unattributedResponseEncodedBytesPerIteration: { before: 7000, after: 0, delta: -7000, deltaPercent: -100 },
+				targetDeltasByCalls: [
+					{
+						target: "querystring",
+						callsPerIteration: { before: 0, after: 1, delta: 1 },
+						durationMsPerIteration: { before: 0, after: 25, delta: 25 },
+						responseEncodedBytesPerIteration: { before: 0, after: 6500, delta: 6500 },
+					},
+				],
+				targetDeltasByTime: [
+					{
+						target: "querystring",
+						callsPerIteration: { before: 0, after: 1, delta: 1 },
+						durationMsPerIteration: { before: 0, after: 25, delta: 25 },
+						responseEncodedBytesPerIteration: { before: 0, after: 6500, delta: 6500 },
+					},
+				],
+				targetDeltasByResponseBytes: [
+					{
+						target: "querystring",
+						callsPerIteration: { before: 0, after: 1, delta: 1 },
+						durationMsPerIteration: { before: 0, after: 25, delta: 25 },
+						responseEncodedBytesPerIteration: { before: 0, after: 6500, delta: 6500 },
+					},
+				],
 			},
 			{
 				kind: "bridge_dispatch",
 				label: "__bd:* bridge-dispatch wrappers",
-				callsPerIteration: { before: 1, after: 1, delta: 0, deltaPercent: 0 },
-				durationMsPerIteration: { before: 55, after: 40, delta: -15, deltaPercent: -27.273 },
-				responseEncodedBytesPerIteration: { before: 190, after: 170, delta: -20, deltaPercent: -10.526 },
+				callsPerIteration: { before: 1, after: 2, delta: 1, deltaPercent: 100 },
+				durationMsPerIteration: { before: 55, after: 50, delta: -5, deltaPercent: -9.091 },
+				responseEncodedBytesPerIteration: { before: 190, after: 260, delta: 70, deltaPercent: 36.842 },
+				unattributedCallsPerIteration: { before: 1, after: 1, delta: 0, deltaPercent: 0 },
+				unattributedDurationMsPerIteration: { before: 55, after: 10, delta: -45, deltaPercent: -81.818 },
+				unattributedResponseEncodedBytesPerIteration: { before: 190, after: 90, delta: -100, deltaPercent: -52.632 },
+				targetDeltasByCalls: [
+					{
+						target: "__bd:_loadFileSync:[\"/tmp/demo.js\"]",
+						callsPerIteration: { before: 0, after: 1, delta: 1 },
+						durationMsPerIteration: { before: 0, after: 40, delta: 40 },
+						responseEncodedBytesPerIteration: { before: 0, after: 170, delta: 170 },
+					},
+				],
+				targetDeltasByTime: [
+					{
+						target: "__bd:_loadFileSync:[\"/tmp/demo.js\"]",
+						callsPerIteration: { before: 0, after: 1, delta: 1 },
+						durationMsPerIteration: { before: 0, after: 40, delta: 40 },
+						responseEncodedBytesPerIteration: { before: 0, after: 170, delta: 170 },
+					},
+				],
+				targetDeltasByResponseBytes: [
+					{
+						target: "__bd:_loadFileSync:[\"/tmp/demo.js\"]",
+						callsPerIteration: { before: 0, after: 1, delta: 1 },
+						durationMsPerIteration: { before: 0, after: 40, delta: 40 },
+						responseEncodedBytesPerIteration: { before: 0, after: 170, delta: 170 },
+					},
+				],
 			},
 		]);
 		expect(buildScenarioSummaryMarkdown(currentSummary)).toContain(
@@ -485,6 +667,12 @@ describe("module-load summary generation", () => {
 		);
 		expect(buildScenarioSummaryMarkdown(currentSummary)).toContain(
 			"_loadPolyfill __bd:* bridge-dispatch wrappers",
+		);
+		expect(buildScenarioSummaryMarkdown(currentSummary)).toContain(
+			"| real polyfill-body loads | by time | `querystring` |",
+		);
+		expect(buildScenarioSummaryMarkdown(currentSummary)).toContain(
+			"| __bd:* bridge-dispatch wrappers | unattributed remainder | (no bridgeTarget in log) |",
 		);
 		const report: BenchmarkSummaryReport = {
 			createdAt: currentResult.createdAt,
@@ -528,6 +716,12 @@ describe("module-load summary generation", () => {
 		);
 		expect(buildBenchmarkComparisonMarkdown(report)).toContain(
 			"_loadPolyfill __bd:* bridge-dispatch wrappers",
+		);
+		expect(buildBenchmarkComparisonMarkdown(report)).toContain(
+			"| real polyfill-body loads | by response bytes | `querystring` |",
+		);
+		expect(buildBenchmarkComparisonMarkdown(report)).toContain(
+			"| __bd:* bridge-dispatch wrappers | by time | `__bd:_loadFileSync:[\"/tmp/demo.js\"]` |",
 		);
 	});
 

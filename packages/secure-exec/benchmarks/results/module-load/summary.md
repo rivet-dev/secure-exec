@@ -1,13 +1,13 @@
 # Module Load Benchmark
 
-Generated: 2026-03-31T22:18:09.989Z
-Git commit: 1f83e05069161dac59c983520397001abceb978b
+Generated: 2026-03-31T22:29:20.833Z
+Git commit: 11a33bb0c1004ceacac7c43975dbbd6931fe0eba
 Host: {"node":"v24.13.0","platform":"linux","arch":"x64","cpu":"12th Gen Intel(R) Core(TM) i7-12700KF","cores":20,"ramGb":62.558}
 V8 binary: /home/nathan/se6/native/v8-runtime/target/release/secure-exec-v8
-Baseline summary: 2026-03-31T21:03:06.214Z
+Baseline summary: 2026-03-31T22:18:09.989Z
 Primary comparison mode: `sandbox new-session replay (warm snapshot enabled)`
 
-Use `comparison.md` for before/after deltas on the primary sandbox new-session replay mode, including the split between real `_loadPolyfill` bodies and `__bd:*` dispatch wrappers. Use the per-scenario `summary.md` files for copy-ready control-mode numbers such as true cold start, same-session replay, snapshot-off replay, and host controls.
+Use `comparison.md` for before/after deltas on the primary sandbox new-session replay mode, including the split between real `_loadPolyfill` bodies and `__bd:*` dispatch wrappers plus ranked target-level deltas. Use the per-scenario `summary.md` files for copy-ready control-mode numbers such as true cold start, same-session replay, snapshot-off replay, host controls, and current target hotspots.
 
 | Scenario | Sandbox New-Session Warm Wall Mean | Bridge Calls/Iter | Warm Fixed Overhead | Dominant Method Time | Dominant Frame Bytes |
 | --- | ---: | ---: | ---: | --- | --- |
@@ -54,13 +54,13 @@ Use `comparison.md` for before/after deltas on the primary sandbox new-session r
 
 ## Transport RTT
 
-Dedicated IPC connect RTT: 0.196 ms
+Dedicated IPC connect RTT: 0.200 ms
 
 | Payload | Mean RTT | P95 RTT | Max RTT |
 | --- | ---: | ---: | ---: |
-| 1 B | 0.024 ms | 0.041 ms | 0.044 ms |
-| 1 KB | 0.018 ms | 0.023 ms | 0.038 ms |
-| 64 KB | 0.131 ms | 0.176 ms | 0.219 ms |
+| 1 B | 0.027 ms | 0.045 ms | 0.055 ms |
+| 1 KB | 0.018 ms | 0.024 ms | 0.030 ms |
+| 64 KB | 0.115 ms | 0.136 ms | 0.137 ms |
 
 ## Progress Guide
 
@@ -69,6 +69,7 @@ Dedicated IPC connect RTT: 0.196 ms
 - Warm fixed session overhead
 - Benchmark mode controls from per-scenario summary.md: true cold start on/off, same-session replay, new-session replay on/off, and host same-session control
 - `_loadPolyfill` real polyfill-body vs `__bd:*` bridge-dispatch splits from comparison.md
+- `_loadPolyfill` ranked target hotspots from per-scenario summary.md and target-level deltas from comparison.md
 - Warm phase attribution when fixed overhead changes
 - Transport RTT means from transport-rtt.md for transport-sensitive changes
 - Dominant bridge method time and byte deltas from comparison.md

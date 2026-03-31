@@ -123,6 +123,8 @@ const LOAD_POLYFILL_ATTRIBUTION_ORDER: LoadPolyfillAttributionKind[] = [
 	"bridge_dispatch",
 ];
 
+const LOAD_POLYFILL_TARGET_LIMIT = 5;
+
 const EXTRA_POLYFILL_MODULES = [
 	"stream/web",
 	"util/types",
@@ -193,7 +195,17 @@ type MutableLoadPolyfillAttributionStats = {
 	requestPayloadBytesTotal: number;
 	responseEncodedBytesTotal: number;
 	responsePayloadBytesTotal: number;
-	targets: Set<string>;
+	targets: Map<string, MutableLoadPolyfillTargetStats>;
+	unattributedCallsTotal: number;
+	unattributedDurationMs: number;
+	unattributedResponseEncodedBytesTotal: number;
+};
+
+type MutableLoadPolyfillTargetStats = {
+	target: string;
+	callsTotal: number;
+	totalDurationMs: number;
+	responseEncodedBytesTotal: number;
 };
 
 type MutableSessionStats = {
@@ -278,7 +290,27 @@ export type ScenarioLoadPolyfillAttributionSummary = {
 	requestEncodedBytesPerIteration: number;
 	responseEncodedBytesTotal: number;
 	responseEncodedBytesPerIteration: number;
+	targets: ScenarioLoadPolyfillTargetSummary[];
+	topTargetsByCalls: ScenarioLoadPolyfillTargetSummary[];
+	topTargetsByTime: ScenarioLoadPolyfillTargetSummary[];
+	topTargetsByResponseBytes: ScenarioLoadPolyfillTargetSummary[];
+	unattributedCallsTotal: number;
+	unattributedCallsPerIteration: number;
+	unattributedDurationMsTotal: number;
+	unattributedDurationMsPerIteration: number;
+	unattributedResponseEncodedBytesTotal: number;
+	unattributedResponseEncodedBytesPerIteration: number;
 	exampleTargets: string[];
+};
+
+export type ScenarioLoadPolyfillTargetSummary = {
+	target: string;
+	callsTotal: number;
+	callsPerIteration: number;
+	totalDurationMs: number;
+	durationMsPerIteration: number;
+	responseEncodedBytesTotal: number;
+	responseEncodedBytesPerIteration: number;
 };
 
 export type NumericDelta = {
@@ -319,6 +351,19 @@ export type ScenarioFrameDelta = {
 export type LoadPolyfillAttributionDelta = {
 	kind: LoadPolyfillAttributionKind;
 	label: string;
+	callsPerIteration: NumericDelta;
+	durationMsPerIteration: NumericDelta;
+	responseEncodedBytesPerIteration: NumericDelta;
+	unattributedCallsPerIteration: NumericDelta;
+	unattributedDurationMsPerIteration: NumericDelta;
+	unattributedResponseEncodedBytesPerIteration: NumericDelta;
+	targetDeltasByCalls: ScenarioLoadPolyfillTargetDelta[];
+	targetDeltasByTime: ScenarioLoadPolyfillTargetDelta[];
+	targetDeltasByResponseBytes: ScenarioLoadPolyfillTargetDelta[];
+};
+
+export type ScenarioLoadPolyfillTargetDelta = {
+	target: string;
 	callsPerIteration: NumericDelta;
 	durationMsPerIteration: NumericDelta;
 	responseEncodedBytesPerIteration: NumericDelta;
@@ -582,10 +627,22 @@ function formatLoadPolyfillAttributionSummary(
 	return `${attribution.callsPerIteration.toFixed(3)} calls/iteration, ${attribution.durationMsPerIteration.toFixed(3)} ms/iteration, ${attribution.responseEncodedBytesPerIteration.toFixed(3)} bytes/iteration`;
 }
 
+function formatLoadPolyfillTargetSummary(
+	target: ScenarioLoadPolyfillTargetSummary,
+): string {
+	return `${target.callsPerIteration.toFixed(3)} calls/iteration, ${target.durationMsPerIteration.toFixed(3)} ms/iteration, ${target.responseEncodedBytesPerIteration.toFixed(3)} bytes/iteration`;
+}
+
 function formatLoadPolyfillAttributionDelta(
 	delta: LoadPolyfillAttributionDelta,
 ): string {
 	return `calls ${formatDelta(delta.callsPerIteration, "calls")}; time ${formatDelta(delta.durationMsPerIteration)}; response bytes ${formatDelta(delta.responseEncodedBytesPerIteration, "bytes")}`;
+}
+
+function formatLoadPolyfillTargetDelta(
+	target: ScenarioLoadPolyfillTargetDelta,
+): string {
+	return `calls ${formatDelta(target.callsPerIteration, "calls")}; time ${formatDelta(target.durationMsPerIteration)}; response bytes ${formatDelta(target.responseEncodedBytesPerIteration, "bytes")}`;
 }
 
 function formatBenchmarkModeChecks(checks: ScenarioChecks): string {
@@ -704,6 +761,32 @@ function buildBenchmarkModeRows(
 	return lines;
 }
 
+function pushLoadPolyfillTargetRankingRows(
+	lines: string[],
+	kindLabel: string,
+	ranking: string,
+	targets: ScenarioLoadPolyfillTargetSummary[],
+): void {
+	for (const target of targets) {
+		lines.push(
+			`| ${kindLabel} | ${ranking} | \`${target.target}\` | ${target.callsPerIteration.toFixed(3)} | ${formatMetric(target.durationMsPerIteration)} | ${target.responseEncodedBytesPerIteration.toFixed(3)} |`,
+		);
+	}
+}
+
+function pushLoadPolyfillTargetDeltaRows(
+	lines: string[],
+	kindLabel: string,
+	ranking: string,
+	targets: ScenarioLoadPolyfillTargetDelta[],
+): void {
+	for (const target of targets) {
+		lines.push(
+			`| ${kindLabel} | ${ranking} | \`${target.target}\` | ${formatDelta(target.callsPerIteration, "calls")} | ${formatDelta(target.durationMsPerIteration)} | ${formatDelta(target.responseEncodedBytesPerIteration, "bytes")} |`,
+		);
+	}
+}
+
 function compareNumeric(before: number | undefined, after: number | undefined): NumericDelta | undefined {
 	if (before === undefined || after === undefined) return undefined;
 	const delta = round(after - before);
@@ -775,9 +858,28 @@ function ensureLoadPolyfillAttributionStats(
 		requestPayloadBytesTotal: 0,
 		responseEncodedBytesTotal: 0,
 		responsePayloadBytesTotal: 0,
-		targets: new Set<string>(),
+		targets: new Map<string, MutableLoadPolyfillTargetStats>(),
+		unattributedCallsTotal: 0,
+		unattributedDurationMs: 0,
+		unattributedResponseEncodedBytesTotal: 0,
 	};
 	stats.set(kind, created);
+	return created;
+}
+
+function ensureLoadPolyfillTargetStats(
+	stats: Map<string, MutableLoadPolyfillTargetStats>,
+	target: string,
+): MutableLoadPolyfillTargetStats {
+	const existing = stats.get(target);
+	if (existing) return existing;
+	const created: MutableLoadPolyfillTargetStats = {
+		target,
+		callsTotal: 0,
+		totalDurationMs: 0,
+		responseEncodedBytesTotal: 0,
+	};
+	stats.set(target, created);
 	return created;
 }
 
@@ -803,6 +905,82 @@ function ensureSession(
 	sessions.set(sessionId, created);
 	sessionOrder.push(sessionId);
 	return created;
+}
+
+function toLoadPolyfillTargetSummary(
+	target: MutableLoadPolyfillTargetStats,
+	iterations: number,
+): ScenarioLoadPolyfillTargetSummary {
+	return {
+		target: target.target,
+		callsTotal: target.callsTotal,
+		callsPerIteration: round(target.callsTotal / iterations),
+		totalDurationMs: round(target.totalDurationMs),
+		durationMsPerIteration: round(target.totalDurationMs / iterations),
+		responseEncodedBytesTotal: target.responseEncodedBytesTotal,
+		responseEncodedBytesPerIteration: round(
+			target.responseEncodedBytesTotal / iterations,
+		),
+	};
+}
+
+function compareLoadPolyfillTargetSummary(
+	left: ScenarioLoadPolyfillTargetSummary,
+	right: ScenarioLoadPolyfillTargetSummary,
+	primary: (
+		entry: ScenarioLoadPolyfillTargetSummary,
+	) => number,
+	secondary: (
+		entry: ScenarioLoadPolyfillTargetSummary,
+	) => number,
+	tertiary: (
+		entry: ScenarioLoadPolyfillTargetSummary,
+	) => number,
+): number {
+	const primaryDelta = primary(right) - primary(left);
+	if (primaryDelta !== 0) {
+		return primaryDelta;
+	}
+	const secondaryDelta = secondary(right) - secondary(left);
+	if (secondaryDelta !== 0) {
+		return secondaryDelta;
+	}
+	const tertiaryDelta = tertiary(right) - tertiary(left);
+	if (tertiaryDelta !== 0) {
+		return tertiaryDelta;
+	}
+	return left.target.localeCompare(right.target);
+}
+
+function sortLoadPolyfillTargetSummaries(
+	targets: ScenarioLoadPolyfillTargetSummary[],
+	primary: (
+		entry: ScenarioLoadPolyfillTargetSummary,
+	) => number,
+	secondary: (
+		entry: ScenarioLoadPolyfillTargetSummary,
+	) => number,
+	tertiary: (
+		entry: ScenarioLoadPolyfillTargetSummary,
+	) => number,
+): ScenarioLoadPolyfillTargetSummary[] {
+	return [...targets].sort((left, right) =>
+		compareLoadPolyfillTargetSummary(
+			left,
+			right,
+			primary,
+			secondary,
+			tertiary,
+		),
+	);
+}
+
+function zeroNumericDelta(): NumericDelta {
+	return {
+		before: 0,
+		after: 0,
+		delta: 0,
+	};
 }
 
 function classifyLoadPolyfillAttribution(
@@ -921,6 +1099,19 @@ export function deriveScenarioSummary(
 						);
 						attributionStats.responseEncodedBytesTotal += entry.encodedBytes ?? 0;
 						attributionStats.responsePayloadBytesTotal += entry.payloadBytes ?? 0;
+						const pendingLoadPolyfillCall = session.pendingLoadPolyfillCalls.get(
+							entry.callId ?? -1,
+						);
+						if (pendingLoadPolyfillCall?.bridgeTarget) {
+							const targetStats = ensureLoadPolyfillTargetStats(
+								attributionStats.targets,
+								pendingLoadPolyfillCall.bridgeTarget,
+							);
+							targetStats.responseEncodedBytesTotal += entry.encodedBytes ?? 0;
+						} else {
+							attributionStats.unattributedResponseEncodedBytesTotal +=
+								entry.encodedBytes ?? 0;
+						}
 					}
 				}
 			}
@@ -958,7 +1149,15 @@ export function deriveScenarioSummary(
 					attributionStats.requestPayloadBytesTotal +=
 						pendingLoadPolyfillCall?.requestPayloadBytes ?? 0;
 					if (pendingLoadPolyfillCall?.bridgeTarget) {
-						attributionStats.targets.add(pendingLoadPolyfillCall.bridgeTarget);
+						const targetStats = ensureLoadPolyfillTargetStats(
+							attributionStats.targets,
+							pendingLoadPolyfillCall.bridgeTarget,
+						);
+						targetStats.callsTotal += 1;
+						targetStats.totalDurationMs += durationMs;
+					} else {
+						attributionStats.unattributedCallsTotal += 1;
+						attributionStats.unattributedDurationMs += durationMs;
 					}
 					session.loadPolyfillKinds.set(entry.callId ?? -1, kind);
 				}
@@ -1054,6 +1253,29 @@ export function deriveScenarioSummary(
 			if (!attribution && !hasLoadPolyfillTraffic) {
 				return null;
 			}
+			const targets = Array.from(attribution?.targets.values() ?? [])
+				.map((target) => toLoadPolyfillTargetSummary(target, result.iterations));
+			const targetsByName = [...targets].sort((left, right) =>
+				left.target.localeCompare(right.target),
+			);
+			const topTargetsByCalls = sortLoadPolyfillTargetSummaries(
+				targets,
+				(entry) => entry.callsTotal,
+				(entry) => entry.totalDurationMs,
+				(entry) => entry.responseEncodedBytesTotal,
+			).slice(0, LOAD_POLYFILL_TARGET_LIMIT);
+			const topTargetsByTime = sortLoadPolyfillTargetSummaries(
+				targets,
+				(entry) => entry.totalDurationMs,
+				(entry) => entry.responseEncodedBytesTotal,
+				(entry) => entry.callsTotal,
+			).slice(0, LOAD_POLYFILL_TARGET_LIMIT);
+			const topTargetsByResponseBytes = sortLoadPolyfillTargetSummaries(
+				targets,
+				(entry) => entry.responseEncodedBytesTotal,
+				(entry) => entry.totalDurationMs,
+				(entry) => entry.callsTotal,
+			).slice(0, LOAD_POLYFILL_TARGET_LIMIT);
 			return {
 				kind,
 				label:
@@ -1074,7 +1296,29 @@ export function deriveScenarioSummary(
 				responseEncodedBytesPerIteration: round(
 					(attribution?.responseEncodedBytesTotal ?? 0) / result.iterations,
 				),
-				exampleTargets: Array.from(attribution?.targets ?? []).sort().slice(0, 5),
+				targets: targetsByName,
+				topTargetsByCalls,
+				topTargetsByTime,
+				topTargetsByResponseBytes,
+				unattributedCallsTotal: attribution?.unattributedCallsTotal ?? 0,
+				unattributedCallsPerIteration: round(
+					(attribution?.unattributedCallsTotal ?? 0) / result.iterations,
+				),
+				unattributedDurationMsTotal: round(
+					attribution?.unattributedDurationMs ?? 0,
+				),
+				unattributedDurationMsPerIteration: round(
+					(attribution?.unattributedDurationMs ?? 0) / result.iterations,
+				),
+				unattributedResponseEncodedBytesTotal:
+					attribution?.unattributedResponseEncodedBytesTotal ?? 0,
+				unattributedResponseEncodedBytesPerIteration: round(
+					(attribution?.unattributedResponseEncodedBytesTotal ?? 0) /
+						result.iterations,
+				),
+				exampleTargets: targetsByName
+					.map((target) => target.target)
+					.slice(0, LOAD_POLYFILL_TARGET_LIMIT),
 			};
 		},
 	).filter(
@@ -1316,6 +1560,88 @@ function compareFrameSeries(
 		.slice(0, 5);
 }
 
+function compareLoadPolyfillTargetSeries(
+	current: ScenarioLoadPolyfillTargetSummary[],
+	baseline: ScenarioLoadPolyfillTargetSummary[],
+	selector: (
+		delta: ScenarioLoadPolyfillTargetDelta,
+	) => NumericDelta,
+): ScenarioLoadPolyfillTargetDelta[] {
+	const baselineMap = new Map(baseline.map((entry) => [entry.target, entry]));
+	const currentMap = new Map(current.map((entry) => [entry.target, entry]));
+	const targets = new Set([...baselineMap.keys(), ...currentMap.keys()]);
+	return Array.from(targets)
+		.map((target) => {
+			const baselineEntry = baselineMap.get(target);
+			const currentEntry = currentMap.get(target);
+			return {
+				target,
+				callsPerIteration:
+					compareNumeric(
+						baselineEntry?.callsPerIteration ?? 0,
+						currentEntry?.callsPerIteration ?? 0,
+					) ?? zeroNumericDelta(),
+				durationMsPerIteration:
+					compareNumeric(
+						baselineEntry?.durationMsPerIteration ?? 0,
+						currentEntry?.durationMsPerIteration ?? 0,
+					) ?? zeroNumericDelta(),
+				responseEncodedBytesPerIteration:
+					compareNumeric(
+						baselineEntry?.responseEncodedBytesPerIteration ?? 0,
+						currentEntry?.responseEncodedBytesPerIteration ?? 0,
+					) ?? zeroNumericDelta(),
+			};
+		})
+		.filter(
+			(entry) =>
+				entry.callsPerIteration.before !== 0 ||
+				entry.callsPerIteration.after !== 0 ||
+				entry.durationMsPerIteration.before !== 0 ||
+				entry.durationMsPerIteration.after !== 0 ||
+				entry.responseEncodedBytesPerIteration.before !== 0 ||
+				entry.responseEncodedBytesPerIteration.after !== 0,
+		)
+		.sort((left, right) => {
+			const leftMetric = selector(left);
+			const rightMetric = selector(right);
+			const selectorDelta =
+				Math.abs(rightMetric.delta) - Math.abs(leftMetric.delta);
+			if (selectorDelta !== 0) {
+				return selectorDelta;
+			}
+			const selectorAfterDelta = rightMetric.after - leftMetric.after;
+			if (selectorAfterDelta !== 0) {
+				return selectorAfterDelta;
+			}
+			const responseBytesDelta =
+				Math.abs(right.responseEncodedBytesPerIteration.delta) -
+				Math.abs(left.responseEncodedBytesPerIteration.delta);
+			if (responseBytesDelta !== 0) {
+				return responseBytesDelta;
+			}
+			const responseBytesAfterDelta =
+				right.responseEncodedBytesPerIteration.after -
+				left.responseEncodedBytesPerIteration.after;
+			if (responseBytesAfterDelta !== 0) {
+				return responseBytesAfterDelta;
+			}
+			const durationDelta =
+				Math.abs(right.durationMsPerIteration.delta) -
+				Math.abs(left.durationMsPerIteration.delta);
+			if (durationDelta !== 0) {
+				return durationDelta;
+			}
+			const durationAfterDelta =
+				right.durationMsPerIteration.after - left.durationMsPerIteration.after;
+			if (durationAfterDelta !== 0) {
+				return durationAfterDelta;
+			}
+			return left.target.localeCompare(right.target);
+		})
+		.slice(0, LOAD_POLYFILL_TARGET_LIMIT);
+}
+
 function compareLoadPolyfillAttribution(
 	current: ScenarioLoadPolyfillAttributionSummary[],
 	baseline: ScenarioLoadPolyfillAttributionSummary[],
@@ -1354,11 +1680,37 @@ function compareLoadPolyfillAttribution(
 			responseEncodedBytesPerIteration: compareNumeric(
 				baselineEntry?.responseEncodedBytesPerIteration ?? 0,
 				currentEntry?.responseEncodedBytesPerIteration ?? 0,
-			) ?? {
-				before: 0,
-				after: 0,
-				delta: 0,
-			},
+			) ?? zeroNumericDelta(),
+			unattributedCallsPerIteration:
+				compareNumeric(
+					baselineEntry?.unattributedCallsPerIteration ?? 0,
+					currentEntry?.unattributedCallsPerIteration ?? 0,
+				) ?? zeroNumericDelta(),
+			unattributedDurationMsPerIteration:
+				compareNumeric(
+					baselineEntry?.unattributedDurationMsPerIteration ?? 0,
+					currentEntry?.unattributedDurationMsPerIteration ?? 0,
+				) ?? zeroNumericDelta(),
+			unattributedResponseEncodedBytesPerIteration:
+				compareNumeric(
+					baselineEntry?.unattributedResponseEncodedBytesPerIteration ?? 0,
+					currentEntry?.unattributedResponseEncodedBytesPerIteration ?? 0,
+				) ?? zeroNumericDelta(),
+			targetDeltasByCalls: compareLoadPolyfillTargetSeries(
+				currentEntry?.targets ?? [],
+				baselineEntry?.targets ?? [],
+				(entry) => entry.callsPerIteration,
+			),
+			targetDeltasByTime: compareLoadPolyfillTargetSeries(
+				currentEntry?.targets ?? [],
+				baselineEntry?.targets ?? [],
+				(entry) => entry.durationMsPerIteration,
+			),
+			targetDeltasByResponseBytes: compareLoadPolyfillTargetSeries(
+				currentEntry?.targets ?? [],
+				baselineEntry?.targets ?? [],
+				(entry) => entry.responseEncodedBytesPerIteration,
+			),
 		};
 	});
 }
@@ -1640,6 +1992,16 @@ export function buildScenarioSummaryMarkdown(summary: ScenarioDerivedSummary): s
 		lines.push(
 			`- _loadPolyfill ${attribution.label}: ${formatLoadPolyfillAttributionSummary(attribution)}`,
 		);
+		if (attribution.topTargetsByTime[0]) {
+			lines.push(
+				`- _loadPolyfill ${attribution.label} top target by time: \`${attribution.topTargetsByTime[0].target}\` ${formatLoadPolyfillTargetSummary(attribution.topTargetsByTime[0])}`,
+			);
+		}
+		if (attribution.topTargetsByResponseBytes[0]) {
+			lines.push(
+				`- _loadPolyfill ${attribution.label} top target by response bytes: \`${attribution.topTargetsByResponseBytes[0].target}\` ${formatLoadPolyfillTargetSummary(attribution.topTargetsByResponseBytes[0])}`,
+			);
+		}
 	}
 	if (summary.progressSignals.dominantFrameByEncodedBytes) {
 		lines.push(
@@ -1704,12 +2066,58 @@ export function buildScenarioSummaryMarkdown(summary: ScenarioDerivedSummary): s
 		lines.push("");
 		lines.push("## _loadPolyfill Attribution");
 		lines.push("");
-		lines.push("| Kind | Calls/Iter | Time/Iter | Response Bytes/Iter | Sample Targets |");
-		lines.push("| --- | ---: | ---: | ---: | --- |");
+		lines.push(
+			"| Kind | Calls/Iter | Time/Iter | Response Bytes/Iter | Attributed Targets | Unattributed Calls/Iter |",
+		);
+		lines.push("| --- | ---: | ---: | ---: | ---: | ---: |");
 		for (const attribution of summary.bridge.loadPolyfillAttribution) {
 			lines.push(
-				`| ${attribution.label} | ${attribution.callsPerIteration.toFixed(3)} | ${formatMetric(attribution.durationMsPerIteration)} | ${attribution.responseEncodedBytesPerIteration.toFixed(3)} | ${attribution.exampleTargets.length > 0 ? attribution.exampleTargets.map((target) => `\`${target}\``).join(", ") : "-" } |`,
+				`| ${attribution.label} | ${attribution.callsPerIteration.toFixed(3)} | ${formatMetric(attribution.durationMsPerIteration)} | ${attribution.responseEncodedBytesPerIteration.toFixed(3)} | ${attribution.targets.length} | ${attribution.unattributedCallsPerIteration.toFixed(3)} |`,
 			);
+		}
+
+		lines.push("");
+		lines.push("## _loadPolyfill Target Hotspots");
+		lines.push("");
+		lines.push("| Kind | Ranking | Target | Calls/Iter | Time/Iter | Response Bytes/Iter |");
+		lines.push("| --- | --- | --- | ---: | ---: | ---: |");
+		for (const attribution of summary.bridge.loadPolyfillAttribution) {
+			pushLoadPolyfillTargetRankingRows(
+				lines,
+				attribution.label,
+				"by calls",
+				attribution.topTargetsByCalls,
+			);
+			pushLoadPolyfillTargetRankingRows(
+				lines,
+				attribution.label,
+				"by time",
+				attribution.topTargetsByTime,
+			);
+			pushLoadPolyfillTargetRankingRows(
+				lines,
+				attribution.label,
+				"by response bytes",
+				attribution.topTargetsByResponseBytes,
+			);
+			if (
+				attribution.topTargetsByCalls.length === 0 &&
+				attribution.topTargetsByTime.length === 0 &&
+				attribution.topTargetsByResponseBytes.length === 0
+			) {
+				lines.push(
+					`| ${attribution.label} | - | - | - | - | - |`,
+				);
+			}
+			if (
+				attribution.unattributedCallsTotal > 0 ||
+				attribution.unattributedDurationMsTotal > 0 ||
+				attribution.unattributedResponseEncodedBytesTotal > 0
+			) {
+				lines.push(
+					`| ${attribution.label} | unattributed remainder | (no bridgeTarget in log) | ${attribution.unattributedCallsPerIteration.toFixed(3)} | ${formatMetric(attribution.unattributedDurationMsPerIteration)} | ${attribution.unattributedResponseEncodedBytesPerIteration.toFixed(3)} |`,
+				);
+			}
 		}
 	}
 
@@ -1761,6 +2169,51 @@ export function buildScenarioSummaryMarkdown(summary: ScenarioDerivedSummary): s
 			lines.push(
 				`- _loadPolyfill ${attributionDelta.label}: ${formatLoadPolyfillAttributionDelta(attributionDelta)}`,
 			);
+			if (
+				attributionDelta.unattributedCallsPerIteration.delta !== 0 ||
+				attributionDelta.unattributedDurationMsPerIteration.delta !== 0 ||
+				attributionDelta.unattributedResponseEncodedBytesPerIteration.delta !== 0
+			) {
+				lines.push(
+					`- _loadPolyfill ${attributionDelta.label} unattributed remainder: calls ${formatDelta(attributionDelta.unattributedCallsPerIteration, "calls")}; time ${formatDelta(attributionDelta.unattributedDurationMsPerIteration)}; response bytes ${formatDelta(attributionDelta.unattributedResponseEncodedBytesPerIteration, "bytes")}`,
+				);
+			}
+		}
+		const hasLoadPolyfillTargetDeltas =
+			summary.comparisonToPrevious.loadPolyfillAttributionDeltas.some(
+				(attributionDelta) =>
+					attributionDelta.targetDeltasByCalls.length > 0 ||
+					attributionDelta.targetDeltasByTime.length > 0 ||
+					attributionDelta.targetDeltasByResponseBytes.length > 0,
+			);
+		if (hasLoadPolyfillTargetDeltas) {
+			lines.push("");
+			lines.push("### _loadPolyfill Target Deltas");
+			lines.push("");
+			lines.push(
+				"| Kind | Ranking | Target | Calls/Iter | Time/Iter | Response Bytes/Iter |",
+			);
+			lines.push("| --- | --- | --- | --- | --- | --- |");
+			for (const attributionDelta of summary.comparisonToPrevious.loadPolyfillAttributionDeltas) {
+				pushLoadPolyfillTargetDeltaRows(
+					lines,
+					attributionDelta.label,
+					"by calls",
+					attributionDelta.targetDeltasByCalls,
+				);
+				pushLoadPolyfillTargetDeltaRows(
+					lines,
+					attributionDelta.label,
+					"by time",
+					attributionDelta.targetDeltasByTime,
+				);
+				pushLoadPolyfillTargetDeltaRows(
+					lines,
+					attributionDelta.label,
+					"by response bytes",
+					attributionDelta.targetDeltasByResponseBytes,
+				);
+			}
 		}
 		lines.push("");
 		lines.push("| Delta Type | Name | Before | After | Delta |");
@@ -1797,7 +2250,7 @@ export function buildBenchmarkSummaryMarkdown(report: BenchmarkSummaryReport): s
 		`Baseline summary: ${report.baseline?.createdAt ?? "none"}`,
 		"Primary comparison mode: `sandbox new-session replay (warm snapshot enabled)`",
 		"",
-		"Use `comparison.md` for before/after deltas on the primary sandbox new-session replay mode, including the split between real `_loadPolyfill` bodies and `__bd:*` dispatch wrappers. Use the per-scenario `summary.md` files for copy-ready control-mode numbers such as true cold start, same-session replay, snapshot-off replay, and host controls.",
+		"Use `comparison.md` for before/after deltas on the primary sandbox new-session replay mode, including the split between real `_loadPolyfill` bodies and `__bd:*` dispatch wrappers plus ranked target-level deltas. Use the per-scenario `summary.md` files for copy-ready control-mode numbers such as true cold start, same-session replay, snapshot-off replay, host controls, and current target hotspots.",
 		"",
 		"| Scenario | Sandbox New-Session Warm Wall Mean | Bridge Calls/Iter | Warm Fixed Overhead | Dominant Method Time | Dominant Frame Bytes |",
 		"| --- | ---: | ---: | ---: | --- | --- |",
@@ -1898,7 +2351,7 @@ export function buildBenchmarkComparisonMarkdown(report: BenchmarkSummaryReport)
 		`Baseline benchmark: ${report.baseline?.createdAt ?? "none"}${report.baseline?.gitCommit ? ` (${report.baseline.gitCommit})` : ""}`,
 		"Primary comparison mode: `sandbox new-session replay (warm snapshot enabled)`",
 		"",
-		"Copy the primary sandbox new-session replay warm wall, bridge calls/iteration, warm fixed overhead, and the highlighted method/frame deltas below into `scripts/ralph/progress.txt`. When `_loadPolyfill` is relevant, also copy the split between real polyfill bodies and `__bd:*` bridge dispatch. Use the per-scenario `summary.md` Benchmark Modes section for true cold start, same-session replay, snapshot-off replay, and host-control numbers.",
+		"Copy the primary sandbox new-session replay warm wall, bridge calls/iteration, warm fixed overhead, and the highlighted method/frame deltas below into `scripts/ralph/progress.txt`. When `_loadPolyfill` is relevant, also copy the split between real polyfill bodies and `__bd:*` bridge dispatch plus the ranked target-level deltas below. Use the per-scenario `summary.md` Benchmark Modes section for true cold start, same-session replay, snapshot-off replay, host-control numbers, and current target hotspots.",
 		"",
 	];
 
@@ -1959,6 +2412,48 @@ export function buildBenchmarkComparisonMarkdown(report: BenchmarkSummaryReport)
 			lines.push(
 				`- _loadPolyfill ${attributionDelta.label}: ${formatLoadPolyfillAttributionDelta(attributionDelta)}`,
 			);
+			if (
+				attributionDelta.unattributedCallsPerIteration.delta !== 0 ||
+				attributionDelta.unattributedDurationMsPerIteration.delta !== 0 ||
+				attributionDelta.unattributedResponseEncodedBytesPerIteration.delta !== 0
+			) {
+				lines.push(
+					`- _loadPolyfill ${attributionDelta.label} unattributed remainder: calls ${formatDelta(attributionDelta.unattributedCallsPerIteration, "calls")}; time ${formatDelta(attributionDelta.unattributedDurationMsPerIteration)}; response bytes ${formatDelta(attributionDelta.unattributedResponseEncodedBytesPerIteration, "bytes")}`,
+				);
+			}
+		}
+		const hasTargetDeltas = scenario.comparisonToPrevious.loadPolyfillAttributionDeltas.some(
+			(attributionDelta) =>
+				attributionDelta.targetDeltasByCalls.length > 0 ||
+				attributionDelta.targetDeltasByTime.length > 0 ||
+				attributionDelta.targetDeltasByResponseBytes.length > 0,
+		);
+		if (hasTargetDeltas) {
+			lines.push("");
+			lines.push(
+				"| Kind | Ranking | Target | Calls/Iter | Time/Iter | Response Bytes/Iter |",
+			);
+			lines.push("| --- | --- | --- | --- | --- | --- |");
+			for (const attributionDelta of scenario.comparisonToPrevious.loadPolyfillAttributionDeltas) {
+				pushLoadPolyfillTargetDeltaRows(
+					lines,
+					attributionDelta.label,
+					"by calls",
+					attributionDelta.targetDeltasByCalls,
+				);
+				pushLoadPolyfillTargetDeltaRows(
+					lines,
+					attributionDelta.label,
+					"by time",
+					attributionDelta.targetDeltasByTime,
+				);
+				pushLoadPolyfillTargetDeltaRows(
+					lines,
+					attributionDelta.label,
+					"by response bytes",
+					attributionDelta.targetDeltasByResponseBytes,
+				);
+			}
 		}
 		lines.push("");
 	}

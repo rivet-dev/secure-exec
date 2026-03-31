@@ -15,6 +15,8 @@ Primary comparison mode: `sandbox new-session replay (warm snapshot enabled)`
 - Dominant bridge time: `_bridgeDispatch` 52.767 ms/iteration across 506.000 calls/iteration
 - Dominant bridge response bytes: `_bridgeDispatch` 552106.667 bytes/iteration
 - _loadPolyfill real polyfill-body loads: 7.000 calls/iteration, 11.829 ms/iteration, 100059.333 bytes/iteration
+- _loadPolyfill real polyfill-body loads top target by time: `url` 1.000 calls/iteration, 5.841 ms/iteration, 41826.000 bytes/iteration
+- _loadPolyfill real polyfill-body loads top target by response bytes: `stream/web` 1.000 calls/iteration, 5.825 ms/iteration, 57983.333 bytes/iteration
 - _loadPolyfill __bd:* bridge-dispatch wrappers: 0.000 calls/iteration, 0.000 ms/iteration, 0.000 bytes/iteration
 - Dominant frame bytes: `send:BridgeResponse` 652213.000 bytes/iteration
 
@@ -57,10 +59,31 @@ Equivalent lifecycle phases come from `CreateSession -> InjectGlobals -> Execute
 
 ## _loadPolyfill Attribution
 
-| Kind | Calls/Iter | Time/Iter | Response Bytes/Iter | Sample Targets |
-| --- | ---: | ---: | ---: | --- |
-| real polyfill-body loads | 7.000 | 11.829 ms | 100059.333 | `@pdf-lib/standard-fonts`, `@pdf-lib/upng`, `pako`, `pdf-lib`, `stream/web` |
-| __bd:* bridge-dispatch wrappers | 0.000 | 0.000 ms | 0.000 | - |
+| Kind | Calls/Iter | Time/Iter | Response Bytes/Iter | Attributed Targets | Unattributed Calls/Iter |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| real polyfill-body loads | 7.000 | 11.829 ms | 100059.333 | 7 | 0.000 |
+| __bd:* bridge-dispatch wrappers | 0.000 | 0.000 ms | 0.000 | 0 | 0.000 |
+
+## _loadPolyfill Target Hotspots
+
+| Kind | Ranking | Target | Calls/Iter | Time/Iter | Response Bytes/Iter |
+| --- | --- | --- | ---: | ---: | ---: |
+| real polyfill-body loads | by calls | `url` | 1.000 | 5.841 ms | 41826.000 |
+| real polyfill-body loads | by calls | `stream/web` | 1.000 | 5.825 ms | 57983.333 |
+| real polyfill-body loads | by calls | `pdf-lib` | 1.000 | 0.060 ms | 50.000 |
+| real polyfill-body loads | by calls | `@pdf-lib/standard-fonts` | 1.000 | 0.033 ms | 50.000 |
+| real polyfill-body loads | by calls | `@pdf-lib/upng` | 1.000 | 0.027 ms | 50.000 |
+| real polyfill-body loads | by time | `url` | 1.000 | 5.841 ms | 41826.000 |
+| real polyfill-body loads | by time | `stream/web` | 1.000 | 5.825 ms | 57983.333 |
+| real polyfill-body loads | by time | `pdf-lib` | 1.000 | 0.060 ms | 50.000 |
+| real polyfill-body loads | by time | `@pdf-lib/standard-fonts` | 1.000 | 0.033 ms | 50.000 |
+| real polyfill-body loads | by time | `@pdf-lib/upng` | 1.000 | 0.027 ms | 50.000 |
+| real polyfill-body loads | by response bytes | `stream/web` | 1.000 | 5.825 ms | 57983.333 |
+| real polyfill-body loads | by response bytes | `url` | 1.000 | 5.841 ms | 41826.000 |
+| real polyfill-body loads | by response bytes | `pdf-lib` | 1.000 | 0.060 ms | 50.000 |
+| real polyfill-body loads | by response bytes | `@pdf-lib/standard-fonts` | 1.000 | 0.033 ms | 50.000 |
+| real polyfill-body loads | by response bytes | `@pdf-lib/upng` | 1.000 | 0.027 ms | 50.000 |
+| __bd:* bridge-dispatch wrappers | - | - | - | - | - |
 
 ## Frame Bytes
 
@@ -79,23 +102,40 @@ Equivalent lifecycle phases come from `CreateSession -> InjectGlobals -> Execute
 
 ## Comparison To Previous Baseline
 
-Baseline scenario timestamp: 2026-03-31T20:56:16.125Z
+Baseline scenario timestamp: 2026-03-31T22:12:17.517Z
 
-- Warm wall: 230.975 -> 117.555 ms (-113.420 ms (-49.10%))
+- Warm wall: 117.555 -> 117.555 ms (0.000 ms (0.00%))
 - Bridge calls/iteration: 514.000 -> 514.000 calls (0.000 calls (0.00%))
-- Warm fixed overhead: 7.713 -> 6.139 ms (-1.574 ms (-20.41%))
-- Warm Create->InjectGlobals: 5.500 -> 5.000 ms (-0.500 ms (-9.09%))
+- Warm fixed overhead: 6.139 -> 6.139 ms (0.000 ms (0.00%))
+- Warm Create->InjectGlobals: 5.000 -> 5.000 ms (0.000 ms (0.00%))
 - Warm InjectGlobals->Execute: 0.000 -> 0.000 ms (0.000 ms)
-- Warm ExecutionResult->Destroy: 0.500 -> 0.000 ms (-0.500 ms (-100.00%))
-- Warm residual overhead: 1.712 -> 1.139 ms (-0.573 ms (-33.47%))
-- Bridge time/iteration: 75.494 -> 64.699 ms (-10.795 ms (-14.30%))
+- Warm ExecutionResult->Destroy: 0.000 -> 0.000 ms (0.000 ms)
+- Warm residual overhead: 1.139 -> 1.139 ms (0.000 ms (0.00%))
+- Bridge time/iteration: 64.699 -> 64.699 ms (0.000 ms (0.00%))
 - BridgeResponse encoded bytes/iteration: 652213.000 -> 652213.000 bytes (0.000 bytes (0.00%))
-- _loadPolyfill real polyfill-body loads: calls 7.000 -> 7.000 calls (0.000 calls (0.00%)); time 12.926 -> 11.829 ms (-1.097 ms (-8.49%)); response bytes 100059.333 -> 100059.333 bytes (0.000 bytes (0.00%))
+- _loadPolyfill real polyfill-body loads: calls 7.000 -> 7.000 calls (0.000 calls (0.00%)); time 11.829 -> 11.829 ms (0.000 ms (0.00%)); response bytes 100059.333 -> 100059.333 bytes (0.000 bytes (0.00%))
 - _loadPolyfill __bd:* bridge-dispatch wrappers: calls 0.000 -> 0.000 calls (0.000 calls); time 0.000 -> 0.000 ms (0.000 ms); response bytes 0.000 -> 0.000 bytes (0.000 bytes)
+
+### _loadPolyfill Target Deltas
+
+| Kind | Ranking | Target | Calls/Iter | Time/Iter | Response Bytes/Iter |
+| --- | --- | --- | --- | --- | --- |
+| real polyfill-body loads | by calls | `stream/web` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 5.825 -> 5.825 ms (0.000 ms (0.00%)) | 57983.333 -> 57983.333 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by calls | `url` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 5.841 -> 5.841 ms (0.000 ms (0.00%)) | 41826.000 -> 41826.000 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by calls | `pdf-lib` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 0.060 -> 0.060 ms (0.000 ms (0.00%)) | 50.000 -> 50.000 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by calls | `@pdf-lib/standard-fonts` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 0.033 -> 0.033 ms (0.000 ms (0.00%)) | 50.000 -> 50.000 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by calls | `@pdf-lib/upng` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 0.027 -> 0.027 ms (0.000 ms (0.00%)) | 50.000 -> 50.000 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by time | `url` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 5.841 -> 5.841 ms (0.000 ms (0.00%)) | 41826.000 -> 41826.000 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by time | `stream/web` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 5.825 -> 5.825 ms (0.000 ms (0.00%)) | 57983.333 -> 57983.333 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by time | `pdf-lib` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 0.060 -> 0.060 ms (0.000 ms (0.00%)) | 50.000 -> 50.000 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by time | `@pdf-lib/standard-fonts` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 0.033 -> 0.033 ms (0.000 ms (0.00%)) | 50.000 -> 50.000 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by time | `@pdf-lib/upng` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 0.027 -> 0.027 ms (0.000 ms (0.00%)) | 50.000 -> 50.000 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by response bytes | `stream/web` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 5.825 -> 5.825 ms (0.000 ms (0.00%)) | 57983.333 -> 57983.333 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by response bytes | `url` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 5.841 -> 5.841 ms (0.000 ms (0.00%)) | 41826.000 -> 41826.000 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by response bytes | `pdf-lib` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 0.060 -> 0.060 ms (0.000 ms (0.00%)) | 50.000 -> 50.000 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by response bytes | `@pdf-lib/standard-fonts` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 0.033 -> 0.033 ms (0.000 ms (0.00%)) | 50.000 -> 50.000 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by response bytes | `@pdf-lib/upng` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 0.027 -> 0.027 ms (0.000 ms (0.00%)) | 50.000 -> 50.000 bytes (0.000 bytes (0.00%)) |
 
 | Delta Type | Name | Before | After | Delta |
 | --- | --- | ---: | ---: | ---: |
-| Method time | `_bridgeDispatch` | 62.437 | 52.767 | -9.670 |
-| Method time | `_loadPolyfill` | 12.926 | 11.829 | -1.097 |
-| Method time | `_log` | 0.131 | 0.103 | -0.028 |
 

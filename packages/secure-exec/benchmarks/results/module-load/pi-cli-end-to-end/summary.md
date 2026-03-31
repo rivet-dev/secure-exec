@@ -15,6 +15,8 @@ Primary comparison mode: `sandbox new-session replay (warm snapshot enabled)`
 - Dominant bridge time: `_bridgeDispatch` 725.989 ms/iteration across 2638.000 calls/iteration
 - Dominant bridge response bytes: `_bridgeDispatch` 2679096.667 bytes/iteration
 - _loadPolyfill real polyfill-body loads: 71.000 calls/iteration, 87.478 ms/iteration, 758629.667 bytes/iteration
+- _loadPolyfill real polyfill-body loads top target by time: `crypto` 1.000 calls/iteration, 32.795 ms/iteration, 300368.667 bytes/iteration
+- _loadPolyfill real polyfill-body loads top target by response bytes: `crypto` 1.000 calls/iteration, 32.795 ms/iteration, 300368.667 bytes/iteration
 - _loadPolyfill __bd:* bridge-dispatch wrappers: 0.000 calls/iteration, 0.000 ms/iteration, 0.000 bytes/iteration
 - Dominant frame bytes: `send:BridgeResponse` 3449856.000 bytes/iteration
 
@@ -64,10 +66,31 @@ Equivalent lifecycle phases come from `CreateSession -> InjectGlobals -> Execute
 
 ## _loadPolyfill Attribution
 
-| Kind | Calls/Iter | Time/Iter | Response Bytes/Iter | Sample Targets |
-| --- | ---: | ---: | ---: | --- |
-| real polyfill-body loads | 71.000 | 87.478 ms | 758629.667 | `#ansi-styles`, `#supports-color`, `@anthropic-ai/sdk`, `@borewit/text-codec`, `@mariozechner/jiti` |
-| __bd:* bridge-dispatch wrappers | 0.000 | 0.000 ms | 0.000 | - |
+| Kind | Calls/Iter | Time/Iter | Response Bytes/Iter | Attributed Targets | Unattributed Calls/Iter |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| real polyfill-body loads | 71.000 | 87.478 ms | 758629.667 | 70 | 0.000 |
+| __bd:* bridge-dispatch wrappers | 0.000 | 0.000 ms | 0.000 | 0 | 0.000 |
+
+## _loadPolyfill Target Hotspots
+
+| Kind | Ranking | Target | Calls/Iter | Time/Iter | Response Bytes/Iter |
+| --- | --- | --- | ---: | ---: | ---: |
+| real polyfill-body loads | by calls | `stream/web` | 2.000 | 5.562 ms | 115966.667 |
+| real polyfill-body loads | by calls | `crypto` | 1.000 | 32.795 ms | 300368.667 |
+| real polyfill-body loads | by calls | `assert` | 1.000 | 20.965 ms | 56865.667 |
+| real polyfill-body loads | by calls | `zlib` | 1.000 | 11.854 ms | 157798.000 |
+| real polyfill-body loads | by calls | `url` | 1.000 | 8.259 ms | 41826.000 |
+| real polyfill-body loads | by time | `crypto` | 1.000 | 32.795 ms | 300368.667 |
+| real polyfill-body loads | by time | `assert` | 1.000 | 20.965 ms | 56865.667 |
+| real polyfill-body loads | by time | `zlib` | 1.000 | 11.854 ms | 157798.000 |
+| real polyfill-body loads | by time | `url` | 1.000 | 8.259 ms | 41826.000 |
+| real polyfill-body loads | by time | `stream` | 1.000 | 6.292 ms | 82604.667 |
+| real polyfill-body loads | by response bytes | `crypto` | 1.000 | 32.795 ms | 300368.667 |
+| real polyfill-body loads | by response bytes | `zlib` | 1.000 | 11.854 ms | 157798.000 |
+| real polyfill-body loads | by response bytes | `stream/web` | 2.000 | 5.562 ms | 115966.667 |
+| real polyfill-body loads | by response bytes | `stream` | 1.000 | 6.292 ms | 82604.667 |
+| real polyfill-body loads | by response bytes | `assert` | 1.000 | 20.965 ms | 56865.667 |
+| __bd:* bridge-dispatch wrappers | - | - | - | - | - |
 
 ## Frame Bytes
 
@@ -86,28 +109,40 @@ Equivalent lifecycle phases come from `CreateSession -> InjectGlobals -> Execute
 
 ## Comparison To Previous Baseline
 
-Baseline scenario timestamp: 2026-03-31T21:01:07.511Z
+Baseline scenario timestamp: 2026-03-31T22:13:30.188Z
 
-- Warm wall: 1754.015 -> 1548.452 ms (-205.563 ms (-11.72%))
-- Bridge calls/iteration: 2772.333 -> 2772.000 calls (-0.333 calls (-0.01%))
-- Warm fixed overhead: 13.227 -> 13.201 ms (-0.026 ms (-0.20%))
-- Warm Create->InjectGlobals: 6.500 -> 5.500 ms (-1.000 ms (-15.38%))
+- Warm wall: 1548.452 -> 1548.452 ms (0.000 ms (0.00%))
+- Bridge calls/iteration: 2772.000 -> 2772.000 calls (0.000 calls (0.00%))
+- Warm fixed overhead: 13.201 -> 13.201 ms (0.000 ms (0.00%))
+- Warm Create->InjectGlobals: 5.500 -> 5.500 ms (0.000 ms (0.00%))
 - Warm InjectGlobals->Execute: 0.000 -> 0.000 ms (0.000 ms)
 - Warm ExecutionResult->Destroy: 0.500 -> 0.500 ms (0.000 ms (0.00%))
-- Warm residual overhead: 6.226 -> 7.202 ms (+0.976 ms (+15.68%))
-- Bridge time/iteration: 971.184 -> 890.790 ms (-80.394 ms (-8.28%))
-- BridgeResponse encoded bytes/iteration: 3449878.667 -> 3449856.000 bytes (-22.667 bytes (-0.00%))
-- _loadPolyfill real polyfill-body loads: calls 71.000 -> 71.000 calls (0.000 calls (0.00%)); time 80.413 -> 87.478 ms (+7.065 ms (+8.79%)); response bytes 758629.667 -> 758629.667 bytes (0.000 bytes (0.00%))
+- Warm residual overhead: 7.202 -> 7.202 ms (0.000 ms (0.00%))
+- Bridge time/iteration: 890.790 -> 890.790 ms (0.000 ms (0.00%))
+- BridgeResponse encoded bytes/iteration: 3449856.000 -> 3449856.000 bytes (0.000 bytes (0.00%))
+- _loadPolyfill real polyfill-body loads: calls 71.000 -> 71.000 calls (0.000 calls (0.00%)); time 87.478 -> 87.478 ms (0.000 ms (0.00%)); response bytes 758629.667 -> 758629.667 bytes (0.000 bytes (0.00%))
 - _loadPolyfill __bd:* bridge-dispatch wrappers: calls 0.000 -> 0.000 calls (0.000 calls); time 0.000 -> 0.000 ms (0.000 ms); response bytes 0.000 -> 0.000 bytes (0.000 bytes)
+
+### _loadPolyfill Target Deltas
+
+| Kind | Ranking | Target | Calls/Iter | Time/Iter | Response Bytes/Iter |
+| --- | --- | --- | --- | --- | --- |
+| real polyfill-body loads | by calls | `stream/web` | 2.000 -> 2.000 calls (0.000 calls (0.00%)) | 5.562 -> 5.562 ms (0.000 ms (0.00%)) | 115966.667 -> 115966.667 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by calls | `crypto` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 32.795 -> 32.795 ms (0.000 ms (0.00%)) | 300368.667 -> 300368.667 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by calls | `zlib` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 11.854 -> 11.854 ms (0.000 ms (0.00%)) | 157798.000 -> 157798.000 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by calls | `stream` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 6.292 -> 6.292 ms (0.000 ms (0.00%)) | 82604.667 -> 82604.667 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by calls | `assert` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 20.965 -> 20.965 ms (0.000 ms (0.00%)) | 56865.667 -> 56865.667 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by time | `crypto` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 32.795 -> 32.795 ms (0.000 ms (0.00%)) | 300368.667 -> 300368.667 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by time | `assert` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 20.965 -> 20.965 ms (0.000 ms (0.00%)) | 56865.667 -> 56865.667 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by time | `zlib` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 11.854 -> 11.854 ms (0.000 ms (0.00%)) | 157798.000 -> 157798.000 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by time | `url` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 8.259 -> 8.259 ms (0.000 ms (0.00%)) | 41826.000 -> 41826.000 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by time | `stream` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 6.292 -> 6.292 ms (0.000 ms (0.00%)) | 82604.667 -> 82604.667 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by response bytes | `crypto` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 32.795 -> 32.795 ms (0.000 ms (0.00%)) | 300368.667 -> 300368.667 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by response bytes | `zlib` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 11.854 -> 11.854 ms (0.000 ms (0.00%)) | 157798.000 -> 157798.000 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by response bytes | `stream/web` | 2.000 -> 2.000 calls (0.000 calls (0.00%)) | 5.562 -> 5.562 ms (0.000 ms (0.00%)) | 115966.667 -> 115966.667 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by response bytes | `stream` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 6.292 -> 6.292 ms (0.000 ms (0.00%)) | 82604.667 -> 82604.667 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by response bytes | `assert` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 20.965 -> 20.965 ms (0.000 ms (0.00%)) | 56865.667 -> 56865.667 bytes (0.000 bytes (0.00%)) |
 
 | Delta Type | Name | Before | After | Delta |
 | --- | --- | ---: | ---: | ---: |
-| Method time | `_bridgeDispatch` | 823.737 | 725.989 | -97.748 |
-| Method time | `_fsExists` | 45.285 | 58.704 | +13.419 |
-| Method time | `_loadPolyfill` | 80.413 | 87.478 | +7.065 |
-| Method bytes | `_bridgeDispatch` | 2679118.667 | 2679096.667 | -22.000 |
-| Method bytes | `_fsStat` | 206.333 | 205.667 | -0.666 |
-| Frame bytes | `recv:BridgeCall` | 576242.667 | 576212.000 | -30.667 |
-| Frame bytes | `send:BridgeResponse` | 3449878.667 | 3449856.000 | -22.667 |
-| Frame bytes | `send:StreamEvent` | 135.333 | 116.000 | -19.333 |
 
