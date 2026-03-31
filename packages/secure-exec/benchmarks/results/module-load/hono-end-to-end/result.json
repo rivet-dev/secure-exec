@@ -4,7 +4,7 @@
   "target": "hono",
   "kind": "end_to_end",
   "description": "Loads Hono, builds an app, serves a request, and reads the response.",
-  "createdAt": "2026-03-31T20:56:14.964Z",
+  "createdAt": "2026-03-31T22:12:14.681Z",
   "iterations": 3,
   "artifacts": {
     "resultFile": "hono-end-to-end/result.json",
@@ -14,7 +14,7 @@
   "samples": [
     {
       "iteration": 1,
-      "wallMs": 131.207,
+      "wallMs": 101.774,
       "code": 0,
       "stdoutBytes": 84,
       "stderrBytes": 0,
@@ -28,7 +28,7 @@
     },
     {
       "iteration": 2,
-      "wallMs": 35.829,
+      "wallMs": 36.591,
       "code": 0,
       "stdoutBytes": 84,
       "stderrBytes": 0,
@@ -42,7 +42,7 @@
     },
     {
       "iteration": 3,
-      "wallMs": 36.129,
+      "wallMs": 38.289,
       "code": 0,
       "stdoutBytes": 84,
       "stderrBytes": 0,
@@ -55,9 +55,73 @@
       }
     }
   ],
+  "benchmarkModes": {
+    "sandboxTrueColdStart": {
+      "warmSnapshotEnabled": {
+        "totalWallMs": 143.22,
+        "runtimeCreateMs": 107.649,
+        "firstPassWallMs": 35.571,
+        "firstPassSandboxMs": 0,
+        "checks": {
+          "status": 200,
+          "body": "{\"ok\":true,\"framework\":\"hono\"}"
+        }
+      },
+      "warmSnapshotDisabled": {
+        "totalWallMs": 126.328,
+        "runtimeCreateMs": 2.978,
+        "firstPassWallMs": 123.35,
+        "firstPassSandboxMs": 0,
+        "checks": {
+          "status": 200,
+          "body": "{\"ok\":true,\"framework\":\"hono\"}"
+        }
+      }
+    },
+    "sandboxNewSessionReplay": {
+      "warmSnapshotEnabled": {
+        "coldWallMs": 101.774,
+        "warmWallMsMean": 37.44,
+        "coldSandboxMs": 0,
+        "warmSandboxMsMean": 0
+      },
+      "warmSnapshotDisabled": {
+        "coldWallMs": 124.082,
+        "warmWallMsMean": 32.519,
+        "coldSandboxMs": 0,
+        "warmSandboxMsMean": 0
+      }
+    },
+    "sandboxSameSessionReplay": {
+      "totalWallMs": 36.245,
+      "firstPassMs": 0,
+      "replayPassMs": 0,
+      "firstPassChecks": {
+        "status": 200,
+        "body": "{\"ok\":true,\"framework\":\"hono\"}"
+      },
+      "replayPassChecks": {
+        "status": 200,
+        "body": "{\"ok\":true,\"framework\":\"hono\"}"
+      }
+    },
+    "hostSameSessionControl": {
+      "totalWallMs": 24.213,
+      "firstPassMs": 23.868,
+      "replayPassMs": 0.343,
+      "firstPassChecks": {
+        "status": 200,
+        "body": "{\"ok\":true,\"framework\":\"hono\"}"
+      },
+      "replayPassChecks": {
+        "status": 200,
+        "body": "{\"ok\":true,\"framework\":\"hono\"}"
+      }
+    }
+  },
   "summary": {
-    "coldWallMs": 131.207,
-    "warmWallMsMean": 35.979,
+    "coldWallMs": 101.774,
+    "warmWallMsMean": 37.44,
     "coldSandboxMs": 0,
     "warmSandboxMsMean": 0
   }

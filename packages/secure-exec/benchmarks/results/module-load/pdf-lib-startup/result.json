@@ -4,7 +4,7 @@
   "target": "pdf_lib",
   "kind": "startup",
   "description": "Loads pdf-lib, creates a document, and embeds a standard font.",
-  "createdAt": "2026-03-31T20:56:16.125Z",
+  "createdAt": "2026-03-31T22:12:17.517Z",
   "iterations": 3,
   "artifacts": {
     "resultFile": "pdf-lib-startup/result.json",
@@ -14,7 +14,7 @@
   "samples": [
     {
       "iteration": 1,
-      "wallMs": 230.49,
+      "wallMs": 357.511,
       "code": 0,
       "stdoutBytes": 99,
       "stderrBytes": 0,
@@ -29,7 +29,7 @@
     },
     {
       "iteration": 2,
-      "wallMs": 126.656,
+      "wallMs": 113.083,
       "code": 0,
       "stdoutBytes": 99,
       "stderrBytes": 0,
@@ -44,7 +44,7 @@
     },
     {
       "iteration": 3,
-      "wallMs": 335.294,
+      "wallMs": 122.028,
       "code": 0,
       "stdoutBytes": 99,
       "stderrBytes": 0,
@@ -58,9 +58,79 @@
       }
     }
   ],
+  "benchmarkModes": {
+    "sandboxTrueColdStart": {
+      "warmSnapshotEnabled": {
+        "totalWallMs": 291.115,
+        "runtimeCreateMs": 98.471,
+        "firstPassWallMs": 192.644,
+        "firstPassSandboxMs": 0,
+        "checks": {
+          "pdfDocumentType": "function",
+          "pageCount": 0,
+          "standardFontName": "Helvetica"
+        }
+      },
+      "warmSnapshotDisabled": {
+        "totalWallMs": 210.397,
+        "runtimeCreateMs": 9.781,
+        "firstPassWallMs": 200.616,
+        "firstPassSandboxMs": 0,
+        "checks": {
+          "pdfDocumentType": "function",
+          "pageCount": 0,
+          "standardFontName": "Helvetica"
+        }
+      }
+    },
+    "sandboxNewSessionReplay": {
+      "warmSnapshotEnabled": {
+        "coldWallMs": 357.511,
+        "warmWallMsMean": 117.555,
+        "coldSandboxMs": 0,
+        "warmSandboxMsMean": 0
+      },
+      "warmSnapshotDisabled": {
+        "coldWallMs": 231.015,
+        "warmWallMsMean": 230.905,
+        "coldSandboxMs": 0,
+        "warmSandboxMsMean": 0
+      }
+    },
+    "sandboxSameSessionReplay": {
+      "totalWallMs": 199.569,
+      "firstPassMs": 0,
+      "replayPassMs": 0,
+      "firstPassChecks": {
+        "pdfDocumentType": "function",
+        "standardFontName": "Helvetica",
+        "pageCount": 0
+      },
+      "replayPassChecks": {
+        "pdfDocumentType": "function",
+        "standardFontName": "Helvetica",
+        "pageCount": 0
+      }
+    },
+    "hostSameSessionControl": {
+      "totalWallMs": 50.239,
+      "firstPassMs": 50.089,
+      "replayPassMs": 0.147,
+      "firstPassChecks": {
+        "pdfDocumentType": "function",
+        "standardFontName": "Helvetica",
+        "pageCount": 0
+      },
+      "replayPassChecks": {
+        "pdfDocumentType": "function",
+        "standardFontName": "Helvetica",
+        "pageCount": 0
+      }
+    }
+  },
   "summary": {
-    "coldWallMs": 230.49,
-    "warmWallMsMean": 230.975,
+    "coldWallMs": 357.511,
+    "warmWallMsMean": 117.555,
     "coldSandboxMs": 0,
     "warmSandboxMsMean": 0
   }

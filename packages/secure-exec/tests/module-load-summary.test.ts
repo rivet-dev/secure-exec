@@ -492,6 +492,8 @@ describe("module-load summary generation", () => {
 			host: { node: "v24.13.0", platform: "linux" },
 			v8BinaryPath: "/tmp/secure-exec-v8",
 			iterations: 1,
+			primaryComparisonMode:
+				"sandbox_new_session_replay_warm_snapshot_enabled",
 			baseline: {
 				createdAt: baselineResult.createdAt,
 				gitCommit: "def456",
@@ -744,6 +746,8 @@ describe("module-load summary generation", () => {
 			host: { node: "v24.13.0", platform: "linux" },
 			v8BinaryPath: "/tmp/secure-exec-v8",
 			iterations: 2,
+			primaryComparisonMode:
+				"sandbox_new_session_replay_warm_snapshot_enabled",
 			baseline: {
 				createdAt: "2026-03-30T06:05:00.000Z",
 				gitCommit: "def456",
@@ -781,5 +785,165 @@ describe("module-load summary generation", () => {
 		expect(buildBenchmarkComparisonMarkdown(report)).toContain("Transport RTT");
 		expect(buildBenchmarkComparisonMarkdown(report)).toContain("_fsExists");
 		expect(buildTransportRttMarkdown(transportRtt)).toContain("64 KB");
+	});
+
+	it("surfaces explicit benchmark mode controls in scenario and benchmark markdown", () => {
+		const scenario = getModuleLoadScenario("hono-startup");
+		const result: ScenarioRunResult = {
+			scenarioId: scenario.id,
+			title: scenario.title,
+			target: scenario.target,
+			kind: scenario.kind,
+			description: scenario.description,
+			createdAt: "2026-03-31T07:00:00.000Z",
+			iterations: 2,
+			artifacts: {
+				resultFile: "hono-startup/result.json",
+				metricsFile: "hono-startup/metrics.prom",
+				logFile: "hono-startup/ipc.ndjson",
+			},
+			samples: [
+				{
+					iteration: 1,
+					wallMs: 60,
+					code: 0,
+					stdoutBytes: 0,
+					stderrBytes: 0,
+					sandboxMs: 50,
+					stdoutPreview: "",
+					stderrPreview: "",
+					checks: { ok: true },
+				},
+				{
+					iteration: 2,
+					wallMs: 40,
+					code: 0,
+					stdoutBytes: 0,
+					stderrBytes: 0,
+					sandboxMs: 30,
+					stdoutPreview: "",
+					stderrPreview: "",
+					checks: { ok: true },
+				},
+			],
+			benchmarkModes: {
+				sandboxTrueColdStart: {
+					warmSnapshotEnabled: {
+						totalWallMs: 95,
+						runtimeCreateMs: 35,
+						firstPassWallMs: 60,
+						firstPassSandboxMs: 50,
+						checks: { fetchType: "function" },
+					},
+					warmSnapshotDisabled: {
+						totalWallMs: 120,
+						runtimeCreateMs: 55,
+						firstPassWallMs: 65,
+						firstPassSandboxMs: 52,
+						checks: { fetchType: "function" },
+					},
+				},
+				sandboxNewSessionReplay: {
+					warmSnapshotEnabled: {
+						coldWallMs: 60,
+						warmWallMsMean: 40,
+						coldSandboxMs: 50,
+						warmSandboxMsMean: 30,
+					},
+					warmSnapshotDisabled: {
+						coldWallMs: 70,
+						warmWallMsMean: 45,
+						coldSandboxMs: 58,
+						warmSandboxMsMean: 34,
+					},
+				},
+				sandboxSameSessionReplay: {
+					totalWallMs: 55,
+					firstPassMs: 35,
+					replayPassMs: 20,
+					firstPassChecks: { fetchType: "function" },
+					replayPassChecks: { fetchType: "function" },
+				},
+				hostSameSessionControl: {
+					totalWallMs: 25,
+					firstPassMs: 15,
+					replayPassMs: 10,
+					firstPassChecks: { fetchType: "function" },
+					replayPassChecks: { fetchType: "function" },
+				},
+			},
+			summary: {
+				coldWallMs: 60,
+				warmWallMsMean: 40,
+				coldSandboxMs: 50,
+				warmSandboxMsMean: 30,
+			},
+		};
+		const summary = deriveScenarioSummary(
+			scenario,
+			result,
+			parseIpcLog(
+				buildLog([
+					{ ts: "2026-03-31T07:00:00.000Z", kind: "ipc_frame", direction: "send", frameType: "CreateSession", sessionId: "c1", encodedBytes: 10 },
+					{ ts: "2026-03-31T07:00:00.001Z", kind: "ipc_frame", direction: "send", frameType: "InjectGlobals", sessionId: "c1", encodedBytes: 20, payloadBytes: 15 },
+					{ ts: "2026-03-31T07:00:00.002Z", kind: "ipc_frame", direction: "send", frameType: "Execute", sessionId: "c1", encodedBytes: 30, payloadBytes: 25 },
+					{ ts: "2026-03-31T07:00:00.020Z", kind: "ipc_frame", direction: "recv", frameType: "ExecutionResult", sessionId: "c1", encodedBytes: 12 },
+					{ ts: "2026-03-31T07:00:00.020Z", kind: "ipc_execute", event: "finish", sessionId: "c1", durationMs: 50 },
+					{ ts: "2026-03-31T07:00:00.030Z", kind: "ipc_frame", direction: "send", frameType: "DestroySession", sessionId: "c1", encodedBytes: 10 },
+					{ ts: "2026-03-31T07:00:01.000Z", kind: "ipc_frame", direction: "send", frameType: "CreateSession", sessionId: "c2", encodedBytes: 10 },
+					{ ts: "2026-03-31T07:00:01.001Z", kind: "ipc_frame", direction: "send", frameType: "InjectGlobals", sessionId: "c2", encodedBytes: 20, payloadBytes: 15 },
+					{ ts: "2026-03-31T07:00:01.002Z", kind: "ipc_frame", direction: "send", frameType: "Execute", sessionId: "c2", encodedBytes: 30, payloadBytes: 25 },
+					{ ts: "2026-03-31T07:00:01.020Z", kind: "ipc_frame", direction: "recv", frameType: "ExecutionResult", sessionId: "c2", encodedBytes: 12 },
+					{ ts: "2026-03-31T07:00:01.020Z", kind: "ipc_execute", event: "finish", sessionId: "c2", durationMs: 30 },
+					{ ts: "2026-03-31T07:00:01.030Z", kind: "ipc_frame", direction: "send", frameType: "DestroySession", sessionId: "c2", encodedBytes: 10 },
+				]),
+			),
+		);
+		const report: BenchmarkSummaryReport = {
+			createdAt: result.createdAt,
+			gitCommit: "abc123",
+			host: { node: "v24.13.0", platform: "linux" },
+			v8BinaryPath: "/tmp/secure-exec-v8",
+			iterations: 2,
+			primaryComparisonMode:
+				"sandbox_new_session_replay_warm_snapshot_enabled",
+			progressGuide: {
+				copyTheseFields: ["Warm wall mean"],
+				comparisonArtifact: "comparison.md",
+			},
+			results: [result],
+			scenarioSummaries: [summary],
+			scenarioOverview: [
+				{
+					scenarioId: summary.scenarioId,
+					title: summary.title,
+					target: summary.target,
+					kind: summary.kind,
+					status: "passed",
+					warmWallMsMean: summary.progressSignals.warmWallMsMean,
+					bridgeCallsPerIteration: summary.progressSignals.bridgeCallsPerIteration,
+					fixedSessionOverheadWarmMsMean:
+						summary.progressSignals.fixedSessionOverheadWarmMsMean,
+					dominantBridgeMethodByTime:
+						summary.progressSignals.dominantBridgeMethodByTime,
+					dominantFrameByEncodedBytes:
+						summary.progressSignals.dominantFrameByEncodedBytes,
+				},
+			],
+		};
+
+		expect(summary.benchmarkModes?.sandboxTrueColdStart?.warmSnapshotEnabled.totalWallMs).toBe(95);
+		expect(buildScenarioSummaryMarkdown(summary)).toContain("## Benchmark Modes");
+		expect(buildScenarioSummaryMarkdown(summary)).toContain(
+			"Sandbox true cold start, warm snapshot enabled",
+		);
+		expect(buildScenarioSummaryMarkdown(summary)).toContain(
+			"Host same-session control",
+		);
+		expect(buildBenchmarkSummaryMarkdown(report)).toContain("## Benchmark Mode Controls");
+		expect(buildBenchmarkSummaryMarkdown(report)).toContain("Primary comparison mode");
+		expect(buildBenchmarkComparisonMarkdown(report)).toContain(
+			"Primary comparison mode",
+		);
 	});
 });

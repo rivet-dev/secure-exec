@@ -523,23 +523,33 @@ async function collectScenarioSummaries(
 
 async function main(): Promise<void> {
 	const iterations = 3;
+	const reuseExistingResults = process.env.SECURE_EXEC_BENCH_REUSE_RESULTS === "1";
+	const baselineRoot = process.env.SECURE_EXEC_BENCH_BASELINE_ROOT ?? RESULTS_ROOT;
 	const binaryPath = resolveBenchmarkV8Binary();
 	const loadPolyfillAttributionClassifier =
 		await buildLoadPolyfillAttributionClassifier();
-	const baseline = await loadBenchmarkBaseline(RESULTS_ROOT, {
+	const baseline = await loadBenchmarkBaseline(baselineRoot, {
 		loadPolyfillAttributionClassifier,
 	});
-	await rm(RESULTS_ROOT, { recursive: true, force: true });
+	if (!reuseExistingResults) {
+		await rm(RESULTS_ROOT, { recursive: true, force: true });
+	}
 	await mkdir(RESULTS_ROOT, { recursive: true });
 
 	const results: ScenarioResult[] = [];
-	for (const scenario of MODULE_LOAD_SCENARIOS) {
-		console.error(`\n=== ${scenario.id} ===`);
-		const result = await runScenario(scenario, iterations, binaryPath);
-		results.push(result);
-		if (result.status === "failed") {
-			console.error(`Scenario ${scenario.id} failed: ${result.error}`);
+	if (!reuseExistingResults) {
+		for (const scenario of MODULE_LOAD_SCENARIOS) {
+			console.error(`\n=== ${scenario.id} ===`);
+			const result = await runScenario(scenario, iterations, binaryPath);
+			results.push(result);
+			if (result.status === "failed") {
+				console.error(`Scenario ${scenario.id} failed: ${result.error}`);
+			}
 		}
+	} else {
+		console.error(
+			`Reusing existing module-load scenario results under ${RESULTS_ROOT}`,
+		);
 	}
 
 	const transportRtt = await measureTransportRtt(binaryPath);
@@ -574,6 +584,7 @@ async function main(): Promise<void> {
 		host: getHostSummary(),
 		v8BinaryPath: binaryPath,
 		iterations,
+		primaryComparisonMode: "sandbox_new_session_replay_warm_snapshot_enabled",
 		baseline: baseline?.metadata,
 		transportRtt,
 		progressGuide: {
@@ -581,6 +592,7 @@ async function main(): Promise<void> {
 				"Warm wall mean",
 				"Bridge calls per iteration",
 				"Warm fixed session overhead",
+				"Benchmark mode controls from per-scenario summary.md: true cold start on/off, same-session replay, new-session replay on/off, and host same-session control",
 				"`_loadPolyfill` real polyfill-body vs `__bd:*` bridge-dispatch splits from comparison.md",
 				"Warm phase attribution when fixed overhead changes",
 				"Transport RTT means from transport-rtt.md for transport-sensitive changes",
@@ -611,6 +623,7 @@ async function main(): Promise<void> {
 	const comparisonJson = {
 		createdAt: report.createdAt,
 		gitCommit: report.gitCommit,
+		primaryComparisonMode: report.primaryComparisonMode,
 		baseline: report.baseline ?? null,
 		transportRtt: report.transportRtt ?? null,
 		transportRttComparison: report.transportRtt?.comparisonToPrevious ?? null,

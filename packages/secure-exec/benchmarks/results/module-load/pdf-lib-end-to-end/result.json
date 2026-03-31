@@ -4,7 +4,7 @@
   "target": "pdf_lib",
   "kind": "end_to_end",
   "description": "Creates a multi-page PDF with 50 form fields and serializes the document.",
-  "createdAt": "2026-03-31T20:29:34.584Z",
+  "createdAt": "2026-03-31T22:12:20.777Z",
   "iterations": 3,
   "artifacts": {
     "resultFile": "pdf-lib-end-to-end/result.json",
@@ -14,53 +14,119 @@
   "samples": [
     {
       "iteration": 1,
-      "wallMs": 264.052,
+      "wallMs": 274.007,
       "code": 0,
       "stdoutBytes": 73,
       "stderrBytes": 0,
       "sandboxMs": 0,
-      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"pageCount\":5,\"fieldCount\":50,\"savedSize\":41184}",
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"pageCount\":5,\"fieldCount\":50,\"savedSize\":41186}",
       "stderrPreview": "",
       "checks": {
         "pageCount": 5,
         "fieldCount": 50,
-        "savedSize": 41184
+        "savedSize": 41186
       }
     },
     {
       "iteration": 2,
-      "wallMs": 243.787,
+      "wallMs": 288.703,
       "code": 0,
       "stdoutBytes": 73,
       "stderrBytes": 0,
       "sandboxMs": 0,
-      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"pageCount\":5,\"fieldCount\":50,\"savedSize\":41184}",
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"pageCount\":5,\"fieldCount\":50,\"savedSize\":41186}",
       "stderrPreview": "",
       "checks": {
         "pageCount": 5,
         "fieldCount": 50,
-        "savedSize": 41184
+        "savedSize": 41186
       }
     },
     {
       "iteration": 3,
-      "wallMs": 350.371,
+      "wallMs": 221.162,
       "code": 0,
       "stdoutBytes": 73,
       "stderrBytes": 0,
       "sandboxMs": 0,
-      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"pageCount\":5,\"fieldCount\":50,\"savedSize\":41184}",
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"pageCount\":5,\"fieldCount\":50,\"savedSize\":41186}",
       "stderrPreview": "",
       "checks": {
         "pageCount": 5,
         "fieldCount": 50,
-        "savedSize": 41184
+        "savedSize": 41186
       }
     }
   ],
+  "benchmarkModes": {
+    "sandboxTrueColdStart": {
+      "warmSnapshotEnabled": {
+        "totalWallMs": 384.66,
+        "runtimeCreateMs": 119.024,
+        "firstPassWallMs": 265.636,
+        "firstPassSandboxMs": 0,
+        "checks": {
+          "pageCount": 5,
+          "fieldCount": 50,
+          "savedSize": 41186
+        }
+      },
+      "warmSnapshotDisabled": {
+        "totalWallMs": 273.41,
+        "runtimeCreateMs": 5.146,
+        "firstPassWallMs": 268.264,
+        "firstPassSandboxMs": 0,
+        "checks": {
+          "pageCount": 5,
+          "fieldCount": 50,
+          "savedSize": 41186
+        }
+      }
+    },
+    "sandboxNewSessionReplay": {
+      "warmSnapshotEnabled": {
+        "coldWallMs": 274.007,
+        "warmWallMsMean": 254.933,
+        "coldSandboxMs": 0,
+        "warmSandboxMsMean": 0
+      },
+      "warmSnapshotDisabled": {
+        "coldWallMs": 283.417,
+        "warmWallMsMean": 221.947,
+        "coldSandboxMs": 0,
+        "warmSandboxMsMean": 0
+      }
+    },
+    "sandboxSameSessionReplay": {
+      "totalWallMs": 206.97,
+      "firstPassMs": 0,
+      "replayPassMs": 0,
+      "firstPassChecks": {
+        "pageCount": 5,
+        "fieldCount": 50
+      },
+      "replayPassChecks": {
+        "pageCount": 5,
+        "fieldCount": 50
+      }
+    },
+    "hostSameSessionControl": {
+      "totalWallMs": 80.021,
+      "firstPassMs": 71.635,
+      "replayPassMs": 8.382,
+      "firstPassChecks": {
+        "pageCount": 5,
+        "fieldCount": 50
+      },
+      "replayPassChecks": {
+        "pageCount": 5,
+        "fieldCount": 50
+      }
+    }
+  },
   "summary": {
-    "coldWallMs": 264.052,
-    "warmWallMsMean": 297.079,
+    "coldWallMs": 274.007,
+    "warmWallMsMean": 254.933,
     "coldSandboxMs": 0,
     "warmSandboxMsMean": 0
   }

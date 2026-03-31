@@ -24,6 +24,50 @@ export type BenchmarkSample = {
 	checks: Record<string, string | number | boolean | undefined>;
 };
 
+export type ScenarioChecks = Record<
+	string,
+	string | number | boolean | undefined
+>;
+
+export type ScenarioTrueColdStartModeResult = {
+	totalWallMs: number;
+	runtimeCreateMs: number;
+	firstPassWallMs: number;
+	firstPassSandboxMs?: number;
+	mockRequests?: number;
+	checks: ScenarioChecks;
+};
+
+export type ScenarioNewSessionReplayModeResult = {
+	coldWallMs: number;
+	warmWallMsMean?: number;
+	coldSandboxMs?: number;
+	warmSandboxMsMean?: number;
+	mockRequestsMean?: number;
+};
+
+export type ScenarioSameSessionReplayModeResult = {
+	totalWallMs: number;
+	firstPassMs: number;
+	replayPassMs: number;
+	mockRequests?: number;
+	firstPassChecks: ScenarioChecks;
+	replayPassChecks: ScenarioChecks;
+};
+
+export type ScenarioBenchmarkModes = {
+	sandboxTrueColdStart?: {
+		warmSnapshotEnabled: ScenarioTrueColdStartModeResult;
+		warmSnapshotDisabled: ScenarioTrueColdStartModeResult;
+	};
+	sandboxNewSessionReplay?: {
+		warmSnapshotEnabled: ScenarioNewSessionReplayModeResult;
+		warmSnapshotDisabled: ScenarioNewSessionReplayModeResult;
+	};
+	sandboxSameSessionReplay?: ScenarioSameSessionReplayModeResult;
+	hostSameSessionControl?: ScenarioSameSessionReplayModeResult;
+};
+
 export type ScenarioRunResult = {
 	scenarioId: string;
 	title: string;
@@ -39,6 +83,7 @@ export type ScenarioRunResult = {
 		runnerLogFile?: string;
 	};
 	samples: BenchmarkSample[];
+	benchmarkModes?: ScenarioBenchmarkModes;
 	summary: {
 		coldWallMs: number;
 		warmWallMsMean?: number;
@@ -305,6 +350,7 @@ export type ScenarioDerivedSummary = {
 		summaryFile: string;
 		summaryMarkdownFile: string;
 	};
+	benchmarkModes?: ScenarioBenchmarkModes;
 	timing: {
 		connectRttMs?: number;
 		coldWallMs: number;
@@ -442,6 +488,7 @@ export type BenchmarkSummaryReport = {
 	host: Record<string, string | number>;
 	v8BinaryPath: string;
 	iterations: number;
+	primaryComparisonMode: "sandbox_new_session_replay_warm_snapshot_enabled";
 	baseline?: BenchmarkBaselineMetadata;
 	transportRtt?: TransportRttReport;
 	progressGuide: {
@@ -539,6 +586,122 @@ function formatLoadPolyfillAttributionDelta(
 	delta: LoadPolyfillAttributionDelta,
 ): string {
 	return `calls ${formatDelta(delta.callsPerIteration, "calls")}; time ${formatDelta(delta.durationMsPerIteration)}; response bytes ${formatDelta(delta.responseEncodedBytesPerIteration, "bytes")}`;
+}
+
+function formatBenchmarkModeChecks(checks: ScenarioChecks): string {
+	const entries = Object.entries(checks).filter(([, value]) => value !== undefined);
+	if (entries.length === 0) {
+		return "-";
+	}
+	return entries
+		.map(([key, value]) => `\`${key}\`=${String(value)}`)
+		.join(", ");
+}
+
+function formatTrueColdStartMode(
+	label: string,
+	mode: ScenarioTrueColdStartModeResult,
+): string {
+	const parts = [
+		`${label}: total ${formatMetric(mode.totalWallMs)}`,
+		`runtime create ${formatMetric(mode.runtimeCreateMs)}`,
+		`first pass ${formatMetric(mode.firstPassWallMs)}`,
+	];
+	if (mode.firstPassSandboxMs !== undefined) {
+		parts.push(`sandbox ${formatMetric(mode.firstPassSandboxMs)}`);
+	}
+	if (mode.mockRequests !== undefined) {
+		parts.push(`mock requests ${mode.mockRequests}`);
+	}
+	return `${parts.join("; ")}; checks ${formatBenchmarkModeChecks(mode.checks)}`;
+}
+
+function formatNewSessionReplayMode(
+	label: string,
+	mode: ScenarioNewSessionReplayModeResult,
+): string {
+	const parts = [
+		`${label}: cold ${formatMetric(mode.coldWallMs)}`,
+		`warm ${formatMetric(mode.warmWallMsMean)}`,
+	];
+	if (mode.coldSandboxMs !== undefined || mode.warmSandboxMsMean !== undefined) {
+		parts.push(
+			`sandbox cold ${formatMetric(mode.coldSandboxMs)}, warm ${formatMetric(mode.warmSandboxMsMean)}`,
+		);
+	}
+	if (mode.mockRequestsMean !== undefined) {
+		parts.push(`mock requests mean ${mode.mockRequestsMean.toFixed(3)}`);
+	}
+	return parts.join("; ");
+}
+
+function formatSameSessionReplayMode(
+	label: string,
+	mode: ScenarioSameSessionReplayModeResult,
+): string {
+	const parts = [`${label}: total ${formatMetric(mode.totalWallMs)}`];
+	if (!(mode.firstPassMs === 0 && mode.replayPassMs === 0)) {
+		parts.push(`first ${formatMetric(mode.firstPassMs)}`);
+		parts.push(`replay ${formatMetric(mode.replayPassMs)}`);
+	}
+	if (mode.mockRequests !== undefined) {
+		parts.push(`mock requests ${mode.mockRequests}`);
+	}
+	return `${parts.join("; ")}; first checks ${formatBenchmarkModeChecks(mode.firstPassChecks)}; replay checks ${formatBenchmarkModeChecks(mode.replayPassChecks)}`;
+}
+
+function buildBenchmarkModeRows(
+	benchmarkModes: ScenarioBenchmarkModes | undefined,
+): string[] {
+	if (!benchmarkModes) {
+		return [];
+	}
+	const lines: string[] = [];
+	if (benchmarkModes.sandboxTrueColdStart) {
+		lines.push(
+			formatTrueColdStartMode(
+				"Sandbox true cold start, warm snapshot enabled",
+				benchmarkModes.sandboxTrueColdStart.warmSnapshotEnabled,
+			),
+		);
+		lines.push(
+			formatTrueColdStartMode(
+				"Sandbox true cold start, warm snapshot disabled",
+				benchmarkModes.sandboxTrueColdStart.warmSnapshotDisabled,
+			),
+		);
+	}
+	if (benchmarkModes.sandboxNewSessionReplay) {
+		lines.push(
+			formatNewSessionReplayMode(
+				"Sandbox new-session replay, warm snapshot enabled",
+				benchmarkModes.sandboxNewSessionReplay.warmSnapshotEnabled,
+			),
+		);
+		lines.push(
+			formatNewSessionReplayMode(
+				"Sandbox new-session replay, warm snapshot disabled",
+				benchmarkModes.sandboxNewSessionReplay.warmSnapshotDisabled,
+			),
+		);
+	}
+	if (benchmarkModes.sandboxSameSessionReplay) {
+		lines.push(
+			formatSameSessionReplayMode(
+				"Sandbox same-session replay",
+				benchmarkModes.sandboxSameSessionReplay,
+			),
+		);
+	}
+	if (benchmarkModes.hostSameSessionControl) {
+		lines.push(
+			formatSameSessionReplayMode(
+				"Host same-session control",
+				benchmarkModes.hostSameSessionControl,
+			),
+		);
+	}
+	return lines;
 }
 
 function compareNumeric(before: number | undefined, after: number | undefined): NumericDelta | undefined {
@@ -979,6 +1142,7 @@ export function deriveScenarioSummary(
 			summaryFile: path.posix.join(result.scenarioId, "summary.json"),
 			summaryMarkdownFile: path.posix.join(result.scenarioId, "summary.md"),
 		},
+		benchmarkModes: result.benchmarkModes,
 		timing: {
 			connectRttMs:
 				connectStartTs !== undefined && connectOkTs !== undefined
@@ -1447,6 +1611,7 @@ export function buildScenarioSummaryMarkdown(summary: ScenarioDerivedSummary): s
 		`Scenario: \`${summary.scenarioId}\``,
 		`Generated: ${summary.createdAt}`,
 		`Description: ${summary.description}`,
+		"Primary comparison mode: `sandbox new-session replay (warm snapshot enabled)`",
 		"",
 		"## Progress Copy Fields",
 		"",
@@ -1480,6 +1645,20 @@ export function buildScenarioSummaryMarkdown(summary: ScenarioDerivedSummary): s
 		lines.push(
 			`- Dominant frame bytes: \`${summary.progressSignals.dominantFrameByEncodedBytes.direction}:${summary.progressSignals.dominantFrameByEncodedBytes.frameType}\` ${summary.progressSignals.dominantFrameByEncodedBytes.encodedBytesPerIteration.toFixed(3)} bytes/iteration`,
 		);
+	}
+
+	const benchmarkModeRows = buildBenchmarkModeRows(summary.benchmarkModes);
+	if (benchmarkModeRows.length > 0) {
+		lines.push("");
+		lines.push("## Benchmark Modes");
+		lines.push("");
+		lines.push(
+			"These controls separate true runtime creation cost, same-session replay, fresh-session replay, warm snapshot toggles, and a direct host Node control.",
+		);
+		lines.push("");
+		for (const row of benchmarkModeRows) {
+			lines.push(`- ${row}`);
+		}
 	}
 
 	lines.push("");
@@ -1616,10 +1795,11 @@ export function buildBenchmarkSummaryMarkdown(report: BenchmarkSummaryReport): s
 		`Host: ${JSON.stringify(report.host)}`,
 		`V8 binary: ${report.v8BinaryPath}`,
 		`Baseline summary: ${report.baseline?.createdAt ?? "none"}`,
+		"Primary comparison mode: `sandbox new-session replay (warm snapshot enabled)`",
 		"",
-		"Use `comparison.md` for before/after deltas, including the split between real `_loadPolyfill` bodies and `__bd:*` dispatch wrappers, and the per-scenario `summary.md` files for copy-ready progress numbers.",
+		"Use `comparison.md` for before/after deltas on the primary sandbox new-session replay mode, including the split between real `_loadPolyfill` bodies and `__bd:*` dispatch wrappers. Use the per-scenario `summary.md` files for copy-ready control-mode numbers such as true cold start, same-session replay, snapshot-off replay, and host controls.",
 		"",
-		"| Scenario | Warm Wall Mean | Bridge Calls/Iter | Warm Fixed Overhead | Dominant Method Time | Dominant Frame Bytes |",
+		"| Scenario | Sandbox New-Session Warm Wall Mean | Bridge Calls/Iter | Warm Fixed Overhead | Dominant Method Time | Dominant Frame Bytes |",
 		"| --- | ---: | ---: | ---: | --- | --- |",
 	];
 
@@ -1639,6 +1819,35 @@ export function buildBenchmarkSummaryMarkdown(report: BenchmarkSummaryReport): s
 	for (const scenario of report.scenarioSummaries) {
 		lines.push(
 			`| ${scenario.title} | ${formatMetric(scenario.timing.connectRttMs)} | ${formatMetric(scenario.timing.warmCreateToInjectGlobalsMsMean)} | ${formatMetric(scenario.timing.warmInjectGlobalsToExecuteSendMsMean)} | ${formatMetric(scenario.timing.warmExecuteDurationMsMean)} | ${formatMetric(scenario.timing.warmExecuteResultToDestroyMsMean)} | ${formatMetric(scenario.timing.warmResidualFixedOverheadMsMean)} |`,
+		);
+	}
+
+	lines.push("");
+	lines.push("## Benchmark Mode Controls");
+	lines.push("");
+	lines.push(
+		"| Scenario | Cold Start Snapshot On/Off | Same-Session Replay | New-Session Replay Snapshot On/Off | Host Same-Session Control |",
+	);
+	lines.push("| --- | --- | --- | --- | --- |");
+	for (const scenario of report.scenarioSummaries) {
+		const benchmarkModes = scenario.benchmarkModes;
+		const coldStart = benchmarkModes?.sandboxTrueColdStart
+			? `on ${formatMetric(benchmarkModes.sandboxTrueColdStart.warmSnapshotEnabled.totalWallMs)} / off ${formatMetric(benchmarkModes.sandboxTrueColdStart.warmSnapshotDisabled.totalWallMs)}`
+			: "-";
+		const sameSession = benchmarkModes?.sandboxSameSessionReplay
+			? benchmarkModes.sandboxSameSessionReplay.firstPassMs === 0 &&
+				benchmarkModes.sandboxSameSessionReplay.replayPassMs === 0
+				? `total ${formatMetric(benchmarkModes.sandboxSameSessionReplay.totalWallMs)}`
+				: `first ${formatMetric(benchmarkModes.sandboxSameSessionReplay.firstPassMs)}, replay ${formatMetric(benchmarkModes.sandboxSameSessionReplay.replayPassMs)}`
+			: "-";
+		const newSession = benchmarkModes?.sandboxNewSessionReplay
+			? `on ${formatMetric(benchmarkModes.sandboxNewSessionReplay.warmSnapshotEnabled.warmWallMsMean)} / off ${formatMetric(benchmarkModes.sandboxNewSessionReplay.warmSnapshotDisabled.warmWallMsMean)}`
+			: "-";
+		const hostControl = benchmarkModes?.hostSameSessionControl
+			? `first ${formatMetric(benchmarkModes.hostSameSessionControl.firstPassMs)}, replay ${formatMetric(benchmarkModes.hostSameSessionControl.replayPassMs)}`
+			: "-";
+		lines.push(
+			`| ${scenario.title} | ${coldStart} | ${sameSession} | ${newSession} | ${hostControl} |`,
 		);
 	}
 
@@ -1687,8 +1896,9 @@ export function buildBenchmarkComparisonMarkdown(report: BenchmarkSummaryReport)
 		"",
 		`Current benchmark: ${report.createdAt} (${report.gitCommit})`,
 		`Baseline benchmark: ${report.baseline?.createdAt ?? "none"}${report.baseline?.gitCommit ? ` (${report.baseline.gitCommit})` : ""}`,
+		"Primary comparison mode: `sandbox new-session replay (warm snapshot enabled)`",
 		"",
-		"Copy the warm wall, bridge calls/iteration, warm fixed overhead, and the highlighted method/frame deltas below into `scripts/ralph/progress.txt`. When `_loadPolyfill` is relevant, also copy the split between real polyfill bodies and `__bd:*` bridge dispatch.",
+		"Copy the primary sandbox new-session replay warm wall, bridge calls/iteration, warm fixed overhead, and the highlighted method/frame deltas below into `scripts/ralph/progress.txt`. When `_loadPolyfill` is relevant, also copy the split between real polyfill bodies and `__bd:*` bridge dispatch. Use the per-scenario `summary.md` Benchmark Modes section for true cold start, same-session replay, snapshot-off replay, and host-control numbers.",
 		"",
 	];
 

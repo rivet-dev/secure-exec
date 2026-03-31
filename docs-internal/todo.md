@@ -127,6 +127,10 @@ docs-internal/specs/cli-tool-e2e.md
 - [ ] Expand module-load benchmark controls and transport attribution.
   - Add true cold-start timing, same-session and new-session replay controls, host-Node controls, warm snapshot comparisons, and direct UDS RTT measurements so later optimizations are attributable.
 
+- [ ] Stabilize the top-level `pnpm --filter secure-exec bench:module-load` orchestration across all scenarios.
+  - Direct `scenario-runner.ts` reruns now succeed for the current catalog, and `SECURE_EXEC_BENCH_REUSE_RESULTS=1` can rebuild top-level summaries from those per-scenario artifacts, but the parent `run-module-load-benchmarks.ts` flow still intermittently stalls around `pdf-lib-end-to-end` in this environment.
+  - Files: `packages/secure-exec/benchmarks/module-load/run-module-load-benchmarks.ts`, `packages/secure-exec/benchmarks/module-load/scenario-runner.ts`
+
 - [ ] Remove remaining `@ts-nocheck` bypasses in bridge internals.
   - Current bypasses remain in `bridge/polyfills.ts`, `bridge/os.ts`, `bridge/child-process.ts`, `bridge/process.ts`, and `bridge/network.ts`.
   - Files: `packages/secure-exec/src/bridge/*.ts`

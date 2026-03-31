@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -22,6 +23,13 @@ import {
 	getModuleLoadScenario,
 	type ModuleLoadScenarioId,
 } from "./scenario-catalog.js";
+import type {
+	ScenarioBenchmarkModes,
+	ScenarioChecks,
+	ScenarioNewSessionReplayModeResult,
+	ScenarioSameSessionReplayModeResult,
+	ScenarioTrueColdStartModeResult,
+} from "./summary.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const requireFromBench = createRequire(import.meta.url);
@@ -88,6 +96,7 @@ type ScenarioResult = {
 		logFile: string;
 	};
 	samples: BenchmarkSample[];
+	benchmarkModes?: ScenarioBenchmarkModes;
 	summary: {
 		coldWallMs: number;
 		warmWallMsMean?: number;
@@ -104,6 +113,22 @@ type RuntimeCapture = {
 	wallMs: number;
 };
 
+type RuntimeRunCapture<T> = {
+	code: number;
+	errorMessage?: string;
+	exports?: T;
+	wallMs: number;
+};
+
+type SameSessionReplayPayload = {
+	ok: true;
+	totalWallMs: number;
+	firstPassMs: number;
+	replayPassMs: number;
+	first: Record<string, unknown>;
+	replay: Record<string, unknown>;
+};
+
 type ScenarioArgs = {
 	scenarioId: ModuleLoadScenarioId;
 	resultFile: string;
@@ -115,6 +140,15 @@ type ScenarioArgs = {
 	metricsPath: string;
 	iterations: number;
 };
+
+const BENCH_DEBUG = process.env.SECURE_EXEC_BENCH_DEBUG === "1";
+
+function benchDebug(scope: string, message: string): void {
+	if (!BENCH_DEBUG) {
+		return;
+	}
+	console.error(`[bench-debug] ${scope}: ${message}`);
+}
 
 function readArg(name: string): string {
 	const flag = `--${name}`;
@@ -253,6 +287,7 @@ async function runRuntimeExec(
 		snapshotPreloadedPolyfills?: readonly string[];
 	},
 ): Promise<RuntimeCapture> {
+	const debugScope = `runRuntimeExec cwd=${options.cwd}`;
 	const stdout: string[] = [];
 	const stderr: string[] = [];
 	const runtime = new NodeRuntime({
@@ -274,10 +309,15 @@ async function runRuntimeExec(
 
 	const startedAt = performance.now();
 	try {
+		benchDebug(debugScope, "starting runtime.exec()");
 		const result = await runtime.exec(options.code, {
 			cwd: options.cwd,
 			stdin: options.stdin,
 		});
+		benchDebug(
+			debugScope,
+			`runtime.exec() completed code=${result.code} wallMs=${round(performance.now() - startedAt)}`,
+		);
 		return {
 			code: result.code,
 			errorMessage: result.errorMessage,
@@ -286,8 +326,153 @@ async function runRuntimeExec(
 			wallMs: round(performance.now() - startedAt),
 		};
 	} finally {
+		benchDebug(debugScope, "starting runtime.terminate()");
 		await runtime.terminate();
+		benchDebug(debugScope, "runtime.terminate() completed");
 	}
+}
+
+async function runRuntimeModule<T>(
+	v8Runtime: Awaited<ReturnType<typeof createNodeV8Runtime>>,
+	options: {
+		code: string;
+		cwd: string;
+		filePath: string;
+		useHostFileSystem?: boolean;
+		useNetwork?: boolean;
+		snapshotPreloadedPolyfills?: readonly string[];
+	},
+): Promise<RuntimeRunCapture<T>> {
+	const debugScope = `runRuntimeModule file=${options.filePath}`;
+	const runtime = new NodeRuntime({
+		systemDriver: createNodeDriver({
+			filesystem: options.useHostFileSystem ? new NodeFileSystem() : undefined,
+			moduleAccess: { cwd: SECURE_EXEC_ROOT },
+			permissions: allowAll,
+			useDefaultNetwork: options.useNetwork,
+		}),
+		runtimeDriverFactory: createNodeRuntimeDriverFactory({
+			v8Runtime,
+			snapshotPreloadedPolyfills: options.snapshotPreloadedPolyfills,
+		}),
+	});
+
+	const startedAt = performance.now();
+	try {
+		benchDebug(debugScope, "starting runtime.run()");
+		const result = await runtime.run<T>(options.code, options.filePath);
+		benchDebug(
+			debugScope,
+			`runtime.run() completed code=${result.code} wallMs=${round(performance.now() - startedAt)}`,
+		);
+		return {
+			code: result.code,
+			errorMessage: result.errorMessage,
+			exports: result.exports,
+			wallMs: round(performance.now() - startedAt),
+		};
+	} finally {
+		benchDebug(debugScope, "starting runtime.terminate()");
+		await runtime.terminate();
+		benchDebug(debugScope, "runtime.terminate() completed");
+	}
+}
+
+async function runHostExec(options: {
+	code: string;
+	cwd: string;
+	stdin?: string;
+	env?: Record<string, string>;
+}): Promise<RuntimeCapture> {
+	const stdout: string[] = [];
+	const stderr: string[] = [];
+	const startedAt = performance.now();
+	const bootstrap = `
+const { pathToFileURL } = require("node:url");
+globalThis.__dynamicImport = async (modulePath) => import(pathToFileURL(modulePath).href);
+`;
+	return await new Promise<RuntimeCapture>((resolve, reject) => {
+		const child = spawn(process.execPath, ["-e", `${bootstrap}\n${options.code}`], {
+			cwd: options.cwd,
+			env: {
+				...process.env,
+				NO_COLOR: "1",
+				...options.env,
+			},
+			stdio: ["pipe", "pipe", "pipe"],
+		});
+		child.stdout.on("data", (chunk: Buffer) => {
+			stdout.push(chunk.toString("utf8"));
+		});
+		child.stderr.on("data", (chunk: Buffer) => {
+			stderr.push(chunk.toString("utf8"));
+		});
+		child.on("error", reject);
+		child.on("close", (code) => {
+			resolve({
+				code: code ?? 1,
+				stdoutText: stdout.join(""),
+				stderrText: stderr.join(""),
+				wallMs: round(performance.now() - startedAt),
+			});
+		});
+		child.stdin.end(options.stdin ?? "");
+	});
+}
+
+function summarizeNewSessionSamples(
+	samples: BenchmarkSample[],
+): ScenarioNewSessionReplayModeResult {
+	const warmSamples = samples.slice(1);
+	const mockRequests = warmSamples
+		.map((sample) => sample.mockRequests)
+		.filter((sample): sample is number => typeof sample === "number");
+	return {
+		coldWallMs: samples[0]?.wallMs ?? 0,
+		warmWallMsMean: mean(warmSamples.map((sample) => sample.wallMs)),
+		coldSandboxMs: samples[0]?.sandboxMs,
+		warmSandboxMsMean: mean(
+			warmSamples
+				.map((sample) => sample.sandboxMs)
+				.filter((sample): sample is number => typeof sample === "number"),
+		),
+		mockRequestsMean: mean(mockRequests),
+	};
+}
+
+function parseSameSessionReplayPayload(
+	stdoutText: string,
+): SameSessionReplayPayload {
+	const payload = parseTrailingJsonObject(stdoutText);
+	if (
+		payload.ok !== true ||
+		typeof payload.totalWallMs !== "number" ||
+		typeof payload.firstPassMs !== "number" ||
+		typeof payload.replayPassMs !== "number" ||
+		!payload.first ||
+		typeof payload.first !== "object" ||
+		!payload.replay ||
+		typeof payload.replay !== "object"
+	) {
+		throw new Error(`Invalid same-session replay payload: ${JSON.stringify(payload)}`);
+	}
+	return payload as SameSessionReplayPayload;
+}
+
+function extractChecks(
+	value: Record<string, unknown>,
+	keys: readonly string[],
+): ScenarioChecks {
+	return Object.fromEntries(
+		keys.map((key) => [
+			key,
+			typeof value[key] === "boolean" ||
+			typeof value[key] === "number" ||
+			typeof value[key] === "string"
+				? (value[key] as string | number | boolean)
+				: undefined,
+		]),
+	);
 }
 
 function buildHonoStartupCode(): string {
@@ -662,6 +847,733 @@ const keepAlive = setInterval(() => {
 `;
 }
 
+function buildSameSessionReplayStdoutCode(
+	runOnceBody: string,
+	options: {
+		prelude?: string;
+		keepAlive?: boolean;
+	} = {},
+): string {
+	return `
+${options.prelude ?? ""}
+${options.keepAlive ? "const keepAlive = setInterval(() => {}, 10);" : ""}
+(async () => {
+  try {
+    const runOnce = async () => {
+${runOnceBody}
+    };
+    const benchStartedAt = performance.now();
+    const firstStartedAt = performance.now();
+    const first = await runOnce();
+    const firstFinishedAt = performance.now();
+    const replayStartedAt = performance.now();
+    const replay = await runOnce();
+    const replayFinishedAt = performance.now();
+    const benchFinishedAt = performance.now();
+    const payload = JSON.stringify({
+      ok: true,
+      totalWallMs: Number((benchFinishedAt - benchStartedAt).toFixed(3)),
+      firstPassMs: Number((firstFinishedAt - firstStartedAt).toFixed(3)),
+      replayPassMs: Number((replayFinishedAt - replayStartedAt).toFixed(3)),
+      first,
+      replay,
+    });
+    console.log(payload);
+    await new Promise((resolve) => process.stdout.write("", resolve));
+  } catch (error) {
+    console.log(JSON.stringify({
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    process.exitCode = 1;
+  } finally {
+${options.keepAlive ? "    clearInterval(keepAlive);" : ""}
+  }
+})();
+`;
+}
+
+function buildSameSessionReplayModuleCode(
+	runOnceBody: string,
+	options: {
+		prelude?: string;
+	} = {},
+): string {
+	return `
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+${options.prelude ?? ""}
+const runOnce = async () => {
+${runOnceBody}
+};
+const benchStartedAt = performance.now();
+const firstStartedAt = performance.now();
+const first = await runOnce();
+const firstFinishedAt = performance.now();
+const replayStartedAt = performance.now();
+const replay = await runOnce();
+const replayFinishedAt = performance.now();
+const benchFinishedAt = performance.now();
+export default {
+  ok: true,
+  totalWallMs: Number((benchFinishedAt - benchStartedAt).toFixed(3)),
+  firstPassMs: Number((firstFinishedAt - firstStartedAt).toFixed(3)),
+  replayPassMs: Number((replayFinishedAt - replayStartedAt).toFixed(3)),
+  first,
+  replay,
+};
+`;
+}
+
+function buildHonoStartupReplayCode(mode: "stdout" | "exports" = "stdout"): string {
+	const body = `
+      const startedAt = performance.now();
+      const { Hono } = require("hono");
+      const app = new Hono();
+      app.get("/", (context) => context.text("ok"));
+      const finishedAt = performance.now();
+      return {
+        workloadMs: Number((finishedAt - startedAt).toFixed(3)),
+        honoType: typeof Hono,
+        fetchType: typeof app.fetch,
+      };
+`;
+	return mode === "exports"
+		? buildSameSessionReplayModuleCode(body)
+		: buildSameSessionReplayStdoutCode(body);
+}
+
+function buildHonoEndToEndReplayCode(mode: "stdout" | "exports" = "stdout"): string {
+	const body = `
+      const startedAt = performance.now();
+      const { Hono } = require("hono");
+      const app = new Hono();
+      app.get("/hello", (context) => context.json({ ok: true, framework: "hono" }));
+      const response = await app.request("http://localhost/hello");
+      const body = await response.text();
+      const finishedAt = performance.now();
+      return {
+        workloadMs: Number((finishedAt - startedAt).toFixed(3)),
+        status: response.status,
+        body,
+      };
+`;
+	return mode === "exports"
+		? buildSameSessionReplayModuleCode(body)
+		: buildSameSessionReplayStdoutCode(body);
+}
+
+function buildPdfLibStartupReplayCode(mode: "stdout" | "exports" = "stdout"): string {
+	const body = `
+      const startedAt = performance.now();
+      const { PDFDocument, StandardFonts } = require("pdf-lib");
+      const pdfDoc = await PDFDocument.create();
+      await pdfDoc.embedFont(StandardFonts.Helvetica);
+      const finishedAt = performance.now();
+      return {
+        workloadMs: Number((finishedAt - startedAt).toFixed(3)),
+        pdfDocumentType: typeof PDFDocument,
+        standardFontName: String(StandardFonts.Helvetica),
+        pageCount: pdfDoc.getPageCount(),
+      };
+`;
+	return mode === "exports"
+		? buildSameSessionReplayModuleCode(body)
+		: buildSameSessionReplayStdoutCode(body);
+}
+
+function buildPdfLibEndToEndReplayCode(mode: "stdout" | "exports" = "stdout"): string {
+	const body = `
+      const startedAt = performance.now();
+      const { PDFDocument, StandardFonts } = require("pdf-lib");
+      const pdfDoc = await PDFDocument.create();
+      await pdfDoc.embedFont(StandardFonts.Helvetica);
+      const form = pdfDoc.getForm();
+
+      for (let pageIndex = 0; pageIndex < 5; pageIndex += 1) {
+        const page = pdfDoc.addPage([612, 792]);
+        page.drawText("SecureExec pdf-lib benchmark", {
+          x: 50,
+          y: 750,
+          size: 18,
+        });
+        for (let fieldIndex = 0; fieldIndex < 10; fieldIndex += 1) {
+          const textField = form.createTextField("p" + pageIndex + "_f" + fieldIndex);
+          textField.setText("field-" + pageIndex + "-" + fieldIndex);
+          textField.addToPage(page, {
+            x: 50,
+            y: 700 - fieldIndex * 60,
+            width: 220,
+            height: 28,
+          });
+        }
+      }
+
+      const finishedAt = performance.now();
+      return {
+        workloadMs: Number((finishedAt - startedAt).toFixed(3)),
+        pageCount: pdfDoc.getPageCount(),
+        fieldCount: form.getFields().length,
+      };
+`;
+	return mode === "exports"
+		? buildSameSessionReplayModuleCode(body)
+		: buildSameSessionReplayStdoutCode(body);
+}
+
+function buildJsZipStartupReplayCode(mode: "stdout" | "exports" = "stdout"): string {
+	const body = `
+      const startedAt = performance.now();
+      const JSZip = require("jszip");
+      const zip = new JSZip();
+      zip.file("README.txt", "secure-exec benchmark");
+      const fileCount = Object.values(zip.files).filter((entry) => !entry.dir).length;
+      const finishedAt = performance.now();
+      return {
+        workloadMs: Number((finishedAt - startedAt).toFixed(3)),
+        jszipType: typeof JSZip,
+        generateAsyncType: typeof zip.generateAsync,
+        fileCount,
+      };
+`;
+	return mode === "exports"
+		? buildSameSessionReplayModuleCode(body)
+		: buildSameSessionReplayStdoutCode(body);
+}
+
+function buildJsZipEndToEndReplayCode(mode: "stdout" | "exports" = "stdout"): string {
+	const body = `
+      const startedAt = performance.now();
+      const JSZip = require("jszip");
+      const zip = new JSZip();
+      const sharedParagraph = Array.from(
+        { length: 16 },
+        (_, index) => "Section " + index + ": " + "benchmark-data-".repeat(24),
+      ).join("\\n");
+
+      for (let docIndex = 0; docIndex < 8; docIndex += 1) {
+        zip.file(
+          "docs/chapter-" + docIndex + ".md",
+          "# Chapter " + docIndex + "\\n\\n" + sharedParagraph + "\\n\\n" + "line-".repeat(96),
+        );
+      }
+
+      for (let datasetIndex = 0; datasetIndex < 4; datasetIndex += 1) {
+        const rows = Array.from({ length: 20 }, (_, rowIndex) => ({
+          id: "row-" + datasetIndex + "-" + rowIndex,
+          status: rowIndex % 2 === 0 ? "ready" : "pending",
+          weight: datasetIndex * 100 + rowIndex,
+          label: "record-" + String(rowIndex).padStart(3, "0"),
+        }));
+        zip.file(
+          "data/report-" + datasetIndex + ".json",
+          JSON.stringify({ datasetIndex, rows }, null, 2),
+        );
+      }
+
+      for (let assetIndex = 0; assetIndex < 3; assetIndex += 1) {
+        const bytes = Uint8Array.from(
+          { length: 1024 },
+          (_, byteIndex) => (byteIndex * 17 + assetIndex * 29) % 251,
+        );
+        zip.file("assets/blob-" + assetIndex + ".bin", bytes);
+      }
+
+      zip.file(
+        "manifest.json",
+        JSON.stringify({
+          generatedBy: "secure-exec-module-load-benchmark",
+          docs: 8,
+          datasets: 4,
+          assets: 3,
+        }, null, 2),
+      );
+
+      const fileCount = Object.values(zip.files).filter((entry) => !entry.dir).length;
+      const finishedAt = performance.now();
+      return {
+        workloadMs: Number((finishedAt - startedAt).toFixed(3)),
+        fileCount,
+        manifestPresent: !!zip.files["manifest.json"],
+      };
+`;
+	return mode === "exports"
+		? buildSameSessionReplayModuleCode(body)
+		: buildSameSessionReplayStdoutCode(body);
+}
+
+function buildPiSdkStartupReplayCode(mode: "stdout" | "exports" = "stdout"): string {
+	const body = `
+      const startedAt = performance.now();
+      const pi = await globalThis.__dynamicImport(${JSON.stringify(PI_SDK_ENTRY)}, "/bench-pi-sdk-startup-replay.mjs");
+      const finishedAt = performance.now();
+      return {
+        workloadMs: Number((finishedAt - startedAt).toFixed(3)),
+        createAgentSessionType: typeof pi.createAgentSession,
+        runPrintModeType: typeof pi.runPrintMode,
+      };
+`;
+	return mode === "exports"
+		? buildSameSessionReplayModuleCode(body)
+		: buildSameSessionReplayStdoutCode(body);
+}
+
+function buildPiSdkEndToEndReplayCode(
+	workDir: string,
+	agentDir: string,
+	mode: "stdout" | "exports" = "stdout",
+): string {
+	const body = `
+      let session;
+      try {
+        const startedAt = performance.now();
+        const pi = await globalThis.__dynamicImport(${JSON.stringify(PI_SDK_ENTRY)}, "/bench-pi-sdk-end-to-end-replay.mjs");
+        const authStorage = pi.AuthStorage.inMemory();
+        authStorage.setRuntimeApiKey("anthropic", "test-key");
+        const modelRegistry = new pi.ModelRegistry(authStorage, ${JSON.stringify(path.join(agentDir, "models.json"))});
+        const model = modelRegistry.find("anthropic", "claude-sonnet-4-20250514")
+          ?? modelRegistry.getAll().find((candidate) => candidate.provider === "anthropic");
+        if (!model) throw new Error("No anthropic model");
+        ({ session } = await pi.createAgentSession({
+          cwd: ${JSON.stringify(workDir)},
+          agentDir: ${JSON.stringify(agentDir)},
+          authStorage,
+          modelRegistry,
+          model,
+          tools: pi.createCodingTools(${JSON.stringify(workDir)}),
+          sessionManager: pi.SessionManager.inMemory(),
+        }));
+        await pi.runPrintMode(session, {
+          mode: "text",
+          initialMessage: "Say hello from the benchmark runner.",
+        });
+        const finishedAt = performance.now();
+        return {
+          workloadMs: Number((finishedAt - startedAt).toFixed(3)),
+          messageCount: session.state?.messages?.length ?? 0,
+        };
+      } finally {
+        if (session) {
+          try { session.dispose(); } catch {}
+        }
+      }
+`;
+	return mode === "exports"
+		? buildSameSessionReplayModuleCode(body)
+		: buildSameSessionReplayStdoutCode(body);
+}
+
+function buildPiCliReplayPrelude(workDir: string, agentDir: string): string {
+	return `
+process.title = "pi";
+process.env.HOME = ${JSON.stringify(workDir)};
+process.env.PI_CODING_AGENT_DIR = ${JSON.stringify(agentDir)};
+process.env.ANTHROPIC_API_KEY = "test-key";
+process.env.NO_COLOR = "1";
+Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+const captureCliMain = async (argv, entryRef) => {
+  const { main } = await globalThis.__dynamicImport(${JSON.stringify(PI_MAIN_ENTRY)}, entryRef);
+  const stdoutChunks = [];
+  const stderrChunks = [];
+  const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+  const originalStderrWrite = process.stderr.write.bind(process.stderr);
+  const originalProcessExit = process.exit.bind(process);
+  process.stdout.write = function(chunk, encoding, callback) {
+    const text = Buffer.isBuffer(chunk) ? chunk.toString(typeof encoding === "string" ? encoding : "utf8") : String(chunk);
+    stdoutChunks.push(text);
+    if (typeof encoding === "function") {
+      encoding();
+    } else if (typeof callback === "function") {
+      callback();
+    }
+    return true;
+  };
+  process.stderr.write = function(chunk, encoding, callback) {
+    const text = Buffer.isBuffer(chunk) ? chunk.toString(typeof encoding === "string" ? encoding : "utf8") : String(chunk);
+    stderrChunks.push(text);
+    if (typeof encoding === "function") {
+      encoding();
+    } else if (typeof callback === "function") {
+      callback();
+    }
+    return true;
+  };
+  process.exit = function(code) {
+    const exitCode = typeof code === "number" ? code : 0;
+    const error = new Error("process.exit(" + exitCode + ")");
+    error.name = "ProcessExitError";
+    throw error;
+  };
+  try {
+    await main(argv);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!(error instanceof Error && error.name === "ProcessExitError" && message === "process.exit(0)")) {
+      throw error;
+    }
+  } finally {
+    process.stdout.write = originalStdoutWrite;
+    process.stderr.write = originalStderrWrite;
+    process.exit = originalProcessExit;
+  }
+  return {
+    stdoutText: stdoutChunks.join(""),
+    stderrText: stderrChunks.join(""),
+  };
+};
+`;
+}
+
+function buildPiCliStartupReplayCode(
+	workDir: string,
+	agentDir: string,
+	mode: "stdout" | "exports" = "stdout",
+): string {
+	const body = `
+      const startedAt = performance.now();
+      await captureCliMain(["--help"], "/bench-pi-cli-startup-replay.mjs");
+      const finishedAt = performance.now();
+      return {
+        workloadMs: Number((finishedAt - startedAt).toFixed(3)),
+        completed: true,
+      };
+`;
+	const prelude = buildPiCliReplayPrelude(workDir, agentDir);
+	return mode === "exports"
+		? buildSameSessionReplayModuleCode(body, { prelude })
+		: buildSameSessionReplayStdoutCode(body, { prelude });
+}
+
+function buildPiCliEndToEndReplayCode(
+	workDir: string,
+	agentDir: string,
+	mode: "stdout" | "exports" = "stdout",
+): string {
+	const body = `
+      const startedAt = performance.now();
+      await captureCliMain([
+        ...${JSON.stringify(PI_BASE_FLAGS)},
+        "--print",
+        "Say hello from the CLI benchmark.",
+      ], "/bench-pi-cli-end-to-end-replay.mjs");
+      const finishedAt = performance.now();
+      return {
+        workloadMs: Number((finishedAt - startedAt).toFixed(3)),
+        completed: true,
+      };
+`;
+	const prelude = buildPiCliReplayPrelude(workDir, agentDir);
+	return mode === "exports"
+		? buildSameSessionReplayModuleCode(body, { prelude })
+		: buildSameSessionReplayStdoutCode(body, { prelude });
+}
+
+async function withScenarioRuntime<T>(
+	binaryPath: string,
+	scenarioId: ModuleLoadScenarioId,
+	options: {
+		warmSnapshotEnabled?: boolean;
+	},
+	fn: (
+		v8Runtime: Awaited<ReturnType<typeof createNodeV8Runtime>>,
+	) => Promise<T>,
+): Promise<T> {
+	const snapshotPreloadedPolyfills = getSnapshotPreloadedPolyfills(scenarioId);
+	const v8Runtime = await createNodeV8Runtime({
+		binaryPath,
+		snapshotPreloadedPolyfills,
+		warmupBridgeCode: options.warmSnapshotEnabled === false ? "" : undefined,
+	});
+	try {
+		return await fn(v8Runtime);
+	} finally {
+		await v8Runtime.dispose();
+	}
+}
+
+async function measureTrueColdStartMode(
+	binaryPath: string,
+	scenarioId: ModuleLoadScenarioId,
+	mockServer: MockLlmServerHandle,
+	warmSnapshotEnabled: boolean,
+): Promise<ScenarioTrueColdStartModeResult> {
+	const runtimeCreateStartedAt = performance.now();
+	return await withScenarioRuntime(
+		binaryPath,
+		scenarioId,
+		{ warmSnapshotEnabled },
+		async (v8Runtime) => {
+			const runtimeCreateMs = round(performance.now() - runtimeCreateStartedAt);
+			const sample = await runScenarioIteration(
+				v8Runtime,
+				scenarioId,
+				mockServer,
+				1,
+			);
+			return {
+				totalWallMs: round(runtimeCreateMs + sample.wallMs),
+				runtimeCreateMs,
+				firstPassWallMs: sample.wallMs,
+				firstPassSandboxMs: sample.sandboxMs,
+				mockRequests: sample.mockRequests,
+				checks: sample.checks,
+			};
+		},
+	);
+}
+
+async function measureNewSessionReplayMode(
+	binaryPath: string,
+	scenarioId: ModuleLoadScenarioId,
+	mockServer: MockLlmServerHandle,
+	warmSnapshotEnabled: boolean,
+	iterations: number,
+): Promise<ScenarioNewSessionReplayModeResult> {
+	return await withScenarioRuntime(
+		binaryPath,
+		scenarioId,
+		{ warmSnapshotEnabled },
+		async (v8Runtime) => {
+			const samples: BenchmarkSample[] = [];
+			for (let iteration = 1; iteration <= iterations; iteration += 1) {
+				samples.push(
+					await runScenarioIteration(v8Runtime, scenarioId, mockServer, iteration),
+				);
+			}
+			return summarizeNewSessionSamples(samples);
+		},
+	);
+}
+
+function buildReplayChecks(
+	scenarioId: ModuleLoadScenarioId,
+	payload: Record<string, unknown>,
+): ScenarioChecks {
+	switch (scenarioId) {
+		case "hono-startup":
+			if (payload.honoType !== "function" || payload.fetchType !== "function") {
+				throw new Error(`Hono startup replay failed: ${JSON.stringify(payload)}`);
+			}
+			return extractChecks(payload, ["honoType", "fetchType"]);
+		case "hono-end-to-end":
+			if (payload.status !== 200 || payload.body !== '{"ok":true,"framework":"hono"}') {
+				throw new Error(`Hono end-to-end replay failed: ${JSON.stringify(payload)}`);
+			}
+			return extractChecks(payload, ["status", "body"]);
+		case "pdf-lib-startup":
+			if (payload.pdfDocumentType !== "function") {
+				throw new Error(`pdf-lib startup replay failed: ${JSON.stringify(payload)}`);
+			}
+			return extractChecks(payload, ["pdfDocumentType", "standardFontName", "pageCount"]);
+		case "pdf-lib-end-to-end":
+			if (
+				Number(payload.pageCount ?? 0) !== 5 ||
+				Number(payload.fieldCount ?? 0) !== 50
+			) {
+				throw new Error(`pdf-lib end-to-end replay failed: ${JSON.stringify(payload)}`);
+			}
+			return extractChecks(payload, ["pageCount", "fieldCount"]);
+		case "jszip-startup":
+			if (
+				payload.jszipType !== "function" ||
+				payload.generateAsyncType !== "function" ||
+				Number(payload.fileCount ?? 0) !== 1
+			) {
+				throw new Error(`JSZip startup replay failed: ${JSON.stringify(payload)}`);
+			}
+			return extractChecks(payload, ["jszipType", "generateAsyncType", "fileCount"]);
+		case "jszip-end-to-end":
+			if (
+				Number(payload.fileCount ?? 0) !== 16 ||
+				payload.manifestPresent !== true
+			) {
+				throw new Error(`JSZip end-to-end replay failed: ${JSON.stringify(payload)}`);
+			}
+			return extractChecks(payload, ["fileCount", "manifestPresent"]);
+		case "pi-sdk-startup":
+			if (
+				payload.createAgentSessionType !== "function" ||
+				payload.runPrintModeType !== "function"
+			) {
+				throw new Error(`Pi SDK startup replay failed: ${JSON.stringify(payload)}`);
+			}
+			return extractChecks(payload, ["createAgentSessionType", "runPrintModeType"]);
+		case "pi-sdk-end-to-end":
+			if (Number(payload.messageCount ?? 0) <= 0) {
+				throw new Error(`Pi SDK end-to-end replay failed: ${JSON.stringify(payload)}`);
+			}
+			return extractChecks(payload, ["messageCount"]);
+		case "pi-cli-startup":
+			if (payload.completed !== true) {
+				throw new Error(`Pi CLI startup replay failed: ${JSON.stringify(payload)}`);
+			}
+			return extractChecks(payload, ["completed"]);
+		case "pi-cli-end-to-end":
+			if (payload.completed !== true) {
+				throw new Error(`Pi CLI end-to-end replay failed: ${JSON.stringify(payload)}`);
+			}
+			return extractChecks(payload, ["completed"]);
+	}
+	throw new Error(`Unhandled replay scenario: ${String(scenarioId)}`);
+}
+
+async function measureSameSessionReplayMode(
+	binaryPath: string,
+	scenarioId: ModuleLoadScenarioId,
+	mockServer: MockLlmServerHandle,
+	environment: "sandbox" | "host",
+): Promise<ScenarioSameSessionReplayModeResult> {
+	const replayCodeMode: "stdout" | "exports" =
+		environment === "sandbox" && scenarioId.startsWith("pi-cli")
+			? "exports"
+			: "stdout";
+	let code = "";
+	let cwd = SECURE_EXEC_ROOT;
+	let stdin: string | undefined;
+	let useHostFileSystem = false;
+	let useNetwork = false;
+	let cleanup: (() => Promise<void>) | undefined;
+
+	switch (scenarioId) {
+		case "hono-startup":
+			code = buildHonoStartupReplayCode(replayCodeMode);
+			break;
+		case "hono-end-to-end":
+			code = buildHonoEndToEndReplayCode(replayCodeMode);
+			break;
+		case "pdf-lib-startup":
+			code = buildPdfLibStartupReplayCode(replayCodeMode);
+			break;
+		case "pdf-lib-end-to-end":
+			code = buildPdfLibEndToEndReplayCode(replayCodeMode);
+			break;
+		case "jszip-startup":
+			code = buildJsZipStartupReplayCode(replayCodeMode);
+			break;
+		case "jszip-end-to-end":
+			code = buildJsZipEndToEndReplayCode(replayCodeMode);
+			break;
+		case "pi-sdk-startup":
+			code = buildPiSdkStartupReplayCode(replayCodeMode);
+			break;
+		case "pi-sdk-end-to-end": {
+			mockServer.reset([
+				{ type: "text", text: "benchmark-pi-sdk-response" },
+				{ type: "text", text: "benchmark-pi-sdk-response" },
+			]);
+			const { workDir, agentDir } = await createPiWorkDir(mockServer, true);
+			cwd = workDir;
+			useHostFileSystem = true;
+			useNetwork = true;
+			cleanup = async () => {
+				await rm(workDir, { recursive: true, force: true });
+			};
+			code = buildPiSdkEndToEndReplayCode(workDir, agentDir, replayCodeMode);
+			break;
+		}
+		case "pi-cli-startup": {
+			const { workDir, agentDir } = await createPiWorkDir(mockServer, false);
+			cwd = workDir;
+			stdin = "";
+			useHostFileSystem = true;
+			cleanup = async () => {
+				await rm(workDir, { recursive: true, force: true });
+			};
+			code = buildPiCliStartupReplayCode(workDir, agentDir, replayCodeMode);
+			break;
+		}
+		case "pi-cli-end-to-end": {
+			mockServer.reset([
+				{ type: "text", text: "benchmark-pi-cli-response" },
+				{ type: "text", text: "benchmark-pi-cli-response" },
+			]);
+			const { workDir, agentDir } = await createPiWorkDir(mockServer, true);
+			cwd = workDir;
+			stdin = "";
+			useHostFileSystem = true;
+			useNetwork = true;
+			cleanup = async () => {
+				await rm(workDir, { recursive: true, force: true });
+			};
+			code = buildPiCliEndToEndReplayCode(workDir, agentDir, replayCodeMode);
+			break;
+		}
+	}
+
+	try {
+		let payload: SameSessionReplayPayload;
+		let totalWallMs: number | undefined;
+		if (environment === "host") {
+			const capture = await runHostExec({ code, cwd, stdin });
+			payload = parseSameSessionReplayPayload(capture.stdoutText);
+			totalWallMs = payload.totalWallMs;
+		} else {
+			if (replayCodeMode === "exports") {
+				const capture = await withScenarioRuntime(
+					binaryPath,
+					scenarioId,
+					{ warmSnapshotEnabled: true },
+					(v8Runtime) =>
+						runRuntimeModule<{ default: SameSessionReplayPayload }>(v8Runtime, {
+							code,
+							cwd,
+							filePath: `/bench-${scenarioId}-same-session-replay.mjs`,
+							useHostFileSystem,
+							useNetwork,
+							snapshotPreloadedPolyfills:
+								getSnapshotPreloadedPolyfills(scenarioId),
+						}),
+				);
+				if (!capture.exports?.default) {
+					throw new Error(`Missing sandbox replay exports for ${scenarioId}`);
+				}
+				payload = capture.exports.default;
+				totalWallMs = capture.wallMs;
+			} else {
+				const capture = await withScenarioRuntime(
+					binaryPath,
+					scenarioId,
+					{ warmSnapshotEnabled: true },
+					(v8Runtime) =>
+						runRuntimeExec(v8Runtime, {
+							code,
+							cwd,
+							stdin,
+							useHostFileSystem,
+							useNetwork,
+							snapshotPreloadedPolyfills:
+								getSnapshotPreloadedPolyfills(scenarioId),
+						}),
+				);
+				payload = parseSameSessionReplayPayload(capture.stdoutText);
+				totalWallMs = capture.wallMs;
+			}
+		}
+		const mockRequests =
+			scenarioId === "pi-sdk-end-to-end" || scenarioId === "pi-cli-end-to-end"
+				? mockServer.requestCount()
+				: undefined;
+		if (
+			(scenarioId === "pi-sdk-end-to-end" || scenarioId === "pi-cli-end-to-end") &&
+			mockRequests !== 2
+		) {
+			throw new Error(
+				`${scenarioId} replay expected 2 mock requests, saw ${mockRequests}`,
+			);
+		}
+		return {
+			totalWallMs: totalWallMs ?? payload.totalWallMs,
+			firstPassMs: payload.firstPassMs,
+			replayPassMs: payload.replayPassMs,
+			mockRequests,
+			firstPassChecks: buildReplayChecks(scenarioId, payload.first),
+			replayPassChecks: buildReplayChecks(scenarioId, payload.replay),
+		};
+	} finally {
+		await cleanup?.();
+	}
+}
+
 async function runScenarioIteration(
 	v8Runtime: Awaited<ReturnType<typeof createNodeV8Runtime>>,
 	scenarioId: ModuleLoadScenarioId,
@@ -1030,6 +1942,58 @@ async function main(): Promise<void> {
 				),
 			);
 		}
+		console.error(`Measuring ${scenario.id} benchmark modes...`);
+		console.error("- sandbox true cold start (warm snapshot enabled)");
+		const sandboxTrueColdStartWarmSnapshotEnabled =
+			await measureTrueColdStartMode(
+				args.binaryPath,
+				args.scenarioId,
+				mockServer,
+				true,
+			);
+		console.error("- sandbox true cold start (warm snapshot disabled)");
+		const sandboxTrueColdStartWarmSnapshotDisabled =
+			await measureTrueColdStartMode(
+				args.binaryPath,
+				args.scenarioId,
+				mockServer,
+				false,
+			);
+		console.error("- sandbox new-session replay (warm snapshot disabled)");
+		const sandboxNewSessionReplayWarmSnapshotDisabled =
+			await measureNewSessionReplayMode(
+				args.binaryPath,
+				args.scenarioId,
+				mockServer,
+				false,
+				args.iterations,
+			);
+		console.error("- sandbox same-session replay");
+		const sandboxSameSessionReplay = await measureSameSessionReplayMode(
+			args.binaryPath,
+			args.scenarioId,
+			mockServer,
+			"sandbox",
+		);
+		console.error("- host same-session control");
+		const hostSameSessionControl = await measureSameSessionReplayMode(
+			args.binaryPath,
+			args.scenarioId,
+			mockServer,
+			"host",
+		);
+		const benchmarkModes: ScenarioBenchmarkModes = {
+			sandboxTrueColdStart: {
+				warmSnapshotEnabled: sandboxTrueColdStartWarmSnapshotEnabled,
+				warmSnapshotDisabled: sandboxTrueColdStartWarmSnapshotDisabled,
+			},
+			sandboxNewSessionReplay: {
+				warmSnapshotEnabled: summarizeNewSessionSamples(samples),
+				warmSnapshotDisabled: sandboxNewSessionReplayWarmSnapshotDisabled,
+			},
+			sandboxSameSessionReplay,
+			hostSameSessionControl,
+		};
 
 		const metricsResponse = await fetch(
 			`http://${args.metricsHost}:${args.metricsPort}${args.metricsPath}`,
@@ -1056,6 +2020,7 @@ async function main(): Promise<void> {
 				logFile: path.relative(RESULTS_ROOT, args.logFile),
 			},
 			samples,
+			benchmarkModes,
 			summary: {
 				coldWallMs: samples[0].wallMs,
 				warmWallMsMean: mean(warmSamples.map((sample) => sample.wallMs)),

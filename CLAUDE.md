@@ -96,6 +96,7 @@
 - opt-in IPC logs with `SECURE_EXEC_V8_IPC_LOG_FILE=/abs/path/ipc.ndjson`
 - opt-in Prometheus metrics with `SECURE_EXEC_V8_METRICS_PORT=<port>`; optional overrides: `SECURE_EXEC_V8_METRICS_HOST=127.0.0.1` and `SECURE_EXEC_V8_METRICS_PATH=/metrics`
 - the module-load benchmark harness lives at `packages/secure-exec/benchmarks/module-load/`; run it with `pnpm --filter secure-exec bench:module-load`
+- if you already have fresh per-scenario `result.json` files, regenerate the top-level module-load `summary.*`, `comparison.*`, and `transport-rtt.*` files with `SECURE_EXEC_BENCH_REUSE_RESULTS=1`; point `SECURE_EXEC_BENCH_BASELINE_ROOT` at a copied results tree first if you still need before/after comparisons
 - benchmark artifacts are written under `packages/secure-exec/benchmarks/results/module-load/` and include per-scenario `result.json`, `metrics.prom`, `ipc.ndjson`, and `runner.log`
 - module-load progress reporting now comes from generated `summary.md` / `comparison.md` plus per-scenario `summary.json`; fixed session overhead is derived as `sample.wallMs - ipc_execute.finish.durationMs` from the matching session in `ipc.ndjson`
 - session phase attribution for module-load benchmarks comes from `CreateSession -> InjectGlobals -> Execute -> ExecutionResult -> DestroySession` timestamps in `ipc.ndjson`, and the raw authenticated IPC round-trip numbers live in `transport-rtt.json` / `transport-rtt.md`
@@ -105,6 +106,7 @@
 - `comparison.md` frame-byte deltas average all iterations; when a story changes cold-vs-warm `Execute` payloads, inspect per-scenario `ipc.ndjson` `ipc_frame` entries directly. Bridge snapshot ref hits show `bridgeCodeBytes: 0` with a non-zero `bridgeCodeRefBytes` on warm `Execute` frames.
 - module-load scenario reruns load `@secure-exec/v8` from built `dist` output; after changing `packages/v8/src/*` behavior that the benchmark exercises, run `pnpm --filter @secure-exec/v8 build` before trusting fresh artifacts
 - when deriving module-load baselines from committed `ipc.ndjson` via `git show`, set an explicit large `maxBuffer`; Pi scenario logs exceed Node's default sync buffer
+- host Pi CLI replay controls that call `dist/main.js` must trap and restore `process.exit()` around the CLI entrypoint; plain Node will otherwise terminate the host control process before the benchmark wrapper can emit its final payload
 - when writing an ad hoc performance harness, prefer `createNodeV8Runtime({ observability: ... })` plus `createNodeRuntimeDriverFactory({ v8Runtime })` so the benchmark owns the runtime, the logs/metrics, and the cleanup path explicitly
 
 ## Dev Shell

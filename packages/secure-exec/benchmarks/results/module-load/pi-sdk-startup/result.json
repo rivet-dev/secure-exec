@@ -4,7 +4,7 @@
   "target": "pi_sdk",
   "kind": "startup",
   "description": "Loads the Pi SDK entry module and inspects its exported surface.",
-  "createdAt": "2026-03-31T21:00:49.796Z",
+  "createdAt": "2026-03-31T22:12:40.594Z",
   "iterations": 3,
   "artifacts": {
     "resultFile": "pi-sdk-startup/result.json",
@@ -14,7 +14,7 @@
   "samples": [
     {
       "iteration": 1,
-      "wallMs": 1600.39,
+      "wallMs": 1775.604,
       "code": 0,
       "stdoutBytes": 91,
       "stderrBytes": 0,
@@ -28,7 +28,7 @@
     },
     {
       "iteration": 2,
-      "wallMs": 1728.922,
+      "wallMs": 1682.78,
       "code": 0,
       "stdoutBytes": 91,
       "stderrBytes": 0,
@@ -42,7 +42,7 @@
     },
     {
       "iteration": 3,
-      "wallMs": 1601.884,
+      "wallMs": 1573.234,
       "code": 0,
       "stdoutBytes": 91,
       "stderrBytes": 0,
@@ -55,9 +55,73 @@
       }
     }
   ],
+  "benchmarkModes": {
+    "sandboxTrueColdStart": {
+      "warmSnapshotEnabled": {
+        "totalWallMs": 1737.443,
+        "runtimeCreateMs": 107.25,
+        "firstPassWallMs": 1630.193,
+        "firstPassSandboxMs": 0,
+        "checks": {
+          "createAgentSessionType": "function",
+          "runPrintModeType": "function"
+        }
+      },
+      "warmSnapshotDisabled": {
+        "totalWallMs": 1821.573,
+        "runtimeCreateMs": 12.797,
+        "firstPassWallMs": 1808.776,
+        "firstPassSandboxMs": 0,
+        "checks": {
+          "createAgentSessionType": "function",
+          "runPrintModeType": "function"
+        }
+      }
+    },
+    "sandboxNewSessionReplay": {
+      "warmSnapshotEnabled": {
+        "coldWallMs": 1775.604,
+        "warmWallMsMean": 1628.007,
+        "coldSandboxMs": 0,
+        "warmSandboxMsMean": 0
+      },
+      "warmSnapshotDisabled": {
+        "coldWallMs": 1623.52,
+        "warmWallMsMean": 1421.628,
+        "coldSandboxMs": 0,
+        "warmSandboxMsMean": 0
+      }
+    },
+    "sandboxSameSessionReplay": {
+      "totalWallMs": 1560.715,
+      "firstPassMs": 0,
+      "replayPassMs": 0,
+      "firstPassChecks": {
+        "createAgentSessionType": "function",
+        "runPrintModeType": "function"
+      },
+      "replayPassChecks": {
+        "createAgentSessionType": "function",
+        "runPrintModeType": "function"
+      }
+    },
+    "hostSameSessionControl": {
+      "totalWallMs": 338.967,
+      "firstPassMs": 338.902,
+      "replayPassMs": 0.062,
+      "firstPassChecks": {
+        "createAgentSessionType": "function",
+        "runPrintModeType": "function"
+      },
+      "replayPassChecks": {
+        "createAgentSessionType": "function",
+        "runPrintModeType": "function"
+      }
+    }
+  },
   "summary": {
-    "coldWallMs": 1600.39,
-    "warmWallMsMean": 1665.403,
+    "coldWallMs": 1775.604,
+    "warmWallMsMean": 1628.007,
     "coldSandboxMs": 0,
     "warmSandboxMsMean": 0
   }
