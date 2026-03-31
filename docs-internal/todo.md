@@ -117,9 +117,8 @@ docs-internal/specs/cli-tool-e2e.md
 - [ ] Expand module-load benchmark controls and transport attribution.
   - Add true cold-start timing, same-session and new-session replay controls, host-Node controls, warm snapshot comparisons, and direct UDS RTT measurements so later optimizations are attributable.
 
-- [ ] Restore direct Pi CLI headless execution inside standalone `NodeRuntime`.
-  - The current trustworthy `pi-cli-end-to-end` benchmark imports the CLI module graph and then drives `runPrintMode()` through the SDK because direct `dist/main.js` / `dist/cli.js` headless execution in standalone `NodeRuntime.exec()` still exits `0` before provider traffic or stdout.
-  - Files: `packages/nodejs/src/bridge/process.ts`, `packages/secure-exec/benchmarks/module-load/scenario-runner.ts`, `packages/secure-exec/tests/runtime-driver/node/runtime.test.ts`
+- [ ] Add JSZip and pdf-lib scenarios to the committed module-load benchmark suite.
+  - Copy or adapt the `pdf-lib` workload from `/tmp/pdfbench.js`, add an equivalent representative JSZip workload, and keep their cold/warm numbers in the committed perf artifacts over time.
 
 - [ ] Remove remaining `@ts-nocheck` bypasses in bridge internals.
   - Current bypasses remain in `bridge/polyfills.ts`, `bridge/os.ts`, `bridge/child-process.ts`, `bridge/process.ts`, and `bridge/network.ts`.

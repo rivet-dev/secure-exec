@@ -1,16 +1,16 @@
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { performance } from "node:perf_hooks";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import {
-	NodeFileSystem,
-	NodeRuntime,
 	allowAll,
 	createNodeDriver,
 	createNodeRuntimeDriverFactory,
 	createNodeV8Runtime,
+	NodeFileSystem,
+	NodeRuntime,
 } from "../../src/index.js";
 import {
 	createMockLlmServer,
@@ -117,7 +117,11 @@ function readArg(name: string): string {
 
 function parseArgs(): ScenarioArgs {
 	const metricsPort = Number(readArg("metrics-port"));
-	if (!Number.isInteger(metricsPort) || metricsPort <= 0 || metricsPort > 65535) {
+	if (
+		!Number.isInteger(metricsPort) ||
+		metricsPort <= 0 ||
+		metricsPort > 65535
+	) {
 		throw new Error(`Invalid --metrics-port: ${metricsPort}`);
 	}
 	const iterations = Number(readArg("iterations"));
@@ -163,21 +167,27 @@ function parseTrailingJsonObject(stdoutText: string): Record<string, unknown> {
 		try {
 			return JSON.parse(trimmed.slice(index)) as Record<string, unknown>;
 		} catch {
-			continue;
+			// keep scanning backward for the trailing JSON object
 		}
 	}
-	throw new Error(`sandbox produced no trailing JSON object: ${JSON.stringify(stdoutText)}`);
+	throw new Error(
+		`sandbox produced no trailing JSON object: ${JSON.stringify(stdoutText)}`,
+	);
 }
 
 function assertInstalled(): void {
 	if (!existsSync(PI_SDK_ENTRY)) {
-		throw new Error("@mariozechner/pi-coding-agent is not installed in packages/secure-exec/node_modules");
+		throw new Error(
+			"@mariozechner/pi-coding-agent is not installed in packages/secure-exec/node_modules",
+		);
 	}
 	if (!existsSync(PI_CLI_ENTRY)) {
 		throw new Error("@mariozechner/pi-coding-agent CLI entry is not installed");
 	}
 	if (!existsSync(PI_MAIN_ENTRY)) {
-		throw new Error("@mariozechner/pi-coding-agent main entry is not installed");
+		throw new Error(
+			"@mariozechner/pi-coding-agent main entry is not installed",
+		);
 	}
 }
 
@@ -394,61 +404,45 @@ process.title = "pi";
 `;
 }
 
-function buildPiCliEndToEndCode(
-	workDir: string,
-	agentDir: string,
-	mockUrl: string,
-): string {
+function buildPiCliEndToEndCode(workDir: string, agentDir: string): string {
 	return `
 process.title = "pi";
+let finishState = "running";
+let failureText = "";
+const keepAlive = setInterval(() => {
+  if (finishState === "running") return;
+  clearInterval(keepAlive);
+  if (finishState === "exit-0") {
+    process.exit(0);
+    return;
+  }
+  if (finishState === "error") {
+    console.error(failureText);
+    process.exitCode = 1;
+  }
+}, 10);
 (async () => {
-  let session;
   try {
-    const origFetch = globalThis.fetch;
-    globalThis.fetch = function(input, init) {
-      let url = typeof input === "string" ? input
-        : input instanceof URL ? input.href
-        : input?.url;
-      if (url && url.includes("api.anthropic.com")) {
-        const newUrl = url.replace(/https?:\\/\\/api\\.anthropic\\.com/, ${JSON.stringify(mockUrl)});
-        if (typeof input === "string") input = newUrl;
-        else if (input instanceof URL) input = new URL(newUrl);
-        else input = new Request(newUrl, input);
-      }
-      return origFetch.call(this, input, init);
-    };
-    await globalThis.__dynamicImport(${JSON.stringify(PI_MAIN_ENTRY)}, "/bench-pi-cli-end-to-end-cli.mjs");
-    const pi = await globalThis.__dynamicImport(${JSON.stringify(PI_SDK_ENTRY)}, "/bench-pi-cli-end-to-end-sdk.mjs");
+    const { main } = await globalThis.__dynamicImport(${JSON.stringify(PI_MAIN_ENTRY)}, "/bench-pi-cli-end-to-end-cli.mjs");
     process.env.HOME = ${JSON.stringify(workDir)};
     process.env.PI_CODING_AGENT_DIR = ${JSON.stringify(agentDir)};
     process.env.ANTHROPIC_API_KEY = "test-key";
     process.env.NO_COLOR = "1";
-    const authStorage = pi.AuthStorage.inMemory();
-    authStorage.setRuntimeApiKey("anthropic", "test-key");
-    const modelRegistry = new pi.ModelRegistry(authStorage, ${JSON.stringify(path.join(agentDir, "models.json"))});
-    const model = modelRegistry.find("anthropic", "claude-sonnet-4-20250514")
-      ?? modelRegistry.getAll().find((candidate) => candidate.provider === "anthropic");
-    if (!model) throw new Error("No anthropic model");
-    ({ session } = await pi.createAgentSession({
-      cwd: ${JSON.stringify(workDir)},
-      agentDir: ${JSON.stringify(agentDir)},
-      authStorage,
-      modelRegistry,
-      model,
-      tools: pi.createCodingTools(${JSON.stringify(workDir)}),
-      sessionManager: pi.SessionManager.inMemory(),
-    }));
-    await pi.runPrintMode(session, {
-      mode: "text",
-      initialMessage: "Say hello from the CLI benchmark.",
-    });
-    session.dispose();
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+    await main([
+      ...${JSON.stringify(PI_BASE_FLAGS)},
+      "--print",
+      "Say hello from the CLI benchmark.",
+    ]);
+    finishState = "done";
   } catch (error) {
-    if (session) {
-      try { session.dispose(); } catch {}
+    const message = error instanceof Error ? error.message : String(error);
+    if (error instanceof Error && error.name === "ProcessExitError" && message === "process.exit(0)") {
+      finishState = "exit-0";
+      return;
     }
-    console.error(error instanceof Error ? error.stack ?? error.message : String(error));
-    process.exitCode = 1;
+    failureText = error instanceof Error ? error.stack ?? error.message : String(error);
+    finishState = "error";
   }
 })();
 `;
@@ -537,7 +531,12 @@ async function runScenarioIteration(
 			};
 		}
 		case "pi-sdk-end-to-end": {
-			mockServer.reset([{ type: "text", text: "benchmark-pi-sdk-response" } satisfies MockLlmResponse]);
+			mockServer.reset([
+				{
+					type: "text",
+					text: "benchmark-pi-sdk-response",
+				} satisfies MockLlmResponse,
+			]);
 			const { workDir, agentDir } = await createPiWorkDir(mockServer, true);
 			try {
 				const capture = await runRuntimeExec(v8Runtime, {
@@ -548,7 +547,9 @@ async function runScenarioIteration(
 				});
 				const payload = parseTrailingJsonObject(capture.stdoutText);
 				if (payload.ok !== true) {
-					throw new Error(`Pi SDK end-to-end failed: ${JSON.stringify(payload)}`);
+					throw new Error(
+						`Pi SDK end-to-end failed: ${JSON.stringify(payload)}`,
+					);
 				}
 				return {
 					iteration,
@@ -601,22 +602,26 @@ async function runScenarioIteration(
 			}
 		}
 		case "pi-cli-end-to-end": {
-			mockServer.reset([{ type: "text", text: "benchmark-pi-cli-response" } satisfies MockLlmResponse]);
+			mockServer.reset([
+				{
+					type: "text",
+					text: "benchmark-pi-cli-response",
+				} satisfies MockLlmResponse,
+			]);
 			const { workDir, agentDir } = await createPiWorkDir(mockServer, true);
 			try {
 				const capture = await runRuntimeExec(v8Runtime, {
-					code: buildPiCliEndToEndCode(
-						workDir,
-						agentDir,
-						`http://127.0.0.1:${mockServer.port}`,
-					),
+					code: buildPiCliEndToEndCode(workDir, agentDir),
 					cwd: workDir,
 					stdin: "",
 					useHostFileSystem: true,
 					useNetwork: true,
 				});
 				const mockRequests = mockServer.requestCount();
-				if (capture.code !== 0 || !capture.stdoutText.includes("benchmark-pi-cli-response")) {
+				if (
+					capture.code !== 0 ||
+					!capture.stdoutText.includes("benchmark-pi-cli-response")
+				) {
 					throw new Error(
 						`Pi CLI end-to-end failed with code ${capture.code}; mockRequests=${mockRequests}; stdout=${JSON.stringify(preview(capture.stdoutText))}; stderr=${JSON.stringify(preview(capture.stderrText))}`,
 					);
@@ -647,7 +652,9 @@ async function main(): Promise<void> {
 	assertInstalled();
 	const args = parseArgs();
 	const scenario = getModuleLoadScenario(args.scenarioId);
-	console.error(`Running ${scenario.id} for ${args.iterations} iteration(s)...`);
+	console.error(
+		`Running ${scenario.id} for ${args.iterations} iteration(s)...`,
+	);
 
 	await mkdir(path.dirname(args.resultFile), { recursive: true });
 	await mkdir(path.dirname(args.metricsFile), { recursive: true });
@@ -669,14 +676,23 @@ async function main(): Promise<void> {
 	try {
 		const samples: BenchmarkSample[] = [];
 		for (let iteration = 1; iteration <= args.iterations; iteration += 1) {
-			samples.push(await runScenarioIteration(v8Runtime, args.scenarioId, mockServer, iteration));
+			samples.push(
+				await runScenarioIteration(
+					v8Runtime,
+					args.scenarioId,
+					mockServer,
+					iteration,
+				),
+			);
 		}
 
 		const metricsResponse = await fetch(
 			`http://${args.metricsHost}:${args.metricsPort}${args.metricsPath}`,
 		);
 		if (!metricsResponse.ok) {
-			throw new Error(`Failed to scrape metrics: HTTP ${metricsResponse.status}`);
+			throw new Error(
+				`Failed to scrape metrics: HTTP ${metricsResponse.status}`,
+			);
 		}
 		await writeFile(args.metricsFile, await metricsResponse.text(), "utf8");
 
@@ -706,8 +722,14 @@ async function main(): Promise<void> {
 				),
 			},
 		};
-		await writeFile(args.resultFile, `${JSON.stringify(result, null, 2)}\n`, "utf8");
-		console.error(`Completed ${scenario.id}. Cold wall: ${result.summary.coldWallMs} ms`);
+		await writeFile(
+			args.resultFile,
+			`${JSON.stringify(result, null, 2)}\n`,
+			"utf8",
+		);
+		console.error(
+			`Completed ${scenario.id}. Cold wall: ${result.summary.coldWallMs} ms`,
+		);
 	} finally {
 		await v8Runtime.dispose();
 		await mockServer.close();
@@ -726,7 +748,10 @@ void main()
 				return null;
 			}
 		})();
-		const message = error instanceof Error ? `${error.stack ?? error.message}` : String(error);
+		const message =
+			error instanceof Error
+				? `${error.stack ?? error.message}`
+				: String(error);
 		console.error(message);
 		if (args) {
 			await writeFile(

@@ -4,7 +4,7 @@ Started: Mon Mar 30 08:41:55 PM PDT 2026
 
 ## Codebase Patterns
 - Active module-load benchmark artifacts live in `packages/secure-exec/benchmarks/results/module-load/`; refresh them with the full `pnpm --filter secure-exec bench:module-load` run after each performance story.
-- Headless CLI workloads inside standalone `NodeRuntime.exec()` should pass `stdin: ""`; Pi's direct `dist/main.js` / `dist/cli.js` path still exits before provider traffic there, so the current trustworthy Pi CLI benchmark imports the CLI module graph and then drives `runPrintMode()` through the SDK.
+- Headless CLI workloads inside standalone `NodeRuntime.exec()` should pass `stdin: ""`; for Pi's direct `dist/main.js` print-mode path with an explicit `--print` message, set `process.stdin.isTTY = true` inside the sandbox harness or Pi stalls in its piped-stdin probe before provider traffic.
 - For Pi startup and end-to-end perf stories, record warm wall time together with bridge calls/iteration and dominant IPC counters (`_loadPolyfill`, BridgeResponse bytes, and any new network callsites) instead of relying on a single aggregate number.
 - Module-load benchmark progress reporting now comes from generated `packages/secure-exec/benchmarks/results/module-load/comparison.md` plus per-scenario `summary.json`; fixed session overhead is `sample.wallMs - ipc_execute.finish.durationMs` for the matching session in `ipc.ndjson`.
 - Module-load phase attribution now comes from `CreateSession -> InjectGlobals -> Execute -> ExecutionResult -> DestroySession` timestamps in per-scenario `ipc.ndjson`, and raw authenticated IPC RTT lives in top-level `transport-rtt.json` / `transport-rtt.md`.
@@ -51,4 +51,14 @@ Started: Mon Mar 30 08:41:55 PM PDT 2026
   - The warm fixed-overhead bucket is now attributable mostly to `ExecutionResult->Destroy` (`~101.5-102.5 ms`) plus a smaller `InjectGlobals->Execute` gap (`~4-6 ms`); the residual overhead is sub-millisecond in the current runs.
   - `transport-rtt.md` is the copy-ready source for raw IPC RTT, while each scenario `summary.md` now carries the phase table that explains warm fixed overhead.
   - `cargo test --release ...` under `native/v8-runtime/` is currently blocked by pre-existing compile failures in unrelated test code (`EventLoopStatus` assertions in `src/execution.rs` and older `BridgeCallContext::with_receiver(...)` call sites missing `shared_call_id`), so use `cargo build --release` plus the JS IPC integration tests for this path until that Rust test harness is repaired.
+---
+## [2026-03-30 22:06 PDT] - US-011
+- Replaced the Pi CLI end-to-end benchmark surrogate with a direct `@mariozechner/pi-coding-agent/dist/main.js` print-mode run inside standalone `NodeRuntime.exec()`, added focused mock-provider regression coverage for that direct path, removed the resolved follow-up from `docs-internal/todo.md`, and updated the root guidance to capture the reusable harness pattern.
+- Benchmark deltas:
+  - Pi CLI End-to-End: warm wall `2026.762 ms` -> `1749.175 ms`; bridge calls `5797` -> `5784`/iteration; warm fixed overhead `109.701 ms` -> `5.340 ms`; `_loadPolyfill` `1081.009 ms` across `5716` calls/iteration -> `826.220 ms` across `5675` calls/iteration; `send:BridgeResponse` `9750510.000` -> `9737452.333` encoded bytes/iteration.
+- Files changed: `CLAUDE.md`, `docs-internal/todo.md`, `packages/secure-exec/benchmarks/module-load/scenario-catalog.ts`, `packages/secure-exec/benchmarks/module-load/scenario-runner.ts`, `packages/secure-exec/tests/cli-tools/pi-cli-standalone-headless.test.ts`, `packages/secure-exec/benchmarks/results/module-load/*`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - The direct Pi CLI benchmark path can stay in standalone `NodeRuntime.exec()` without the SDK surrogate if the harness calls `dist/main.js` with an explicit `--print` message and marks `process.stdin.isTTY = true`; otherwise Pi blocks in its piped-stdin probe before any provider traffic.
+  - The benchmark-visible payoff of dropping the surrogate is mostly session-lifecycle removal: Pi CLI end-to-end warm fixed overhead fell from `~109.7 ms` to `~5.3 ms`, with `ExecutionResult->Destroy` effectively disappearing from the hot path.
+  - When the direct headless path regresses, a timeout that reports `requestCount`, `stdout`, and `stderr` is enough to distinguish “stuck before provider traffic” from post-response shutdown bugs.
 ---

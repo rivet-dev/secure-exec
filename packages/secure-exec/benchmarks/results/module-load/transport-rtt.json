@@ -1,159 +1,159 @@
 {
-  "createdAt": "2026-03-31T04:43:52.020Z",
+  "createdAt": "2026-03-31T05:05:14.915Z",
   "measurement": "ipc_ping_pong",
   "warmupIterations": 3,
   "sampleIterations": 20,
-  "connectRttMs": 0.251,
+  "connectRttMs": 0.198,
   "payloads": [
     {
       "label": "1 B",
       "payloadBytes": 1,
       "sampleCount": 20,
       "samplesMs": [
-        0.04,
-        0.035,
-        0.038,
+        0.033,
         0.03,
-        0.036,
-        0.048,
-        0.035,
-        0.025,
-        0.026,
-        0.022,
+        0.04,
+        0.03,
+        0.031,
+        0.04,
+        0.03,
+        0.021,
         0.019,
-        0.017,
-        0.018,
-        0.017,
-        0.017,
-        0.017,
-        0.017,
         0.016,
+        0.016,
+        0.021,
         0.017,
-        0.017
+        0.015,
+        0.014,
+        0.015,
+        0.013,
+        0.015,
+        0.013,
+        0.013
       ],
-      "minRttMs": 0.016,
-      "meanRttMs": 0.025,
+      "minRttMs": 0.013,
+      "meanRttMs": 0.022,
       "p95RttMs": 0.04,
-      "maxRttMs": 0.048
+      "maxRttMs": 0.04
     },
     {
       "label": "1 KB",
       "payloadBytes": 1024,
       "sampleCount": 20,
       "samplesMs": [
-        0.021,
         0.018,
-        0.028,
-        0.023,
-        0.017,
-        0.021,
+        0.016,
+        0.025,
+        0.018,
+        0.015,
+        0.016,
+        0.018,
         0.02,
-        0.028,
-        0.022,
-        0.02,
-        0.019,
-        0.017,
-        0.019,
-        0.017,
-        0.022,
-        0.017,
+        0.016,
+        0.014,
+        0.016,
+        0.015,
         0.018,
-        0.018,
-        0.017,
-        0.019
+        0.015,
+        0.019,
+        0.016,
+        0.014,
+        0.015,
+        0.015,
+        0.017
       ],
-      "minRttMs": 0.017,
-      "meanRttMs": 0.02,
-      "p95RttMs": 0.028,
-      "maxRttMs": 0.028
+      "minRttMs": 0.014,
+      "meanRttMs": 0.017,
+      "p95RttMs": 0.02,
+      "maxRttMs": 0.025
     },
     {
       "label": "64 KB",
       "payloadBytes": 65536,
       "sampleCount": 20,
       "samplesMs": [
-        0.128,
-        0.136,
-        0.134,
-        0.179,
-        0.131,
-        0.125,
+        0.123,
+        0.129,
         0.126,
+        0.131,
+        0.127,
+        0.13,
+        0.141,
+        0.14,
+        0.136,
+        0.14,
         0.138,
-        0.128,
-        0.157,
-        0.345,
-        0.231,
-        0.213,
-        0.156,
-        0.158,
-        0.175,
-        0.153,
-        0.134,
-        0.27,
-        0.331
+        0.14,
+        0.161,
+        0.147,
+        0.148,
+        0.184,
+        0.181,
+        0.148,
+        0.142,
+        0.141
       ],
-      "minRttMs": 0.125,
-      "meanRttMs": 0.177,
-      "p95RttMs": 0.331,
-      "maxRttMs": 0.345
+      "minRttMs": 0.123,
+      "meanRttMs": 0.143,
+      "p95RttMs": 0.181,
+      "maxRttMs": 0.184
     }
   ],
   "comparisonToPrevious": {
-    "baselineCreatedAt": "2026-03-31T04:38:52.787Z",
+    "baselineCreatedAt": "2026-03-31T05:03:49.892Z",
     "connectRttMs": {
-      "before": 0.432,
-      "after": 0.251,
-      "delta": -0.181,
-      "deltaPercent": -41.898
+      "before": 0.21,
+      "after": 0.198,
+      "delta": -0.012,
+      "deltaPercent": -5.714
     },
     "payloads": [
       {
         "label": "1 B",
         "payloadBytes": 1,
         "meanRttMs": {
-          "before": 0.022,
-          "after": 0.025,
-          "delta": 0.003,
-          "deltaPercent": 13.636
+          "before": 0.024,
+          "after": 0.022,
+          "delta": -0.002,
+          "deltaPercent": -8.333
         },
         "p95RttMs": {
-          "before": 0.035,
+          "before": 0.036,
           "after": 0.04,
-          "delta": 0.005,
-          "deltaPercent": 14.286
+          "delta": 0.004,
+          "deltaPercent": 11.111
         }
       },
       {
         "label": "1 KB",
         "payloadBytes": 1024,
         "meanRttMs": {
-          "before": 0.018,
-          "after": 0.02,
-          "delta": 0.002,
-          "deltaPercent": 11.111
+          "before": 0.022,
+          "after": 0.017,
+          "delta": -0.005,
+          "deltaPercent": -22.727
         },
         "p95RttMs": {
-          "before": 0.022,
-          "after": 0.028,
-          "delta": 0.006,
-          "deltaPercent": 27.273
+          "before": 0.03,
+          "after": 0.02,
+          "delta": -0.01,
+          "deltaPercent": -33.333
         }
       },
       {
         "label": "64 KB",
         "payloadBytes": 65536,
         "meanRttMs": {
-          "before": 0.137,
-          "after": 0.177,
-          "delta": 0.04,
-          "deltaPercent": 29.197
+          "before": 0.334,
+          "after": 0.143,
+          "delta": -0.191,
+          "deltaPercent": -57.186
         },
         "p95RttMs": {
-          "before": 0.151,
-          "after": 0.331,
-          "delta": 0.18,
-          "deltaPercent": 119.205
+          "before": 0.725,
+          "after": 0.181,
+          "delta": -0.544,
+          "deltaPercent": -75.034
         }
       }
     ]

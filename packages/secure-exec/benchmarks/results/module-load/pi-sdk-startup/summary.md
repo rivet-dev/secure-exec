@@ -1,17 +1,17 @@
 # Pi SDK Startup
 
 Scenario: `pi-sdk-startup`
-Generated: 2026-03-31T04:43:31.372Z
+Generated: 2026-03-31T05:04:54.739Z
 Description: Loads the Pi SDK entry module and inspects its exported surface.
 
 ## Progress Copy Fields
 
-- Warm wall mean: 1645.959 ms
+- Warm wall mean: 1605.896 ms
 - Bridge calls/iteration: 5278.000
-- Warm fixed session overhead: 107.634 ms
+- Warm fixed session overhead: 107.982 ms
 - Scenario IPC connect RTT: 1.000 ms
-- Warm phase attribution: Create->InjectGlobals 0.500 ms, InjectGlobals->Execute 4.000 ms, ExecutionResult->Destroy 102.500 ms, residual 0.634 ms
-- Dominant bridge time: `_loadPolyfill` 836.082 ms/iteration across 5240.000 calls/iteration
+- Warm phase attribution: Create->InjectGlobals 0.500 ms, InjectGlobals->Execute 4.500 ms, ExecutionResult->Destroy 103.500 ms, residual -0.518 ms
+- Dominant bridge time: `_loadPolyfill` 813.611 ms/iteration across 5240.000 calls/iteration
 - Dominant bridge response bytes: `_loadPolyfill` 9354193.000 bytes/iteration
 - Dominant frame bytes: `send:BridgeResponse` 9362446.000 bytes/iteration
 
@@ -19,9 +19,9 @@ Description: Loads the Pi SDK entry module and inspects its exported surface.
 
 | Iteration | Wall | Execute | Fixed Overhead | Bridge Calls | Bridge Time |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | 2394.653 ms | 2280.603 ms | 114.050 ms | 5278 | 1216.083 ms |
-| 2 | 1610.251 ms | 1502.086 ms | 108.165 ms | 5278 | 671.184 ms |
-| 3 | 1681.667 ms | 1574.564 ms | 107.103 ms | 5278 | 750.086 ms |
+| 1 | 2353.815 ms | 2241.837 ms | 111.978 ms | 5278 | 1138.077 ms |
+| 2 | 1542.061 ms | 1433.246 ms | 108.815 ms | 5278 | 702.915 ms |
+| 3 | 1669.732 ms | 1562.583 ms | 107.149 ms | 5278 | 723.824 ms |
 
 ## Session Phase Attribution
 
@@ -29,19 +29,19 @@ Equivalent lifecycle phases come from `CreateSession -> InjectGlobals -> Execute
 
 | Iteration | Create->InjectGlobals | InjectGlobals->Execute | Execute | ExecutionResult->Destroy | Residual Overhead |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | 3.000 ms | 6.000 ms | 2280.603 ms | 104.000 ms | 1.050 ms |
-| 2 | 1.000 ms | 4.000 ms | 1502.086 ms | 102.000 ms | 1.165 ms |
-| 3 | 0.000 ms | 4.000 ms | 1574.564 ms | 103.000 ms | 0.103 ms |
+| 1 | 3.000 ms | 5.000 ms | 2241.837 ms | 103.000 ms | 0.978 ms |
+| 2 | 0.000 ms | 5.000 ms | 1433.246 ms | 104.000 ms | -0.185 ms |
+| 3 | 1.000 ms | 4.000 ms | 1562.583 ms | 103.000 ms | -0.851 ms |
 
 ## Bridge Methods By Time
 
 | Method | Calls/Iter | Time/Iter | Mean/Call | Response Bytes/Iter |
 | --- | ---: | ---: | ---: | ---: |
-| `_loadPolyfill` | 5240.000 | 836.082 ms | 0.160 ms | 9354193.000 |
-| `_resolveModule` | 34.000 | 41.841 ms | 1.231 ms | 4795.000 |
-| `_fsReadFile` | 1.000 | 0.592 ms | 0.592 ms | 3311.000 |
-| `_fsExists` | 2.000 | 0.537 ms | 0.269 ms | 100.000 |
-| `_log` | 1.000 | 0.066 ms | 0.066 ms | 47.000 |
+| `_loadPolyfill` | 5240.000 | 813.611 ms | 0.155 ms | 9354193.000 |
+| `_resolveModule` | 34.000 | 40.648 ms | 1.196 ms | 4795.000 |
+| `_fsExists` | 2.000 | 0.361 ms | 0.180 ms | 100.000 |
+| `_fsReadFile` | 1.000 | 0.264 ms | 0.264 ms | 3311.000 |
+| `_log` | 1.000 | 0.055 ms | 0.055 ms | 47.000 |
 
 ## Frame Bytes
 
@@ -59,21 +59,21 @@ Equivalent lifecycle phases come from `CreateSession -> InjectGlobals -> Execute
 
 ## Comparison To Previous Baseline
 
-Baseline scenario timestamp: 2026-03-31T04:38:34.103Z
+Baseline scenario timestamp: 2026-03-31T05:03:31.026Z
 
-- Warm wall: 1747.363 -> 1645.959 ms (-101.404 ms (-5.80%))
+- Warm wall: 1617.322 -> 1605.896 ms (-11.426 ms (-0.71%))
 - Bridge calls/iteration: 5278.000 -> 5278.000 calls (0.000 calls (0.00%))
-- Warm fixed overhead: 106.775 -> 107.634 ms (+0.859 ms (+0.80%))
-- Warm Create->InjectGlobals: 0.500 -> 0.500 ms (0.000 ms (0.00%))
-- Warm InjectGlobals->Execute: 4.000 -> 4.000 ms (0.000 ms (0.00%))
-- Warm ExecutionResult->Destroy: 102.000 -> 102.500 ms (+0.500 ms (+0.49%))
-- Warm residual overhead: 0.275 -> 0.634 ms (+0.359 ms (+130.54%))
-- Bridge time/iteration: 965.190 -> 879.118 ms (-86.072 ms (-8.92%))
+- Warm fixed overhead: 107.416 -> 107.982 ms (+0.566 ms (+0.53%))
+- Warm Create->InjectGlobals: 0.000 -> 0.500 ms (+0.500 ms)
+- Warm InjectGlobals->Execute: 4.000 -> 4.500 ms (+0.500 ms (+12.50%))
+- Warm ExecutionResult->Destroy: 102.500 -> 103.500 ms (+1.000 ms (+0.98%))
+- Warm residual overhead: 0.915 -> -0.518 ms (-1.433 ms (-156.61%))
+- Bridge time/iteration: 832.306 -> 854.939 ms (+22.633 ms (+2.72%))
 - BridgeResponse encoded bytes/iteration: 9362446.000 -> 9362446.000 bytes (0.000 bytes (0.00%))
 
 | Delta Type | Name | Before | After | Delta |
 | --- | --- | ---: | ---: | ---: |
-| Method time | `_loadPolyfill` | 926.751 | 836.082 | -90.669 |
-| Method time | `_resolveModule` | 37.316 | 41.841 | +4.525 |
-| Method time | `_log` | 0.194 | 0.066 | -0.128 |
+| Method time | `_loadPolyfill` | 785.697 | 813.611 | +27.914 |
+| Method time | `_resolveModule` | 45.709 | 40.648 | -5.061 |
+| Method time | `_fsReadFile` | 0.408 | 0.264 | -0.144 |
 

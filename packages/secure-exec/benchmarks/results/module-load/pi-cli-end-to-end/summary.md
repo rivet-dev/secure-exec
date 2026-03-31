@@ -1,27 +1,27 @@
 # Pi CLI End-to-End
 
 Scenario: `pi-cli-end-to-end`
-Generated: 2026-03-31T04:43:51.984Z
-Description: Loads the Pi CLI module graph, then drives Pi print-mode against the mock Anthropic SSE server.
+Generated: 2026-03-31T05:05:14.882Z
+Description: Calls Pi's direct dist/main.js print-mode path against the mock Anthropic SSE server.
 
 ## Progress Copy Fields
 
-- Warm wall mean: 2026.762 ms
-- Bridge calls/iteration: 5797.000
-- Warm fixed session overhead: 109.701 ms
+- Warm wall mean: 1749.175 ms
+- Bridge calls/iteration: 5784.000
+- Warm fixed session overhead: 5.340 ms
 - Scenario IPC connect RTT: 0.000 ms
-- Warm phase attribution: Create->InjectGlobals 0.500 ms, InjectGlobals->Execute 6.500 ms, ExecutionResult->Destroy 102.500 ms, residual 0.201 ms
-- Dominant bridge time: `_loadPolyfill` 1081.009 ms/iteration across 5716.000 calls/iteration
-- Dominant bridge response bytes: `_loadPolyfill` 9738652.000 bytes/iteration
-- Dominant frame bytes: `send:BridgeResponse` 9750510.000 bytes/iteration
+- Warm phase attribution: Create->InjectGlobals 0.000 ms, InjectGlobals->Execute 4.500 ms, ExecutionResult->Destroy 0.000 ms, residual 0.840 ms
+- Dominant bridge time: `_loadPolyfill` 826.220 ms/iteration across 5675.000 calls/iteration
+- Dominant bridge response bytes: `_loadPolyfill` 9719927.000 bytes/iteration
+- Dominant frame bytes: `send:BridgeResponse` 9737452.333 bytes/iteration
 
 ## Iteration Timing
 
 | Iteration | Wall | Execute | Fixed Overhead | Bridge Calls | Bridge Time |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | 3047.943 ms | 2932.229 ms | 115.714 ms | 5797 | 1641.675 ms |
-| 2 | 2104.576 ms | 1992.874 ms | 111.702 ms | 5797 | 962.198 ms |
-| 3 | 1948.947 ms | 1841.247 ms | 107.700 ms | 5797 | 871.707 ms |
+| 1 | 2304.387 ms | 2292.902 ms | 11.485 ms | 5784 | 1210.045 ms |
+| 2 | 1451.774 ms | 1445.606 ms | 6.168 ms | 5784 | 660.906 ms |
+| 3 | 2046.576 ms | 2042.064 ms | 4.512 ms | 5784 | 918.141 ms |
 
 ## Session Phase Attribution
 
@@ -29,53 +29,57 @@ Equivalent lifecycle phases come from `CreateSession -> InjectGlobals -> Execute
 
 | Iteration | Create->InjectGlobals | InjectGlobals->Execute | Execute | ExecutionResult->Destroy | Residual Overhead |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | 2.000 ms | 7.000 ms | 2932.229 ms | 105.000 ms | 1.714 ms |
-| 2 | 0.000 ms | 8.000 ms | 1992.874 ms | 103.000 ms | 0.702 ms |
-| 3 | 1.000 ms | 5.000 ms | 1841.247 ms | 102.000 ms | -0.300 ms |
+| 1 | 4.000 ms | 6.000 ms | 2292.902 ms | 0.000 ms | 1.485 ms |
+| 2 | 0.000 ms | 5.000 ms | 1445.606 ms | 0.000 ms | 1.168 ms |
+| 3 | 0.000 ms | 4.000 ms | 2042.064 ms | 0.000 ms | 0.512 ms |
 
 ## Bridge Methods By Time
 
 | Method | Calls/Iter | Time/Iter | Mean/Call | Response Bytes/Iter |
 | --- | ---: | ---: | ---: | ---: |
-| `_loadPolyfill` | 5716.000 | 1081.009 ms | 0.189 ms | 9738652.000 |
-| `_resolveModule` | 34.000 | 38.923 ms | 1.145 ms | 4795.000 |
-| `_fsExists` | 37.000 | 32.111 ms | 0.868 ms | 1850.000 |
-| `_networkFetchRaw` | 1.000 | 3.064 ms | 3.064 ms | 1231.000 |
-| `_fsReadFile` | 2.000 | 3.044 ms | 1.522 ms | 3453.000 |
-| `_cryptoRandomUUID` | 5.000 | 0.289 ms | 0.058 ms | 435.000 |
-| `_log` | 2.000 | 0.086 ms | 0.043 ms | 94.000 |
+| `_loadPolyfill` | 5675.000 | 826.220 ms | 0.146 ms | 9719927.000 |
+| `_fsExists` | 55.000 | 50.170 ms | 0.912 ms | 2750.000 |
+| `_resolveModule` | 34.000 | 33.848 ms | 0.996 ms | 4795.000 |
+| `_fsMkdir` | 1.000 | 5.689 ms | 5.689 ms | 47.000 |
+| `_networkFetchRaw` | 1.000 | 3.227 ms | 3.227 ms | 1231.000 |
+| `_fsReadFile` | 5.000 | 3.161 ms | 0.632 ms | 7684.000 |
+| `_fsUtimes` | 1.000 | 1.724 ms | 1.724 ms | 47.000 |
+| `_fsWriteFile` | 1.000 | 1.430 ms | 1.430 ms | 47.000 |
+| `_fsStat` | 1.000 | 1.362 ms | 1.362 ms | 206.333 |
+| `_fsChmod` | 1.000 | 1.356 ms | 1.356 ms | 47.000 |
 
 ## Frame Bytes
 
 | Frame | Count/Iter | Encoded Bytes/Iter | Payload Bytes/Iter |
 | --- | ---: | ---: | ---: |
-| `send:BridgeResponse` | 5797.000 | 9750510.000 | 9478051.000 |
-| `send:Execute` | 1.000 | 1242782.000 | 0.000 |
-| `recv:BridgeCall` | 5797.000 | 974499.000 | 620995.000 |
+| `send:BridgeResponse` | 5784.000 | 9737452.333 | 9465604.333 |
+| `send:Execute` | 1.000 | 1241953.000 | 0.000 |
+| `recv:BridgeCall` | 5784.000 | 971466.000 | 618862.000 |
 | `send:WarmSnapshot` | 0.333 | 348320.333 | 0.000 |
+| `recv:ExecutionResult` | 1.000 | 244.000 | 0.000 |
 | `send:InjectGlobals` | 1.000 | 228.000 | 190.000 |
+| `send:StreamEvent` | 2.000 | 116.000 | 26.000 |
 | `send:CreateSession` | 1.000 | 46.000 | 0.000 |
-| `recv:ExecutionResult` | 1.000 | 43.000 | 0.000 |
 | `send:DestroySession` | 1.000 | 38.000 | 0.000 |
 | `send:Authenticate` | 0.333 | 12.667 | 0.000 |
 
 ## Comparison To Previous Baseline
 
-Baseline scenario timestamp: 2026-03-31T04:38:52.757Z
+Baseline scenario timestamp: 2026-03-31T05:03:49.855Z
 
-- Warm wall: 1707.913 -> 2026.762 ms (+318.849 ms (+18.67%))
-- Bridge calls/iteration: 5797.000 -> 5797.000 calls (0.000 calls (0.00%))
-- Warm fixed overhead: 108.012 -> 109.701 ms (+1.689 ms (+1.56%))
-- Warm Create->InjectGlobals: 0.000 -> 0.500 ms (+0.500 ms)
-- Warm InjectGlobals->Execute: 6.000 -> 6.500 ms (+0.500 ms (+8.33%))
-- Warm ExecutionResult->Destroy: 101.500 -> 102.500 ms (+1.000 ms (+0.98%))
-- Warm residual overhead: 0.512 -> 0.201 ms (-0.311 ms (-60.74%))
-- Bridge time/iteration: 839.648 -> 1158.527 ms (+318.879 ms (+37.98%))
-- BridgeResponse encoded bytes/iteration: 9750510.000 -> 9750510.000 bytes (0.000 bytes (0.00%))
+- Warm wall: 1734.487 -> 1749.175 ms (+14.688 ms (+0.85%))
+- Bridge calls/iteration: 5784.000 -> 5784.000 calls (0.000 calls (0.00%))
+- Warm fixed overhead: 5.563 -> 5.340 ms (-0.223 ms (-4.01%))
+- Warm Create->InjectGlobals: 0.000 -> 0.000 ms (0.000 ms)
+- Warm InjectGlobals->Execute: 5.000 -> 4.500 ms (-0.500 ms (-10.00%))
+- Warm ExecutionResult->Destroy: 0.500 -> 0.000 ms (-0.500 ms (-100.00%))
+- Warm residual overhead: 0.064 -> 0.840 ms (+0.776 ms (+1212.50%))
+- Bridge time/iteration: 966.936 -> 929.697 ms (-37.239 ms (-3.85%))
+- BridgeResponse encoded bytes/iteration: 9737452.333 -> 9737452.333 bytes (0.000 bytes (0.00%))
 
 | Delta Type | Name | Before | After | Delta |
 | --- | --- | ---: | ---: | ---: |
-| Method time | `_loadPolyfill` | 766.126 | 1081.009 | +314.883 |
-| Method time | `_fsReadFile` | 1.446 | 3.044 | +1.598 |
-| Method time | `_fsExists` | 30.586 | 32.111 | +1.525 |
+| Method time | `_loadPolyfill` | 862.442 | 826.220 | -36.222 |
+| Method time | `_fsExists` | 51.562 | 50.170 | -1.392 |
+| Method time | `_resolveModule` | 35.151 | 33.848 | -1.303 |
 

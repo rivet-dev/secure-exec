@@ -3,8 +3,8 @@
   "title": "Pi CLI End-to-End",
   "target": "pi_cli",
   "kind": "end_to_end",
-  "description": "Loads the Pi CLI module graph, then drives Pi print-mode against the mock Anthropic SSE server.",
-  "createdAt": "2026-03-31T04:43:51.984Z",
+  "description": "Calls Pi's direct dist/main.js print-mode path against the mock Anthropic SSE server.",
+  "createdAt": "2026-03-31T05:05:14.882Z",
   "iterations": 3,
   "artifacts": {
     "resultFile": "pi-cli-end-to-end/result.json",
@@ -14,7 +14,7 @@
   "samples": [
     {
       "iteration": 1,
-      "wallMs": 3047.943,
+      "wallMs": 2304.387,
       "code": 0,
       "stdoutBytes": 25,
       "stderrBytes": 0,
@@ -27,7 +27,7 @@
     },
     {
       "iteration": 2,
-      "wallMs": 2104.576,
+      "wallMs": 1451.774,
       "code": 0,
       "stdoutBytes": 25,
       "stderrBytes": 0,
@@ -40,7 +40,7 @@
     },
     {
       "iteration": 3,
-      "wallMs": 1948.947,
+      "wallMs": 2046.576,
       "code": 0,
       "stdoutBytes": 25,
       "stderrBytes": 0,
@@ -53,7 +53,7 @@
     }
   ],
   "summary": {
-    "coldWallMs": 3047.943,
-    "warmWallMsMean": 2026.762
+    "coldWallMs": 2304.387,
+    "warmWallMsMean": 1749.175
   }
 }

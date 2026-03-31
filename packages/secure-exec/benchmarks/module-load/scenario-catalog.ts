@@ -21,21 +21,24 @@ export const MODULE_LOAD_SCENARIOS: readonly ModuleLoadScenarioDefinition[] = [
 		title: "Hono End-to-End",
 		target: "hono",
 		kind: "end_to_end",
-		description: "Loads Hono, builds an app, serves a request, and reads the response.",
+		description:
+			"Loads Hono, builds an app, serves a request, and reads the response.",
 	},
 	{
 		id: "pi-sdk-startup",
 		title: "Pi SDK Startup",
 		target: "pi_sdk",
 		kind: "startup",
-		description: "Loads the Pi SDK entry module and inspects its exported surface.",
+		description:
+			"Loads the Pi SDK entry module and inspects its exported surface.",
 	},
 	{
 		id: "pi-sdk-end-to-end",
 		title: "Pi SDK End-to-End",
 		target: "pi_sdk",
 		kind: "end_to_end",
-		description: "Runs createAgentSession + runPrintMode against the mock Anthropic SSE server.",
+		description:
+			"Runs createAgentSession + runPrintMode against the mock Anthropic SSE server.",
 	},
 	{
 		id: "pi-cli-startup",
@@ -50,7 +53,7 @@ export const MODULE_LOAD_SCENARIOS: readonly ModuleLoadScenarioDefinition[] = [
 		target: "pi_cli",
 		kind: "end_to_end",
 		description:
-			"Loads the Pi CLI module graph, then drives Pi print-mode against the mock Anthropic SSE server.",
+			"Calls Pi's direct dist/main.js print-mode path against the mock Anthropic SSE server.",
 	},
 ] as const;
 

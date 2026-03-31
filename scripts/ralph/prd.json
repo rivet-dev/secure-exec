@@ -54,6 +54,24 @@
       "notes": "Today the benchmark measures full `Execute` and host-side `BridgeCall -> BridgeResponse`, but not raw UDS RTT. The analysis shows a stable `~109 ms` fixed per-session cost that needs phase attribution before we guess at a fix."
     },
     {
+      "id": "US-012",
+      "title": "Add JSZip and pdf-lib scenarios to the module-load benchmark suite",
+      "description": "As a maintainer, I need JSZip and pdf-lib benchmark scenarios in the committed module-load performance suite so we can optimize those heavier document/archive workloads over time instead of tuning only Hono and Pi.",
+      "acceptanceCriteria": [
+        "The committed module-load benchmark suite includes startup and end-to-end scenarios for `pdf-lib` and `jszip`, with committed `result.json`, `metrics.prom`, `ipc.ndjson`, `runner.log`, `summary.md`, and `summary.json` coverage for the new scenarios.",
+        "The `pdf-lib` benchmark logic is copied or adapted from `/tmp/pdfbench.js`, including a representative document workload rather than a trivial import-only sample.",
+        "The `jszip` benchmark uses a representative archive workload so committed numbers cover both module load cost and realistic zip creation or serialization work.",
+        "The committed summary and analysis outputs include cold and warm numbers for the new `pdf-lib` and `jszip` scenarios so later stories can track their movement over time.",
+        "Append the first committed baseline for the new `pdf-lib` and `jszip` scenarios to `scripts/ralph/progress.txt`, including warm wall time, bridge calls per iteration, and the dominant IPC counters they exercise.",
+        "If this story reveals another optimization opportunity or unresolved blocker, add it to `docs-internal/todo.md` and append a new `passes: false` follow-up story to `scripts/ralph/prd.json` before marking this story complete.",
+        "Relevant targeted tests pass.",
+        "Touched packages typecheck."
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": "Use `/tmp/pdfbench.js` as the seed for the `pdf-lib` workload. The goal is not just to import the library, but to keep committed startup and end-to-end benchmark numbers for heavier document/archive codepaths so future perf work optimizes them too."
+    },
+    {
       "id": "US-004",
       "title": "Eliminate repeated `_loadPolyfill` round-trips within hot workloads",
       "description": "As a maintainer, I need the runtime to stop issuing thousands of identical `_loadPolyfill` RPCs during Pi startup so bridge chatter is no longer the dominant cost center.",
@@ -66,7 +84,7 @@
         "Relevant targeted tests pass.",
         "Touched packages typecheck."
       ],
-      "priority": 4,
+      "priority": 6,
       "passes": false,
       "notes": "Baseline hotspot: `_loadPolyfill` is `5240` calls and `~860 ms` host bridge time per Pi SDK startup iteration, `5664` calls and `~911 ms` per Pi SDK end-to-end iteration, and `5247` calls with `~905 ms` per Pi CLI startup iteration."
     },
@@ -83,7 +101,7 @@
         "Relevant targeted tests pass.",
         "Touched packages typecheck."
       ],
-      "priority": 5,
+      "priority": 7,
       "passes": false,
       "notes": "Pi startup paths currently move roughly `11 MB` send / `0.9 MB` receive per iteration, with BridgeResponse traffic contributing `~9.36-9.72 MB` per iteration. `_loadPolyfill` payload reuse is the first byte-level target."
     },
@@ -100,7 +118,7 @@
         "Relevant targeted tests pass.",
         "Touched packages typecheck."
       ],
-      "priority": 6,
+      "priority": 8,
       "passes": false,
       "notes": "The current analysis shows an `Execute` frame of roughly `1.24 MB` per iteration. That makes repeated bootstrap transfer a plausible second-order cost even after `_loadPolyfill` call count drops."
     },
@@ -117,7 +135,7 @@
         "Relevant targeted tests pass.",
         "Touched packages typecheck."
       ],
-      "priority": 7,
+      "priority": 9,
       "passes": false,
       "notes": "Baseline secondary hotspots: `_resolveModule` is `34` calls and `~41-46 ms` per Pi iteration, while `_fsExists` rises to `38` calls and `~31.5 ms` in Pi SDK end-to-end and `44` calls with `~54.9 ms` in Pi CLI startup."
     },
@@ -134,7 +152,7 @@
         "Relevant targeted tests pass.",
         "Touched packages typecheck."
       ],
-      "priority": 8,
+      "priority": 10,
       "passes": false,
       "notes": "The current benchmark already pays a one-time `WarmSnapshot` transfer of about `1.05 MB` per scenario. This story should only land if a snapshot or preload path beats the current repeated bridge behavior in committed numbers."
     },
@@ -151,7 +169,7 @@
         "Relevant targeted tests pass.",
         "Touched packages typecheck."
       ],
-      "priority": 9,
+      "priority": 11,
       "passes": false,
       "notes": "The fixed overhead shows up even in Hono (`~110 ms` out of `~188-202 ms` wall time) so it is likely session creation/destruction and adjacent bookkeeping rather than the module graph itself."
     },
@@ -168,7 +186,7 @@
         "Relevant targeted tests pass.",
         "Touched packages typecheck."
       ],
-      "priority": 10,
+      "priority": 12,
       "passes": false,
       "notes": "The current benchmark excludes `createNodeV8Runtime()` from wall time and does not include a host control. Those missing controls make it too easy to confuse session cost, bootstrap cost, and actual steady-state module-load work."
     },
@@ -183,9 +201,9 @@
         "Relevant targeted tests pass.",
         "Touched packages typecheck."
       ],
-      "priority": 3,
-      "passes": false,
-      "notes": "US-001 restored benchmark trust by importing the CLI module graph and then driving `runPrintMode()` through the SDK, but direct `dist/main.js` / `dist/cli.js` headless execution inside standalone `NodeRuntime.exec()` still exits `0` before any mock request or stdout."
+      "priority": 5,
+      "passes": true,
+      "notes": "Fixed by switching the benchmark and regression harnesses to call `dist/main.js` directly inside standalone `NodeRuntime.exec()`, while forcing `process.stdin.isTTY = true` for explicit `--print` messages so Pi skips its piped-stdin probe and reaches the mock provider path."
     }
   ]
 }
