@@ -2,9 +2,13 @@
 
 const fs = require('fs');
 const path = require('path');
+const { pathToFileURL } = require('url');
 
-// Fixtures directory path in VFS — matches the runner's VFS layout
-const fixturesDir = path.resolve('/test/fixtures');
+// Fixtures directory path in VFS — matches the runner's VFS layout by default,
+// but host-backed replacement-runtime probes can override it explicitly.
+const fixturesDir = process.env.SECURE_EXEC_CONFORMANCE_FIXTURES_DIR ?
+  path.resolve(process.env.SECURE_EXEC_CONFORMANCE_FIXTURES_DIR) :
+  path.resolve('/test/fixtures');
 
 /**
  * Returns the absolute path to a fixture file.
@@ -12,6 +16,10 @@ const fixturesDir = path.resolve('/test/fixtures');
  */
 function fixturesPath(...args) {
   return path.join(fixturesDir, ...args);
+}
+
+function fileURL(...args) {
+  return pathToFileURL(fixturesPath(...args));
 }
 
 /**
@@ -49,6 +57,7 @@ let _utf8TestText;
 module.exports = {
   fixturesDir,
   path: fixturesPath,
+  fileURL,
   readSync,
   readKey,
   get utf8TestText() {

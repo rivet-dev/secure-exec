@@ -49,6 +49,8 @@ const APPLIED_BINDING_SHIMS = Object.freeze([
 	"public-builtin-host-fallback",
 	"modules-getNearestParentPackageJSON-shim",
 	"process_methods-explicit-provider",
+	"module-logical-path-translation",
+	"module-compile-cache-disabled",
 ]);
 const HOST_CONTEXT_BUILTINS = new Set([
 	"net",
@@ -848,6 +850,136 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 		return `/${relative.split(path.sep).join("/")}`;
 	}
 
+	function withCompileCacheDisabled(callback) {
+		const previousDisableCompileCache = process.env.NODE_DISABLE_COMPILE_CACHE;
+		process.env.NODE_DISABLE_COMPILE_CACHE = "1";
+		try {
+			return callback();
+		} finally {
+			if (previousDisableCompileCache === undefined) {
+				delete process.env.NODE_DISABLE_COMPILE_CACHE;
+			} else {
+				process.env.NODE_DISABLE_COMPILE_CACHE = previousDisableCompileCache;
+			}
+		}
+	}
+
+	function createInvalidArgTypeError(message) {
+		const error = new TypeError(message);
+		error.code = "ERR_INVALID_ARG_TYPE";
+		return error;
+	}
+
+	function validateCompileCacheOptions(options) {
+		if (options === undefined || typeof options === "string") {
+			return;
+		}
+		if (
+			options === null ||
+			typeof options !== "object" ||
+			Array.isArray(options)
+		) {
+			throw createInvalidArgTypeError("cacheDir should be a string");
+		}
+		const hasDirectory = Object.prototype.hasOwnProperty.call(
+			options,
+			"directory",
+		);
+		const hasPortable = Object.prototype.hasOwnProperty.call(
+			options,
+			"portable",
+		);
+		if (!hasDirectory && !hasPortable) {
+			throw createInvalidArgTypeError("cacheDir should be a string");
+		}
+		if (
+			hasDirectory &&
+			options.directory !== undefined &&
+			typeof options.directory !== "string"
+		) {
+			throw createInvalidArgTypeError("cacheDir should be a string");
+		}
+		if (
+			hasPortable &&
+			options.portable !== undefined &&
+			typeof options.portable !== "boolean"
+		) {
+			throw createInvalidArgTypeError("portable should be a boolean");
+		}
+	}
+
+	function normalizeLogicalModulePath(modulePath) {
+		if (typeof modulePath !== "string" || modulePath.length === 0) {
+			return undefined;
+		}
+		if (path.posix.isAbsolute(modulePath)) {
+			return path.posix.normalize(modulePath);
+		}
+		if (path.isAbsolute(modulePath)) {
+			return path.resolve(modulePath);
+		}
+		return undefined;
+	}
+
+	function translateModuleLocationToSandbox(filenameOrURL) {
+		let hostValue = filenameOrURL;
+		let hostFilePath;
+		let logicalFilePath;
+
+		if (filenameOrURL instanceof URL) {
+			if (filenameOrURL.protocol !== "file:") {
+				return { useSandbox: false, hostValue: filenameOrURL };
+			}
+			hostFilePath = fileURLToPath(filenameOrURL);
+			if (!isWithinStageRoot(hostFilePath)) {
+				const logicalPath = normalizeLogicalModulePath(hostFilePath);
+				hostFilePath =
+					typeof logicalPath === "string"
+						? path.resolve(mapLogicalPathToHost(logicalPath))
+						: path.resolve(hostFilePath);
+			}
+			logicalFilePath =
+				mapHostPathToLogical(hostFilePath) ??
+				normalizeLogicalModulePath(fileURLToPath(filenameOrURL));
+			hostValue = pathToFileURL(hostFilePath);
+			hostValue.search = filenameOrURL.search;
+			hostValue.hash = filenameOrURL.hash;
+		} else if (
+			typeof filenameOrURL === "string" &&
+			filenameOrURL.startsWith("file:")
+		) {
+			const fileUrl = new URL(filenameOrURL);
+			const translated = translateModuleLocationToSandbox(fileUrl);
+			return {
+				...translated,
+				hostValue:
+					translated.useSandbox && translated.hostValue instanceof URL
+						? translated.hostValue.href
+						: translated.hostValue,
+			};
+		} else if (
+			typeof filenameOrURL === "string" &&
+			path.isAbsolute(filenameOrURL)
+		) {
+			hostFilePath = isWithinStageRoot(filenameOrURL)
+				? path.resolve(filenameOrURL)
+				: path.resolve(mapLogicalPathToHost(filenameOrURL));
+			logicalFilePath =
+				mapHostPathToLogical(hostFilePath) ??
+				normalizeLogicalModulePath(filenameOrURL);
+			hostValue = hostFilePath;
+		} else {
+			return { useSandbox: false, hostValue: filenameOrURL };
+		}
+
+		return {
+			useSandbox: true,
+			hostValue,
+			hostFilePath,
+			logicalFilePath,
+		};
+	}
+
 	function createSandboxRequire(referrerHostFilePath, referrerLogicalFilePath) {
 		const effectiveLogicalReferrer =
 			typeof referrerLogicalFilePath === "string" &&
@@ -902,8 +1034,6 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 				if (builtinId === "module") {
 					return patchModuleBuiltinExports(
 						patchVmBuiltinExports(builtinId, requireBuiltin(builtinId)),
-						effectiveHostReferrer,
-						effectiveLogicalReferrer,
 					);
 				}
 				return patchVmBuiltinExports(builtinId, requireBuiltin(builtinId));
@@ -947,11 +1077,7 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 		return sandboxRequire;
 	}
 
-	function patchModuleBuiltinExports(
-		exportsValue,
-		referrerHostFilePath,
-		referrerLogicalFilePath,
-	) {
+	function patchModuleBuiltinExports(exportsValue) {
 		if (
 			(typeof exportsValue !== "object" || exportsValue === null) &&
 			typeof exportsValue !== "function"
@@ -961,27 +1087,72 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 		if (typeof exportsValue.createRequire !== "function") {
 			return exportsValue;
 		}
-		if (exportsValue.__secureExecCreateRequirePatched === true) {
+		if (exportsValue.__secureExecModuleBuiltinPatched === true) {
 			return exportsValue;
 		}
 
 		const originalCreateRequire = exportsValue.createRequire.bind(exportsValue);
 		exportsValue.createRequire = (filenameOrURL) => {
-			const normalizedFilename = normalizeModuleFilename(filenameOrURL);
-			const logicalFilename =
-				path.posix.isAbsolute(normalizedFilename)
-					? normalizedFilename
-					: referrerLogicalFilePath;
-			const hostFilename =
-				path.posix.isAbsolute(normalizedFilename)
-					? mapLogicalPathToHost(normalizedFilename)
-					: referrerHostFilePath;
-			if (typeof hostFilename !== "string" || hostFilename.length === 0) {
+			const translated = translateModuleLocationToSandbox(filenameOrURL);
+			if (
+				translated.useSandbox !== true ||
+				typeof translated.hostFilePath !== "string" ||
+				typeof translated.logicalFilePath !== "string"
+			) {
 				return originalCreateRequire(filenameOrURL);
 			}
-			return createSandboxRequire(hostFilename, logicalFilename);
+			return createSandboxRequire(
+				translated.hostFilePath,
+				translated.logicalFilePath,
+			);
 		};
-		Object.defineProperty(exportsValue, "__secureExecCreateRequirePatched", {
+
+		if (typeof exportsValue.findPackageJSON === "function") {
+			const originalFindPackageJSON =
+				exportsValue.findPackageJSON.bind(exportsValue);
+			exportsValue.findPackageJSON = (specifier, base) => {
+				const translatedSpecifier = translateModuleLocationToSandbox(specifier);
+				const translatedBase = translateModuleLocationToSandbox(base);
+				const resolvedPackageJson = originalFindPackageJSON(
+					translatedSpecifier.hostValue,
+					translatedBase.hostValue,
+				);
+				return mapHostPathToLogical(resolvedPackageJson) ?? resolvedPackageJson;
+			};
+		}
+
+		if (typeof exportsValue.enableCompileCache === "function") {
+			const originalEnableCompileCache =
+				exportsValue.enableCompileCache.bind(exportsValue);
+			exportsValue.enableCompileCache = (...args) => {
+				validateCompileCacheOptions(args[0]);
+				return withCompileCacheDisabled(() => originalEnableCompileCache(...args));
+			};
+		}
+
+		if (typeof exportsValue.getCompileCacheDir === "function") {
+			const originalGetCompileCacheDir =
+				exportsValue.getCompileCacheDir.bind(exportsValue);
+			exportsValue.getCompileCacheDir = (...args) =>
+				withCompileCacheDisabled(() => originalGetCompileCacheDir(...args));
+		}
+
+		if (typeof exportsValue.flushCompileCache === "function") {
+			const originalFlushCompileCache =
+				exportsValue.flushCompileCache.bind(exportsValue);
+			exportsValue.flushCompileCache = (...args) =>
+				withCompileCacheDisabled(() => originalFlushCompileCache(...args));
+		}
+
+		if (typeof exportsValue.findSourceMap === "function") {
+			const originalFindSourceMap = exportsValue.findSourceMap.bind(exportsValue);
+			exportsValue.findSourceMap = (sourceURL) => {
+				const translated = translateModuleLocationToSandbox(sourceURL);
+				return originalFindSourceMap(translated.hostValue);
+			};
+		}
+
+		Object.defineProperty(exportsValue, "__secureExecModuleBuiltinPatched", {
 			value: true,
 			configurable: true,
 			enumerable: false,
@@ -1328,8 +1499,6 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 				if (builtinId === "module") {
 					return patchModuleBuiltinExports(
 						patchVmBuiltinExports(builtinId, builtinRequire(builtinId)),
-						referrerFilePath,
-						referrerLogicalFilePath,
 					);
 				}
 				return patchVmBuiltinExports(builtinId, builtinRequire(builtinId));
@@ -1423,6 +1592,7 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 	HOST_REQUIRE("internal/util/debuglog").initializeDebugEnv(
 		process.env.NODE_DEBUG,
 	);
+	patchModuleBuiltinExports(HOST_REQUIRE("node:module"));
 
 	let entrypoint = "internal/main/eval_string";
 	let userExports;

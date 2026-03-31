@@ -202,6 +202,16 @@ The first prototype should explicitly avoid bringing up:
 
 These pull in additional bindings and lifecycle machinery that are not necessary to prove the core architecture.
 
+### Current `node:module` Status
+
+US-029 keeps `node:module` host-backed for now, but patches the replacement-runtime helper child so staged file-backed executions behave predictably:
+
+- `createRequire()` and `findPackageJSON()` translate between staged host paths and logical sandbox paths for file-backed CommonJS execution, so replacement-runtime `exec()` / `run()` calls do not leak `/tmp/...` staging paths or fail on logical `/root/...` inputs.
+- Real-file ESM entrypoints continue to use the staged host file path, which is enough for package workflows that need `createRequire(import.meta.url)` and package-json lookup on actual files.
+- `setSourceMapsSupport()` / `getSourceMapsSupport()` stay host-backed, and `findSourceMap()` now normalizes staged logical file paths before delegating to the host source-map cache.
+- Compile-cache APIs stay visible but are forced into Node's disabled path by setting `NODE_DISABLE_COMPILE_CACHE=1` inside the helper child before delegation. That preserves Node-style argument validation while making `enableCompileCache()` return `DISABLED` and `getCompileCacheDir()` stay `undefined`.
+- Full source-map flag parity and persistent compile-cache support remain deferred because the replacement runtime still stages ephemeral host entry trees and does not yet model all CLI / V8 startup flags.
+
 ## Pre-Research Gate
 
 Before we commit to the full rebuild, we should run a short pre-research phase with explicit proof points.
