@@ -1293,6 +1293,12 @@ type NextTickEntry = {
   args: unknown[];
 };
 
+type ImmediateEntry = {
+  handle: TimerHandle;
+  callback: (...args: unknown[]) => void;
+  args: unknown[];
+};
+
 // queueMicrotask fallback
 const _queueMicrotask =
   typeof queueMicrotask === "function"
@@ -1367,13 +1373,20 @@ class TimerHandle {
 
 const _timerEntries = new Map<number, TimerEntry>();
 let _timerDrainResolvers: Array<() => void> = [];
+const _immediateEntries = new Map<number, ImmediateEntry>();
+let _nextImmediateId = -1;
+let _immediateFlushScheduled = false;
 
 /**
  * Check if all timers have been drained and resolve any waiters.
  * Called after a timer fires or is cleared.
  */
 function checkTimerDrain(): void {
-  if (_timerEntries.size === 0 && _timerDrainResolvers.length > 0) {
+  if (
+    _timerEntries.size === 0 &&
+    _immediateEntries.size === 0 &&
+    _timerDrainResolvers.length > 0
+  ) {
     const resolvers = _timerDrainResolvers;
     _timerDrainResolvers = [];
     resolvers.forEach((r) => r());
@@ -1385,7 +1398,7 @@ function checkTimerDrain(): void {
  * Used by _waitForActiveHandles to detect pending async work.
  */
 function _getPendingTimerCount(): number {
-  return _timerEntries.size;
+  return _timerEntries.size + _immediateEntries.size;
 }
 
 /**
@@ -1393,7 +1406,9 @@ function _getPendingTimerCount(): number {
  * If no timers are pending, resolves immediately.
  */
 function _waitForTimerDrain(): Promise<void> {
-  if (_timerEntries.size === 0) return Promise.resolve();
+  if (_timerEntries.size === 0 && _immediateEntries.size === 0) {
+    return Promise.resolve();
+  }
   return new Promise((resolve) => {
     _timerDrainResolvers.push(resolve);
   });
@@ -1430,6 +1445,53 @@ function scheduleNextTickFlush(): void {
   }
   _nextTickScheduled = true;
   _queueMicrotask(flushNextTickQueue);
+}
+
+function flushImmediateQueue(): void {
+  _immediateFlushScheduled = false;
+  if (_immediateEntries.size === 0) {
+    checkTimerDrain();
+    return;
+  }
+
+  const ready = Array.from(_immediateEntries.entries());
+  for (const [id] of ready) {
+    _immediateEntries.delete(id);
+  }
+
+  for (const [, entry] of ready) {
+    if (entry.handle._destroyed) {
+      continue;
+    }
+    entry.handle._destroyed = true;
+
+    try {
+      entry.callback(...entry.args);
+    } catch (error) {
+      const outcome = routeAsyncCallbackError(error);
+      if (!outcome.handled && outcome.rethrow !== null) {
+        _immediateEntries.clear();
+        checkTimerDrain();
+        scheduleAsyncRethrow(outcome.rethrow);
+        return;
+      }
+    }
+  }
+
+  if (_immediateEntries.size > 0) {
+    scheduleImmediateFlush();
+    return;
+  }
+
+  checkTimerDrain();
+}
+
+function scheduleImmediateFlush(): void {
+  if (_immediateFlushScheduled) {
+    return;
+  }
+  _immediateFlushScheduled = true;
+  _queueMicrotask(flushImmediateQueue);
 }
 
 function timerDispatch(_eventType: string, payload: unknown): void {
@@ -1526,10 +1588,32 @@ export function setImmediate(
   callback: (...args: unknown[]) => void,
   ...args: unknown[]
 ): TimerHandle {
-  return setTimeout(callback, 0, ...args);
+  const id = _nextImmediateId;
+  _nextImmediateId -= 1;
+  const handle = new TimerHandle(id);
+  _immediateEntries.set(id, {
+    handle,
+    callback,
+    args,
+  });
+  scheduleImmediateFlush();
+  return handle;
 }
 
 export function clearImmediate(id: TimerHandle | number | undefined): void {
+  const immediateId = getTimerId(id);
+  if (immediateId === undefined) {
+    return;
+  }
+
+  const entry = _immediateEntries.get(immediateId);
+  if (entry) {
+    entry.handle._destroyed = true;
+    _immediateEntries.delete(immediateId);
+    checkTimerDrain();
+    return;
+  }
+
   clearTimeout(id);
 }
 

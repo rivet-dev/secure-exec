@@ -149,7 +149,7 @@
         "Touched packages typecheck."
       ],
       "priority": 8,
-      "passes": false,
+      "passes": true,
       "notes": "While verifying US-005, the full `bench:module-load` flow still stalled when it reached `jszip-end-to-end`. A direct A/B check with the new `_loadPolyfill` cache gate locally disabled still timed out, so this blocker is tracked separately from payload-caching work."
     },
     {
