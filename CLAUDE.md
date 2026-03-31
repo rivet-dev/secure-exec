@@ -79,6 +79,7 @@
 ## Tooling
 
 - use pnpm, vitest, and tsc for type checks
+- package type checks use `check-types` / `check-types:benchmarks` script names in this repo, not a generic `typecheck` alias
 - use turbo for builds
 - after changing `packages/core/isolate-runtime/src/inject/require-setup.ts` or Node bridge code that regenerates the isolate bundle, rebuild in this order: `pnpm --filter @secure-exec/nodejs build` then `pnpm --filter @secure-exec/core build`; the conformance runner executes built `dist` output, not just source files
 - keep timeouts under 1 minute and avoid running full test suites unless necessary

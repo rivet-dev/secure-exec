@@ -4,6 +4,7 @@ Started: Mon Mar 30 08:41:55 PM PDT 2026
 
 ## Codebase Patterns
 - Active module-load benchmark artifacts live in `packages/secure-exec/benchmarks/results/module-load/`; refresh them with the full `pnpm --filter secure-exec bench:module-load` run after each performance story.
+- Package type checks in this repo usually live behind `check-types` or `check-types:benchmarks`, not a generic `typecheck` script.
 - Module-load benchmark `summary.md` / `comparison.md` now split `_loadPolyfill` into `real polyfill-body loads` and `__bd:* bridge-dispatch wrappers`; copy those fields directly for progress updates instead of using ad hoc probes.
 - Hot `__bd:*` dispatch wrappers should use the dedicated `_bridgeDispatch` bridge global; keep `_loadPolyfill("__bd:...")` parsing only as a compatibility fallback for older snapshots and logs.
 - Cross-session V8 BridgeResponse caching can now store any V8-serializable value, not just strings; for `_bridgeDispatch` `_loadFile` / `_loadFileSync` source envelopes, key cache reuse on the dispatch method, request args, and serialized payload hash because transformed module bodies are path-sensitive.
@@ -223,4 +224,11 @@ Started: Mon Mar 30 08:41:55 PM PDT 2026
   - Once hot file loads move onto `_bridgeDispatch`, the native BridgeResponse cache envelope must accept arbitrary V8-serialized values because the dispatch path returns `{ __bd_result }` envelopes, not raw strings.
   - Cache keys for transformed source transfers must include the dispatch method, request args, and serialized payload hash; hashing the source body alone can alias different path-sensitive wrapper output.
   - For projected package source stories after US-018, track `_bridgeDispatch` and `send:BridgeResponse` bytes for the real win while still using the existing `_loadPolyfill` sample-target list to identify which package families are being optimized.
+---
+## [2026-03-31 13:38 PDT] - US-019
+- Verified the existing `US-019` implementation at `HEAD` against the PRD acceptance criteria, reran the focused validation commands, and marked the story passed in `scripts/ralph/prd.json`. Validation run: `pnpm vitest run packages/v8/test/context-snapshot-behavior.test.ts packages/secure-exec/tests/runtime-driver/node/runtime.test.ts`, `pnpm --filter @secure-exec/v8 check-types`, `pnpm --filter secure-exec check-types`, `pnpm --filter secure-exec check-types:benchmarks`, and `cargo build --release --manifest-path native/v8-runtime/Cargo.toml`.
+- Files changed: `AGENTS.md`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - If Ralph lands a story commit but `prd.json` still says `passes: false`, treat it as state drift: verify the current `HEAD` implementation with focused checks before flipping the PRD flag.
+  - Package-level TypeScript validation in this repo uses `check-types` naming, so `pnpm --filter <pkg> typecheck` can be a false dead end even when the right checks exist.
 ---
