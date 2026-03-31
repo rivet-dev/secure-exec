@@ -10,7 +10,6 @@ import {
 	createDefaultNetworkAdapter,
 	isPrivateIp,
 } from "./default-network-adapter.js";
-import { createReplacementNodeRuntimeDriverFactory } from "./upstream/bootstrap-execution.js";
 export type { DefaultNetworkAdapterOptions } from "./default-network-adapter.js";
 import type {
 	OSConfig,
@@ -266,9 +265,9 @@ export function createNodeDriver(options: NodeDriverOptions = {}): SystemDriver 
 }
 
 export function createNodeRuntimeDriverFactory(
-	_options: NodeRuntimeDriverFactoryOptions = {},
+	options: NodeRuntimeDriverFactoryOptions = {},
 ): NodeRuntimeDriverFactory {
-	return createReplacementNodeRuntimeDriverFactory();
+	return createLegacyNodeRuntimeDriverFactory(options);
 }
 
 export function createLegacyNodeRuntimeDriverFactory(

@@ -98,6 +98,10 @@ function boundErrorMessage(message: string): string {
 	return `${message.slice(0, MAX_ERROR_MESSAGE_CHARS)}...[Truncated]`;
 }
 
+function shouldAwaitSecureExecDone(code: string): boolean {
+	return code.includes("__secureExecDone");
+}
+
 function createBridgeDriverProcess(): import("@secure-exec/core").DriverProcess {
 	return {
 		writeStdin() {},
@@ -1045,6 +1049,9 @@ export class NodeExecutionDriver implements RuntimeDriver {
 					);
 					if (options.mode !== "exec") {
 						return transformed;
+					}
+					if (shouldAwaitSecureExecDone(options.code)) {
+						return `${transformed}\n;typeof process !== "undefined" && typeof process.__secureExecWait === "function" ? process.__secureExecWait() : undefined;`;
 					}
 					return `${transformed}\n;typeof _waitForActiveHandles === "function" ? _waitForActiveHandles() : undefined;`;
 				})();

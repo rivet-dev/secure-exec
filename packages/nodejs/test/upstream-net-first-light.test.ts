@@ -9,10 +9,12 @@ import {
 import { NodeRuntime } from "../../secure-exec/src/runtime.ts";
 import {
 	createNodeDriver,
-	createNodeRuntime,
-	createNodeRuntimeDriverFactory,
 } from "../src/index.ts";
-import { runUpstreamNetFirstLightEval } from "../src/upstream/bootstrap-execution.ts";
+import {
+	createReplacementNodeKernelRuntime,
+	createReplacementNodeRuntimeDriverFactory,
+	runUpstreamNetFirstLightEval,
+} from "../src/upstream/bootstrap-execution.ts";
 
 interface NetFirstLightSummary {
 	serverHandle: string | null;
@@ -162,7 +164,7 @@ describe("upstream net first-light", () => {
 				filesystem: createInMemoryFileSystem(),
 				commandExecutor: createCommandExecutorStub(),
 			}),
-			runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+			runtimeDriverFactory: createReplacementNodeRuntimeDriverFactory(),
 			onStdio: (event) => stdio.push(event),
 		});
 
@@ -176,7 +178,7 @@ describe("upstream net first-light", () => {
 		kernel = createKernel({
 			filesystem: createInMemoryFileSystem(),
 		});
-		await kernel.mount(createNodeRuntime());
+		await kernel.mount(createReplacementNodeKernelRuntime());
 
 		const stdout: Uint8Array[] = [];
 		const stderr: Uint8Array[] = [];

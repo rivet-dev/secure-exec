@@ -572,7 +572,7 @@
         "Typecheck passes"
       ],
       "priority": 15.5,
-      "passes": false,
+      "passes": true,
       "notes": "Current critical gap: packages/nodejs/src/upstream/bootstrap-execution.ts still powers the public replacement runtime by spawning process.execPath with --expose-internals. That bypasses the real secure-exec-v8 execution path and risks invalidating memory/cpu/timing guarantees."
     },
     {

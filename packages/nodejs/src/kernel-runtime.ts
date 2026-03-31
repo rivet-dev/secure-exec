@@ -34,7 +34,6 @@ import type {
   CommandExecutor,
 } from '@secure-exec/core';
 import type { LiveStdinSource } from './isolate-bootstrap.js';
-import { createReplacementNodeKernelRuntime } from './upstream/bootstrap-execution.js';
 
 export interface NodeRuntimeOptions {
   /** Memory limit in MB for each V8 isolate (default: 128). */
@@ -121,7 +120,7 @@ const allowKernelProcSelfRead: Pick<Permissions, 'fs'> = {
  * Create a Node.js RuntimeDriver that can be mounted into the kernel.
  */
 export function createNodeRuntime(_options?: NodeRuntimeOptions): RuntimeDriver {
-  return createReplacementNodeKernelRuntime();
+  return createLegacyNodeRuntime(_options);
 }
 
 export function createLegacyNodeRuntime(options?: NodeRuntimeOptions): RuntimeDriver {

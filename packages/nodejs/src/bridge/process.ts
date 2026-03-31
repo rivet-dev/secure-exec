@@ -222,6 +222,64 @@ if (
 // Exit code tracking
 let _exitCode = 0;
 let _exited = false;
+let _secureExecDoneState:
+  | {
+      promise: Promise<void>;
+      resolve: () => void;
+      reject: (error: Error) => void;
+      settled: boolean;
+    }
+  | undefined;
+
+function getSecureExecDoneState(): {
+  promise: Promise<void>;
+  resolve: () => void;
+  reject: (error: Error) => void;
+  settled: boolean;
+} {
+  if (_secureExecDoneState) {
+    return _secureExecDoneState;
+  }
+
+  let resolve!: () => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<void>((innerResolve, innerReject) => {
+    resolve = innerResolve;
+    reject = innerReject;
+  });
+
+  _secureExecDoneState = {
+    promise,
+    resolve,
+    reject,
+    settled: false,
+  };
+  return _secureExecDoneState;
+}
+
+function __secureExecDone(error?: unknown): void {
+  const state = getSecureExecDoneState();
+  if (state.settled) {
+    return;
+  }
+
+  state.settled = true;
+  if (error === undefined || error === null || error === "") {
+    state.resolve();
+    return;
+  }
+
+  if (error instanceof Error) {
+    state.reject(error);
+    return;
+  }
+
+  state.reject(new Error(String(error)));
+}
+
+function __secureExecWait(): Promise<void> {
+  return getSecureExecDoneState().promise;
+}
 
 /**
  * Thrown by `process.exit()` to unwind the sandbox call stack. The host
@@ -1202,6 +1260,9 @@ const process: Record<string, unknown> & {
     const msg = typeof warning === "string" ? warning : warning.message;
     _emit("warning", { message: msg, name: "Warning" });
   },
+
+  __secureExecDone,
+  __secureExecWait,
 
   binding(_name: string): never {
     throw new Error("process.binding is not supported in sandbox");

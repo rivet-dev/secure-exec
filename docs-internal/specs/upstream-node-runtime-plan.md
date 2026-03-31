@@ -915,11 +915,12 @@ At this phase, do not promise:
 - host `tcp_wrap.TCP.prototype.owner` is already non-configurable in the exposed-internals child, so the replacement runner must hand vendored `net` a subclassed `TCP` constructor before `lib/net.js` defines its legacy `owner` alias; otherwise module initialization fails before any socket work starts
 - US-013 extends that same host-context strategy to the HTTP family: async first-light now host-context compiles vendored `http`, `https`, `_http_agent`, `_http_client`, `_http_common`, `_http_incoming`, `_http_outgoing`, `_http_server`, and vendored `internal/http` so the pinned upstream JS does not mix with host helpers that are missing Node 22 APIs such as `internal/http.getGlobalAgent()`
 - focused HTTP parity now covers isolated-child, standalone `NodeRuntime`, and kernel-mounted header-level `http` client/server round-trips, exact raw HTTP response bytes against a host Node control server for a representative `http.createServer()` response, and `https` module resolution through the replacement runtime with host `tls` still delegated
-- US-015 adds a real file-entry path on the replacement runtime: standalone `NodeRuntime` and kernel-mounted `node <file>` executions now stage only the entry file's relative module closure plus the nearest `package.json` metadata into a temporary host worktree, instead of snapshotting an entire VFS subtree that can drag unrelated fixtures such as unsupported native addons into the loader path
+- US-015 adds a real file-entry path on the helper-child replacement runner: its experimental standalone and kernel-mounted test wrappers now stage only the entry file's relative module closure plus the nearest `package.json` metadata into a temporary host worktree, instead of snapshotting an entire VFS subtree that can drag unrelated fixtures such as unsupported native addons into the loader path
 - the helper child now exposes a host-backed `internalBinding('modules')` shim with `getNearestParentPackageJSON()` layered onto the host `modules` binding so vendored `internal/modules/package_json_reader` can resolve relative CommonJS test files that call `require('../common')`
 - file-backed CommonJS loading continues through the vendored `internal/modules/cjs/loader`, but its loader-phase `internalBinding('fs')` calls stay on the host binding instead of the fs first-light backend shim; that keeps module resolution honest while the vendored/public `fs` parity story remains scoped to the dedicated fs-first-light path
 - package-json-aware ESM entry files now execute from real file paths on the replacement runtime through the helper-child file-entry path, with relative `import` resolution and `"type": "module"` package detection covered in focused standalone tests
 - targeted vendored node-conformance coverage now includes `test-path-isabsolute.js` through the real runner harness, and its stale `expectations.json` entry was removed after the file stopped failing in `internal/modules/package_json_reader`
+- US-034 moves the public `createNodeRuntimeDriverFactory()` and `createNodeRuntime()` surfaces back onto `NodeExecutionDriver` and `secure-exec-v8`, while the helper-child runtime in `packages/nodejs/src/upstream/bootstrap-execution.ts` remains internal-only bring-up infrastructure until the upstream loader can execute inside the V8 session itself
 
 ### Exit Criteria
 
@@ -1034,8 +1035,9 @@ Replace the current runtime implementation wholesale once bootstrap plus `fs` an
 
 Current in-tree status:
 
-- public `createNodeRuntimeDriverFactory()` and `createNodeRuntime()` now route to the vendored upstream bootstrap + `fs` first-light wrappers
-- the historical bridge/bootstrap path remains only behind internal `createLegacyNodeRuntimeDriverFactory()` and `createLegacyNodeRuntime()` escape hatches so follow-on `net` / `http` work can diff behavior without keeping the legacy path as the product surface
+- public `createNodeRuntimeDriverFactory()` and `createNodeRuntime()` route through `NodeExecutionDriver` and `secure-exec-v8` so product execution keeps the real runtime budgets, timing mitigation, and isolate-recovery guarantees
+- the helper-child upstream replacement path remains available only through `packages/nodejs/src/upstream/bootstrap-execution.ts` for direct bootstrap/fs/net/http/readline/modules bring-up coverage
+- fully deleting the legacy V8-backed path is still blocked until the upstream loader can run inside the real V8 session without depending on `node --expose-internals`
 
 ### Exit Criteria
 

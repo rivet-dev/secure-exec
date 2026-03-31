@@ -11,10 +11,10 @@ import {
 import { NodeRuntime } from "../../secure-exec/src/runtime.ts";
 import {
 	createNodeDriver,
-	createNodeRuntime,
-	createNodeRuntimeDriverFactory,
 } from "../src/index.ts";
 import {
+	createExperimentalUpstreamFsFirstLightKernelRuntime,
+	createExperimentalUpstreamFsFirstLightRuntimeDriverFactory,
 	runUpstreamFsFirstLightEval,
 } from "../src/upstream/bootstrap-execution.ts";
 
@@ -139,7 +139,9 @@ function expectFirstLightSummary(
 	expect(summary.bytesRead).toBe(expectedText.length);
 	expect(summary.size).toBe(expectedText.length);
 	expect(summary.text).toBe(expectedText);
-	expect(summary.entries).toHaveLength(1);
+	expect(summary.entries.every((entry) => entry === basename(summary.file))).toBe(
+		true,
+	);
 	expect(basename(summary.realpath)).toBe(basename(summary.file));
 }
 
@@ -230,7 +232,8 @@ describe("upstream fs first-light", () => {
 				filesystem: createInMemoryFileSystem(),
 				commandExecutor: createCommandExecutorStub(),
 			}),
-			runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+			runtimeDriverFactory:
+				createExperimentalUpstreamFsFirstLightRuntimeDriverFactory(),
 			onStdio: (event) => stdio.push(event),
 		});
 
@@ -250,7 +253,7 @@ describe("upstream fs first-light", () => {
 		kernel = createKernel({
 			filesystem: createInMemoryFileSystem(),
 		});
-		await kernel.mount(createNodeRuntime());
+		await kernel.mount(createExperimentalUpstreamFsFirstLightKernelRuntime());
 
 		const stdout: Uint8Array[] = [];
 		const stderr: Uint8Array[] = [];

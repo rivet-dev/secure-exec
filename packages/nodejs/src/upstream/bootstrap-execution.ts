@@ -646,6 +646,11 @@ export function createExperimentalUpstreamFsFirstLightRuntimeDriverFactory(): No
 	});
 }
 
+/**
+ * Internal-only helper-child runtime factory for upstream bring-up coverage.
+ * Public product surfaces must stay on NodeExecutionDriver/secure-exec-v8 until
+ * this loader can execute inside the real V8 session.
+ */
 export function createReplacementNodeRuntimeDriverFactory(): NodeRuntimeDriverFactory {
 	return createExperimentalUpstreamBootstrapRuntimeDriverFactory({
 		awaitCompletionSignalMode: "auto",
@@ -1097,6 +1102,11 @@ export function createExperimentalUpstreamFsFirstLightKernelRuntime(): KernelRun
 	});
 }
 
+/**
+ * Internal-only helper-child kernel runtime for upstream bring-up coverage.
+ * Public `createNodeRuntime()` must stay on the V8-backed kernel runtime until
+ * the upstream loader no longer depends on `node --expose-internals`.
+ */
 export function createReplacementNodeKernelRuntime(): KernelRuntimeDriver {
 	return createExperimentalUpstreamBootstrapKernelRuntime({
 		awaitCompletionSignalMode: "auto",

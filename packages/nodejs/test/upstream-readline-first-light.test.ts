@@ -10,10 +10,10 @@ import { TerminalHarness } from "../../core/test/kernel/terminal-harness.ts";
 import { NodeRuntime } from "../../secure-exec/src/runtime.ts";
 import {
 	createNodeDriver,
-	createNodeRuntime,
-	createNodeRuntimeDriverFactory,
 } from "../src/index.ts";
 import {
+	createReplacementNodeKernelRuntime,
+	createReplacementNodeRuntimeDriverFactory,
 	runUpstreamReadlineFirstLightEval,
 	type UpstreamBootstrapEvalResult,
 } from "../src/upstream/bootstrap-execution.ts";
@@ -139,7 +139,7 @@ describe("upstream readline first-light", () => {
 				filesystem: createInMemoryFileSystem(),
 				commandExecutor: createCommandExecutorStub(),
 			}),
-			runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+			runtimeDriverFactory: createReplacementNodeRuntimeDriverFactory(),
 			onStdio: (event) => stdio.push(event),
 		});
 
@@ -153,7 +153,7 @@ describe("upstream readline first-light", () => {
 		kernel = createKernel({
 			filesystem: createInMemoryFileSystem(),
 		});
-		await kernel.mount(createNodeRuntime());
+		await kernel.mount(createReplacementNodeKernelRuntime());
 		harness = new TerminalHarness(kernel, {
 			command: "node",
 			args: ["-e", READLINE_PTY_LINE_EVAL],
@@ -174,7 +174,7 @@ describe("upstream readline first-light", () => {
 		kernel = createKernel({
 			filesystem: createInMemoryFileSystem(),
 		});
-		await kernel.mount(createNodeRuntime());
+		await kernel.mount(createReplacementNodeKernelRuntime());
 		harness = new TerminalHarness(kernel, {
 			command: "node",
 			args: ["-e", READLINE_PTY_SIGINT_EVAL],

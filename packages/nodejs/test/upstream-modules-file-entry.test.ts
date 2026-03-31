@@ -20,10 +20,10 @@ import {
 import { NodeRuntime } from "../../secure-exec/src/runtime.ts";
 import {
 	createNodeDriver,
-	createNodeRuntime,
-	createNodeRuntimeDriverFactory,
 } from "../src/index.ts";
 import {
+	createReplacementNodeKernelRuntime,
+	createReplacementNodeRuntimeDriverFactory,
 	runUpstreamBootstrapEval,
 	type UpstreamBootstrapEvalResult,
 } from "../src/upstream/bootstrap-execution.ts";
@@ -108,7 +108,7 @@ async function runVendoredConformanceFile(
 			filesystem,
 			commandExecutor: createCommandExecutorStub(),
 		}),
-		runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+		runtimeDriverFactory: createReplacementNodeRuntimeDriverFactory(),
 	});
 	const stdout: string[] = [];
 	const stderr: string[] = [];
@@ -198,7 +198,7 @@ describe("upstream modules file entry", () => {
 				filesystem,
 				commandExecutor: createCommandExecutorStub(),
 			}),
-			runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+			runtimeDriverFactory: createReplacementNodeRuntimeDriverFactory(),
 			onStdio: (event) => stdio.push(event),
 		});
 
@@ -223,7 +223,7 @@ describe("upstream modules file entry", () => {
 				filesystem,
 				commandExecutor: createCommandExecutorStub(),
 			}),
-			runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+			runtimeDriverFactory: createReplacementNodeRuntimeDriverFactory(),
 			onStdio: (event) => stdio.push(event),
 		});
 
@@ -249,7 +249,7 @@ describe("upstream modules file entry", () => {
 			"module.exports = { answer: 42 };",
 		);
 		await kernel.vfs.writeFile("/test/parallel/test.js", CJS_COMMON_ENTRY);
-		await kernel.mount(createNodeRuntime());
+		await kernel.mount(createReplacementNodeKernelRuntime());
 
 		const stdout: Uint8Array[] = [];
 		const stderr: Uint8Array[] = [];

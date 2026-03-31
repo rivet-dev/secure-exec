@@ -11,10 +11,10 @@ import {
 import { NodeRuntime } from "../../secure-exec/src/runtime.ts";
 import {
 	createNodeDriver,
-	createNodeRuntime,
-	createNodeRuntimeDriverFactory,
 } from "../src/index.ts";
 import {
+	createReplacementNodeKernelRuntime,
+	createReplacementNodeRuntimeDriverFactory,
 	runUpstreamHttpFirstLightEval,
 	type UpstreamBootstrapEvalResult,
 } from "../src/upstream/bootstrap-execution.ts";
@@ -306,7 +306,7 @@ describe("upstream http first-light", () => {
 				filesystem: createInMemoryFileSystem(),
 				commandExecutor: createCommandExecutorStub(),
 			}),
-			runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+			runtimeDriverFactory: createReplacementNodeRuntimeDriverFactory(),
 			onStdio: (event) => stdio.push(event),
 		});
 
@@ -320,7 +320,7 @@ describe("upstream http first-light", () => {
 		kernel = createKernel({
 			filesystem: createInMemoryFileSystem(),
 		});
-		await kernel.mount(createNodeRuntime());
+		await kernel.mount(createReplacementNodeKernelRuntime());
 
 		const stdout: Uint8Array[] = [];
 		const stderr: Uint8Array[] = [];
