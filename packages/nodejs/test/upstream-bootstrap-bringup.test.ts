@@ -66,6 +66,7 @@ describe("upstream bootstrap bring-up", () => {
 				"async_wrap-bootstrap-hook-provider",
 				"buffer.setBufferPrototype-noop",
 				"internal/options-host-shim",
+				"process_methods-explicit-provider",
 				"public-builtin-host-fallback",
 			]),
 		);

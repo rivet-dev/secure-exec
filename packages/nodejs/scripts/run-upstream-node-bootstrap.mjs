@@ -14,6 +14,7 @@ import {
 } from "node:timers";
 import { compileFunction, createContext } from "node:vm";
 import { createUpstreamFsBinding } from "./upstream-node-fs-binding.mjs";
+import { createProcessMethodsBinding } from "./upstream-node-process-methods-binding.mjs";
 
 const require = createRequire(import.meta.url);
 const ASSET_ROOT_URL = new URL("../assets/upstream-node/", import.meta.url);
@@ -47,6 +48,7 @@ const APPLIED_BINDING_SHIMS = Object.freeze([
 	"host-internal/util/debuglog-initializeDebugEnv",
 	"public-builtin-host-fallback",
 	"modules-getNearestParentPackageJSON-shim",
+	"process_methods-explicit-provider",
 ]);
 const HOST_CONTEXT_BUILTINS = new Set([
 	"net",
@@ -514,8 +516,76 @@ function createAsyncWrapBinding() {
 function createProcessShim(payload, stdoutChunks, stderrChunks) {
 	const processShim = Object.create({});
 	const utilBinding = internalBinding("util");
-	const cwd = payload.cwd ?? process.cwd();
 	const useLiveStdio = payload.liveStdio === true;
+	let currentCwd = payload.cwd ?? process.cwd();
+	let currentUmask = process.umask();
+
+	function createCapturedStdout() {
+		return {
+			write(chunk, encoding, callback) {
+				let resolvedEncoding = encoding;
+				let resolvedCallback = callback;
+				if (typeof resolvedEncoding === "function") {
+					resolvedCallback = resolvedEncoding;
+					resolvedEncoding = undefined;
+				}
+				stdoutChunks.push(normalizeChunk(chunk, resolvedEncoding));
+				if (typeof resolvedCallback === "function") {
+					resolvedCallback(null);
+				}
+				return true;
+			},
+		};
+	}
+
+	function createCapturedStderr() {
+		return {
+			write(chunk, encoding, callback) {
+				let resolvedEncoding = encoding;
+				let resolvedCallback = callback;
+				if (typeof resolvedEncoding === "function") {
+					resolvedCallback = resolvedEncoding;
+					resolvedEncoding = undefined;
+				}
+				stderrChunks.push(normalizeChunk(chunk, resolvedEncoding));
+				if (typeof resolvedCallback === "function") {
+					resolvedCallback(null);
+				}
+				return true;
+			},
+		};
+	}
+
+	function createCapturedStdin() {
+		return {
+			isTTY: false,
+			setEncoding() {},
+			on() {
+				return this;
+			},
+			once() {
+				return this;
+			},
+			pause() {
+				return this;
+			},
+			removeAllListeners() {
+				return this;
+			},
+			removeListener() {
+				return this;
+			},
+			resume() {
+				return this;
+			},
+		};
+	}
+
+	function resetStdioForTesting() {
+		processShim.stdout = useLiveStdio ? process.stdout : createCapturedStdout();
+		processShim.stderr = useLiveStdio ? process.stderr : createCapturedStderr();
+		processShim.stdin = useLiveStdio ? process.stdin : createCapturedStdin();
+	}
 
 	Object.assign(processShim, {
 		versions: process.versions,
@@ -523,14 +593,27 @@ function createProcessShim(payload, stdoutChunks, stderrChunks) {
 		release: process.release,
 		emitWarning() {},
 		env: useLiveStdio ? process.env : { ...(payload.env ?? process.env) },
-		argv: payload.argv ?? ["node"],
-		execArgv: payload.execArgv ?? [],
+		argv: [...(payload.argv ?? ["node"])],
+		execArgv: [...(payload.execArgv ?? [])],
+		execPath: process.execPath,
+		title: process.title,
+		debugPort: process.debugPort,
 		features: process.features,
 		pid: process.pid,
 		ppid: process.ppid,
 		platform: process.platform,
 		arch: process.arch,
-		cwd: () => cwd,
+		cwd: () => currentCwd,
+		chdir(directory) {
+			currentCwd = directory;
+		},
+		umask(mask) {
+			const previous = currentUmask;
+			if (typeof mask === "number") {
+				currentUmask = mask & 0o777;
+			}
+			return previous;
+		},
 		nextTick: process.nextTick.bind(process),
 		on: process.on.bind(process),
 		once: process.once.bind(process),
@@ -540,28 +623,12 @@ function createProcessShim(payload, stdoutChunks, stderrChunks) {
 		emit: process.emit.bind(process),
 		listenerCount: process.listenerCount.bind(process),
 		rawListeners: process.rawListeners.bind(process),
-		stdout: useLiveStdio ? process.stdout : {
-			write(chunk) {
-				stdoutChunks.push(normalizeChunk(chunk));
-				return true;
-			},
-		},
-		stderr: useLiveStdio ? process.stderr : {
-			write(chunk) {
-				stderrChunks.push(normalizeChunk(chunk));
-				return true;
-			},
-		},
-		stdin: useLiveStdio ? process.stdin : {
-			isTTY: false,
-			setEncoding() {},
-			on() {},
-			resume() {},
-		},
 		exit(code) {
 			throw new ProcessExitSignal(code ?? 0);
 		},
 	});
+
+	resetStdioForTesting();
 
 	processShim.hrtime = process.hrtime.bind(process);
 	processShim.hrtime.bigint = process.hrtime.bigint.bind(process.hrtime);
@@ -573,7 +640,11 @@ function createProcessShim(payload, stdoutChunks, stderrChunks) {
 	processShim[utilBinding.privateSymbols.exit_info_private_symbol] =
 		new Uint32Array(3);
 
-	return processShim;
+	return {
+		processShim,
+		resetStdioForTesting,
+		useLiveStdio,
+	};
 }
 
 function createInternalOptionsShim(optionInfo, optionsValues) {
@@ -684,7 +755,20 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 		"--strip-types": false,
 		"--inspect-brk": false,
 	};
-	const processShim = createProcessShim(payload, stdoutChunks, stderrChunks);
+	const {
+		processShim,
+		resetStdioForTesting,
+		useLiveStdio,
+	} = createProcessShim(payload, stdoutChunks, stderrChunks);
+	const processMethodsBinding = createProcessMethodsBinding({
+		processShim,
+		resetStdioForTesting,
+		raiseProcessExit(code) {
+			throw new ProcessExitSignal(code ?? 0);
+		},
+		stderrChunks,
+		useLiveStdio,
+	});
 	const privateSymbols = {
 		transfer_mode_private_symbol: Symbol("transfer_mode_private_symbol"),
 	};
@@ -988,6 +1072,10 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 				...internalBinding("trace_events"),
 				setTraceCategoryStateUpdateHandler() {},
 			};
+		}
+
+		if (name === "process_methods") {
+			return processMethodsBinding;
 		}
 
 		if (name === "cjs_lexer") {

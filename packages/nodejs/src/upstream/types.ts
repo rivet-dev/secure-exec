@@ -69,6 +69,39 @@ export interface UpstreamBuiltinsBinding {
 	): void;
 }
 
+export interface UpstreamProcessMethodsBinding {
+	_debugEnd(): never;
+	_debugProcess(): never;
+	_getActiveHandles(): unknown[];
+	_getActiveRequests(): unknown[];
+	_kill(pid: number, signal: number): number;
+	_rawDebug(message: string): void;
+	abort(): never;
+	availableMemory(): number;
+	causeSegfault(): never;
+	chdir(directory: string): void;
+	constrainedMemory(): number;
+	cpuUsage(values: Float64Array): void;
+	cwd(): string;
+	dlopen(...args: unknown[]): never;
+	execve(...args: unknown[]): never;
+	getActiveResourcesInfo(): string[];
+	hrtime(): void;
+	hrtimeBigInt(): void;
+	hrtimeBuffer: Uint32Array;
+	loadEnvFile(filePath?: string): void;
+	memoryUsage(values: Float64Array): void;
+	patchProcessObject(target: Record<string, unknown>): void;
+	reallyExit(code?: number): never;
+	resetStdioForTesting(): void;
+	resourceUsage(values: Float64Array): void;
+	rss(): number;
+	setEmitWarningSync(callback: (...args: unknown[]) => void): void;
+	threadCpuUsage(values: Float64Array): void;
+	umask(mask?: number): number;
+	uptime(): number;
+}
+
 export type UpstreamBindingStatus = "deferred" | "implemented" | "planned";
 export type UpstreamBindingExecutionModel =
 	| "deferred"

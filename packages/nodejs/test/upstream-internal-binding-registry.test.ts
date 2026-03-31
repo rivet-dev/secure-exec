@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createBootstrapBindingRegistryScaffold } from "../src/upstream/internal-binding-registry.ts";
 import { createExperimentalUpstreamRuntimeDriverScaffold } from "../src/upstream/runtime-driver.ts";
+import type { UpstreamProcessMethodsBinding } from "../src/upstream/types.ts";
 
 describe("upstream internal binding registry", () => {
 	it("classifies bootstrap and fs-first bindings explicitly", () => {
@@ -69,6 +70,11 @@ describe("upstream internal binding registry", () => {
 		const errors = runtimeScaffold.resolveInternalBinding("errors") as {
 			exitCodes: { kNoFailure: number };
 		};
+		const processMethods = runtimeScaffold.resolveInternalBinding(
+			"process_methods",
+		) as UpstreamProcessMethodsBinding;
+		const hrtimeSnapshot = new Uint32Array(3);
+		const patchedTarget: Record<string, unknown> = {};
 
 		expect(config).toMatchObject({
 			hasIntl: expect.any(Boolean),
@@ -83,6 +89,20 @@ describe("upstream internal binding registry", () => {
 		expect(() => buffer.setBufferPrototype()).not.toThrow();
 		expect(() => asyncWrap.setupHooks({ init: () => {} })).not.toThrow();
 		expect(errors.exitCodes.kNoFailure).toBe(0);
+		processMethods.hrtime();
+		hrtimeSnapshot.set(processMethods.hrtimeBuffer);
+		processMethods.patchProcessObject(patchedTarget);
+		expect(hrtimeSnapshot[2]).toBeGreaterThanOrEqual(0);
+		expect(processMethods.hrtimeBuffer.buffer.byteLength).toBe(12);
+		expect(patchedTarget).toMatchObject({
+			title: process.title,
+			pid: process.pid,
+			ppid: process.ppid,
+			execPath: process.execPath,
+			versions: process.versions,
+		});
+		expect(() => processMethods.setEmitWarningSync(() => {})).not.toThrow();
+		expect(() => processMethods.resetStdioForTesting()).not.toThrow();
 	});
 
 	it("throws explicit errors for deferred or not-yet-wired bindings", () => {

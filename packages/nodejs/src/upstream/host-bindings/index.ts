@@ -9,6 +9,7 @@ import type {
 	UpstreamInternalBindingRegistration,
 	UpstreamInternalBindingResolverContext,
 } from "../types.js";
+import { createScaffoldProcessMethodsBinding } from "./process-methods.js";
 
 function deepFreeze<T>(value: T): T {
 	if (value && typeof value === "object" && !Object.isFrozen(value)) {
@@ -233,7 +234,7 @@ export const upstreamHostBindingCatalog: readonly UpstreamInternalBindingRegistr
 		{
 			descriptor: {
 				name: "process_methods",
-				status: "planned",
+				status: "implemented",
 				executionModel: "host-lifecycle-plus-backend",
 				requiredFor: phases("bootstrap"),
 				hostResponsibilities: responsibilities(
@@ -243,8 +244,9 @@ export const upstreamHostBindingCatalog: readonly UpstreamInternalBindingRegistr
 					"ref-unref-state",
 				),
 				notes:
-					"Process lifecycle methods remain host-owned, but they still need a dedicated provider that can bridge kernel-backed state without smuggling legacy bootstrap behavior forward.",
+					"US-027 promotes process_methods to an explicit host-owned provider: bootstrap patching, hrtime/cpu/memory/resource metrics, warning-hook registration, stdio cache reset hooks, and process-state helpers stay deliberate, while dlopen/execve/debugger control remain deterministic unsupported paths instead of implicit host fallthrough.",
 			},
+			createBinding: () => createScaffoldProcessMethodsBinding(),
 		},
 		{
 			descriptor: {
