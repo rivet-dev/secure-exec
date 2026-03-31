@@ -3,8 +3,16 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { allowAll, createInMemoryFileSystem } from "../../src/index.js";
-import { createTestNodeRuntime } from "../test-utils.js";
+import { createCommandExecutorStub } from "@secure-exec/core";
+import {
+	allowAll,
+	createInMemoryFileSystem,
+} from "../../src/index.js";
+import { NodeRuntime } from "../../src/runtime.ts";
+import {
+	createNodeDriver,
+	createNodeRuntimeDriverFactory,
+} from "../../../nodejs/src/index.ts";
 import {
 	type ExpectationsFile,
 	isVacuousPassExpectation,
@@ -121,19 +129,23 @@ async function runTestInSandbox(
 	const capturedStdout: string[] = [];
 	const capturedStderr: string[] = [];
 
-	const runtime = createTestNodeRuntime({
-		filesystem: fs,
-		permissions: allowAll,
+	const runtime = new NodeRuntime({
+		systemDriver: createNodeDriver({
+			filesystem: fs,
+			commandExecutor: createCommandExecutorStub(),
+			permissions: allowAll,
+			processConfig: {
+				cwd: "/test/parallel",
+				env: {},
+			},
+		}),
+		runtimeDriverFactory: createNodeRuntimeDriverFactory(),
 		onStdio: (event) => {
 			if (event.channel === "stdout") {
 				capturedStdout.push(event.message);
 			} else {
 				capturedStderr.push(event.message);
 			}
-		},
-		processConfig: {
-			cwd: "/test/parallel",
-			env: {},
 		},
 	});
 

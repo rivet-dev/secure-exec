@@ -2,6 +2,8 @@
 
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import {
 	clearImmediate as hostClearImmediate,
 	clearInterval as hostClearInterval,
@@ -43,6 +45,7 @@ const APPLIED_BINDING_SHIMS = Object.freeze([
 	"internal/util/debuglog-initializeDebugEnv",
 	"host-internal/util/debuglog-initializeDebugEnv",
 	"public-builtin-host-fallback",
+	"modules-getNearestParentPackageJSON-shim",
 ]);
 const HOST_CONTEXT_BUILTINS = new Set([
 	"net",
@@ -257,6 +260,8 @@ function createProcessCapture(payload, stdoutChunks, stderrChunks) {
 	payload.cwd ??= process.cwd();
 	if (Array.isArray(payload.argv) && payload.argv.length > 0) {
 		process.argv = [...payload.argv];
+	} else if (typeof payload.filePath === "string" && payload.filePath.length > 0) {
+		process.argv = ["node", payload.filePath];
 	}
 	if (Array.isArray(payload.execArgv)) {
 		process.execArgv = [...payload.execArgv];
@@ -437,6 +442,42 @@ function createTcpWrapBinding() {
 	};
 }
 
+function createModulesBinding() {
+	const hostModulesBinding = internalBinding("modules");
+
+	function getNearestParentPackageJSON(checkPath) {
+		if (typeof hostModulesBinding.getNearestParentPackageJSON === "function") {
+			return hostModulesBinding.getNearestParentPackageJSON(checkPath);
+		}
+
+		let currentDir = path.dirname(path.resolve(checkPath));
+		while (true) {
+			const packageJsonPath = path.join(currentDir, "package.json");
+			try {
+				return hostModulesBinding.readPackageJSON(packageJsonPath, false);
+			} catch (error) {
+				if (
+					error?.code !== "ENOENT" &&
+					error?.code !== "ENOTDIR"
+				) {
+					throw error;
+				}
+			}
+
+			const parentDir = path.dirname(currentDir);
+			if (parentDir === currentDir) {
+				return undefined;
+			}
+			currentDir = parentDir;
+		}
+	}
+
+	return {
+		...hostModulesBinding,
+		getNearestParentPackageJSON,
+	};
+}
+
 function createProcessShim(payload, stdoutChunks, stderrChunks) {
 	const processShim = Object.create({});
 	const utilBinding = internalBinding("util");
@@ -519,7 +560,7 @@ function createInternalOptionsShim(optionInfo, optionsValues) {
 	};
 }
 
-function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
+async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 	const context = createContext({
 		console,
 		URL,
@@ -556,6 +597,8 @@ function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 		payload.vendoredPublicBuiltins,
 	);
 	const executeUserCodeDirectly = payload.awaitCompletionSignal === true;
+	const executeUserFileEntry =
+		typeof payload.filePath === "string" && payload.filePath.length > 0;
 	const vendoredPublicBuiltinsLoaded = new Set();
 	const optionInfo = internalBinding("options").getCLIOptionsInfo();
 	const fsBindingProvider =
@@ -564,6 +607,7 @@ function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 			: null;
 	const fsEventWrapBinding = createFsEventWrapBinding();
 	const tcpWrapBinding = createTcpWrapBinding();
+	const modulesBinding = createModulesBinding();
 	const optionsValues = {
 		"--eval": executeUserCodeDirectly ? "" : payload.code ?? "",
 		"--print": false,
@@ -692,7 +736,7 @@ function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 			};
 		}
 
-		if (name === "fs" && fsBindingProvider) {
+		if (name === "fs" && fsBindingProvider && !executeUserFileEntry) {
 			return fsBindingProvider.binding;
 		}
 
@@ -704,7 +748,44 @@ function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 			return tcpWrapBinding;
 		}
 
+		if (name === "modules") {
+			return modulesBinding;
+		}
+
 		return internalBinding(name);
+	}
+
+	function shouldUseEsmFileEntry(entryFilePath) {
+		if (
+			entryFilePath.endsWith(".mjs") ||
+			entryFilePath.endsWith(".mts") ||
+			entryFilePath.endsWith(".wasm")
+		) {
+			return true;
+		}
+		if (
+			entryFilePath.endsWith(".cjs") ||
+			entryFilePath.endsWith(".cts")
+		) {
+			return false;
+		}
+		if (!entryFilePath.endsWith(".js") && !entryFilePath.endsWith(".ts")) {
+			return false;
+		}
+		return (
+			modulesBinding.getNearestParentPackageJSONType?.(entryFilePath) === "module"
+		);
+	}
+
+	async function executeUserFileCode(entryFilePath) {
+		const normalizedEntryPath = path.resolve(entryFilePath);
+		if (shouldUseEsmFileEntry(normalizedEntryPath)) {
+			await import(pathToFileURL(normalizedEntryPath).href);
+			return;
+		}
+
+		const cjsLoader = requireBuiltin("internal/modules/cjs/loader");
+		cjsLoader.wrapModuleLoad(normalizedEntryPath, null, true);
 	}
 
 	function requireBuiltin(id) {
@@ -882,7 +963,7 @@ function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 	function executeUserEvalCode() {
 		Object.assign(context, hostTimerGlobals);
 		const compiled = compileFunction(
-			payload.code,
+			payload.code ?? "",
 			["exports", "require", "module", "__filename", "__dirname"],
 			{
 				filename: "[eval]",
@@ -929,7 +1010,10 @@ function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 	);
 
 	let entrypoint = "internal/main/eval_string";
-	if (executeUserCodeDirectly) {
+	if (executeUserFileEntry) {
+		entrypoint = "secure_exec/file_entry";
+		await executeUserFileCode(payload.filePath);
+	} else if (executeUserCodeDirectly) {
 		entrypoint = "secure_exec/post_bootstrap_eval";
 		executeUserEvalCode();
 	} else {
@@ -959,11 +1043,16 @@ if (internalBinding) {
 	let execution;
 
 	try {
-		if (typeof payload.code !== "string") {
-			throw new Error("bootstrap runner payload requires a string `code` field");
+		if (
+			typeof payload.code !== "string" &&
+			typeof payload.filePath !== "string"
+		) {
+			throw new Error(
+				"bootstrap runner payload requires a string `code` or `filePath` field",
+			);
 		}
 
-		execution = createBootstrapExecution(payload, stdoutChunks, stderrChunks);
+		execution = await createBootstrapExecution(payload, stdoutChunks, stderrChunks);
 		if (execution.awaitCompletionSignal) {
 			await Promise.race([
 				execution.completionSignalPromise,

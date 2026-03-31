@@ -242,6 +242,470 @@
       "priority": 14,
       "passes": true,
       "notes": "Out-of-scope runtime features should still fail deterministically without breaking bootstrap."
+    },
+    {
+      "id": "US-015",
+      "title": "Implement modules binding and real package-json-aware ESM/CommonJS loading",
+      "description": "As a runtime engineer, I need the replacement runtime to support the upstream modules binding and package JSON lookup paths so vendored tests and real packages can load from disk instead of only the current eval-string first-light path.",
+      "acceptanceCriteria": [
+        "Implement the replacement-runtime internalBinding('modules') surface needed by internal/modules/package_json_reader and related loader paths, including getNearestParentPackageJSON or the exact current upstream equivalent",
+        "Replacement-runtime file execution supports a vendored conformance-style module that does relative require('../common') without falling back to the old runtime",
+        "Basic ESM entrypoints and relative import resolution work from real file paths on the replacement runtime",
+        "Add focused standalone and kernel-mounted tests that execute real files through the replacement runtime instead of only eval-string payloads",
+        "Run targeted vendored conformance files that previously failed in internal/modules/package_json_reader and remove stale expectations for any that now pass",
+        "Focused tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 15,
+      "passes": true,
+      "notes": "Current issue: vendored conformance files that use relative require('../common') still hit missing internalBinding('modules').getNearestParentPackageJSON support. The replacement runtime needs a real modules binding and file-based loader path, not just eval-string first-light."
+    },
+    {
+      "id": "US-016",
+      "title": "Replace bootstrap shims with bounded module_wrap, contextify, and async-hook runtime support",
+      "description": "As a runtime engineer, I need the replacement runtime to stop depending on bootstrap-era shims for module_wrap, contextify, and async hook setup so ESM and vm behavior can progress beyond first-light.",
+      "acceptanceCriteria": [
+        "Audit the current bootstrap shims used for module_wrap, contextify, buffer.setBufferPrototype(), and async_wrap.setupHooks() and document which are still temporary",
+        "Implement the minimum real runtime support needed for module_wrap and contextify to execute a trivial ESM module and a node:vm createContext()/runInContext() proof through the replacement runtime",
+        "If native/v8-runtime support is required, implement the smallest bounded change there instead of extending fake host-side shims indefinitely",
+        "internal/bootstrap/node no longer relies on a known-crash path in async_wrap.setupHooks() for the scoped replacement runtime bring-up",
+        "Add focused tests for trivial ESM import/export and node:vm context execution on the replacement runtime",
+        "Focused tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 16,
+      "passes": false,
+      "notes": "Critical issue encountered early: internal/bootstrap/node could abort in native async_wrap.setupHooks() before later scoped shims were added. This story is about replacing the bootstrap-only workaround with bounded runtime support."
+    },
+    {
+      "id": "US-017",
+      "title": "Harden the helper-child execution protocol for buffered, async, and PTY modes",
+      "description": "As a runtime engineer, I need the replacement runtime helper-child protocol to be explicit and reliable so async callbacks, plain node -e runs, and PTY sessions do not hang or silently lose output.",
+      "acceptanceCriteria": [
+        "Define and document the process.__secureExecDone() contract and when the replacement runtime should and should not wait for it",
+        "Keep buffered JSON mode, async callback mode, and live-stdio/PTTY mode explicit instead of inferred by fragile heuristics",
+        "Strip inherited NODE_CHANNEL_FD and NODE_UNIQUE_ID from nested helper children where needed so forked test workers do not break output collection",
+        "Plain replacement-runtime node -e smoke paths complete without deadlocking in always-wait mode",
+        "Add focused tests for buffered exec, async callback completion, and PTY/live-stdio helper-child paths",
+        "Focused tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 17,
+      "passes": false,
+      "notes": "Issues encountered: always-wait mode can deadlock plain node -e runs; nested helpers spawned from forked workers can inherit NODE_CHANNEL_FD / NODE_UNIQUE_ID and silently stop producing buffered JSON output."
+    },
+    {
+      "id": "US-018",
+      "title": "Finish fs FileHandle stream and WebStream parity on the replacement runtime",
+      "description": "As a runtime engineer, I need the remaining fs FileHandle-owned stream surfaces to work on the replacement runtime so fs parity goes beyond the current first-light subset.",
+      "acceptanceCriteria": [
+        "Build FileHandle-owned stream surfaces on top of backend-owned persistent fd/session state instead of the current path-reopen model",
+        "Implement the remaining backend fread or equivalent gap needed for FileHandle-owned createReadStream(), readableWebStream(), and related helpers",
+        "FileHandle-owned stream surfaces work on the replacement runtime for the supported subset instead of remaining deferred",
+        "Add focused tests for FileHandle createReadStream(), readableWebStream(), and any related FileHandle stream helpers that currently fail, including offset, append, and close behavior",
+        "Run the relevant vendored fs conformance coverage and remove stale expectations for any newly passing FileHandle stream cases",
+        "Focused tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 18,
+      "passes": false,
+      "notes": "Known unresolved fs issue from US-010: FileHandle-owned stream surfaces still fail on a backend fread gap and currently sit on top of a fake host-side fd table. This story assumes the preceding true backend fd/session work lands first."
+    },
+    {
+      "id": "US-019",
+      "title": "Replace fs_event_wrap compatibility hacks with a real watcher strategy",
+      "description": "As a runtime engineer, I need a deliberate fs watcher strategy so vendored internal/fs/watchers can load without ad hoc prototype hacks and unsupported watcher APIs fail deterministically.",
+      "acceptanceCriteria": [
+        "Decide and document the full watcher strategy for the replacement runtime: real kernel/VFS event support or deterministic unsupported behavior across fs.watch(), fs.watchFile(), fs.promises.watch(), and recursive-watch variants",
+        "vendored internal/fs/watchers can load without relying on fragile one-off prototype subclass hacks in the bootstrap runner, or the unsupported path is made explicit and isolated",
+        "If watcher APIs remain unsupported, they fail with deterministic Node-style validation and unsupported-path behavior on the replacement runtime instead of half-loading and hanging",
+        "If watcher APIs are implemented, define the required kernel/VFS event primitive and wire fs_event_wrap host lifecycle on top of it",
+        "Add focused tests for watcher module loading and the chosen supported or unsupported behavior, including negative-path coverage for watchFile/fs.promises.watch",
+        "Focused tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 19,
+      "passes": false,
+      "notes": "Issue encountered during fs parity work: vendored internal/fs/watchers throws on the host FSEvent prototype unless the bootstrap runner hands it a fresh subclass. Contracts currently describe watcher APIs as deferred fail-fast behavior, so this story must either codify that cleanly on the replacement runtime or build the missing kernel primitive."
+    },
+    {
+      "id": "US-020",
+      "title": "Replace net first-light hacks with a deliberate upstream network binding provider",
+      "description": "As a runtime engineer, I need the replacement runtime net/http stack to move from helper-runner special cases to a real upstream binding provider that preserves host-owned handle identity and lifecycle semantics.",
+      "acceptanceCriteria": [
+        "Replace the current helper-runner special cases and subclass hack for tcp_wrap.TCP owner alias with a deliberate binding-provider implementation",
+        "Add explicit upstream binding-registry coverage for the supported network bindings needed by the replacement runtime core, including tcp_wrap, stream_wrap, and http_parser, and document which adjacent bindings remain separate stories",
+        "Document and implement host-owned handle identity, callback/event delivery, ref/unref semantics, and close behavior for the supported network bindings on the replacement runtime",
+        "Keep only the socket bottom-half operations in the Wasm backend; do not move JS handle identity into Wasm",
+        "Add focused tests for repeated read/write events, close ordering, parser/wire behavior, and any net timeout/ref-unref behavior included in the supported subset",
+        "Run targeted vendored net conformance coverage and remove stale expectations for any newly passing cases",
+        "Focused tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 20,
+      "passes": false,
+      "notes": "Known issue from US-012: vendored lib/net.js currently needs a subclassed tcp_wrap.TCP so it can redefine the legacy owner alias, and the bootstrap runner still falls back to host internalBinding() for most network bindings. This story is about migrating the supported network path onto the explicit upstream binding registry."
+    },
+    {
+      "id": "US-021",
+      "title": "Expand http parity beyond first-light with agent, timeout, abort, and protocol edge cases",
+      "description": "As a runtime engineer, I need the replacement runtime HTTP stack to move beyond first-light round-trips into the edge cases that real packages and vendored Node tests rely on.",
+      "acceptanceCriteria": [
+        "Keep the whole vendored HTTP family together on the replacement runtime and avoid mixing pinned http.js with host _http_* or host internal/http helpers",
+        "Implement or harden keepalive/agent reuse, keep-alive timeout/header behavior, abort ordering, and upgrade/CONNECT handling on the replacement runtime",
+        "Add or extend wire-level differential tests that compare raw HTTP bytes against host Node for representative parser and protocol edge cases, not just one happy path",
+        "Run targeted vendored http conformance coverage for the implemented subset and remove stale expectations for any newly passing cases",
+        "Focused tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 21,
+      "passes": false,
+      "notes": "Known issue from US-013: HTTP first-light is stable only when the entire HTTP family stays vendored together. Next work is protocol and lifecycle parity for upgrades, parser edges, timeout headers, and abort behavior, not just another happy-path round-trip."
+    },
+    {
+      "id": "US-022",
+      "title": "Bring up direct tls/tls_wrap behavior and finish https integration on the replacement runtime",
+      "description": "As a runtime engineer, I need the replacement runtime to handle real direct tls flows so https stops being only a module-resolution proof layered over host TLS behavior.",
+      "acceptanceCriteria": [
+        "Replacement-runtime tls.connect(), tls.createServer(), and TLSSocket support a real TLS-backed round-trip for at least one representative scenario",
+        "Document and implement the minimum tls_wrap/TLSSocket behavior needed for the supported subset, including authorization state and at least one ALPN, SNI, certificate, or session-related behavior that matters for real usage",
+        "Replacement-runtime https requests run through the replacement tls path rather than only host-side module resolution proof",
+        "Add focused tests for direct tls and https requests on the replacement runtime, including at least one certificate/agent-related behavior that matters for real usage",
+        "Run targeted vendored https/tls conformance coverage for the implemented subset and remove stale expectations for any newly passing cases",
+        "Focused tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 22,
+      "passes": false,
+      "notes": "Current state from US-013 is https module resolution plus shared HTTP-family wiring. There is not yet direct replacement-runtime coverage for tls.createServer(), tls.connect(), or TLSSocket lifecycle, so this story has to make TLS first-class rather than hiding it inside https."
+    },
+    {
+      "id": "US-023",
+      "title": "Promote cares_wrap and dns behavior from probe-only to replacement-runtime parity",
+      "description": "As a runtime engineer, I need DNS behavior on the replacement runtime to move beyond preflight probes so packages and vendored tests can rely on it.",
+      "acceptanceCriteria": [
+        "Implement the supported cares_wrap-backed DNS behavior needed by the replacement runtime beyond the existing probe-only lookup proof, including dns.lookup(), dns.promises, Resolver, and resolve4/resolve6 for the chosen subset",
+        "Document and implement default result-order behavior and any autoselect-family interactions that the supported HTTP/net subset depends on",
+        "Decide and document the supported or unsupported behavior for lookupService(), getServers()/setServers(), and any remaining resolve* APIs rather than leaving them as implicit gaps",
+        "Add focused tests for localhost lookup, external lookup, resolve4/resolve6, Resolver usage, result-order behavior, and representative error cases on the replacement runtime",
+        "Add any minimal vendored conformance helper shims required under packages/secure-exec/tests/node-conformance/common/ for DNS fixtures instead of rewriting vendored tests",
+        "Run targeted vendored dns conformance coverage for the implemented subset and remove stale expectations for any newly passing cases",
+        "Focused tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 23,
+      "passes": false,
+      "notes": "The pre-research gate proved dns.lookup() at a probe level, but the replacement runtime still needs a real cares_wrap/dns strategy instead of treating the probe as parity. Richer DNS parity is likely to depend on the separate udp_wrap/dgram bring-up."
+    },
+    {
+      "id": "US-024",
+      "title": "Align readline/TTY with real WasmVM raw-mode backend support",
+      "description": "As a runtime engineer, I need the replacement runtime's readline and TTY behavior to line up with real WasmVM/kernel raw-mode support rather than relying only on helper-child PTY control paths.",
+      "acceptanceCriteria": [
+        "Define and implement the missing WasmVM/libc/kernel TTY ABI needed for raw mode, including the required host imports and libc plumbing for terminal attributes and window size, or document the exact remaining platform gap",
+        "Replacement-runtime readline/TTY behavior uses a deliberate raw-mode backend story instead of only the current helper-child control-path workaround",
+        "Add a standalone WasmVM-targeted TTY/raw-mode probe once the ABI exists, plus focused kernel-mediated tests for raw mode, terminal geometry, and signal-sensitive readline behavior that cover the supported subset",
+        "Focused tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 24,
+      "passes": false,
+      "notes": "Known issue from US-002 and US-014: TTY raw-mode backend support was still blocked at the WasmVM/libc/kernel layer during probe work, while the replacement runtime first-light used a helper-child PTY strategy. The current WasmVM ABI only proves isatty-style detection, not tcgetattr/tcsetattr/winsize parity."
+    },
+    {
+      "id": "US-025",
+      "title": "Run a replacement-runtime conformance sweep for fs, modules, net, http, https, dns, and readline",
+      "description": "As a runtime engineer, I need the vendored conformance suite rerun against the replacement runtime so we stop relying on first-light proofs alone.",
+      "acceptanceCriteria": [
+        "Run the relevant vendored node-conformance coverage for the replacement runtime across fs, modules/ESM, net, http, https, dns, and readline/tty",
+        "When a vendored file fails on a missing ../common/* helper, add the minimal shim under packages/secure-exec/tests/node-conformance/common/ instead of rewriting the vendored test",
+        "Remove stale expectations.json entries for tests that now pass on the replacement runtime",
+        "Remaining failures have specific, accurate reasons tied to the replacement runtime gaps rather than vague placeholders",
+        "Regenerate packages/secure-exec/tests/node-conformance/conformance-report.json and docs/nodejs-conformance-report.mdx",
+        "Focused tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 25,
+      "passes": false,
+      "notes": "The current log proves first-light milestones. This story is the parity sweep that turns those milestones into an honest conformance picture."
+    },
+    {
+      "id": "US-026",
+      "title": "Add project-matrix fixtures that exercise the replacement runtime through real packages",
+      "description": "As a runtime engineer, I need black-box project fixtures that use fs, ESM/modules, net, http, https, and readline so we can compare the replacement runtime to host Node on real package behavior.",
+      "acceptanceCriteria": [
+        "Add or update project-matrix fixtures under packages/secure-exec/tests/projects/ that exercise the replacement runtime through real package code rather than synthetic harness-only examples",
+        "Cover at least fs, module loading/ESM, one HTTP client fixture such as axios or node-fetch, one upgrade/TLS-sensitive fixture such as ws, one server fixture such as express or fastify, and one interactive or readline-sensitive fixture where realistic",
+        "Keep fixtures sandbox-blind and compare normalized code/stdout/stderr against host Node",
+        "Update docs/nodejs-compatibility.mdx or the tested-package tracking if new fixtures are added",
+        "Focused tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 26,
+      "passes": false,
+      "notes": "The replacement runtime is beyond pure research now. The next confidence layer after conformance is real package behavior through the project matrix, including at least one HTTP client fixture, one upgrade/TLS-sensitive fixture, and one server fixture that all exercise the public replacement path."
+    },
+    {
+      "id": "US-027",
+      "title": "Implement a real process_methods provider for the replacement runtime",
+      "description": "As a runtime engineer, I need the upstream runtime to stop carrying process bootstrap through planned or partial process_methods behavior so internal/process, warning, stdio, and process-state paths can execute without hidden legacy assumptions.",
+      "acceptanceCriteria": [
+        "Replace the current planned-only internalBinding('process_methods') inventory entry with a deliberate provider for the replacement runtime rather than relying on bootstrap-era assumptions",
+        "Document which process_methods surface is required for bootstrap, process warnings, stdio reset/testing hooks, and process-state switches, and which parts remain intentionally unsupported",
+        "Add focused tests that execute the supported process_methods-backed behaviors through the replacement runtime, including at least one internal/bootstrap path and one public process-facing path that currently depends on the shimmed state",
+        "Run targeted vendored conformance coverage that touches process bootstrap modules or process_methods-dependent helpers and remove stale expectations for any newly passing cases",
+        "Focused tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 16.2,
+      "passes": false,
+      "notes": "Current gap: the upstream binding inventory still marks process_methods as planned even though vendored internal/bootstrap/node.js and internal/process/* depend on it. This is a real missing provider, not just bookkeeping."
+    },
+    {
+      "id": "US-028",
+      "title": "Implement fs_dir, opendir, and Dir wrapper parity on the replacement runtime",
+      "description": "As a runtime engineer, I need the replacement runtime to support upstream internal/fs/dir.js and public opendir/Dir APIs so fs parity includes host-owned directory handles instead of stopping at path-based readdir and streams.",
+      "acceptanceCriteria": [
+        "Implement the replacement-runtime internalBinding('fs_dir') provider needed by upstream internal/fs/dir.js",
+        "Support the public fs.opendir(), fs.promises.opendir(), Dir.read(), Dir.readSync(), Dir.close(), and async iterator surfaces for the supported subset",
+        "Keep Dir/Dirent wrapper identity and close lifecycle on the host side while routing directory bottom-half operations through the chosen backend boundary",
+        "Add focused tests for opendir success, ENOTDIR/error paths, Dir iteration, and Dir close semantics on the replacement runtime",
+        "Run targeted vendored fs opendir/readdir-dirent conformance coverage and remove stale expectations for any newly passing cases",
+        "Focused tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 18.2,
+      "passes": false,
+      "notes": "The upstream binding inventory still marks fs_dir as deferred, and current fs parity work only covered path-based readdir plus FileHandle/path streams. Dir wrappers are a separate missing host-lifecycle surface."
+    },
+    {
+      "id": "US-029",
+      "title": "Expand node:module builtin parity for createRequire, package lookup, compile cache, and source-map APIs",
+      "description": "As a runtime engineer, I need the replacement runtime's node:module surface to handle real package workflows and vendored module API tests instead of stopping at the minimal loader path.",
+      "acceptanceCriteria": [
+        "Support the replacement-runtime node:module behaviors needed by real packages and targeted vendored tests, including createRequire() and package lookup paths that operate on real files instead of eval-only entrypoints",
+        "Decide and document the supported or explicitly unsupported behavior for compile-cache and source-map-related module APIs such as enableCompileCache(), getCompileCacheDir(), setSourceMapsSupport(), getSourceMapsSupport(), and findSourceMap()",
+        "If any node:module APIs remain unsupported, make them fail deterministically with Node-style validation and unsupported-path behavior rather than silent omission",
+        "Add focused tests for createRequire() from ESM, package-json lookup, and the chosen compile-cache/source-map behavior on the replacement runtime",
+        "Run targeted vendored conformance coverage for node:module API files and remove stale expectations for any newly passing cases",
+        "Focused tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 16.3,
+      "passes": false,
+      "notes": "The current PRD covers modules binding and file-based loading, but vendored node:module API coverage goes further than getNearestParentPackageJSON. Compile-cache and source-map APIs are visible gaps in the current replacement-runtime story."
+    },
+    {
+      "id": "US-030",
+      "title": "Reconcile target Node version governance with the pinned upstream runtime",
+      "description": "As a runtime engineer, I need the repo's target-version policy, docs, contracts, and validation baseline to agree on which Node line Secure Exec now targets so replacement-runtime work is measured against a single truth.",
+      "acceptanceCriteria": [
+        "Resolve the mismatch between the pinned upstream runtime assets and the repo's current target Node version statements in docs and contracts",
+        "Either upgrade the validation baseline and related package/tooling references to the chosen target line or explicitly document why the pinned upstream runtime intentionally diverges and how compatibility is measured",
+        "Update the affected governance and compatibility documents to describe the same target line consistently",
+        "Add focused validation or documentation checks that fail if the declared target version and the replacement-runtime pin drift apart again",
+        "Focused tests or checks pass",
+        "Typecheck passes"
+      ],
+      "priority": 30,
+      "passes": false,
+      "notes": "Current issue: the replacement runtime is pinned to an upstream Node 24 release while docs/contracts still declare a 22.x target derived from the @types/node baseline. That inconsistency will poison every parity claim until it is resolved."
+    },
+    {
+      "id": "US-031",
+      "title": "Refresh compatibility docs, architecture docs, and contracts for the upstream runtime model",
+      "description": "As a runtime engineer, I need the public and internal documentation to describe the replacement upstream runtime instead of the old bridge/polyfill model so contributors and users can reason about the actual architecture.",
+      "acceptanceCriteria": [
+        "Update docs/nodejs-compatibility.mdx to describe the current upstream-runtime architecture, supported/deferred/unsupported module tiers, and Tested Packages table accurately",
+        "Update docs-internal/arch/overview.md to remove stale legacy-only descriptions and reflect the current NodeRuntime/createNodeRuntime replacement architecture",
+        "Update the relevant contracts under .agent/contracts/ so node-stdlib, node-runtime, compatibility-governance, and documentation requirements match the upstream-runtime model instead of the old polyfill-first assumptions",
+        "Where behavior remains intentionally unsupported or deferred, document the exact replacement-runtime contract rather than leaving old bridge/polyfill text in place",
+        "Focused docs/contract checks pass",
+        "Typecheck passes"
+      ],
+      "priority": 31,
+      "passes": false,
+      "notes": "The current docs and contracts still describe the old bridge/polyfill runtime. For example, the compatibility page still marks net/tls/readline as deferred and describes a bridge/polyfill matrix that no longer matches the public replacement path."
+    },
+    {
+      "id": "US-032",
+      "title": "Add dev-shell proof paths for replacement-runtime fs, ESM, http, and readline workflows",
+      "description": "As a runtime engineer, I need the canonical dev shell to prove the replacement runtime end to end so manual validation and automated shell coverage exercise more than node -e version checks.",
+      "acceptanceCriteria": [
+        "Add focused dev-shell coverage that runs replacement-runtime workflows for at least fs, a real file-based ESM/module path, one http or https round-trip, and one readline or PTY-sensitive interaction",
+        "Keep the validation entirely inside the sandbox-native dev shell path with no host-backed fallback commands or overrides",
+        "Where an interactive path is required, exercise it through kernel.openShell() and the dev-shell PTY harness rather than a host PTY",
+        "Document any remaining dev-shell-visible gaps explicitly if a workflow cannot yet be validated end to end",
+        "Focused tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 32,
+      "passes": false,
+      "notes": "Current dev-shell coverage proves the shell boots and node can print process.version, but it does not yet give us an honest manual-validation path for the new upstream fs/module/http/readline surfaces."
+    },
+    {
+      "id": "US-033",
+      "title": "Add package and CI guards for vendored upstream assets and replacement-runtime backend artifacts",
+      "description": "As a runtime engineer, I need packaging and CI checks that prove the replacement runtime ships its vendored Node assets and Wasm backend artifacts correctly so parity work does not regress at publish or build time.",
+      "acceptanceCriteria": [
+        "Add focused checks that the published @secure-exec/nodejs package includes the vendored upstream asset tree, replacement bootstrap scripts, and backend artifacts required by the replacement runtime",
+        "Add or update CI-facing artifact availability checks so missing replacement-runtime Wasm backend assets fail clearly before runtime tests start",
+        "Codify the required build or refresh steps for replacement-runtime artifacts so changes to upstream assets or backend ABIs cannot silently pass local source tests while shipped packages break",
+        "Document the packaging/build guard flow in the relevant package or internal docs",
+        "Focused tests or checks pass",
+        "Typecheck passes"
+      ],
+      "priority": 33,
+      "passes": false,
+      "notes": "The replacement runtime now depends on vendored upstream assets, helper scripts, and packaged backend binaries. Right now that packaging contract is only partially enforced through story-specific checks and progress notes."
+    },
+    {
+      "id": "US-034",
+      "title": "Move replacement-runtime execution ownership back under NodeExecutionDriver and secure-exec-v8",
+      "description": "As a runtime engineer, I need the replacement runtime to execute through the actual Secure Exec V8 runtime instead of a host `node --expose-internals` helper so sandbox guarantees and runtime budgets still apply.",
+      "acceptanceCriteria": [
+        "For supported replacement-runtime exec and kernel-mounted node paths, execution no longer depends on spawning process.execPath with --expose-internals as the primary runtime mechanism",
+        "Standalone and kernel-mounted replacement-runtime execution preserve Secure Exec runtime controls such as memoryLimit, cpuTimeLimitMs, timingMitigation, and isolate recovery after timeout",
+        "If a narrow host-Node helper remains for preflight or asset-validation purposes, it is explicitly internal-only and not the product execution path",
+        "Add focused tests that prove replacement-runtime execution still satisfies existing timeout, isolate-recovery, and timing-mitigation contracts on the new path",
+        "Focused tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 15.5,
+      "passes": false,
+      "notes": "Current critical gap: packages/nodejs/src/upstream/bootstrap-execution.ts still powers the public replacement runtime by spawning process.execPath with --expose-internals. That bypasses the real secure-exec-v8 execution path and risks invalidating memory/cpu/timing guarantees."
+    },
+    {
+      "id": "US-035",
+      "title": "Restore filePath-aware exec and run() export semantics on the replacement runtime",
+      "description": "As a runtime engineer, I need the replacement runtime to honor the NodeRuntime exec/run contract for file-backed CommonJS and ESM modules instead of treating everything as eval-only code.",
+      "acceptanceCriteria": [
+        "Replacement-runtime exec(code, { filePath }) uses the provided filePath for module classification, __filename/__dirname, and relative resolution instead of hardcoding [eval]",
+        "Replacement-runtime run(code, filePath) returns module exports for CommonJS and namespace exports for ESM in line with the NodeRuntime contract",
+        "Relative require('./x') and import './x' from run() and file-backed exec() resolve from the provided parent file path on the replacement runtime",
+        "Add focused tests covering CommonJS exports, ESM exports, and file-backed relative loading on the replacement runtime using the existing runtime-driver/node contract surface",
+        "Focused tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 15.6,
+      "passes": false,
+      "notes": "Current critical gap: ExperimentalUpstreamBootstrapRuntimeDriver.run() ignores filePath and never returns exports, and the helper runner compiles user code with filename '[eval]'. That breaks the published NodeRuntime contract and a large slice of existing runtime-driver tests."
+    },
+    {
+      "id": "US-036",
+      "title": "Replace host require fallback with sandboxed dependency and package resolution on the replacement runtime",
+      "description": "As a runtime engineer, I need the replacement runtime to resolve third-party packages and filesystem modules through the sandbox VFS/module-access layer rather than falling back to host require().",
+      "acceptanceCriteria": [
+        "Non-builtin specifiers on the replacement runtime resolve through sandboxed module resolution and ModuleAccessFileSystem/projected package overlays rather than HOST_REQUIRE(specifier)",
+        "Support the package-resolution behaviors required by real packages and contracts, including package.json exports/imports conditions, require.resolve()/require.resolve.paths(), createRequire() parent semantics, and pnpm virtual-store target resolution for supported paths",
+        "Sandboxed absolute and realpath-derived package asset paths that canonicalize inside the configured overlay continue to resolve as projected package assets rather than escaping to the host runtime",
+        "Missing third-party packages fail with deterministic sandbox module-resolution errors instead of silently loading from the host environment",
+        "Add focused tests using real package-style layouts under the sandbox filesystem to prove the replacement runtime no longer depends on host require fallbacks",
+        "Focused tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 15.7,
+      "passes": false,
+      "notes": "Current critical gap: the replacement bootstrap runner still routes non-builtin requires and require.resolve() through HOST_REQUIRE. That violates the node-bridge and node-stdlib contracts and makes package parity claims untrustworthy."
+    },
+    {
+      "id": "US-037",
+      "title": "Promote async_hooks and AsyncLocalStorage from bootstrap no-ops to supported replacement-runtime behavior",
+      "description": "As a runtime engineer, I need user-facing async_hooks behavior on the replacement runtime so frameworks relying on AsyncLocalStorage and async context propagation can run without the current stub/no-op semantics.",
+      "acceptanceCriteria": [
+        "Move the replacement runtime beyond the current async_wrap/setupHooks bootstrap no-op by implementing the supported async_hooks and AsyncLocalStorage subset deliberately",
+        "Async context propagation works across the supported replacement-runtime async boundaries, including timers and at least one supported net/http path",
+        "Document which async_hooks surfaces are supported, deferred, or intentionally unsupported on the replacement runtime instead of leaving the module as a vague stub",
+        "Add focused tests for AsyncLocalStorage, AsyncResource, and createHook behavior on the supported subset",
+        "Run targeted vendored async_hooks / async-local-storage conformance coverage and remove stale expectations for any newly passing cases",
+        "Focused tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 17.3,
+      "passes": false,
+      "notes": "Current gap: US-016 only covers bounded bootstrap/runtime support for async hooks. The public async_hooks module is still effectively stubbed in docs and conformance, which will block real framework parity even if bootstrap succeeds."
+    },
+    {
+      "id": "US-038",
+      "title": "Implement pipe_wrap and AF_UNIX path-socket parity on the replacement runtime",
+      "description": "As a runtime engineer, I need the replacement runtime to support pipe_wrap and Unix path sockets so upstream net, child-process, and tls-related path-socket flows do not stall on TCP-only first-light support.",
+      "acceptanceCriteria": [
+        "Implement the replacement-runtime internalBinding('pipe_wrap') provider needed by upstream net, child_process, and tls helpers for the supported subset",
+        "Replacement-runtime net server.listen(path), net.connect(path), and related AF_UNIX path-socket flows work through the kernel socket layer instead of falling back to TCP-only behavior",
+        "readableAll and writableAll path-listener options update the created socket-file mode bits and abstract-unix-socket validation follows Node-compatible behavior for the supported subset",
+        "Add focused tests for pipe_wrap handle ref/unref/close semantics and AF_UNIX path-socket round-trips on the replacement runtime",
+        "Run targeted vendored conformance coverage for path-socket and pipe-wrap-sensitive files and remove stale expectations for any newly passing cases",
+        "Focused tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 20.5,
+      "passes": false,
+      "notes": "Current gap: the first-light net story calls out tcp_wrap and stream_wrap, but upstream net.js and related internals also depend on pipe_wrap and AF_UNIX behavior. Path sockets are covered by kernel contracts but not yet explicitly tracked in the replacement-runtime PRD."
+    },
+    {
+      "id": "US-039",
+      "title": "Retire supported-subset host fallback and host-context builtin hacks from the replacement runtime",
+      "description": "As a runtime engineer, I need the replacement runtime to stop depending on host-context builtin execution and supported-subset fallback shims so parity claims are based on the actual replacement loader and bindings.",
+      "acceptanceCriteria": [
+        "For the supported replacement-runtime subset, remove reliance on public-builtin-host-fallback and host-context builtin execution as the normal path for vendored builtins",
+        "Shrink or eliminate supported-subset bootstrap shims such as http-cluster-host-context, tcp_wrap-owner-subclass, and fs_event_wrap-fsevent-subclass where real providers now exist; any remaining shim must be explicitly documented as a temporary bounded exception",
+        "Focused tests and first-light reports show the supported replacement-runtime subset running without unsupported host fallback paths",
+        "Document any intentionally retained host-side fallback as an explicit temporary boundary rather than leaving it hidden in appliedBindingShims",
+        "Focused tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 21.5,
+      "passes": false,
+      "notes": "Current gap: packages/nodejs/scripts/run-upstream-node-bootstrap.mjs still advertises appliedBindingShims like public-builtin-host-fallback, http-cluster-host-context, tcp_wrap-owner-subclass, and fs_event_wrap-fsevent-subclass. Those were useful for first-light, but they are not a stable replacement-runtime end state."
+    },
+    {
+      "id": "US-040",
+      "title": "Replace the fake host-side fd table with a true backend fd/session ABI",
+      "description": "As a runtime engineer, I need the replacement runtime fs backend to own real file-descriptor/session state so open-file semantics match Node instead of reopening paths for every operation.",
+      "acceptanceCriteria": [
+        "Replace the current host-invented fd table and path-reopen model with a backend-owned fd/session ABI that preserves open-handle semantics across read, write, seek, stat, truncate, and close operations",
+        "Backend operations address persistent handles rather than reopening by pathname for every read/write call",
+        "Add focused tests for rename-after-open, unlink-after-open, append/seek correctness, close ordering, and other fd-lifetime cases that the current path-reopen model cannot satisfy",
+        "Document the fd/session ABI and how host-owned FileHandle and FSReqCallback lifecycle maps onto it",
+        "Focused tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 17.8,
+      "passes": false,
+      "notes": "Current gap: packages/nodejs/scripts/upstream-node-fs-binding.mjs invents numeric fds in JS while native/wasmvm/c/programs/node_fs_backend.c reopens by path on each operation. That is not sufficient for real FileHandle or inode-lifetime parity."
+    },
+    {
+      "id": "US-041",
+      "title": "Expand fs metadata and mutation parity beyond the current backend ABI subset",
+      "description": "As a runtime engineer, I need the replacement runtime fs layer to cover the remaining metadata and mutation APIs that real packages and vendored tests exercise, not just open/read/write/stat/readdir/realpath.",
+      "acceptanceCriteria": [
+        "Expand the replacement-runtime fs binding and backend support for the chosen subset of metadata and mutation APIs, including mkdir/rmdir, truncate/ftruncate, utimes/futimes, chmod/chown, symlink/readlink/link, and related validation or umask behavior where supported",
+        "Match Node-style validation and error behavior for the implemented fs metadata and mutation APIs on the replacement runtime",
+        "Add focused tests for the implemented APIs across standalone and kernel-mounted replacement-runtime paths",
+        "Run targeted vendored fs conformance coverage for the implemented metadata and mutation subset and remove stale expectations for any newly passing cases",
+        "Focused tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 18.3,
+      "passes": false,
+      "notes": "Current backend ABI only covers open, read, write, stat, lstat, readdir, and realpath. A large set of public fs mutation and metadata behavior is still outside the replacement-runtime backlog unless it is called out explicitly."
+    },
+    {
+      "id": "US-042",
+      "title": "Bring up dgram and udp_wrap on the replacement runtime",
+      "description": "As a runtime engineer, I need the replacement runtime to support UDP sockets so DNS, dgram, and related networking features stop depending on probe-only behavior or host fallbacks.",
+      "acceptanceCriteria": [
+        "Implement the replacement-runtime binding and provider support needed for udp_wrap and the supported dgram subset",
+        "Support the chosen dgram subset through the kernel-mediated UDP path rather than host-side shortcuts",
+        "Add focused tests for bind/send/receive/close behavior and representative error paths on the replacement runtime",
+        "Run targeted vendored dgram conformance coverage for the implemented subset and remove stale expectations for any newly passing cases",
+        "Document how udp_wrap and dgram interact with the DNS parity plan",
+        "Focused tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 22.5,
+      "passes": false,
+      "notes": "Current upstream replacement runtime has no udp_wrap handling at all. Richer DNS parity and multi-channel resolution work are likely to stall until UDP exists as a first-class runtime surface."
     }
   ]
 }

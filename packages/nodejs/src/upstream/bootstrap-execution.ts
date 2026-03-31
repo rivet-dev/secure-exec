@@ -1,3 +1,13 @@
+import { existsSync } from "node:fs";
+import {
+	mkdir as mkdirHost,
+	mkdtemp,
+	rm,
+	symlink as symlinkHost,
+	writeFile as writeHostFile,
+} from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import type {
@@ -12,10 +22,12 @@ import type {
 	RuntimeDriverOptions,
 	StdioHook,
 	ProcessContext,
+	VirtualFileSystem,
 } from "@secure-exec/core";
 
 export interface UpstreamBootstrapEvalRequest {
-	code: string;
+	code?: string;
+	filePath?: string;
 	cwd?: string;
 	env?: Record<string, string>;
 	argv?: string[];
@@ -215,8 +227,273 @@ function parseTerminalDimension(value: string | undefined): number | undefined {
 	return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+interface StagedUpstreamEntry {
+	entryFilePath: string;
+	cwd?: string;
+	cleanup(): Promise<void>;
+}
+
+function normalizeVirtualPath(filePath: string, cwd?: string): string {
+	if (filePath.startsWith("/")) {
+		return path.posix.normalize(filePath);
+	}
+	return path.posix.normalize(path.posix.join(cwd ?? "/", filePath));
+}
+
+function getHostPathForVirtualPath(stageRoot: string, virtualPath: string): string {
+	const normalized = path.posix.normalize(virtualPath);
+	const relativePath = normalized === "/" ? "" : normalized.slice(1);
+	return path.join(stageRoot, relativePath);
+}
+
+async function findNearestVirtualPackageRoot(
+	filesystem: VirtualFileSystem,
+	filePath: string,
+): Promise<string | null> {
+	let currentDir = path.posix.dirname(path.posix.normalize(filePath));
+	while (true) {
+		const packageJsonPath =
+			currentDir === "/"
+				? "/package.json"
+				: path.posix.join(currentDir, "package.json");
+		if (await filesystem.exists(packageJsonPath)) {
+			return currentDir;
+		}
+		if (currentDir === "/") {
+			return null;
+		}
+		currentDir = path.posix.dirname(currentDir);
+	}
+}
+
+async function copyVirtualPathToHost(
+	filesystem: VirtualFileSystem,
+	virtualPath: string,
+	stageRoot: string,
+): Promise<void> {
+	const stat = await filesystem.lstat(virtualPath);
+	const hostPath = getHostPathForVirtualPath(stageRoot, virtualPath);
+
+	if (stat.isSymbolicLink) {
+		await mkdirHost(path.dirname(hostPath), { recursive: true });
+		await symlinkHost(await filesystem.readlink(virtualPath), hostPath);
+		return;
+	}
+
+	if (stat.isDirectory) {
+		await mkdirHost(hostPath, { recursive: true });
+		return;
+	}
+
+	await mkdirHost(path.dirname(hostPath), { recursive: true });
+	await writeHostFile(hostPath, await filesystem.readFile(virtualPath));
+}
+
+function extractRelativeSpecifiers(source: string): string[] {
+	const matches = source.matchAll(
+		/(?:\brequire\s*\(\s*|(?:\bimport|\bexport)\s+(?:[^"'`]*?\s+from\s+)?|\bimport\s*\(\s*)["'](\.\.?\/[^"'`]+)["']/g,
+	);
+	return [...new Set([...matches].map((match) => match[1]).filter(Boolean))];
+}
+
+async function stageNearestVirtualPackageJson(
+	filesystem: VirtualFileSystem,
+	filePath: string,
+	stageRoot: string,
+	stagedPaths: Set<string>,
+): Promise<void> {
+	const packageRoot = await findNearestVirtualPackageRoot(filesystem, filePath);
+	if (!packageRoot) {
+		return;
+	}
+	const packageJsonPath =
+		packageRoot === "/"
+			? "/package.json"
+			: path.posix.join(packageRoot, "package.json");
+	if (stagedPaths.has(packageJsonPath)) {
+		return;
+	}
+	await copyVirtualPathToHost(filesystem, packageJsonPath, stageRoot);
+	stagedPaths.add(packageJsonPath);
+}
+
+async function resolveVirtualModuleDependency(
+	filesystem: VirtualFileSystem,
+	referrerFilePath: string,
+	specifier: string,
+): Promise<string | null> {
+	const basePath = path.posix.resolve(path.posix.dirname(referrerFilePath), specifier);
+	const fileCandidates = [
+		basePath,
+		`${basePath}.js`,
+		`${basePath}.mjs`,
+		`${basePath}.cjs`,
+		`${basePath}.json`,
+	];
+
+	for (const candidate of fileCandidates) {
+		if (!await filesystem.exists(candidate)) {
+			continue;
+		}
+		const stat = await filesystem.lstat(candidate);
+		if (!stat.isDirectory) {
+			return candidate;
+		}
+	}
+
+	if (await filesystem.exists(basePath)) {
+		const stat = await filesystem.lstat(basePath);
+		if (stat.isDirectory) {
+			const packageJsonPath = path.posix.join(basePath, "package.json");
+			if (await filesystem.exists(packageJsonPath)) {
+				try {
+					const packageJson = JSON.parse(
+						await filesystem.readTextFile(packageJsonPath),
+					) as { main?: string };
+					if (typeof packageJson.main === "string") {
+						const mainPath = await resolveVirtualModuleDependency(
+							filesystem,
+							packageJsonPath,
+							packageJson.main,
+						);
+						if (mainPath) {
+							return mainPath;
+						}
+					}
+				} catch {
+					// Ignore malformed package metadata while staging test-only closures.
+				}
+			}
+
+			for (const extension of [".js", ".mjs", ".cjs", ".json"]) {
+				const indexPath = path.posix.join(basePath, `index${extension}`);
+				if (await filesystem.exists(indexPath)) {
+					return indexPath;
+				}
+			}
+		}
+	}
+
+	return null;
+}
+
+async function stageVirtualModuleClosure(
+	filesystem: VirtualFileSystem,
+	filePath: string,
+	stageRoot: string,
+	stagedPaths: Set<string>,
+	visitedFiles: Set<string>,
+): Promise<void> {
+	if (visitedFiles.has(filePath)) {
+		return;
+	}
+	visitedFiles.add(filePath);
+
+	if (!stagedPaths.has(filePath)) {
+		await copyVirtualPathToHost(filesystem, filePath, stageRoot);
+		stagedPaths.add(filePath);
+	}
+
+	await stageNearestVirtualPackageJson(filesystem, filePath, stageRoot, stagedPaths);
+
+	const lowerPath = filePath.toLowerCase();
+	if (
+		!lowerPath.endsWith(".js") &&
+		!lowerPath.endsWith(".mjs") &&
+		!lowerPath.endsWith(".cjs") &&
+		!lowerPath.endsWith(".ts") &&
+		!lowerPath.endsWith(".mts") &&
+		!lowerPath.endsWith(".cts")
+	) {
+		return;
+	}
+
+	const source = await filesystem.readTextFile(filePath);
+	for (const specifier of extractRelativeSpecifiers(source)) {
+		const dependencyPath = await resolveVirtualModuleDependency(
+			filesystem,
+			filePath,
+			specifier,
+		);
+		if (!dependencyPath) {
+			continue;
+		}
+		await stageVirtualModuleClosure(
+			filesystem,
+			dependencyPath,
+			stageRoot,
+			stagedPaths,
+			visitedFiles,
+		);
+	}
+}
+
+async function stageUpstreamEntryFromFilesystem(
+	filesystem: VirtualFileSystem | undefined,
+	filePath: string | undefined,
+	code: string | undefined,
+	cwd: string | undefined,
+): Promise<StagedUpstreamEntry | null> {
+	if (typeof filePath !== "string" || filePath.length === 0) {
+		return null;
+	}
+
+	const logicalFilePath = normalizeVirtualPath(filePath, cwd);
+	const logicalCwd =
+		typeof cwd === "string" && cwd.length > 0
+			? normalizeVirtualPath(cwd)
+			: undefined;
+
+	if (existsSync(logicalFilePath)) {
+		return {
+			entryFilePath: logicalFilePath,
+			cwd: logicalCwd && existsSync(logicalCwd) ? logicalCwd : undefined,
+			cleanup: async () => {},
+		};
+	}
+
+	const stageRoot = await mkdtemp(
+		path.join(os.tmpdir(), "secure-exec-upstream-entry-"),
+	);
+
+	try {
+		if (filesystem && await filesystem.exists(logicalFilePath)) {
+			await stageVirtualModuleClosure(
+				filesystem,
+				logicalFilePath,
+				stageRoot,
+				new Set<string>(),
+				new Set<string>(),
+			);
+		}
+
+		const stagedEntryFilePath = getHostPathForVirtualPath(stageRoot, logicalFilePath);
+		if (typeof code === "string") {
+			await mkdirHost(path.dirname(stagedEntryFilePath), { recursive: true });
+			await writeHostFile(stagedEntryFilePath, code, "utf8");
+		}
+
+		const stagedCwd =
+			typeof logicalCwd === "string"
+				? getHostPathForVirtualPath(stageRoot, logicalCwd)
+				: undefined;
+
+		return {
+			entryFilePath: stagedEntryFilePath,
+			cwd: stagedCwd,
+			cleanup: async () => {
+				await rm(stageRoot, { recursive: true, force: true });
+			},
+		};
+	} catch (error) {
+		await rm(stageRoot, { recursive: true, force: true });
+		throw error;
+	}
+}
+
 class ExperimentalUpstreamBootstrapRuntimeDriver implements NodeRuntimeDriver {
 	readonly #runtime: RuntimeDriverOptions["runtime"];
+	readonly #filesystem?: VirtualFileSystem;
 	readonly #defaultOnStdio?: StdioHook;
 	readonly #vendoredPublicBuiltins: string[];
 	readonly #awaitCompletionSignalMode?: "always" | "auto";
@@ -225,6 +502,7 @@ class ExperimentalUpstreamBootstrapRuntimeDriver implements NodeRuntimeDriver {
 		options: RuntimeDriverOptions & ExperimentalUpstreamBootstrapOptions,
 	) {
 		this.#runtime = options.runtime;
+		this.#filesystem = options.system.filesystem;
 		this.#defaultOnStdio = options.onStdio;
 		this.#vendoredPublicBuiltins = normalizeVendoredPublicBuiltins(
 			options.vendoredPublicBuiltins,
@@ -235,47 +513,64 @@ class ExperimentalUpstreamBootstrapRuntimeDriver implements NodeRuntimeDriver {
 	}
 
 	async exec(code: string, options: ExecOptions = {}): Promise<ExecResult> {
-		const result = await runUpstreamBootstrapEval({
+		const stagedEntry = await stageUpstreamEntryFromFilesystem(
+			this.#filesystem,
+			options.filePath,
 			code,
-			cwd: options.cwd,
-			env: {
-				...(this.#runtime.process.env ?? {}),
-				...(options.env ?? {}),
-			},
-			argv: this.#runtime.process.argv,
-			vendoredPublicBuiltins:
-				this.#vendoredPublicBuiltins.length > 0
-					? [...this.#vendoredPublicBuiltins]
-					: undefined,
-			awaitCompletionSignal: shouldAwaitCompletionSignal(
-				this.#awaitCompletionSignalMode,
-				code,
-			),
-		});
-
-		emitBufferedStdio(
-			result.stdout,
-			result.stderr,
-			this.#defaultOnStdio,
-			options.onStdio,
+			options.cwd ?? this.#runtime.process.cwd,
 		);
 
-		if (result.status === "blocked") {
-			return {
-				code: 1,
-				errorMessage: result.errorMessage ?? result.summary,
-			};
-		}
+		try {
+			const effectiveFilePath = stagedEntry?.entryFilePath ?? options.filePath;
+			const effectiveCwd = stagedEntry?.cwd ?? options.cwd;
+			const result = await runUpstreamBootstrapEval({
+				code,
+				filePath: effectiveFilePath,
+				cwd: effectiveCwd,
+				env: {
+					...(this.#runtime.process.env ?? {}),
+					...(options.env ?? {}),
+				},
+				argv:
+					effectiveFilePath !== undefined
+						? [process.execPath, effectiveFilePath]
+						: this.#runtime.process.argv,
+				vendoredPublicBuiltins:
+					this.#vendoredPublicBuiltins.length > 0
+						? [...this.#vendoredPublicBuiltins]
+						: undefined,
+				awaitCompletionSignal: shouldAwaitCompletionSignal(
+					this.#awaitCompletionSignalMode,
+					code,
+				),
+			});
 
-		return {
-			code: result.code,
-			errorMessage:
-				result.code === 0 ? undefined : result.stderr || result.summary,
-		};
+			emitBufferedStdio(
+				result.stdout,
+				result.stderr,
+				this.#defaultOnStdio,
+				options.onStdio,
+			);
+
+			if (result.status === "blocked") {
+				return {
+					code: 1,
+					errorMessage: result.errorMessage ?? result.summary,
+				};
+			}
+
+			return {
+				code: result.code,
+				errorMessage:
+					result.code === 0 ? undefined : result.stderr || result.summary,
+			};
+		} finally {
+			await stagedEntry?.cleanup();
+		}
 	}
 
-	async run<T = unknown>(code: string, _filePath?: string): Promise<RunResult<T>> {
-		const result = await this.exec(code, { mode: "run" });
+	async run<T = unknown>(code: string, filePath?: string): Promise<RunResult<T>> {
+		const result = await this.exec(code, { mode: "run", filePath });
 		return {
 			code: result.code,
 			errorMessage: result.errorMessage,
@@ -408,6 +703,28 @@ function extractEvalCode(args: string[]): string | null {
 		if ((arg === "-e" || arg === "--eval") && typeof args[index + 1] === "string") {
 			return args[index + 1];
 		}
+	}
+	return null;
+}
+
+interface ExtractedFileEntry {
+	filePath: string;
+	scriptArgs: string[];
+}
+
+function extractFileEntry(args: string[]): ExtractedFileEntry | null {
+	for (let index = 0; index < args.length; index += 1) {
+		const arg = args[index];
+		if (arg === "-e" || arg === "--eval" || arg === "-p" || arg === "--print") {
+			return null;
+		}
+		if (arg.startsWith("-")) {
+			continue;
+		}
+		return {
+			filePath: arg,
+			scriptArgs: args.slice(index + 1),
+		};
 	}
 	return null;
 }
@@ -627,10 +944,11 @@ class ExperimentalUpstreamBootstrapKernelRuntime implements KernelRuntimeDriver 
 		}
 
 		const code = extractEvalCode(args);
-		if (code === null) {
+		const fileEntry = code === null ? extractFileEntry(args) : null;
+		if (code === null && fileEntry === null) {
 			return createImmediateProcessExit(
 				1,
-				`${this.name} only supports \`node -e <code>\` during the bootstrap bring-up story`,
+				`${this.name} only supports \`node -e <code>\` or \`node <file>\` during the bootstrap bring-up story`,
 				ctx,
 			);
 		}
@@ -641,7 +959,14 @@ class ExperimentalUpstreamBootstrapKernelRuntime implements KernelRuntimeDriver 
 			ctx.stdoutIsTTY === true ||
 			ctx.stderrIsTTY === true
 		) {
-			return this.#createLiveProcess(code, ctx);
+			if (fileEntry !== null) {
+				return createImmediateProcessExit(
+					1,
+					`${this.name} does not yet support PTY/live-stdio file entrypoints`,
+					ctx,
+				);
+			}
+			return this.#createLiveProcess(code ?? "", ctx);
 		}
 
 		let resolved = false;
@@ -669,21 +994,46 @@ class ExperimentalUpstreamBootstrapKernelRuntime implements KernelRuntimeDriver 
 
 		queueMicrotask(async () => {
 			try {
-				const result = await runUpstreamBootstrapEval({
-					code,
-					cwd: ctx.cwd,
-					env: ctx.env,
-					argv: ["node", "-e", code],
-					execArgv: [],
-					vendoredPublicBuiltins:
-						this.#vendoredPublicBuiltins.length > 0
-							? [...this.#vendoredPublicBuiltins]
-							: undefined,
-					awaitCompletionSignal: shouldAwaitCompletionSignal(
-						this.#awaitCompletionSignalMode,
-						code,
-					),
-				});
+				const stagedEntry =
+					fileEntry === null
+						? null
+						: await stageUpstreamEntryFromFilesystem(
+								this.#kernel?.vfs,
+								fileEntry.filePath,
+								undefined,
+								ctx.cwd,
+							);
+
+				try {
+					const effectiveFilePath =
+						stagedEntry?.entryFilePath ?? fileEntry?.filePath;
+					const effectiveCwd = stagedEntry?.cwd ?? ctx.cwd;
+					const result = await runUpstreamBootstrapEval({
+						code: code ?? undefined,
+						filePath: effectiveFilePath,
+						cwd: effectiveCwd,
+						env: ctx.env,
+						argv:
+							fileEntry === null
+								? ["node", "-e", code ?? ""]
+								: [
+										"node",
+										effectiveFilePath ?? fileEntry.filePath,
+										...fileEntry.scriptArgs,
+									],
+						execArgv: [],
+						vendoredPublicBuiltins:
+							this.#vendoredPublicBuiltins.length > 0
+								? [...this.#vendoredPublicBuiltins]
+								: undefined,
+						awaitCompletionSignal:
+							code === null
+								? false
+								: shouldAwaitCompletionSignal(
+										this.#awaitCompletionSignalMode,
+										code,
+									),
+					});
 				const stdout = result.stdout;
 				const stderr =
 					result.status === "pass"
@@ -704,6 +1054,9 @@ class ExperimentalUpstreamBootstrapKernelRuntime implements KernelRuntimeDriver 
 					resolved = true;
 					resolveExit(exitCode);
 					proc.onExit?.(exitCode);
+				}
+				} finally {
+					await stagedEntry?.cleanup();
 				}
 			} catch (error) {
 				const data = textEncoder.encode(
