@@ -13,10 +13,10 @@ icon: "chart-bar"
 | Node.js version | 22.14.0 |
 | Source | v22.14.0 (test/parallel/) |
 | Total tests | 3532 |
-| Passing (genuine) | 1122 (31.8%) |
+| Passing (genuine) | 1120 (31.7%) |
 | Passing (vacuous self-skip) | 50 |
-| Passing (total) | 1172 (33.2%) |
-| Expected fail | 2247 |
+| Passing (total) | 1170 (33.1%) |
+| Expected fail | 2249 |
 | Skip | 113 |
 | Last updated | 2026-03-31 |
 
@@ -26,7 +26,7 @@ secure-exec tracks Node.js conformance completion as **100% of the implementable
 
 | Intent | Remaining Tests | Fail | Skip | Meaning |
 | --- | --- | --- | --- | --- |
-| Implementable | 1152 | 1042 | 110 | Achievable within the current sandbox architecture and product direction. |
+| Implementable | 1154 | 1044 | 110 | Achievable within the current sandbox architecture and product direction. |
 | Will Not Implement | 596 | 595 | 1 | Intentionally out of scope or rejected by product/security policy. |
 | Cannot Implement | 612 | 610 | 2 | Blocked by fundamental sandbox/runtime architecture unless that architecture changes. |
 
@@ -34,7 +34,7 @@ secure-exec tracks Node.js conformance completion as **100% of the implementable
 
 | Category | Tests |
 | --- | --- |
-| implementation-gap | 913 |
+| implementation-gap | 915 |
 | unsupported-module | 755 |
 | requires-v8-flags | 236 |
 | requires-exec-path | 200 |
@@ -54,7 +54,7 @@ secure-exec tracks Node.js conformance completion as **100% of the implementable
 | accessor | 1 | 0 | 1 | 0 | 0.0% |
 | arm | 1 | 0 | 1 | 0 | 0.0% |
 | assert | 17 | 1 | 16 | 0 | 5.9% |
-| async | 45 | 20 | 25 | 0 | 44.4% |
+| async | 45 | 19 | 26 | 0 | 42.2% |
 | asyncresource | 1 | 0 | 1 | 0 | 0.0% |
 | atomics | 1 | 1 | 0 | 0 | 100.0% |
 | bad | 1 | 1 | 0 | 0 | 100.0% |
@@ -225,7 +225,7 @@ secure-exec tracks Node.js conformance completion as **100% of the implementable
 | sys | 1 | 0 | 1 | 0 | 0.0% |
 | tcp | 3 | 0 | 3 | 0 | 0.0% |
 | tick | 2 | 1 (1 vacuous) | 1 | 0 | 50.0% |
-| timers | 56 | 26 | 21 | 9 | 55.3% |
+| timers | 56 | 25 | 22 | 9 | 53.2% |
 | tls | 192 | 120 (14 vacuous) | 69 | 3 | 63.5% |
 | tojson | 1 | 0 | 1 | 0 | 0.0% |
 | trace | 35 | 3 | 32 | 0 | 8.6% |
@@ -256,11 +256,11 @@ secure-exec tracks Node.js conformance completion as **100% of the implementable
 | wrap | 4 | 0 | 4 | 0 | 0.0% |
 | x509 | 1 | 0 | 1 | 0 | 0.0% |
 | zlib | 53 | 17 | 33 | 3 | 34.0% |
-| **Total** | **3532** | **1172** | **2247** | **113** | **34.3%** |
+| **Total** | **3532** | **1170** | **2249** | **113** | **34.2%** |
 
 ## Expectations Detail
 
-### implementation-gap (651 entries)
+### implementation-gap (653 entries)
 
 **Glob patterns:**
 
@@ -268,7 +268,7 @@ secure-exec tracks Node.js conformance completion as **100% of the implementable
 - `test-http2-!(allow-http1|client-request-options-errors|client-setLocalWindowSize|error-order|goaway-delayed-request|goaway-opaquedata|misbehaving-flow-control|misbehaving-flow-control-paused|request-response-proto|respond-file-filehandle|server-push-stream|server-push-stream-errors-args|server-push-stream-head|server-setLocalWindowSize|session-settings|status-code-invalid|update-settings|window-size).js` — Implementable — outside the landed allowHTTP1, push/settings, request-response, and window-size slices, the remaining http2 suite still fails on compatibility wrappers, secure-session bootstrap, multiplexing/teardown, and file-response helper gaps
 - `test-https-*.js` — Implementable — https conformance still hangs on most TLS-backed client/server lifecycle and certificate-handling paths, so the remaining broad slice is skipped pending exact inventory
 
-*648 individual tests — see expectations.json for full list.*
+*650 individual tests — see expectations.json for full list.*
 
 ### unsupported-module (208 entries)
 

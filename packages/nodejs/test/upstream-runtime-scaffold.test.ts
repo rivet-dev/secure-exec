@@ -62,7 +62,7 @@ describe("upstream runtime scaffold", () => {
 			nodeVersion: "v24.14.1",
 			bindingCount: 20,
 			bootstrapStepCount: 6,
-			implementedBindingCount: 12,
+			implementedBindingCount: 13,
 			internalLoadersReady: false,
 		});
 

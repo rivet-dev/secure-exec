@@ -75,7 +75,7 @@ Current kernel-network verification layers:
 | FIX-33 | process.on('unhandledRejection') handler | 1 |
 
 
-*FIX-17 (Sign/Verify), FIX-27 (compose), FIX-34 (vm), FIX-35 (worker_threads), FIX-36 (async_hooks), FIX-37 (net/tls), FIX-38 (readline), FIX-39 (diagnostics_channel) have 0 individually-classified tests — their tests are currently absorbed into UNSUPPORTED-MODULE glob patterns. Many of these modules are actually bridged or deferred (not truly unsupported) and their glob categorizations in expectations.json need to be updated. See the UNSUPPORTED-MODULE section below for the breakdown of what's truly unsupported vs mislabeled.*
+*FIX-17 (Sign/Verify), FIX-27 (compose), FIX-34 (vm), FIX-35 (worker_threads), FIX-37 (net/tls), FIX-38 (readline), FIX-39 (diagnostics_channel) have 0 individually-classified tests — their tests are currently absorbed into UNSUPPORTED-MODULE glob patterns. Many of these modules are actually bridged or deferred (not truly unsupported) and their glob categorizations in expectations.json need to be updated. See the UNSUPPORTED-MODULE section below for the breakdown of what's truly unsupported vs mislabeled. FIX-36 (async_hooks) now has explicit implementation-gap tracking for the remaining public-runtime `triggerAsyncId()` and `clearImmediate()` AsyncLocalStorage failures.*
 
 *dgram (UDP) is planned for implementation — ~76 tests currently in UNSUPPORTED-MODULE should move to a dgram FIX category once the UDP bridge is built.*
 

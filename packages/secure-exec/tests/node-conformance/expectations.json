@@ -1376,6 +1376,11 @@
       "category": "unsupported-module",
       "expected": "fail"
     },
+    "test-async-wrap-trigger-id.js": {
+      "reason": "triggerAsyncId() stays at 0 across nested nextTick ancestry in the public runtime, so async causal tracking remains incomplete",
+      "category": "implementation-gap",
+      "expected": "fail"
+    },
     "test-async-wrap-pop-id-during-load.js": {
       "reason": "spawns child Node.js process via process.execPath — sandbox does not provide a real node binary",
       "category": "requires-exec-path",
@@ -3131,6 +3136,11 @@
     "test-timers-immediate-queue-throw.js": {
       "reason": "requires domain module which is Tier 5 (Unsupported)",
       "category": "unsupported-module",
+      "expected": "fail"
+    },
+    "test-timers-clearImmediate-als.js": {
+      "reason": "AsyncLocalStorage store drops across the setImmediate()/clearImmediate() handle path in the public runtime",
+      "category": "implementation-gap",
       "expected": "fail"
     },
     "test-timers-reset-process-domain-on-throw.js": {

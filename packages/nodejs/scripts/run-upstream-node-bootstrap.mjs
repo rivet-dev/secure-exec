@@ -39,6 +39,7 @@ const OPTION_DEFAULTS_BY_TYPE = new Map([
 const APPLIED_BINDING_SHIMS = Object.freeze([
 	"buffer.setBufferPrototype-noop",
 	"async_wrap-bootstrap-hook-provider",
+	"async_hooks-supported-subset-module",
 	"trace_events.setTraceCategoryStateUpdateHandler-noop",
 	"internal/options-host-shim",
 	"fs_event_wrap-fsevent-subclass",
@@ -491,6 +492,22 @@ function createContextifyBinding() {
 	return internalBinding("contextify");
 }
 
+function createTimersBinding() {
+	const hostTimersBinding = internalBinding("timers");
+	if (
+		!hostTimersBinding ||
+		typeof hostTimersBinding !== "object" ||
+		typeof hostTimersBinding.setupTimers !== "function"
+	) {
+		return hostTimersBinding;
+	}
+
+	return {
+		...hostTimersBinding,
+		setupTimers: hostTimersBinding.setupTimers.bind(hostTimersBinding),
+	};
+}
+
 function createAsyncWrapBinding() {
 	const hostAsyncWrap = internalBinding("async_wrap");
 	const state = {
@@ -505,9 +522,20 @@ function createAsyncWrapBinding() {
 		},
 		setCallbackTrampoline(callback) {
 			state.callbackTrampoline = callback;
+			if (typeof hostAsyncWrap.setCallbackTrampoline === "function") {
+				hostAsyncWrap.setCallbackTrampoline(callback);
+			}
 		},
 		setPromiseHooks(initHook, beforeHook, afterHook, settledHook) {
 			state.promiseHooks = [initHook, beforeHook, afterHook, settledHook];
+			if (typeof hostAsyncWrap.setPromiseHooks === "function") {
+				hostAsyncWrap.setPromiseHooks(
+					initHook,
+					beforeHook,
+					afterHook,
+					settledHook,
+				);
+			}
 		},
 		setupHooks(nativeHooks) {
 			state.nativeHooks = nativeHooks;
@@ -743,6 +771,7 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 	const contextifyBinding = createContextifyBinding();
 	const fsEventWrapBinding = createFsEventWrapBinding();
 	const moduleWrapBinding = createModuleWrapBinding();
+	const timersBinding = createTimersBinding();
 	const tcpWrapBinding = createTcpWrapBinding();
 	const modulesBinding = createModulesBinding();
 	const optionsValues = {
@@ -803,6 +832,674 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 	processShim.__secureExecDone = context.__secureExecDone;
 	process.__secureExecDone = context.__secureExecDone;
 	globalThis.__secureExecDone = context.__secureExecDone;
+
+	const supportedAsyncHooksBuiltin = (() => {
+		const activeHooks = new Set();
+		const rootResource = {};
+		let installed = false;
+		let nextAsyncId = 2;
+		let currentAsyncId = 1;
+		let currentTriggerAsyncId = 0;
+		let currentResource = rootResource;
+		let currentStores = new Map();
+		const emitterListenerWrappers = new WeakMap();
+		const trackedHandleExecutions = new WeakMap();
+		const originalSetTimeout = context.setTimeout ?? hostSetTimeout;
+		const originalClearTimeout = context.clearTimeout ?? hostClearTimeout;
+		const originalSetImmediate = context.setImmediate ?? hostSetImmediate;
+		const originalClearImmediate = context.clearImmediate ?? hostClearImmediate;
+		const originalSetInterval = context.setInterval ?? setInterval;
+		const originalClearInterval = context.clearInterval ?? hostClearInterval;
+		const originalQueueMicrotask = context.queueMicrotask ?? queueMicrotask;
+		const originalNextTick = processShim.nextTick.bind(processShim);
+		const hostEvents = HOST_REQUIRE("node:events");
+		const eventEmitterPrototype = hostEvents.EventEmitter?.prototype;
+		const originalEmitterMethods =
+			eventEmitterPrototype &&
+			Object.freeze({
+				addListener: eventEmitterPrototype.addListener,
+				off: eventEmitterPrototype.off,
+				on: eventEmitterPrototype.on,
+				once: eventEmitterPrototype.once,
+				prependListener: eventEmitterPrototype.prependListener,
+				prependOnceListener: eventEmitterPrototype.prependOnceListener,
+				removeListener: eventEmitterPrototype.removeListener,
+			});
+
+		function createArgTypeError(name) {
+			const error = new TypeError(
+				`The "${name}" argument must be of type function`,
+			);
+			error.code = "ERR_INVALID_ARG_TYPE";
+			return error;
+		}
+
+		function createAsyncTypeError() {
+			const error = new TypeError("The value of \"type\" is invalid. Received an empty string");
+			error.code = "ERR_ASYNC_TYPE";
+			return error;
+		}
+
+		function createInvalidAsyncIdError(name, value) {
+			const error = new RangeError(
+				`The value of "${name}" is out of range. It must be an integer. Received ${value}`,
+			);
+			error.code = "ERR_INVALID_ASYNC_ID";
+			return error;
+		}
+
+		function createAsyncCallbackError(name) {
+			const error = new TypeError(`${name} must be a function`);
+			error.code = "ERR_ASYNC_CALLBACK";
+			return error;
+		}
+
+		function isTrackedHandle(handle) {
+			return (
+				(typeof handle === "object" && handle !== null) ||
+				typeof handle === "function"
+			);
+		}
+
+		function captureState() {
+			return {
+				asyncId: currentAsyncId,
+				resource: currentResource,
+				stores: new Map(currentStores),
+				triggerAsyncId: currentTriggerAsyncId,
+			};
+		}
+
+		function restoreState(state) {
+			currentAsyncId = state.asyncId;
+			currentTriggerAsyncId = state.triggerAsyncId;
+			currentResource = state.resource;
+			currentStores = state.stores;
+		}
+
+		function emitHook(name, ...args) {
+			for (const hook of activeHooks) {
+				const callback = hook[name];
+				if (typeof callback === "function") {
+					callback(...args);
+				}
+			}
+		}
+
+		function createExecution(type, triggerAsyncId, resource, stores) {
+			const asyncId = nextAsyncId++;
+			emitHook("init", asyncId, type, triggerAsyncId, resource);
+			return {
+				asyncId,
+				destroyed: false,
+				handle: undefined,
+				triggerAsyncId,
+				resource,
+				stores: new Map(stores),
+			};
+		}
+
+		function destroyExecution(execution) {
+			if (!execution || execution.destroyed) {
+				return;
+			}
+			execution.destroyed = true;
+			if (isTrackedHandle(execution.handle)) {
+				trackedHandleExecutions.delete(execution.handle);
+			}
+			emitHook("destroy", execution.asyncId);
+		}
+
+		function runWithExecution(execution, callback, thisArg, args, destroyAfter) {
+			const previousState = captureState();
+			currentAsyncId = execution.asyncId;
+			currentTriggerAsyncId = execution.triggerAsyncId;
+			currentResource = execution.resource;
+			currentStores = new Map(execution.stores);
+			emitHook("before", execution.asyncId);
+			try {
+				return callback.apply(thisArg, args);
+			} finally {
+				emitHook("after", execution.asyncId);
+				restoreState(previousState);
+				if (destroyAfter) {
+					destroyExecution(execution);
+				}
+			}
+		}
+
+		function createScheduledExecution(type) {
+			const capturedState = captureState();
+			return {
+				asyncId: nextAsyncId++,
+				destroyed: false,
+				handle: undefined,
+				triggerAsyncId: capturedState.asyncId,
+				resource: {},
+				stores: new Map(capturedState.stores),
+				type,
+			};
+		}
+
+		function createWrappedExecutionCallback(execution, callback, destroyAfter) {
+			return function wrappedScheduledCallback(...args) {
+				return runWithExecution(execution, callback, this, args, destroyAfter);
+			};
+		}
+
+		function attachExecutionHandle(execution, resource) {
+			execution.resource = resource ?? {};
+			execution.handle = resource;
+			if (isTrackedHandle(resource)) {
+				trackedHandleExecutions.set(resource, execution);
+			}
+		}
+
+		function scheduleTrackedCallback(
+			type,
+			scheduler,
+			callback,
+			args,
+			destroyAfter = true,
+		) {
+			if (typeof callback !== "function") {
+				return scheduler(callback, ...args);
+			}
+			const execution = createScheduledExecution(type);
+			const resource = scheduler(
+				createWrappedExecutionCallback(execution, callback, destroyAfter),
+				...args,
+			);
+			attachExecutionHandle(execution, resource);
+			emitHook(
+				"init",
+				execution.asyncId,
+				type,
+				execution.triggerAsyncId,
+				execution.resource,
+			);
+			return resource;
+		}
+
+		function clearTrackedExecution(handle, clearer) {
+			if (isTrackedHandle(handle)) {
+				destroyExecution(trackedHandleExecutions.get(handle));
+			}
+			return clearer(handle);
+		}
+
+		function getEmitterWrapperStore(emitter, eventName, create = false) {
+			let emitterStore = emitterListenerWrappers.get(emitter);
+			if (!emitterStore) {
+				if (!create) {
+					return undefined;
+				}
+				emitterStore = new Map();
+				emitterListenerWrappers.set(emitter, emitterStore);
+			}
+			let eventStore = emitterStore.get(eventName);
+			if (!eventStore) {
+				if (!create) {
+					return undefined;
+				}
+				eventStore = new Map();
+				emitterStore.set(eventName, eventStore);
+			}
+			return eventStore;
+		}
+
+		function rememberEmitterWrapper(emitter, eventName, listener, wrapped) {
+			const eventStore = getEmitterWrapperStore(emitter, eventName, true);
+			const wrappers = eventStore.get(listener) ?? [];
+			wrappers.push(wrapped);
+			eventStore.set(listener, wrappers);
+		}
+
+		function takeEmitterWrapper(emitter, eventName, listener) {
+			const eventStore = getEmitterWrapperStore(emitter, eventName);
+			if (!eventStore) {
+				return undefined;
+			}
+			const wrappers = eventStore.get(listener);
+			if (!wrappers || wrappers.length === 0) {
+				return undefined;
+			}
+			const wrapped = wrappers.shift();
+			if (wrappers.length === 0) {
+				eventStore.delete(listener);
+			}
+			return wrapped;
+		}
+
+		function getEventEmitterExecutionType(emitter, eventName) {
+			const emitterType =
+				typeof emitter?.constructor?.name === "string" &&
+				emitter.constructor.name.length > 0
+					? emitter.constructor.name
+					: "EventEmitter";
+			const eventType =
+				typeof eventName === "symbol" ? eventName.toString() : String(eventName);
+			return `${emitterType}.${eventType}`;
+		}
+
+		function wrapEmitterListener(emitter, eventName, listener, once = false) {
+			if (typeof listener !== "function") {
+				return listener;
+			}
+			const capturedState = captureState();
+			const execution = createExecution(
+				getEventEmitterExecutionType(emitter, eventName),
+				capturedState.asyncId,
+				emitter,
+				capturedState.stores,
+			);
+			const wrapped = function wrappedEmitterListener(...args) {
+				return runWithExecution(execution, listener, this, args, once);
+			};
+			Object.defineProperty(wrapped, "listener", {
+				value: listener,
+				configurable: true,
+				enumerable: false,
+				writable: false,
+			});
+			wrapped.__secureExecExecution = execution;
+			rememberEmitterWrapper(emitter, eventName, listener, wrapped);
+			return wrapped;
+		}
+
+		function applyPatchedSchedulers() {
+			context.setTimeout = function setTimeoutWithAsyncContext(
+				callback,
+				delay,
+				...args
+			) {
+				return scheduleTrackedCallback(
+					"Timeout",
+					(scheduledCallback, ...scheduledArgs) =>
+						originalSetTimeout(scheduledCallback, delay, ...scheduledArgs),
+					callback,
+					args,
+				);
+			};
+			context.clearTimeout = function clearTimeoutWithAsyncContext(handle) {
+				return clearTrackedExecution(handle, originalClearTimeout);
+			};
+			context.setImmediate = function setImmediateWithAsyncContext(
+				callback,
+				...args
+			) {
+				return scheduleTrackedCallback(
+					"Immediate",
+					(scheduledCallback, ...scheduledArgs) =>
+						originalSetImmediate(scheduledCallback, ...scheduledArgs),
+					callback,
+					args,
+				);
+			};
+			context.clearImmediate = function clearImmediateWithAsyncContext(handle) {
+				return clearTrackedExecution(handle, originalClearImmediate);
+			};
+			context.setInterval = function setIntervalWithAsyncContext(
+				callback,
+				delay,
+				...args
+			) {
+				return scheduleTrackedCallback(
+					"Timeout",
+					(scheduledCallback, ...scheduledArgs) =>
+						originalSetInterval(scheduledCallback, delay, ...scheduledArgs),
+					callback,
+					args,
+					false,
+				);
+			};
+			context.clearInterval = function clearIntervalWithAsyncContext(handle) {
+				return clearTrackedExecution(handle, originalClearInterval);
+			};
+			context.queueMicrotask = function queueMicrotaskWithAsyncContext(callback) {
+				if (typeof callback !== "function") {
+					return originalQueueMicrotask(callback);
+				}
+				const execution = createScheduledExecution("Microtask");
+				emitHook(
+					"init",
+					execution.asyncId,
+					"Microtask",
+					execution.triggerAsyncId,
+					execution.resource,
+				);
+				return originalQueueMicrotask(
+					createWrappedExecutionCallback(execution, callback, true),
+				);
+			};
+			processShim.nextTick = function nextTickWithAsyncContext(callback, ...args) {
+				if (typeof callback !== "function") {
+					return originalNextTick(callback, ...args);
+				}
+				const execution = createScheduledExecution("TickObject");
+				emitHook(
+					"init",
+					execution.asyncId,
+					"TickObject",
+					execution.triggerAsyncId,
+					execution.resource,
+				);
+				return originalNextTick(
+					createWrappedExecutionCallback(execution, callback, true),
+					...args,
+				);
+			};
+		}
+
+		function ensureInstalled() {
+			applyPatchedSchedulers();
+			if (installed) {
+				return;
+			}
+			installed = true;
+			if (originalEmitterMethods) {
+				eventEmitterPrototype.on = function onWithAsyncContext(
+					eventName,
+					listener,
+				) {
+					return originalEmitterMethods.on.call(
+						this,
+						eventName,
+						wrapEmitterListener(this, eventName, listener),
+					);
+				};
+				eventEmitterPrototype.addListener = function addListenerWithAsyncContext(
+					eventName,
+					listener,
+				) {
+					return originalEmitterMethods.addListener.call(
+						this,
+						eventName,
+						wrapEmitterListener(this, eventName, listener),
+					);
+				};
+				eventEmitterPrototype.prependListener =
+					function prependListenerWithAsyncContext(eventName, listener) {
+						return originalEmitterMethods.prependListener.call(
+							this,
+							eventName,
+							wrapEmitterListener(this, eventName, listener),
+						);
+					};
+				eventEmitterPrototype.once = function onceWithAsyncContext(
+					eventName,
+					listener,
+				) {
+					return originalEmitterMethods.once.call(
+						this,
+						eventName,
+						wrapEmitterListener(this, eventName, listener, true),
+					);
+				};
+				eventEmitterPrototype.prependOnceListener =
+					function prependOnceListenerWithAsyncContext(eventName, listener) {
+						return originalEmitterMethods.prependOnceListener.call(
+							this,
+							eventName,
+							wrapEmitterListener(this, eventName, listener, true),
+						);
+					};
+				eventEmitterPrototype.removeListener =
+					function removeListenerWithAsyncContext(eventName, listener) {
+						const wrapped = takeEmitterWrapper(this, eventName, listener);
+						if (wrapped?.__secureExecExecution) {
+							destroyExecution(wrapped.__secureExecExecution);
+						}
+						return originalEmitterMethods.removeListener.call(
+							this,
+							eventName,
+							wrapped ?? listener,
+						);
+					};
+				eventEmitterPrototype.off = function offWithAsyncContext(
+					eventName,
+					listener,
+				) {
+					const wrapped = takeEmitterWrapper(this, eventName, listener);
+					if (wrapped?.__secureExecExecution) {
+						destroyExecution(wrapped.__secureExecExecution);
+					}
+					return originalEmitterMethods.off.call(
+						this,
+						eventName,
+						wrapped ?? listener,
+					);
+				};
+			}
+		}
+
+		class AsyncHookHandle {
+			constructor(callbacks = {}) {
+				for (const name of [
+					"init",
+					"before",
+					"after",
+					"destroy",
+					"promiseResolve",
+				]) {
+					if (
+						callbacks[name] !== undefined &&
+						typeof callbacks[name] !== "function"
+					) {
+						throw createAsyncCallbackError(`hook.${name}`);
+					}
+					this[name] = callbacks[name];
+				}
+			}
+
+			enable() {
+				ensureInstalled();
+				activeHooks.add(this);
+				return this;
+			}
+
+			disable() {
+				activeHooks.delete(this);
+				return this;
+			}
+		}
+
+		class AsyncResource {
+			constructor(type, options = {}) {
+				if (typeof type !== "string") {
+					throw createArgTypeError("type");
+				}
+				if (type.length === 0) {
+					throw createAsyncTypeError();
+				}
+				let triggerAsyncId = currentAsyncId;
+				if (typeof options === "number") {
+					triggerAsyncId = options;
+				} else if (
+					options &&
+					typeof options === "object" &&
+					typeof options.triggerAsyncId === "number"
+				) {
+					triggerAsyncId = options.triggerAsyncId;
+				}
+				if (
+					!Number.isInteger(triggerAsyncId) ||
+					triggerAsyncId < 0
+				) {
+					throw createInvalidAsyncIdError("triggerAsyncId", triggerAsyncId);
+				}
+				this.type = type;
+				this._asyncId = nextAsyncId++;
+				this._destroyed = false;
+				this._stores = new Map(currentStores);
+				this._triggerAsyncId = triggerAsyncId;
+				emitHook("init", this._asyncId, type, triggerAsyncId, this);
+			}
+
+			asyncId() {
+				return this._asyncId;
+			}
+
+			triggerAsyncId() {
+				return this._triggerAsyncId;
+			}
+
+			runInAsyncScope(callback, thisArg, ...args) {
+				if (typeof callback !== "function") {
+					throw createArgTypeError("fn");
+				}
+				return runWithExecution(
+					{
+						asyncId: this._asyncId,
+						triggerAsyncId: this._triggerAsyncId,
+						resource: this,
+						stores: this._stores,
+					},
+					callback,
+					thisArg,
+					args,
+					false,
+				);
+			}
+
+			bind(callback, thisArg) {
+				if (typeof callback !== "function") {
+					throw createArgTypeError("fn");
+				}
+				const resource = this;
+				const hasExplicitThisArg = arguments.length >= 2;
+				const bound = function boundAsyncResourceCallback(...args) {
+					return resource.runInAsyncScope(
+						callback,
+						hasExplicitThisArg ? thisArg : this,
+						...args,
+					);
+				};
+				Object.defineProperties(bound, {
+					asyncResource: {
+						configurable: true,
+						enumerable: true,
+						get() {
+							return resource;
+						},
+					},
+					length: {
+						configurable: true,
+						enumerable: false,
+						value: callback.length,
+						writable: false,
+					},
+				});
+				return bound;
+			}
+
+			emitDestroy() {
+				if (this._destroyed) {
+					return;
+				}
+				this._destroyed = true;
+				emitHook("destroy", this._asyncId);
+			}
+
+			static bind(callback, type, thisArg) {
+				if (typeof callback !== "function") {
+					throw createArgTypeError("fn");
+				}
+				const resource = new AsyncResource(
+					type || callback.name || "bound-anonymous-fn",
+				);
+				if (arguments.length >= 3) {
+					return resource.bind(callback, thisArg);
+				}
+				return resource.bind(callback);
+			}
+		}
+
+		class AsyncLocalStorage {
+			run(store, callback, ...args) {
+				const previousState = captureState();
+				currentStores = new Map(currentStores);
+				currentStores.set(this, store);
+				try {
+					return callback(...args);
+				} finally {
+					restoreState(previousState);
+				}
+			}
+
+			enterWith(store) {
+				currentStores = new Map(currentStores);
+				currentStores.set(this, store);
+			}
+
+			getStore() {
+				return currentStores.get(this);
+			}
+
+			disable() {
+				if (currentStores.has(this)) {
+					currentStores = new Map(currentStores);
+					currentStores.delete(this);
+				}
+			}
+
+			exit(callback, ...args) {
+				const previousState = captureState();
+				currentStores = new Map(currentStores);
+				currentStores.delete(this);
+				try {
+					return callback(...args);
+				} finally {
+					restoreState(previousState);
+				}
+			}
+
+			static bind(callback) {
+				if (typeof callback !== "function") {
+					throw createArgTypeError("fn");
+				}
+				return AsyncResource.bind(callback);
+			}
+
+			static snapshot() {
+				const bound = AsyncResource.bind((callback, ...args) => {
+					if (typeof callback !== "function") {
+						throw createArgTypeError("fn");
+					}
+					return callback(...args);
+				});
+				return function runSnapshot(callback, ...args) {
+					return bound(callback, ...args);
+				};
+			}
+		}
+
+		return {
+			ensureInstalled,
+			refreshInstalledState() {
+				if (installed) {
+					applyPatchedSchedulers();
+				}
+			},
+			module: {
+				AsyncLocalStorage,
+				AsyncResource,
+				asyncWrapProviders: Object.freeze({}),
+				createHook(callbacks) {
+					return new AsyncHookHandle(callbacks);
+				},
+				executionAsyncId() {
+					return currentAsyncId;
+				},
+				executionAsyncResource() {
+					return currentResource;
+				},
+				triggerAsyncId() {
+					return currentTriggerAsyncId;
+				},
+			},
+		};
+	})();
 
 	function normalizeModuleFilename(filenameOrURL) {
 		if (filenameOrURL instanceof URL) {
@@ -986,11 +1683,25 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 			referrerLogicalFilePath.length > 0
 				? referrerLogicalFilePath
 				: logicalResolutionFilePath;
-		const effectiveHostReferrer =
+		let effectiveHostReferrer;
+		if (
 			typeof referrerHostFilePath === "string" &&
 			referrerHostFilePath.length > 0
-				? referrerHostFilePath
-				: mapLogicalPathToHost(effectiveLogicalReferrer);
+		) {
+			effectiveHostReferrer = referrerHostFilePath;
+		} else if (
+			typeof effectiveLogicalReferrer === "string" &&
+			effectiveLogicalReferrer.length > 0
+		) {
+			effectiveHostReferrer =
+				mapLogicalPathToHost(effectiveLogicalReferrer) ??
+				effectiveLogicalReferrer;
+		} else {
+			effectiveHostReferrer = path.join(
+				payload.cwd ?? process.cwd(),
+				"__secure_exec_eval__.js",
+			);
+		}
 		const hostRequire = createRequire(
 			pathToFileURL(path.resolve(effectiveHostReferrer)).href,
 		);
@@ -1167,6 +1878,17 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 			return cached;
 		}
 
+		if (id === "async_hooks") {
+			const asyncHooksBuiltin = (exports, requireFn, module) => {
+				supportedAsyncHooksBuiltin.ensureInstalled();
+				vendoredPublicBuiltinsLoaded.add(id);
+				module.exports = supportedAsyncHooksBuiltin.module;
+				return module.exports;
+			};
+			compiledCache.set(id, asyncHooksBuiltin);
+			return asyncHooksBuiltin;
+		}
+
 		const entry = BUILTIN_ENTRIES.get(id);
 		if (!entry) {
 			throw new Error(`Unknown vendored builtin: ${id}`);
@@ -1243,6 +1965,10 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 				...internalBinding("trace_events"),
 				setTraceCategoryStateUpdateHandler() {},
 			};
+		}
+
+		if (name === "timers") {
+			return timersBinding;
 		}
 
 		if (name === "process_methods") {
@@ -1517,18 +2243,43 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 		resolutionFilePath,
 	} = {}) {
 		Object.assign(context, hostTimerGlobals);
+		supportedAsyncHooksBuiltin.refreshInstalledState();
 		const visibleFilePath = logicalFilePath ?? "[eval]";
 		const visibleDirname =
 			logicalFilePath === undefined
 				? payload.cwd ?? process.cwd()
 				: path.posix.dirname(logicalFilePath);
+		const useAsyncEvalWrapper = payload.awaitCompletionSignal === true;
+		const compileOptions =
+			useAsyncEvalWrapper
+				? {
+						filename: visibleFilePath,
+					}
+				: {
+						filename: visibleFilePath,
+						parsingContext: context,
+					};
+		const parameterNames = useAsyncEvalWrapper
+			? [
+					"exports",
+					"require",
+					"module",
+					"__filename",
+					"__dirname",
+					"process",
+					"setTimeout",
+					"clearTimeout",
+					"setImmediate",
+					"clearImmediate",
+					"setInterval",
+					"clearInterval",
+					"queueMicrotask",
+				]
+			: ["exports", "require", "module", "__filename", "__dirname"];
 		const compiled = compileFunction(
 			payload.code ?? "",
-			["exports", "require", "module", "__filename", "__dirname"],
-			{
-				filename: visibleFilePath,
-				parsingContext: context,
-			},
+			parameterNames,
+			compileOptions,
 		);
 		const mod = {
 			exports: {},
@@ -1540,17 +2291,50 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 			hostFilePath,
 			resolutionFilePath ?? logicalFilePath,
 		);
-		const result = compiled(
-			mod.exports,
-			userRequire,
-			mod,
-			visibleFilePath,
-			visibleDirname,
-		);
+		const result = useAsyncEvalWrapper
+			? compiled(
+					mod.exports,
+					userRequire,
+					mod,
+					visibleFilePath,
+					visibleDirname,
+					processShim,
+					(...args) => context.setTimeout(...args),
+					(...args) => context.clearTimeout(...args),
+					(...args) => context.setImmediate(...args),
+					(...args) => context.clearImmediate(...args),
+					(...args) => context.setInterval(...args),
+					(...args) => context.clearInterval(...args),
+					(...args) => context.queueMicrotask(...args),
+				)
+			: compiled(
+					mod.exports,
+					userRequire,
+					mod,
+					visibleFilePath,
+					visibleDirname,
+				);
 		if (result !== undefined) {
 			mod.exports = result;
 		}
 		return mod.exports;
+	}
+
+	function preparePostBootstrapAsyncEval() {
+		processShim.nextTick = process.nextTick.bind(process);
+		if (typeof process._tickCallback === "function") {
+			processShim._tickCallback = process._tickCallback.bind(process);
+		}
+		const hostInternalTimers = HOST_REQUIRE("internal/timers");
+		if (
+			typeof hostInternalTimers?.getTimerCallbacks === "function" &&
+			typeof timersBinding?.setupTimers === "function" &&
+			typeof process._tickCallback === "function"
+		) {
+			const { processImmediate, processTimers } =
+				hostInternalTimers.getTimerCallbacks(process._tickCallback.bind(process));
+			timersBinding.setupTimers(processImmediate, processTimers);
+		}
 	}
 
 	async function executeUserInlineBackedFileCode(hostFilePath, logicalFilePath) {
@@ -1593,6 +2377,9 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 		process.env.NODE_DEBUG,
 	);
 	patchModuleBuiltinExports(HOST_REQUIRE("node:module"));
+	if (executeUserCodeDirectly) {
+		preparePostBootstrapAsyncEval();
+	}
 
 	let entrypoint = "internal/main/eval_string";
 	let userExports;

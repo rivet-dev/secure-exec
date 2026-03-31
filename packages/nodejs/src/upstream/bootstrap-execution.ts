@@ -99,9 +99,13 @@ const HTTP_FIRST_LIGHT_PUBLIC_BUILTINS = [
 	"_http_outgoing",
 	"_http_server",
 ] as const;
+const ASYNC_HOOKS_FIRST_LIGHT_PUBLIC_BUILTINS = [
+	"async_hooks",
+	...HTTP_FIRST_LIGHT_PUBLIC_BUILTINS,
+] as const;
 const REPLACEMENT_PUBLIC_BUILTINS = [
 	"fs",
-	...HTTP_FIRST_LIGHT_PUBLIC_BUILTINS,
+	...ASYNC_HOOKS_FIRST_LIGHT_PUBLIC_BUILTINS,
 	...READLINE_FIRST_LIGHT_PUBLIC_BUILTINS,
 ] as const;
 
@@ -1112,6 +1116,16 @@ export async function runUpstreamHttpFirstLightEval(
 		...request,
 		awaitCompletionSignal: true,
 		vendoredPublicBuiltins: [...HTTP_FIRST_LIGHT_PUBLIC_BUILTINS],
+	});
+}
+
+export async function runUpstreamAsyncHooksFirstLightEval(
+	request: Omit<UpstreamBootstrapEvalRequest, "vendoredPublicBuiltins">,
+): Promise<UpstreamBootstrapEvalResult> {
+	return runUpstreamBootstrapEval({
+		...request,
+		awaitCompletionSignal: true,
+		vendoredPublicBuiltins: [...ASYNC_HOOKS_FIRST_LIGHT_PUBLIC_BUILTINS],
 	});
 }
 

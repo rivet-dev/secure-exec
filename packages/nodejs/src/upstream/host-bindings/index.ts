@@ -304,7 +304,7 @@ export const upstreamHostBindingCatalog: readonly UpstreamInternalBindingRegistr
 					"js-wrapper-identity",
 				),
 				notes:
-					"US-006 proved the scoped no-op setupHooks path. Async hook lifecycle stays host-owned even before real hook delivery is wired.",
+					"US-006 keeps bootstrap on a scoped setupHooks shim, and US-037 promotes the replacement-runtime async_hooks subset by leaving bootstrap on that shim while the helper-child runner supplies public timers/net-http hook delivery from its own supported async_hooks module.",
 			},
 			createBinding: () => HOST_ASYNC_WRAP_BINDING,
 		},
