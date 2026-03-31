@@ -10,7 +10,7 @@ export {
 } from "./polyfills.js";
 
 // Node execution driver
-export { NodeExecutionDriver } from "./execution-driver.js";
+export { NodeExecutionDriver, createNodeV8Runtime } from "./execution-driver.js";
 export type { NodeExecutionDriverOptions } from "./isolate-bootstrap.js";
 
 // Node system driver

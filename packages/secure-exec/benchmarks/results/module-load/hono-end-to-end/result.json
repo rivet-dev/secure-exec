@@ -1,0 +1,64 @@
+{
+  "scenarioId": "hono-end-to-end",
+  "title": "Hono End-to-End",
+  "target": "hono",
+  "kind": "end_to_end",
+  "description": "Loads Hono, builds an app, serves a request, and reads the response.",
+  "createdAt": "2026-03-31T02:01:11.200Z",
+  "iterations": 3,
+  "artifacts": {
+    "resultFile": "hono-end-to-end/result.json",
+    "metricsFile": "hono-end-to-end/metrics.prom",
+    "logFile": "hono-end-to-end/ipc.ndjson"
+  },
+  "samples": [
+    {
+      "iteration": 1,
+      "wallMs": 314.008,
+      "code": 0,
+      "stdoutBytes": 84,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"status\":200,\"body\":\"{\\\"ok\\\":true,\\\"framework\\\":\\\"hono\\\"}\"}",
+      "stderrPreview": "",
+      "checks": {
+        "status": 200,
+        "body": "{\"ok\":true,\"framework\":\"hono\"}"
+      }
+    },
+    {
+      "iteration": 2,
+      "wallMs": 140.815,
+      "code": 0,
+      "stdoutBytes": 84,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"status\":200,\"body\":\"{\\\"ok\\\":true,\\\"framework\\\":\\\"hono\\\"}\"}",
+      "stderrPreview": "",
+      "checks": {
+        "status": 200,
+        "body": "{\"ok\":true,\"framework\":\"hono\"}"
+      }
+    },
+    {
+      "iteration": 3,
+      "wallMs": 152.653,
+      "code": 0,
+      "stdoutBytes": 84,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"status\":200,\"body\":\"{\\\"ok\\\":true,\\\"framework\\\":\\\"hono\\\"}\"}",
+      "stderrPreview": "",
+      "checks": {
+        "status": 200,
+        "body": "{\"ok\":true,\"framework\":\"hono\"}"
+      }
+    }
+  ],
+  "summary": {
+    "coldWallMs": 314.008,
+    "warmWallMsMean": 146.734,
+    "coldSandboxMs": 0,
+    "warmSandboxMsMean": 0
+  }
+}

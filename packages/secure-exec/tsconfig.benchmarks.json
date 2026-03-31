@@ -1,0 +1,22 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "../..",
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "baseUrl": "../..",
+    "paths": {
+      "@secure-exec/core": ["packages/core/src/index.ts"],
+      "@secure-exec/core/*": ["packages/core/src/*"],
+      "@secure-exec/nodejs": ["packages/nodejs/src/index.ts"],
+      "@secure-exec/nodejs/*": ["packages/nodejs/src/*"],
+      "@secure-exec/v8": ["packages/v8/src/index.ts"],
+      "@secure-exec/v8/*": ["packages/v8/src/*"]
+    }
+  },
+  "include": [
+    "benchmarks/module-load/**/*.ts",
+    "tests/cli-tools/mock-llm-server.ts"
+  ],
+  "exclude": ["dist", "node_modules"]
+}

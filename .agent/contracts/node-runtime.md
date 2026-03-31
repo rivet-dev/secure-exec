@@ -129,6 +129,24 @@ Console argument serialization SHALL enforce bounded work before log emission, i
 - **WHEN** serialized console output exceeds configured output-length budgets
 - **THEN** emitted log payloads MUST be truncated with deterministic suffix markers and runtime MUST NOT accumulate full unbounded output in memory
 
+### Requirement: Optional IPC Observability Stays Separate And Bounded
+The Node runtime SHALL expose an opt-in host-side IPC observability path for V8 runtime diagnostics. When enabled, it MUST write structured frame metadata to a separate sink and MAY expose Prometheus-compatible metrics for the same channel. Disabled-by-default behavior MUST remain unchanged.
+
+#### Scenario: IPC observability logs frame metadata to a separate sink
+- **WHEN** a host enables IPC observability logging
+- **THEN** the runtime MUST emit structured send/receive frame metadata, connection lifecycle events, and execution/bridge timing events to the configured sink
+- **AND** it MUST NOT mirror those records onto sandbox stdout/stderr
+- **AND** it MUST avoid logging full user-code or bridge-payload bodies by default
+
+#### Scenario: IPC observability exposes Prometheus metrics when configured
+- **WHEN** a host enables the IPC metrics endpoint
+- **THEN** the runtime MUST expose Prometheus text format on the configured host/port/path
+- **AND** the exported metrics MUST include frame counts/bytes plus execution and bridge-call latency distributions
+
+#### Scenario: IPC observability stays off unless explicitly enabled
+- **WHEN** the host does not opt into IPC observability
+- **THEN** the runtime MUST preserve the existing default behavior with no extra log files or metrics listeners
+
 ### Requirement: Host-to-Sandbox HTTP Verification Path
 The Node runtime SHALL expose a host-side request path for sandboxed HTTP servers so loader/host code can verify server behavior externally.
 

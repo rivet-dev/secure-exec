@@ -30,6 +30,7 @@ export {
 	createNodeDriver,
 	createNodeHostCommandExecutor,
 	createNodeRuntimeDriverFactory,
+	createNodeV8Runtime,
 	NodeExecutionDriver,
 	NodeFileSystem,
 } from "@secure-exec/nodejs";

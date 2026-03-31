@@ -1,0 +1,64 @@
+{
+  "scenarioId": "hono-startup",
+  "title": "Hono Startup",
+  "target": "hono",
+  "kind": "startup",
+  "description": "Loads Hono and constructs a minimal app.",
+  "createdAt": "2026-03-31T02:01:10.149Z",
+  "iterations": 3,
+  "artifacts": {
+    "resultFile": "hono-startup/result.json",
+    "metricsFile": "hono-startup/metrics.prom",
+    "logFile": "hono-startup/ipc.ndjson"
+  },
+  "samples": [
+    {
+      "iteration": 1,
+      "wallMs": 276.657,
+      "code": 0,
+      "stdoutBytes": 70,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"honoType\":\"function\",\"fetchType\":\"function\"}",
+      "stderrPreview": "",
+      "checks": {
+        "honoType": "function",
+        "fetchType": "function"
+      }
+    },
+    {
+      "iteration": 2,
+      "wallMs": 146.303,
+      "code": 0,
+      "stdoutBytes": 70,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"honoType\":\"function\",\"fetchType\":\"function\"}",
+      "stderrPreview": "",
+      "checks": {
+        "honoType": "function",
+        "fetchType": "function"
+      }
+    },
+    {
+      "iteration": 3,
+      "wallMs": 141.28,
+      "code": 0,
+      "stdoutBytes": 70,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"honoType\":\"function\",\"fetchType\":\"function\"}",
+      "stderrPreview": "",
+      "checks": {
+        "honoType": "function",
+        "fetchType": "function"
+      }
+    }
+  ],
+  "summary": {
+    "coldWallMs": 276.657,
+    "warmWallMsMean": 143.791,
+    "coldSandboxMs": 0,
+    "warmSandboxMsMean": 0
+  }
+}

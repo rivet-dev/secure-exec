@@ -15,11 +15,13 @@ import type {
 	ProcessConfig,
 	TimingMitigation,
 } from "@secure-exec/core/internal/shared/api-types";
+import type { V8Runtime } from "@secure-exec/v8";
 import type { ResolutionCache } from "./package-bundler.js";
 import type { BindingTree } from "./bindings.js";
 
 export interface NodeExecutionDriverOptions extends RuntimeDriverOptions {
 	createIsolate?(memoryLimit: number): unknown;
+	v8Runtime?: V8Runtime;
 	bindings?: BindingTree;
 	/** Callback to toggle PTY raw mode — wired by kernel runtime when PTY is attached. */
 	onPtySetRawMode?: (mode: boolean) => void;

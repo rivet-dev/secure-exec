@@ -1,0 +1,56 @@
+{
+  "scenarioId": "pi-cli-startup",
+  "title": "Pi CLI Startup",
+  "target": "pi_cli",
+  "kind": "startup",
+  "description": "Boots the Pi CLI help path inside the sandbox.",
+  "createdAt": "2026-03-31T02:01:31.067Z",
+  "iterations": 3,
+  "artifacts": {
+    "resultFile": "pi-cli-startup/result.json",
+    "metricsFile": "pi-cli-startup/metrics.prom",
+    "logFile": "pi-cli-startup/ipc.ndjson"
+  },
+  "samples": [
+    {
+      "iteration": 1,
+      "wallMs": 2667.455,
+      "code": 0,
+      "stdoutBytes": 4096,
+      "stderrBytes": 220,
+      "stdoutPreview": "pi - AI coding assistant with read, bash, edit, write tools\n\nUsage:\n  pi [options] [@files...] [messages...]\n\nCommands:\n  pi install <source> [-l]     Install extension source and add to settings\n  pi remove <source> [-l]      Remove extens",
+      "stderrPreview": "ProcessExitError: process.exit(0)\n    at process.exit (<anonymous>:22084:13)\n    at main (/home/nathan/se6/packages/secure-exec/node_modules/@mariozechner/pi-coding-agent/dist/main.js:571:13)\n    at async <anonymous>:9:5",
+      "checks": {
+        "stdoutHasUsage": true
+      }
+    },
+    {
+      "iteration": 2,
+      "wallMs": 1732.366,
+      "code": 0,
+      "stdoutBytes": 4096,
+      "stderrBytes": 220,
+      "stdoutPreview": "pi - AI coding assistant with read, bash, edit, write tools\n\nUsage:\n  pi [options] [@files...] [messages...]\n\nCommands:\n  pi install <source> [-l]     Install extension source and add to settings\n  pi remove <source> [-l]      Remove extens",
+      "stderrPreview": "ProcessExitError: process.exit(0)\n    at process.exit (<anonymous>:22084:13)\n    at main (/home/nathan/se6/packages/secure-exec/node_modules/@mariozechner/pi-coding-agent/dist/main.js:571:13)\n    at async <anonymous>:9:5",
+      "checks": {
+        "stdoutHasUsage": true
+      }
+    },
+    {
+      "iteration": 3,
+      "wallMs": 1888.794,
+      "code": 0,
+      "stdoutBytes": 4096,
+      "stderrBytes": 220,
+      "stdoutPreview": "pi - AI coding assistant with read, bash, edit, write tools\n\nUsage:\n  pi [options] [@files...] [messages...]\n\nCommands:\n  pi install <source> [-l]     Install extension source and add to settings\n  pi remove <source> [-l]      Remove extens",
+      "stderrPreview": "ProcessExitError: process.exit(0)\n    at process.exit (<anonymous>:22084:13)\n    at main (/home/nathan/se6/packages/secure-exec/node_modules/@mariozechner/pi-coding-agent/dist/main.js:571:13)\n    at async <anonymous>:9:5",
+      "checks": {
+        "stdoutHasUsage": true
+      }
+    }
+  ],
+  "summary": {
+    "coldWallMs": 2667.455,
+    "warmWallMsMean": 1810.58
+  }
+}

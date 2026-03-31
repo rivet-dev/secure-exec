@@ -6,6 +6,7 @@ import {
 } from "@secure-exec/core/internal/shared/permissions";
 import { ModuleAccessFileSystem } from "./module-access.js";
 import { NodeExecutionDriver } from "./execution-driver.js";
+import type { V8Runtime } from "@secure-exec/v8";
 import {
 	createDefaultNetworkAdapter,
 	isPrivateIp,
@@ -44,6 +45,7 @@ export interface NodeDriverOptions {
 
 export interface NodeRuntimeDriverFactoryOptions {
 	createIsolate?(memoryLimit: number): unknown;
+	v8Runtime?: V8Runtime;
 }
 
 /** Thin VFS adapter that delegates directly to `node:fs/promises`. */
@@ -272,6 +274,7 @@ export function createNodeRuntimeDriverFactory(
 			new NodeExecutionDriver({
 				...runtimeOptions,
 				createIsolate: options.createIsolate,
+				v8Runtime: options.v8Runtime,
 			}),
 	};
 }

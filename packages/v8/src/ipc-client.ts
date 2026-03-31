@@ -7,6 +7,7 @@ import {
 	encodeFrame,
 	decodeFrame,
 } from "./ipc-binary.js";
+import type { IpcObservability } from "./ipc-observability.js";
 
 /** Maximum message payload size: 64 MB. */
 const MAX_MESSAGE_SIZE = 64 * 1024 * 1024;
@@ -24,6 +25,8 @@ export interface IpcClientOptions {
 	onClose?: () => void;
 	/** Handler called on connection or framing errors. */
 	onError?: (err: Error) => void;
+	/** Optional structured IPC observability sink. */
+	observability?: IpcObservability | null;
 }
 
 /**
@@ -46,21 +49,29 @@ export class IpcClient {
 	private onError?: (err: Error) => void;
 	private socketPath: string;
 	private connected = false;
+	private observability: IpcObservability | null;
 
 	constructor(options: IpcClientOptions) {
 		this.socketPath = options.socketPath;
 		this.onMessage = options.onMessage;
 		this.onClose = options.onClose;
 		this.onError = options.onError;
+		this.observability = options.observability ?? null;
 	}
 
 	/** Connect to the Unix domain socket. Resolves when connected. */
 	connect(): Promise<void> {
 		return new Promise<void>((resolve, reject) => {
+			this.observability?.recordConnectionEvent("connect_start", {
+				socketPath: this.socketPath,
+			});
 			const socket = net.createConnection(this.socketPath);
 
 			socket.on("connect", () => {
 				this.connected = true;
+				this.observability?.recordConnectionEvent("connect_ok", {
+					socketPath: this.socketPath,
+				});
 				resolve();
 			});
 
@@ -71,10 +82,17 @@ export class IpcClient {
 			socket.on("close", () => {
 				this.connected = false;
 				this.socket = null;
+				this.observability?.recordConnectionEvent("close", {
+					socketPath: this.socketPath,
+				});
 				this.onClose?.();
 			});
 
 			socket.on("error", (err: Error) => {
+				this.observability?.recordConnectionEvent("error", {
+					socketPath: this.socketPath,
+					message: err.message,
+				});
 				if (!this.connected) {
 					reject(err);
 					return;
@@ -99,6 +117,7 @@ export class IpcClient {
 
 		// Encode and write the frame (encodeFrame includes 4-byte length prefix).
 		const buf = encodeFrame(frame);
+		this.observability?.recordFrame("send", frame, buf.length);
 		this.socket.write(buf);
 	}
 
@@ -169,6 +188,9 @@ export class IpcClient {
 				const err = new Error(
 					`Received message size ${payloadLen} exceeds maximum ${MAX_MESSAGE_SIZE}`,
 				);
+				this.observability?.recordFrameError("oversize", {
+					payloadLen,
+				});
 				this.onError?.(err);
 				this.close();
 				return;
@@ -187,8 +209,12 @@ export class IpcClient {
 
 			try {
 				const frame = decodeFrame(Buffer.from(body));
+				this.observability?.recordFrame("recv", frame, totalLen);
 				this.onMessage(frame);
 			} catch (err) {
+				this.observability?.recordFrameError("decode", {
+					frameBytes: totalLen,
+				});
 				this.onError?.(
 					err instanceof Error
 						? err

@@ -7,6 +7,7 @@
 	"packageManager": "pnpm@8.15.6",
 	"scripts": {
 		"build": "turbo run build",
+		"bench:module-load": "pnpm --filter secure-exec bench:module-load",
 		"check-types": "turbo run check-types",
 		"test": "turbo run test",
 		"test:watch": "turbo run test:watch",

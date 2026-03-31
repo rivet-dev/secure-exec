@@ -1,0 +1,355 @@
+{
+  "createdAt": "2026-03-31T02:01:34.223Z",
+  "gitCommit": "17cacf5009860765991bd8f1e79b14681cd2bdee",
+  "host": {
+    "node": "v24.13.0",
+    "platform": "linux",
+    "arch": "x64",
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+    "cores": 20,
+    "ramGb": 62.558
+  },
+  "v8BinaryPath": "/home/nathan/se6/native/v8-runtime/target/release/secure-exec-v8",
+  "iterations": 3,
+  "results": [
+    {
+      "status": "passed",
+      "scenarioId": "hono-startup",
+      "title": "Hono Startup",
+      "target": "hono",
+      "kind": "startup",
+      "description": "Loads Hono and constructs a minimal app.",
+      "createdAt": "2026-03-31T02:01:10.149Z",
+      "iterations": 3,
+      "artifacts": {
+        "resultFile": "hono-startup/result.json",
+        "metricsFile": "hono-startup/metrics.prom",
+        "logFile": "hono-startup/ipc.ndjson",
+        "runnerLogFile": "hono-startup/runner.log"
+      },
+      "samples": [
+        {
+          "iteration": 1,
+          "wallMs": 276.657,
+          "code": 0,
+          "stdoutBytes": 70,
+          "stderrBytes": 0,
+          "sandboxMs": 0,
+          "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"honoType\":\"function\",\"fetchType\":\"function\"}",
+          "stderrPreview": "",
+          "checks": {
+            "honoType": "function",
+            "fetchType": "function"
+          }
+        },
+        {
+          "iteration": 2,
+          "wallMs": 146.303,
+          "code": 0,
+          "stdoutBytes": 70,
+          "stderrBytes": 0,
+          "sandboxMs": 0,
+          "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"honoType\":\"function\",\"fetchType\":\"function\"}",
+          "stderrPreview": "",
+          "checks": {
+            "honoType": "function",
+            "fetchType": "function"
+          }
+        },
+        {
+          "iteration": 3,
+          "wallMs": 141.28,
+          "code": 0,
+          "stdoutBytes": 70,
+          "stderrBytes": 0,
+          "sandboxMs": 0,
+          "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"honoType\":\"function\",\"fetchType\":\"function\"}",
+          "stderrPreview": "",
+          "checks": {
+            "honoType": "function",
+            "fetchType": "function"
+          }
+        }
+      ],
+      "summary": {
+        "coldWallMs": 276.657,
+        "warmWallMsMean": 143.791,
+        "coldSandboxMs": 0,
+        "warmSandboxMsMean": 0
+      }
+    },
+    {
+      "status": "passed",
+      "scenarioId": "hono-end-to-end",
+      "title": "Hono End-to-End",
+      "target": "hono",
+      "kind": "end_to_end",
+      "description": "Loads Hono, builds an app, serves a request, and reads the response.",
+      "createdAt": "2026-03-31T02:01:11.200Z",
+      "iterations": 3,
+      "artifacts": {
+        "resultFile": "hono-end-to-end/result.json",
+        "metricsFile": "hono-end-to-end/metrics.prom",
+        "logFile": "hono-end-to-end/ipc.ndjson",
+        "runnerLogFile": "hono-end-to-end/runner.log"
+      },
+      "samples": [
+        {
+          "iteration": 1,
+          "wallMs": 314.008,
+          "code": 0,
+          "stdoutBytes": 84,
+          "stderrBytes": 0,
+          "sandboxMs": 0,
+          "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"status\":200,\"body\":\"{\\\"ok\\\":true,\\\"framework\\\":\\\"hono\\\"}\"}",
+          "stderrPreview": "",
+          "checks": {
+            "status": 200,
+            "body": "{\"ok\":true,\"framework\":\"hono\"}"
+          }
+        },
+        {
+          "iteration": 2,
+          "wallMs": 140.815,
+          "code": 0,
+          "stdoutBytes": 84,
+          "stderrBytes": 0,
+          "sandboxMs": 0,
+          "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"status\":200,\"body\":\"{\\\"ok\\\":true,\\\"framework\\\":\\\"hono\\\"}\"}",
+          "stderrPreview": "",
+          "checks": {
+            "status": 200,
+            "body": "{\"ok\":true,\"framework\":\"hono\"}"
+          }
+        },
+        {
+          "iteration": 3,
+          "wallMs": 152.653,
+          "code": 0,
+          "stdoutBytes": 84,
+          "stderrBytes": 0,
+          "sandboxMs": 0,
+          "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"status\":200,\"body\":\"{\\\"ok\\\":true,\\\"framework\\\":\\\"hono\\\"}\"}",
+          "stderrPreview": "",
+          "checks": {
+            "status": 200,
+            "body": "{\"ok\":true,\"framework\":\"hono\"}"
+          }
+        }
+      ],
+      "summary": {
+        "coldWallMs": 314.008,
+        "warmWallMsMean": 146.734,
+        "coldSandboxMs": 0,
+        "warmSandboxMsMean": 0
+      }
+    },
+    {
+      "status": "passed",
+      "scenarioId": "pi-sdk-startup",
+      "title": "Pi SDK Startup",
+      "target": "pi_sdk",
+      "kind": "startup",
+      "description": "Loads the Pi SDK entry module and inspects its exported surface.",
+      "createdAt": "2026-03-31T02:01:17.467Z",
+      "iterations": 3,
+      "artifacts": {
+        "resultFile": "pi-sdk-startup/result.json",
+        "metricsFile": "pi-sdk-startup/metrics.prom",
+        "logFile": "pi-sdk-startup/ipc.ndjson",
+        "runnerLogFile": "pi-sdk-startup/runner.log"
+      },
+      "samples": [
+        {
+          "iteration": 1,
+          "wallMs": 2087.659,
+          "code": 0,
+          "stdoutBytes": 91,
+          "stderrBytes": 0,
+          "sandboxMs": 0,
+          "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"createAgentSessionType\":\"function\",\"runPrintModeType\":\"function\"}",
+          "stderrPreview": "",
+          "checks": {
+            "createAgentSessionType": "function",
+            "runPrintModeType": "function"
+          }
+        },
+        {
+          "iteration": 2,
+          "wallMs": 1876.096,
+          "code": 0,
+          "stdoutBytes": 91,
+          "stderrBytes": 0,
+          "sandboxMs": 0,
+          "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"createAgentSessionType\":\"function\",\"runPrintModeType\":\"function\"}",
+          "stderrPreview": "",
+          "checks": {
+            "createAgentSessionType": "function",
+            "runPrintModeType": "function"
+          }
+        },
+        {
+          "iteration": 3,
+          "wallMs": 1872.007,
+          "code": 0,
+          "stdoutBytes": 91,
+          "stderrBytes": 0,
+          "sandboxMs": 0,
+          "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"createAgentSessionType\":\"function\",\"runPrintModeType\":\"function\"}",
+          "stderrPreview": "",
+          "checks": {
+            "createAgentSessionType": "function",
+            "runPrintModeType": "function"
+          }
+        }
+      ],
+      "summary": {
+        "coldWallMs": 2087.659,
+        "warmWallMsMean": 1874.052,
+        "coldSandboxMs": 0,
+        "warmSandboxMsMean": 0
+      }
+    },
+    {
+      "status": "passed",
+      "scenarioId": "pi-sdk-end-to-end",
+      "title": "Pi SDK End-to-End",
+      "target": "pi_sdk",
+      "kind": "end_to_end",
+      "description": "Runs createAgentSession + runPrintMode against the mock Anthropic SSE server.",
+      "createdAt": "2026-03-31T02:01:24.363Z",
+      "iterations": 3,
+      "artifacts": {
+        "resultFile": "pi-sdk-end-to-end/result.json",
+        "metricsFile": "pi-sdk-end-to-end/metrics.prom",
+        "logFile": "pi-sdk-end-to-end/ipc.ndjson",
+        "runnerLogFile": "pi-sdk-end-to-end/runner.log"
+      },
+      "samples": [
+        {
+          "iteration": 1,
+          "wallMs": 2652.074,
+          "code": 0,
+          "stdoutBytes": 67,
+          "stderrBytes": 0,
+          "sandboxMs": 0,
+          "mockRequests": 1,
+          "stdoutPreview": "benchmark-pi-sdk-response{\"ok\":true,\"sandboxMs\":0,\"messageCount\":2}",
+          "stderrPreview": "",
+          "checks": {
+            "messageCount": 2
+          }
+        },
+        {
+          "iteration": 2,
+          "wallMs": 2193.84,
+          "code": 0,
+          "stdoutBytes": 67,
+          "stderrBytes": 0,
+          "sandboxMs": 0,
+          "mockRequests": 1,
+          "stdoutPreview": "benchmark-pi-sdk-response{\"ok\":true,\"sandboxMs\":0,\"messageCount\":2}",
+          "stderrPreview": "",
+          "checks": {
+            "messageCount": 2
+          }
+        },
+        {
+          "iteration": 3,
+          "wallMs": 1609.691,
+          "code": 0,
+          "stdoutBytes": 67,
+          "stderrBytes": 0,
+          "sandboxMs": 0,
+          "mockRequests": 1,
+          "stdoutPreview": "benchmark-pi-sdk-response{\"ok\":true,\"sandboxMs\":0,\"messageCount\":2}",
+          "stderrPreview": "",
+          "checks": {
+            "messageCount": 2
+          }
+        }
+      ],
+      "summary": {
+        "coldWallMs": 2652.074,
+        "warmWallMsMean": 1901.765,
+        "coldSandboxMs": 0,
+        "warmSandboxMsMean": 0
+      }
+    },
+    {
+      "status": "passed",
+      "scenarioId": "pi-cli-startup",
+      "title": "Pi CLI Startup",
+      "target": "pi_cli",
+      "kind": "startup",
+      "description": "Boots the Pi CLI help path inside the sandbox.",
+      "createdAt": "2026-03-31T02:01:31.067Z",
+      "iterations": 3,
+      "artifacts": {
+        "resultFile": "pi-cli-startup/result.json",
+        "metricsFile": "pi-cli-startup/metrics.prom",
+        "logFile": "pi-cli-startup/ipc.ndjson",
+        "runnerLogFile": "pi-cli-startup/runner.log"
+      },
+      "samples": [
+        {
+          "iteration": 1,
+          "wallMs": 2667.455,
+          "code": 0,
+          "stdoutBytes": 4096,
+          "stderrBytes": 220,
+          "stdoutPreview": "pi - AI coding assistant with read, bash, edit, write tools\n\nUsage:\n  pi [options] [@files...] [messages...]\n\nCommands:\n  pi install <source> [-l]     Install extension source and add to settings\n  pi remove <source> [-l]      Remove extens",
+          "stderrPreview": "ProcessExitError: process.exit(0)\n    at process.exit (<anonymous>:22084:13)\n    at main (/home/nathan/se6/packages/secure-exec/node_modules/@mariozechner/pi-coding-agent/dist/main.js:571:13)\n    at async <anonymous>:9:5",
+          "checks": {
+            "stdoutHasUsage": true
+          }
+        },
+        {
+          "iteration": 2,
+          "wallMs": 1732.366,
+          "code": 0,
+          "stdoutBytes": 4096,
+          "stderrBytes": 220,
+          "stdoutPreview": "pi - AI coding assistant with read, bash, edit, write tools\n\nUsage:\n  pi [options] [@files...] [messages...]\n\nCommands:\n  pi install <source> [-l]     Install extension source and add to settings\n  pi remove <source> [-l]      Remove extens",
+          "stderrPreview": "ProcessExitError: process.exit(0)\n    at process.exit (<anonymous>:22084:13)\n    at main (/home/nathan/se6/packages/secure-exec/node_modules/@mariozechner/pi-coding-agent/dist/main.js:571:13)\n    at async <anonymous>:9:5",
+          "checks": {
+            "stdoutHasUsage": true
+          }
+        },
+        {
+          "iteration": 3,
+          "wallMs": 1888.794,
+          "code": 0,
+          "stdoutBytes": 4096,
+          "stderrBytes": 220,
+          "stdoutPreview": "pi - AI coding assistant with read, bash, edit, write tools\n\nUsage:\n  pi [options] [@files...] [messages...]\n\nCommands:\n  pi install <source> [-l]     Install extension source and add to settings\n  pi remove <source> [-l]      Remove extens",
+          "stderrPreview": "ProcessExitError: process.exit(0)\n    at process.exit (<anonymous>:22084:13)\n    at main (/home/nathan/se6/packages/secure-exec/node_modules/@mariozechner/pi-coding-agent/dist/main.js:571:13)\n    at async <anonymous>:9:5",
+          "checks": {
+            "stdoutHasUsage": true
+          }
+        }
+      ],
+      "summary": {
+        "coldWallMs": 2667.455,
+        "warmWallMsMean": 1810.58
+      }
+    },
+    {
+      "status": "failed",
+      "scenarioId": "pi-cli-end-to-end",
+      "title": "Pi CLI End-to-End",
+      "target": "pi_cli",
+      "kind": "end_to_end",
+      "description": "Runs Pi CLI --print mode against the mock Anthropic SSE server.",
+      "createdAt": "2026-03-31T02:01:34.223Z",
+      "iterations": 3,
+      "artifacts": {
+        "resultFile": "pi-cli-end-to-end/result.json",
+        "metricsFile": "pi-cli-end-to-end/metrics.prom",
+        "logFile": "pi-cli-end-to-end/ipc.ndjson",
+        "runnerLogFile": "pi-cli-end-to-end/runner.log"
+      },
+      "error": "Error: Pi CLI end-to-end failed with code 0; mockRequests=0; stdout=\"\"; stderr=\"\"\n    at runScenarioIteration (/home/nathan/se6/packages/secure-exec/benchmarks/module-load/scenario-runner.ts:569:12)\n    at async main (/home/nathan/se6/packages/secure-exec/benchmarks/module-load/scenario-runner.ts:621:17)"
+    }
+  ]
+}

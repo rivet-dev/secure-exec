@@ -87,6 +87,15 @@
 - check GitHub Actions test/typecheck status per commit to identify when a failure first appeared
 - do not use `contract` in test filenames; use names like `suite`, `behavior`, `parity`, `integration`, or `policy` instead
 
+## Performance Debugging
+
+- for V8 IPC performance debugging, keep observability out of stdout/stderr protocol output — use the dedicated IPC sink and Prometheus endpoint instead
+- opt-in IPC logs with `SECURE_EXEC_V8_IPC_LOG_FILE=/abs/path/ipc.ndjson`
+- opt-in Prometheus metrics with `SECURE_EXEC_V8_METRICS_PORT=<port>`; optional overrides: `SECURE_EXEC_V8_METRICS_HOST=127.0.0.1` and `SECURE_EXEC_V8_METRICS_PATH=/metrics`
+- the module-load benchmark harness lives at `packages/secure-exec/benchmarks/module-load/`; run it with `pnpm --filter secure-exec bench:module-load`
+- benchmark artifacts are written under `packages/secure-exec/benchmarks/results/module-load/` and include per-scenario `result.json`, `metrics.prom`, `ipc.ndjson`, and `runner.log`
+- when writing an ad hoc performance harness, prefer `createNodeV8Runtime({ observability: ... })` plus `createNodeRuntimeDriverFactory({ v8Runtime })` so the benchmark owns the runtime, the logs/metrics, and the cleanup path explicitly
+
 ## Dev Shell
 
 - `packages/dev-shell/` is the canonical interactive sandbox for manual validation of the runtime surface

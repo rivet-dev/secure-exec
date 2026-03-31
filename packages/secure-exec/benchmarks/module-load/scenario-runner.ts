@@ -1,0 +1,696 @@
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { performance } from "node:perf_hooks";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+	NodeFileSystem,
+	NodeRuntime,
+	allowAll,
+	createNodeDriver,
+	createNodeRuntimeDriverFactory,
+	createNodeV8Runtime,
+} from "../../src/index.js";
+import {
+	createMockLlmServer,
+	type MockLlmResponse,
+	type MockLlmServerHandle,
+} from "../../tests/cli-tools/mock-llm-server.ts";
+import {
+	getModuleLoadScenario,
+	type ModuleLoadScenarioId,
+} from "./scenario-catalog.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const SECURE_EXEC_ROOT = path.resolve(__dirname, "../..");
+const RESULTS_ROOT = path.resolve(__dirname, "../results/module-load");
+const PI_SDK_ENTRY = path.resolve(
+	SECURE_EXEC_ROOT,
+	"node_modules/@mariozechner/pi-coding-agent/dist/index.js",
+);
+const PI_CLI_ENTRY = path.resolve(
+	SECURE_EXEC_ROOT,
+	"node_modules/@mariozechner/pi-coding-agent/dist/cli.js",
+);
+const PI_MAIN_ENTRY = path.resolve(
+	SECURE_EXEC_ROOT,
+	"node_modules/@mariozechner/pi-coding-agent/dist/main.js",
+);
+const PI_BASE_FLAGS = [
+	"--verbose",
+	"--no-session",
+	"--no-extensions",
+	"--no-skills",
+	"--no-prompt-templates",
+	"--no-themes",
+	"--provider",
+	"anthropic",
+	"--model",
+	"claude-sonnet-4-20250514",
+] as const;
+
+type BenchmarkSample = {
+	iteration: number;
+	wallMs: number;
+	code: number;
+	errorMessage?: string;
+	stdoutBytes: number;
+	stderrBytes: number;
+	sandboxMs?: number;
+	mockRequests?: number;
+	stdoutPreview: string;
+	stderrPreview: string;
+	checks: Record<string, string | number | boolean | undefined>;
+};
+
+type ScenarioResult = {
+	scenarioId: string;
+	title: string;
+	target: string;
+	kind: string;
+	description: string;
+	createdAt: string;
+	iterations: number;
+	artifacts: {
+		resultFile: string;
+		metricsFile: string;
+		logFile: string;
+	};
+	samples: BenchmarkSample[];
+	summary: {
+		coldWallMs: number;
+		warmWallMsMean?: number;
+		coldSandboxMs?: number;
+		warmSandboxMsMean?: number;
+	};
+};
+
+type RuntimeCapture = {
+	code: number;
+	errorMessage?: string;
+	stdoutText: string;
+	stderrText: string;
+	wallMs: number;
+};
+
+type ScenarioArgs = {
+	scenarioId: ModuleLoadScenarioId;
+	resultFile: string;
+	metricsFile: string;
+	logFile: string;
+	binaryPath: string;
+	metricsHost: string;
+	metricsPort: number;
+	metricsPath: string;
+	iterations: number;
+};
+
+function readArg(name: string): string {
+	const flag = `--${name}`;
+	const index = process.argv.indexOf(flag);
+	if (index === -1 || index + 1 >= process.argv.length) {
+		throw new Error(`Missing required argument: ${flag}`);
+	}
+	return process.argv[index + 1];
+}
+
+function parseArgs(): ScenarioArgs {
+	const metricsPort = Number(readArg("metrics-port"));
+	if (!Number.isInteger(metricsPort) || metricsPort <= 0 || metricsPort > 65535) {
+		throw new Error(`Invalid --metrics-port: ${metricsPort}`);
+	}
+	const iterations = Number(readArg("iterations"));
+	if (!Number.isInteger(iterations) || iterations <= 0) {
+		throw new Error(`Invalid --iterations: ${iterations}`);
+	}
+	return {
+		scenarioId: readArg("scenario") as ModuleLoadScenarioId,
+		resultFile: readArg("result-file"),
+		metricsFile: readArg("metrics-file"),
+		logFile: readArg("log-file"),
+		binaryPath: readArg("binary-path"),
+		metricsHost: readArg("metrics-host"),
+		metricsPort,
+		metricsPath: readArg("metrics-path"),
+		iterations,
+	};
+}
+
+function round(value: number): number {
+	return Number(value.toFixed(3));
+}
+
+function mean(values: number[]): number | undefined {
+	if (values.length === 0) return undefined;
+	return round(values.reduce((sum, value) => sum + value, 0) / values.length);
+}
+
+function preview(text: string, maxBytes = 240): string {
+	return Buffer.from(text, "utf8").subarray(0, maxBytes).toString("utf8");
+}
+
+function parseTrailingJsonObject(stdoutText: string): Record<string, unknown> {
+	const trimmed = stdoutText.trim();
+	if (!trimmed) {
+		throw new Error("sandbox produced no stdout");
+	}
+	for (
+		let index = trimmed.lastIndexOf("{");
+		index >= 0;
+		index = trimmed.lastIndexOf("{", index - 1)
+	) {
+		try {
+			return JSON.parse(trimmed.slice(index)) as Record<string, unknown>;
+		} catch {
+			continue;
+		}
+	}
+	throw new Error(`sandbox produced no trailing JSON object: ${JSON.stringify(stdoutText)}`);
+}
+
+function assertInstalled(): void {
+	if (!existsSync(PI_SDK_ENTRY)) {
+		throw new Error("@mariozechner/pi-coding-agent is not installed in packages/secure-exec/node_modules");
+	}
+	if (!existsSync(PI_CLI_ENTRY)) {
+		throw new Error("@mariozechner/pi-coding-agent CLI entry is not installed");
+	}
+	if (!existsSync(PI_MAIN_ENTRY)) {
+		throw new Error("@mariozechner/pi-coding-agent main entry is not installed");
+	}
+}
+
+async function createPiWorkDir(
+	mockServer: MockLlmServerHandle,
+	withModelsJson: boolean,
+): Promise<{ workDir: string; agentDir: string }> {
+	const workDir = await mkdtemp(path.join(tmpdir(), "secure-exec-bench-"));
+	const agentDir = path.join(workDir, ".pi", "agent");
+	await mkdir(agentDir, { recursive: true });
+	if (withModelsJson) {
+		await writeFile(
+			path.join(agentDir, "models.json"),
+			JSON.stringify(
+				{
+					providers: {
+						anthropic: {
+							baseUrl: `http://127.0.0.1:${mockServer.port}`,
+						},
+					},
+				},
+				null,
+				2,
+			),
+		);
+	}
+	return { workDir, agentDir };
+}
+
+async function runRuntimeExec(
+	v8Runtime: Awaited<ReturnType<typeof createNodeV8Runtime>>,
+	options: {
+		code: string;
+		cwd: string;
+		useHostFileSystem?: boolean;
+		useNetwork?: boolean;
+	},
+): Promise<RuntimeCapture> {
+	const stdout: string[] = [];
+	const stderr: string[] = [];
+	const runtime = new NodeRuntime({
+		onStdio: (event) => {
+			if (event.channel === "stdout") stdout.push(event.message);
+			if (event.channel === "stderr") stderr.push(event.message);
+		},
+		systemDriver: createNodeDriver({
+			filesystem: options.useHostFileSystem ? new NodeFileSystem() : undefined,
+			moduleAccess: { cwd: SECURE_EXEC_ROOT },
+			permissions: allowAll,
+			useDefaultNetwork: options.useNetwork,
+		}),
+		runtimeDriverFactory: createNodeRuntimeDriverFactory({ v8Runtime }),
+	});
+
+	const startedAt = performance.now();
+	try {
+		const result = await runtime.exec(options.code, { cwd: options.cwd });
+		return {
+			code: result.code,
+			errorMessage: result.errorMessage,
+			stdoutText: stdout.join(""),
+			stderrText: stderr.join(""),
+			wallMs: round(performance.now() - startedAt),
+		};
+	} finally {
+		await runtime.terminate();
+	}
+}
+
+function buildHonoStartupCode(): string {
+	return `
+(async () => {
+  try {
+    const startedAt = performance.now();
+    const { Hono } = require("hono");
+    const app = new Hono();
+    app.get("/", (context) => context.text("ok"));
+    const finishedAt = performance.now();
+    console.log(JSON.stringify({
+      ok: true,
+      sandboxMs: Number((finishedAt - startedAt).toFixed(3)),
+      honoType: typeof Hono,
+      fetchType: typeof app.fetch,
+    }));
+  } catch (error) {
+    console.log(JSON.stringify({
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    process.exitCode = 1;
+  }
+})();
+`;
+}
+
+function buildHonoEndToEndCode(): string {
+	return `
+(async () => {
+  try {
+    const startedAt = performance.now();
+    const { Hono } = require("hono");
+    const app = new Hono();
+    app.get("/hello", (context) => context.json({ ok: true, framework: "hono" }));
+    const response = await app.request("http://localhost/hello");
+    const body = await response.text();
+    const finishedAt = performance.now();
+    console.log(JSON.stringify({
+      ok: true,
+      sandboxMs: Number((finishedAt - startedAt).toFixed(3)),
+      status: response.status,
+      body,
+    }));
+  } catch (error) {
+    console.log(JSON.stringify({
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    process.exitCode = 1;
+  }
+})();
+`;
+}
+
+function buildPiSdkStartupCode(): string {
+	return `
+(async () => {
+  try {
+    const startedAt = performance.now();
+    const pi = await globalThis.__dynamicImport(${JSON.stringify(PI_SDK_ENTRY)}, "/bench-pi-sdk-startup.mjs");
+    const finishedAt = performance.now();
+    console.log(JSON.stringify({
+      ok: true,
+      sandboxMs: Number((finishedAt - startedAt).toFixed(3)),
+      createAgentSessionType: typeof pi.createAgentSession,
+      runPrintModeType: typeof pi.runPrintMode,
+    }));
+  } catch (error) {
+    console.log(JSON.stringify({
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    process.exitCode = 1;
+  }
+})();
+`;
+}
+
+function buildPiSdkEndToEndCode(workDir: string, agentDir: string): string {
+	return `
+(async () => {
+  let session;
+  try {
+    const startedAt = performance.now();
+    const pi = await globalThis.__dynamicImport(${JSON.stringify(PI_SDK_ENTRY)}, "/bench-pi-sdk-end-to-end.mjs");
+    const authStorage = pi.AuthStorage.inMemory();
+    authStorage.setRuntimeApiKey("anthropic", "test-key");
+    const modelRegistry = new pi.ModelRegistry(authStorage, ${JSON.stringify(path.join(agentDir, "models.json"))});
+    const model = modelRegistry.find("anthropic", "claude-sonnet-4-20250514")
+      ?? modelRegistry.getAll().find((candidate) => candidate.provider === "anthropic");
+    if (!model) throw new Error("No anthropic model");
+    ({ session } = await pi.createAgentSession({
+      cwd: ${JSON.stringify(workDir)},
+      agentDir: ${JSON.stringify(agentDir)},
+      authStorage,
+      modelRegistry,
+      model,
+      tools: pi.createCodingTools(${JSON.stringify(workDir)}),
+      sessionManager: pi.SessionManager.inMemory(),
+    }));
+    await pi.runPrintMode(session, {
+      mode: "text",
+      initialMessage: "Say hello from the benchmark runner.",
+    });
+    const finishedAt = performance.now();
+    console.log(JSON.stringify({
+      ok: true,
+      sandboxMs: Number((finishedAt - startedAt).toFixed(3)),
+      messageCount: session.state?.messages?.length ?? 0,
+    }));
+    session.dispose();
+  } catch (error) {
+    if (session) {
+      try { session.dispose(); } catch {}
+    }
+    console.log(JSON.stringify({
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    process.exitCode = 1;
+  }
+})();
+`;
+}
+
+function buildPiCliStartupCode(workDir: string, agentDir: string): string {
+	return `
+process.title = "pi";
+(async () => {
+  try {
+    const { main } = await globalThis.__dynamicImport(${JSON.stringify(PI_MAIN_ENTRY)}, "/bench-pi-cli-startup.mjs");
+    process.env.HOME = ${JSON.stringify(workDir)};
+    process.env.PI_CODING_AGENT_DIR = ${JSON.stringify(agentDir)};
+    process.env.NO_COLOR = "1";
+    await main(["--help"]);
+  } catch (error) {
+    console.error(error instanceof Error ? error.stack ?? error.message : String(error));
+    process.exitCode = 1;
+  }
+})();
+`;
+}
+
+function buildPiCliEndToEndCode(workDir: string, agentDir: string): string {
+	return `
+process.title = "pi";
+(async () => {
+  try {
+    const { main } = await globalThis.__dynamicImport(${JSON.stringify(PI_MAIN_ENTRY)}, "/bench-pi-cli-end-to-end.mjs");
+    process.env.HOME = ${JSON.stringify(workDir)};
+    process.env.PI_CODING_AGENT_DIR = ${JSON.stringify(agentDir)};
+    process.env.ANTHROPIC_API_KEY = "test-key";
+    process.env.NO_COLOR = "1";
+    await main(${JSON.stringify([...PI_BASE_FLAGS, "--print", "Say hello from the CLI benchmark."])});
+  } catch (error) {
+    console.error(error instanceof Error ? error.stack ?? error.message : String(error));
+    process.exitCode = 1;
+  }
+})();
+`;
+}
+
+async function runScenarioIteration(
+	v8Runtime: Awaited<ReturnType<typeof createNodeV8Runtime>>,
+	scenarioId: ModuleLoadScenarioId,
+	mockServer: MockLlmServerHandle,
+	iteration: number,
+): Promise<BenchmarkSample> {
+	switch (scenarioId) {
+		case "hono-startup": {
+			const capture = await runRuntimeExec(v8Runtime, {
+				code: buildHonoStartupCode(),
+				cwd: SECURE_EXEC_ROOT,
+			});
+			const payload = parseTrailingJsonObject(capture.stdoutText);
+			if (payload.ok !== true) {
+				throw new Error(`Hono startup failed: ${JSON.stringify(payload)}`);
+			}
+			return {
+				iteration,
+				wallMs: capture.wallMs,
+				code: capture.code,
+				errorMessage: capture.errorMessage,
+				stdoutBytes: Buffer.byteLength(capture.stdoutText, "utf8"),
+				stderrBytes: Buffer.byteLength(capture.stderrText, "utf8"),
+				sandboxMs: Number(payload.sandboxMs ?? 0),
+				stdoutPreview: preview(capture.stdoutText),
+				stderrPreview: preview(capture.stderrText),
+				checks: {
+					honoType: String(payload.honoType),
+					fetchType: String(payload.fetchType),
+				},
+			};
+		}
+		case "hono-end-to-end": {
+			const capture = await runRuntimeExec(v8Runtime, {
+				code: buildHonoEndToEndCode(),
+				cwd: SECURE_EXEC_ROOT,
+			});
+			const payload = parseTrailingJsonObject(capture.stdoutText);
+			if (payload.ok !== true || payload.status !== 200) {
+				throw new Error(`Hono end-to-end failed: ${JSON.stringify(payload)}`);
+			}
+			return {
+				iteration,
+				wallMs: capture.wallMs,
+				code: capture.code,
+				errorMessage: capture.errorMessage,
+				stdoutBytes: Buffer.byteLength(capture.stdoutText, "utf8"),
+				stderrBytes: Buffer.byteLength(capture.stderrText, "utf8"),
+				sandboxMs: Number(payload.sandboxMs ?? 0),
+				stdoutPreview: preview(capture.stdoutText),
+				stderrPreview: preview(capture.stderrText),
+				checks: {
+					status: Number(payload.status),
+					body: String(payload.body),
+				},
+			};
+		}
+		case "pi-sdk-startup": {
+			const capture = await runRuntimeExec(v8Runtime, {
+				code: buildPiSdkStartupCode(),
+				cwd: SECURE_EXEC_ROOT,
+			});
+			const payload = parseTrailingJsonObject(capture.stdoutText);
+			if (payload.ok !== true) {
+				throw new Error(`Pi SDK startup failed: ${JSON.stringify(payload)}`);
+			}
+			return {
+				iteration,
+				wallMs: capture.wallMs,
+				code: capture.code,
+				errorMessage: capture.errorMessage,
+				stdoutBytes: Buffer.byteLength(capture.stdoutText, "utf8"),
+				stderrBytes: Buffer.byteLength(capture.stderrText, "utf8"),
+				sandboxMs: Number(payload.sandboxMs ?? 0),
+				stdoutPreview: preview(capture.stdoutText),
+				stderrPreview: preview(capture.stderrText),
+				checks: {
+					createAgentSessionType: String(payload.createAgentSessionType),
+					runPrintModeType: String(payload.runPrintModeType),
+				},
+			};
+		}
+		case "pi-sdk-end-to-end": {
+			mockServer.reset([{ type: "text", text: "benchmark-pi-sdk-response" } satisfies MockLlmResponse]);
+			const { workDir, agentDir } = await createPiWorkDir(mockServer, true);
+			try {
+				const capture = await runRuntimeExec(v8Runtime, {
+					code: buildPiSdkEndToEndCode(workDir, agentDir),
+					cwd: workDir,
+					useHostFileSystem: true,
+					useNetwork: true,
+				});
+				const payload = parseTrailingJsonObject(capture.stdoutText);
+				if (payload.ok !== true) {
+					throw new Error(`Pi SDK end-to-end failed: ${JSON.stringify(payload)}`);
+				}
+				return {
+					iteration,
+					wallMs: capture.wallMs,
+					code: capture.code,
+					errorMessage: capture.errorMessage,
+					stdoutBytes: Buffer.byteLength(capture.stdoutText, "utf8"),
+					stderrBytes: Buffer.byteLength(capture.stderrText, "utf8"),
+					sandboxMs: Number(payload.sandboxMs ?? 0),
+					mockRequests: mockServer.requestCount(),
+					stdoutPreview: preview(capture.stdoutText),
+					stderrPreview: preview(capture.stderrText),
+					checks: {
+						messageCount: Number(payload.messageCount ?? 0),
+					},
+				};
+			} finally {
+				await rm(workDir, { recursive: true, force: true });
+			}
+		}
+		case "pi-cli-startup": {
+			const { workDir, agentDir } = await createPiWorkDir(mockServer, false);
+			try {
+				const capture = await runRuntimeExec(v8Runtime, {
+					code: buildPiCliStartupCode(workDir, agentDir),
+					cwd: workDir,
+					useHostFileSystem: true,
+				});
+				if (capture.code !== 0 || !capture.stdoutText.trim()) {
+					throw new Error(
+						`Pi CLI startup failed with code ${capture.code}: ${capture.stderrText || capture.stdoutText}`,
+					);
+				}
+				return {
+					iteration,
+					wallMs: capture.wallMs,
+					code: capture.code,
+					errorMessage: capture.errorMessage,
+					stdoutBytes: Buffer.byteLength(capture.stdoutText, "utf8"),
+					stderrBytes: Buffer.byteLength(capture.stderrText, "utf8"),
+					stdoutPreview: preview(capture.stdoutText),
+					stderrPreview: preview(capture.stderrText),
+					checks: {
+						stdoutHasUsage: capture.stdoutText.includes("Usage"),
+					},
+				};
+			} finally {
+				await rm(workDir, { recursive: true, force: true });
+			}
+		}
+		case "pi-cli-end-to-end": {
+			mockServer.reset([{ type: "text", text: "benchmark-pi-cli-response" } satisfies MockLlmResponse]);
+			const { workDir, agentDir } = await createPiWorkDir(mockServer, true);
+			try {
+				const capture = await runRuntimeExec(v8Runtime, {
+					code: buildPiCliEndToEndCode(workDir, agentDir),
+					cwd: workDir,
+					useHostFileSystem: true,
+					useNetwork: true,
+				});
+				const mockRequests = mockServer.requestCount();
+				if (capture.code !== 0 || !capture.stdoutText.includes("benchmark-pi-cli-response")) {
+					throw new Error(
+						`Pi CLI end-to-end failed with code ${capture.code}; mockRequests=${mockRequests}; stdout=${JSON.stringify(preview(capture.stdoutText))}; stderr=${JSON.stringify(preview(capture.stderrText))}`,
+					);
+				}
+				return {
+					iteration,
+					wallMs: capture.wallMs,
+					code: capture.code,
+					errorMessage: capture.errorMessage,
+					stdoutBytes: Buffer.byteLength(capture.stdoutText, "utf8"),
+					stderrBytes: Buffer.byteLength(capture.stderrText, "utf8"),
+					mockRequests,
+					stdoutPreview: preview(capture.stdoutText),
+					stderrPreview: preview(capture.stderrText),
+					checks: {
+						responseSeen: true,
+					},
+				};
+			} finally {
+				await rm(workDir, { recursive: true, force: true });
+			}
+		}
+	}
+	throw new Error(`Unhandled scenario: ${String(scenarioId)}`);
+}
+
+async function main(): Promise<void> {
+	assertInstalled();
+	const args = parseArgs();
+	const scenario = getModuleLoadScenario(args.scenarioId);
+	console.error(`Running ${scenario.id} for ${args.iterations} iteration(s)...`);
+
+	await mkdir(path.dirname(args.resultFile), { recursive: true });
+	await mkdir(path.dirname(args.metricsFile), { recursive: true });
+	await mkdir(path.dirname(args.logFile), { recursive: true });
+
+	const mockServer = await createMockLlmServer([]);
+	const v8Runtime = await createNodeV8Runtime({
+		binaryPath: args.binaryPath,
+		observability: {
+			logFile: args.logFile,
+			metrics: {
+				host: args.metricsHost,
+				port: args.metricsPort,
+				path: args.metricsPath,
+			},
+		},
+	});
+
+	try {
+		const samples: BenchmarkSample[] = [];
+		for (let iteration = 1; iteration <= args.iterations; iteration += 1) {
+			samples.push(await runScenarioIteration(v8Runtime, args.scenarioId, mockServer, iteration));
+		}
+
+		const metricsResponse = await fetch(
+			`http://${args.metricsHost}:${args.metricsPort}${args.metricsPath}`,
+		);
+		if (!metricsResponse.ok) {
+			throw new Error(`Failed to scrape metrics: HTTP ${metricsResponse.status}`);
+		}
+		await writeFile(args.metricsFile, await metricsResponse.text(), "utf8");
+
+		const warmSamples = samples.slice(1);
+		const result: ScenarioResult = {
+			scenarioId: scenario.id,
+			title: scenario.title,
+			target: scenario.target,
+			kind: scenario.kind,
+			description: scenario.description,
+			createdAt: new Date().toISOString(),
+			iterations: args.iterations,
+			artifacts: {
+				resultFile: path.relative(RESULTS_ROOT, args.resultFile),
+				metricsFile: path.relative(RESULTS_ROOT, args.metricsFile),
+				logFile: path.relative(RESULTS_ROOT, args.logFile),
+			},
+			samples,
+			summary: {
+				coldWallMs: samples[0].wallMs,
+				warmWallMsMean: mean(warmSamples.map((sample) => sample.wallMs)),
+				coldSandboxMs: samples[0].sandboxMs,
+				warmSandboxMsMean: mean(
+					warmSamples
+						.map((sample) => sample.sandboxMs)
+						.filter((sample): sample is number => typeof sample === "number"),
+				),
+			},
+		};
+		await writeFile(args.resultFile, `${JSON.stringify(result, null, 2)}\n`, "utf8");
+		console.error(`Completed ${scenario.id}. Cold wall: ${result.summary.coldWallMs} ms`);
+	} finally {
+		await v8Runtime.dispose();
+		await mockServer.close();
+	}
+}
+
+void main()
+	.then(() => {
+		process.exit(0);
+	})
+	.catch(async (error) => {
+		const args = (() => {
+			try {
+				return parseArgs();
+			} catch {
+				return null;
+			}
+		})();
+		const message = error instanceof Error ? `${error.stack ?? error.message}` : String(error);
+		console.error(message);
+		if (args) {
+			await writeFile(
+				args.resultFile,
+				`${JSON.stringify({ error: message }, null, 2)}\n`,
+				"utf8",
+			).catch(() => {});
+			const logExists = existsSync(args.logFile);
+			if (!logExists) {
+				await writeFile(args.logFile, "", "utf8").catch(() => {});
+			}
+			const metricsExists = existsSync(args.metricsFile);
+			if (!metricsExists) {
+				await writeFile(args.metricsFile, "", "utf8").catch(() => {});
+			}
+		}
+		process.exit(1);
+	});

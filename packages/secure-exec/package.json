@@ -23,8 +23,10 @@
   },
   "scripts": {
     "check-types": "tsc --noEmit",
+    "check-types:benchmarks": "tsc -p tsconfig.benchmarks.json --noEmit",
     "check-types:test": "vitest --typecheck --run tests/types/",
     "build": "tsc",
+    "bench:module-load": "tsx benchmarks/module-load/run-module-load-benchmarks.ts",
     "test:test-suite": "vitest run tests/test-suite.test.ts tests/test-suite-python.test.ts",
     "test:runtime-driver": "vitest run tests/runtime-driver/*.test.ts",
     "test:integration:node": "pnpm run test:test-suite && pnpm run test:runtime-driver",

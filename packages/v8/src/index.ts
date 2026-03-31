@@ -16,6 +16,7 @@ export type {
 // IPC client for communicating with the Rust V8 runtime process.
 export { IpcClient } from "./ipc-client.js";
 export type { IpcClientOptions, MessageHandler } from "./ipc-client.js";
+export type { V8IpcObservabilityOptions } from "./ipc-observability.js";
 
 // Binary frame types (active wire format).
 export type { BinaryFrame, ExecutionErrorBin } from "./ipc-binary.js";

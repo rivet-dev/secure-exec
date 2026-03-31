@@ -10,6 +10,11 @@ import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import v8 from "node:v8";
 import { IpcClient } from "./ipc-client.js";
+import {
+	createIpcObservability,
+	resolveIpcObservabilityOptions,
+	type V8IpcObservabilityOptions,
+} from "./ipc-observability.js";
 import type { BinaryFrame } from "./ipc-binary.js";
 import type { V8Session, V8SessionOptions } from "./session.js";
 
@@ -33,6 +38,8 @@ export interface V8RuntimeOptions {
 	maxSessions?: number;
 	/** Bridge code to pre-warm the snapshot cache with (fire-and-forget). Skipped if SECURE_EXEC_NO_SNAPSHOT_WARMUP=1. */
 	warmupBridgeCode?: string;
+	/** Optional IPC observability sink configuration. */
+	observability?: V8IpcObservabilityOptions;
 }
 
 /** Manages the Rust V8 child process and session lifecycle. */
@@ -95,9 +102,21 @@ export async function createV8Runtime(
 	options?: V8RuntimeOptions,
 ): Promise<V8Runtime> {
 	const binaryPath = options?.binaryPath ?? resolveBinaryPath();
+	const observability = await createIpcObservability(
+		resolveIpcObservabilityOptions(options?.observability),
+	);
 
 	// Generate 128-bit random auth token
 	const authToken = randomBytes(16).toString("hex");
+	// Message routing: session-level handlers registered per session_id
+	const sessionHandlers = new Map<
+		string,
+		(frame: BinaryFrame) => void
+	>();
+	// Per-session reject functions for rejecting in-flight execute() promises
+	const sessionRejects = new Map<string, (err: Error) => void>();
+	let ipcClient: IpcClient | null = null;
+	let disposed = false;
 
 	// Build child environment
 	const childEnv: Record<string, string> = {
@@ -112,6 +131,10 @@ export async function createV8Runtime(
 	const child = spawn(binaryPath, [], {
 		stdio: ["ignore", "pipe", "pipe"],
 		env: childEnv,
+	});
+	observability?.recordRuntimeEvent("runtime_spawned", {
+		binaryPath,
+		pid: child.pid ?? undefined,
 	});
 
 	// Track whether the process is alive
@@ -131,6 +154,10 @@ export async function createV8Runtime(
 
 	child.on("exit", (code, signal) => {
 		processAlive = false;
+		observability?.recordRuntimeEvent("runtime_exit", {
+			code: code ?? undefined,
+			signal: signal ?? undefined,
+		});
 		if (code !== 0 && code !== null) {
 			exitError = new Error(
 				`V8 runtime process exited with code ${code}`,
@@ -151,6 +178,9 @@ export async function createV8Runtime(
 	let stderrBuf = "";
 	child.stderr!.on("data", (chunk: Buffer) => {
 		stderrBuf += chunk.toString();
+		observability?.recordRuntimeEvent("runtime_stderr", {
+			messageBytes: chunk.length,
+		});
 		// Cap buffer to avoid unbounded growth
 		if (stderrBuf.length > 8192) {
 			stderrBuf = stderrBuf.slice(-4096);
@@ -158,7 +188,16 @@ export async function createV8Runtime(
 	});
 
 	// Read socket path from first line of stdout
-	const socketPath = await readSocketPath(child);
+	let socketPath: string;
+	try {
+		socketPath = await readSocketPath(child);
+	} catch (error) {
+		await observability?.close();
+		throw error;
+	}
+	observability?.recordRuntimeEvent("runtime_socket_path", {
+		socketPath,
+	});
 
 	// Unref child process and its stdio so they don't keep the event loop
 	// alive on their own. The IPC socket (ref-counted by active sessions)
@@ -168,18 +207,6 @@ export async function createV8Runtime(
 	// Unref stderr (still collects errors, but doesn't block exit)
 	const stderrStream = child.stderr as NodeJS.ReadableStream & { unref?: () => void };
 	stderrStream?.unref?.();
-
-	// Connect IPC client
-	let ipcClient: IpcClient | null = null;
-	let disposed = false;
-
-	// Message routing: session-level handlers registered per session_id
-	const sessionHandlers = new Map<
-		string,
-		(frame: BinaryFrame) => void
-	>();
-	// Per-session reject functions for rejecting in-flight execute() promises
-	const sessionRejects = new Map<string, (err: Error) => void>();
 
 	ipcClient = new IpcClient({
 		socketPath,
@@ -206,6 +233,7 @@ export async function createV8Runtime(
 				exitError = err;
 			}
 		},
+		observability,
 	});
 
 	try {
@@ -214,6 +242,9 @@ export async function createV8Runtime(
 
 		// Send warm-up snapshot request (fire-and-forget)
 		if (options?.warmupBridgeCode && process.env.SECURE_EXEC_NO_SNAPSHOT_WARMUP !== "1") {
+			observability?.recordRuntimeEvent("runtime_warm_snapshot", {
+				bridgeCodeBytes: Buffer.byteLength(options.warmupBridgeCode, "utf8"),
+			});
 			ipcClient.send({
 				type: "WarmSnapshot",
 				bridgeCode: options.warmupBridgeCode,
@@ -225,6 +256,7 @@ export async function createV8Runtime(
 	} catch (err) {
 		// Connection failed — kill child and surface error
 		child.kill("SIGTERM");
+		await observability?.close();
 		const msg =
 			err instanceof Error ? err.message : String(err);
 		throw new Error(
@@ -297,6 +329,11 @@ export async function createV8Runtime(
 				heapLimitMb: sessionOptions?.heapLimitMb ?? 0,
 				cpuTimeLimitMs: sessionOptions?.cpuTimeLimitMs ?? 0,
 			});
+			observability?.recordRuntimeEvent("session_created", {
+				sessionId,
+				heapLimitMb: sessionOptions?.heapLimitMb ?? 0,
+				cpuTimeLimitMs: sessionOptions?.cpuTimeLimitMs ?? 0,
+			});
 
 			// Create session proxy
 			const client = ipcClient;
@@ -343,16 +380,30 @@ export async function createV8Runtime(
 						sessionHandlers.set(sessionId, (frame) => {
 							switch (frame.type) {
 								case "BridgeCall": {
+									observability?.markBridgeCallStart(
+										sessionId,
+										frame.callId,
+										frame.method,
+										frame.payload.length,
+									);
 									// Route to bridge handler
 									const handler =
 										execOptions.bridgeHandlers[frame.method];
 									if (!handler) {
+										const payload = Buffer.from(
+											`No handler for bridge method: ${frame.method}`,
+											"utf8",
+										);
+										observability?.markBridgeCallFinish(sessionId, frame.callId, {
+											status: 1,
+											payloadBytes: payload.length,
+										});
 										client.send({
 											type: "BridgeResponse",
 											sessionId,
 											callId: frame.callId,
 											status: 1,
-											payload: Buffer.from(`No handler for bridge method: ${frame.method}`, "utf8"),
+											payload,
 										});
 										return;
 									}
@@ -371,6 +422,10 @@ export async function createV8Runtime(
 											// Use status=2 for raw binary (Uint8Array/Buffer) to avoid
 											// V8 typed array format incompatibility across V8 versions.
 											if (result instanceof Uint8Array) {
+												observability?.markBridgeCallFinish(sessionId, frame.callId, {
+													status: 2,
+													payloadBytes: result.length,
+												});
 												client.send({
 													type: "BridgeResponse",
 													sessionId,
@@ -379,15 +434,20 @@ export async function createV8Runtime(
 													payload: Buffer.from(result),
 												});
 											} else {
+												const payload =
+													result !== undefined
+														? Buffer.from(v8.serialize(result))
+														: Buffer.alloc(0);
+												observability?.markBridgeCallFinish(sessionId, frame.callId, {
+													status: 0,
+													payloadBytes: payload.length,
+												});
 												client.send({
 													type: "BridgeResponse",
 													sessionId,
 													callId: frame.callId,
 													status: 0,
-													payload:
-														result !== undefined
-															? Buffer.from(v8.serialize(result))
-															: Buffer.alloc(0),
+													payload,
 												});
 											}
 										} catch (err) {
@@ -395,12 +455,17 @@ export async function createV8Runtime(
 											const errMsg = err instanceof Error
 												? err.message
 												: String(err);
+											const payload = Buffer.from(errMsg, "utf8");
+											observability?.markBridgeCallFinish(sessionId, frame.callId, {
+												status: 1,
+												payloadBytes: payload.length,
+											});
 											client.send({
 												type: "BridgeResponse",
 												sessionId,
 												callId: frame.callId,
 												status: 1,
-												payload: Buffer.from(errMsg, "utf8"),
+												payload,
 											});
 										}
 									})();
@@ -411,6 +476,10 @@ export async function createV8Runtime(
 									sessionHandlers.delete(sessionId);
 									sessionRejects.delete(sessionId);
 									updateSocketRef();
+									observability?.markExecuteFinish(sessionId, {
+										exitCode: frame.exitCode,
+										errorCode: frame.error?.code || undefined,
+									});
 									resolve({
 										code: frame.exitCode,
 										exports: frame.exports,
@@ -442,22 +511,26 @@ export async function createV8Runtime(
 						});
 
 						// Send Execute — skip bridge code if unchanged since last send
-					const bridgeHash = fnv1aHash(execOptions.bridgeCode);
-					const sendBridgeCode = bridgeHash !== lastBridgeCodeHash;
-					if (sendBridgeCode) {
-						lastBridgeCodeHash = bridgeHash;
-					}
-					client.send({
-						type: "Execute",
-						sessionId,
-						bridgeCode: sendBridgeCode ? execOptions.bridgeCode : "",
-						postRestoreScript: execOptions.postRestoreScript ?? "",
-						userCode: execOptions.userCode,
-						mode: execOptions.mode === "exec" ? 0 : 1,
-						filePath: execOptions.filePath ?? "",
-					});
-					// Ref the socket while execution is in-flight
-					updateSocketRef();
+						const bridgeHash = fnv1aHash(execOptions.bridgeCode);
+						const sendBridgeCode = bridgeHash !== lastBridgeCodeHash;
+						if (sendBridgeCode) {
+							lastBridgeCodeHash = bridgeHash;
+						}
+						client.send({
+							type: "Execute",
+							sessionId,
+							bridgeCode: sendBridgeCode ? execOptions.bridgeCode : "",
+							postRestoreScript: execOptions.postRestoreScript ?? "",
+							userCode: execOptions.userCode,
+							mode: execOptions.mode === "exec" ? 0 : 1,
+							filePath: execOptions.filePath ?? "",
+						});
+						observability?.markExecuteStart(sessionId, {
+							mode: execOptions.mode,
+							filePath: execOptions.filePath,
+						});
+						// Ref the socket while execution is in-flight
+						updateSocketRef();
 					});
 				},
 
@@ -471,6 +544,9 @@ export async function createV8Runtime(
 							sessionId,
 						});
 					}
+					observability?.recordRuntimeEvent("session_destroyed", {
+						sessionId,
+					});
 				},
 			};
 
@@ -511,6 +587,7 @@ export async function createV8Runtime(
 			child.stderr?.removeAllListeners();
 			child.stderr?.destroy();
 			child.removeAllListeners();
+			await observability?.close();
 		},
 	};
 
@@ -521,6 +598,15 @@ export async function createV8Runtime(
 function readSocketPath(child: ChildProcess): Promise<string> {
 	return new Promise<string>((resolve, reject) => {
 		let resolved = false;
+		const exitedBeforeSocketPath = child.exitCode !== null || child.signalCode !== null;
+		if (exitedBeforeSocketPath) {
+			reject(
+				new Error(
+					`V8 runtime process exited (code=${child.exitCode}, signal=${child.signalCode}) before sending socket path`,
+				),
+			);
+			return;
+		}
 
 		// Timeout if socket path is not received within 10s
 		const timeout = setTimeout(() => {

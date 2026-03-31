@@ -1,0 +1,64 @@
+{
+  "scenarioId": "pi-sdk-end-to-end",
+  "title": "Pi SDK End-to-End",
+  "target": "pi_sdk",
+  "kind": "end_to_end",
+  "description": "Runs createAgentSession + runPrintMode against the mock Anthropic SSE server.",
+  "createdAt": "2026-03-31T02:01:24.363Z",
+  "iterations": 3,
+  "artifacts": {
+    "resultFile": "pi-sdk-end-to-end/result.json",
+    "metricsFile": "pi-sdk-end-to-end/metrics.prom",
+    "logFile": "pi-sdk-end-to-end/ipc.ndjson"
+  },
+  "samples": [
+    {
+      "iteration": 1,
+      "wallMs": 2652.074,
+      "code": 0,
+      "stdoutBytes": 67,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "mockRequests": 1,
+      "stdoutPreview": "benchmark-pi-sdk-response{\"ok\":true,\"sandboxMs\":0,\"messageCount\":2}",
+      "stderrPreview": "",
+      "checks": {
+        "messageCount": 2
+      }
+    },
+    {
+      "iteration": 2,
+      "wallMs": 2193.84,
+      "code": 0,
+      "stdoutBytes": 67,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "mockRequests": 1,
+      "stdoutPreview": "benchmark-pi-sdk-response{\"ok\":true,\"sandboxMs\":0,\"messageCount\":2}",
+      "stderrPreview": "",
+      "checks": {
+        "messageCount": 2
+      }
+    },
+    {
+      "iteration": 3,
+      "wallMs": 1609.691,
+      "code": 0,
+      "stdoutBytes": 67,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "mockRequests": 1,
+      "stdoutPreview": "benchmark-pi-sdk-response{\"ok\":true,\"sandboxMs\":0,\"messageCount\":2}",
+      "stderrPreview": "",
+      "checks": {
+        "messageCount": 2
+      }
+    }
+  ],
+  "summary": {
+    "coldWallMs": 2652.074,
+    "warmWallMsMean": 1901.765,
+    "coldSandboxMs": 0,
+    "warmSandboxMsMean": 0
+  }
+}

@@ -19,7 +19,12 @@ import type {
 	RunResult,
 	TimingMitigation,
 } from "@secure-exec/core/internal/shared/api-types";
-import type { V8Runtime, V8Session, V8SessionOptions } from "@secure-exec/v8";
+import type {
+	V8Runtime,
+	V8RuntimeOptions,
+	V8Session,
+	V8SessionOptions,
+} from "@secure-exec/v8";
 import { createV8Runtime } from "@secure-exec/v8";
 import { getRawBridgeCode, getBridgeAttachCode } from "./bridge-loader.js";
 import {
@@ -150,12 +155,7 @@ async function getSharedV8Runtime(): Promise<V8Runtime> {
 	if (sharedV8Runtime?.isAlive) return sharedV8Runtime;
 	if (sharedV8RuntimePromise) return sharedV8RuntimePromise;
 
-	// Build bridge code for snapshot warmup
-	const bridgeCode = buildFullBridgeCode();
-
-	sharedV8RuntimePromise = createV8Runtime({
-		warmupBridgeCode: bridgeCode,
-	}).then((rt) => {
+	sharedV8RuntimePromise = createNodeV8Runtime().then((rt) => {
 		sharedV8Runtime = rt;
 		sharedV8RuntimePromise = null;
 		return rt;
@@ -755,6 +755,15 @@ function buildFullBridgeCode(): string {
 	return bridgeCodeCache;
 }
 
+export async function createNodeV8Runtime(
+	options: V8RuntimeOptions = {},
+): Promise<V8Runtime> {
+	return createV8Runtime({
+		...options,
+		warmupBridgeCode: options.warmupBridgeCode ?? buildFullBridgeCode(),
+	});
+}
+
 export class NodeExecutionDriver implements RuntimeDriver {
 	private state: DriverState;
 	private memoryLimit: number;
@@ -772,11 +781,13 @@ export class NodeExecutionDriver implements RuntimeDriver {
 	private configuredMaxTimers?: number;
 	private configuredMaxHandles?: number;
 	private pid?: number;
+	private readonly v8Runtime?: V8Runtime;
 	// Track the current V8 session so it can be destroyed on terminate/dispose
 	private _currentSession: V8Session | null = null;
 
 	constructor(options: NodeExecutionDriverOptions) {
 		this.memoryLimit = options.memoryLimit ?? 128;
+		this.v8Runtime = options.v8Runtime;
 		const budgets = options.resourceBudgets;
 		this.socketTable = options.socketTable;
 		this.processTable = options.processTable ?? new ProcessTable();
@@ -1050,7 +1061,7 @@ export class NodeExecutionDriver implements RuntimeDriver {
 				})();
 
 		// Get or create V8 runtime
-		const v8Runtime = await getSharedV8Runtime();
+		const v8Runtime = this.v8Runtime ?? await getSharedV8Runtime();
 		const cpuTimeLimitMs = getExecutionTimeoutMs(options.cpuTimeLimitMs, s.cpuTimeLimitMs);
 
 		const sessionOpts: V8SessionOptions = {
