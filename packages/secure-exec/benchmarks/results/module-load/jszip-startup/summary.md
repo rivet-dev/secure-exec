@@ -1,22 +1,23 @@
 # JSZip Startup
 
 Scenario: `jszip-startup`
-Generated: 2026-03-31T22:51:14.756Z
+Kind: `startup`
+Generated: 2026-03-31T23:09:52.750Z
 Description: Loads JSZip, creates an archive, and stages a starter file.
 Primary comparison mode: `sandbox new-session replay (warm snapshot enabled)`
 
 ## Progress Copy Fields
 
-- Warm wall mean: 67.864 ms
+- Warm wall mean: 68.439 ms
 - Bridge calls/iteration: 179.000
-- Warm fixed session overhead: 6.059 ms
+- Warm fixed session overhead: 6.226 ms
 - Scenario IPC connect RTT: 0.000 ms
-- Warm phase attribution: Create->InjectGlobals 5.000 ms, InjectGlobals->Execute 0.000 ms, ExecutionResult->Destroy 0.000 ms, residual 1.059 ms
-- Dominant bridge time: `_loadPolyfill` 27.428 ms/iteration across 17.000 calls/iteration
+- Warm phase attribution: Create->InjectGlobals 5.000 ms, InjectGlobals->Execute 0.000 ms, ExecutionResult->Destroy 0.000 ms, residual 1.226 ms
+- Dominant bridge time: `_loadPolyfill` 25.936 ms/iteration across 17.000 calls/iteration
 - Dominant bridge response bytes: `_loadPolyfill` 233610.000 bytes/iteration
-- _loadPolyfill real polyfill-body loads: 17.000 calls/iteration, 27.428 ms/iteration, 233610.000 bytes/iteration
-- _loadPolyfill real polyfill-body loads top target by time: `stream` 1.000 calls/iteration, 6.854 ms/iteration, 82604.667 bytes/iteration
-- _loadPolyfill real polyfill-body loads top target by response bytes: `stream` 1.000 calls/iteration, 6.854 ms/iteration, 82604.667 bytes/iteration
+- _loadPolyfill real polyfill-body loads: 17.000 calls/iteration, 25.936 ms/iteration, 233610.000 bytes/iteration
+- _loadPolyfill real polyfill-body loads top target by time: `stream` 1.000 calls/iteration, 6.692 ms/iteration, 82604.667 bytes/iteration
+- _loadPolyfill real polyfill-body loads top target by response bytes: `stream` 1.000 calls/iteration, 6.692 ms/iteration, 82604.667 bytes/iteration
 - _loadPolyfill __bd:* bridge-dispatch wrappers: 0.000 calls/iteration, 0.000 ms/iteration, 0.000 bytes/iteration
 - Dominant frame bytes: `send:WarmSnapshot` 411447.667 bytes/iteration
 
@@ -24,20 +25,20 @@ Primary comparison mode: `sandbox new-session replay (warm snapshot enabled)`
 
 These controls separate true runtime creation cost, same-session replay, fresh-session replay, warm snapshot toggles, and a direct host Node control.
 
-- Sandbox true cold start, warm snapshot enabled: total 385.430 ms; runtime create 102.795 ms; first pass 282.635 ms; sandbox 0.000 ms; checks `jszipType`=function, `generateAsyncType`=function, `fileCount`=1
-- Sandbox true cold start, warm snapshot disabled: total 329.272 ms; runtime create 4.666 ms; first pass 324.606 ms; sandbox 0.000 ms; checks `jszipType`=function, `generateAsyncType`=function, `fileCount`=1
-- Sandbox new-session replay, warm snapshot enabled: cold 176.772 ms; warm 67.864 ms; sandbox cold 0.000 ms, warm 0.000 ms
-- Sandbox new-session replay, warm snapshot disabled: cold 277.093 ms; warm 76.983 ms; sandbox cold 0.000 ms, warm 0.000 ms
-- Sandbox same-session replay: total 291.762 ms; first checks `jszipType`=function, `generateAsyncType`=function, `fileCount`=1; replay checks `jszipType`=function, `generateAsyncType`=function, `fileCount`=1
-- Host same-session control: total 14.565 ms; first 14.507 ms; replay 0.055 ms; first checks `jszipType`=function, `generateAsyncType`=function, `fileCount`=1; replay checks `jszipType`=function, `generateAsyncType`=function, `fileCount`=1
+- Sandbox true cold start, warm snapshot enabled: total 267.833 ms; runtime create 99.434 ms; first pass 168.399 ms; sandbox 0.000 ms; checks `jszipType`=function, `generateAsyncType`=function, `fileCount`=1
+- Sandbox true cold start, warm snapshot disabled: total 249.803 ms; runtime create 4.531 ms; first pass 245.272 ms; sandbox 0.000 ms; checks `jszipType`=function, `generateAsyncType`=function, `fileCount`=1
+- Sandbox new-session replay, warm snapshot enabled: cold 160.232 ms; warm 68.439 ms; sandbox cold 0.000 ms, warm 0.000 ms
+- Sandbox new-session replay, warm snapshot disabled: cold 250.776 ms; warm 62.174 ms; sandbox cold 0.000 ms, warm 0.000 ms
+- Sandbox same-session replay: total 166.881 ms; first checks `jszipType`=function, `generateAsyncType`=function, `fileCount`=1; replay checks `jszipType`=function, `generateAsyncType`=function, `fileCount`=1
+- Host same-session control: total 13.737 ms; first 13.680 ms; replay 0.055 ms; first checks `jszipType`=function, `generateAsyncType`=function, `fileCount`=1; replay checks `jszipType`=function, `generateAsyncType`=function, `fileCount`=1
 
 ## Iteration Timing
 
 | Iteration | Wall | Execute | Fixed Overhead | Bridge Calls | Bridge Time |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | 176.772 ms | 162.509 ms | 14.263 ms | 179 | 96.629 ms |
-| 2 | 68.909 ms | 62.265 ms | 6.644 ms | 179 | 11.942 ms |
-| 3 | 66.819 ms | 61.345 ms | 5.474 ms | 179 | 12.607 ms |
+| 1 | 160.232 ms | 145.747 ms | 14.485 ms | 179 | 89.583 ms |
+| 2 | 70.524 ms | 63.643 ms | 6.881 ms | 179 | 13.462 ms |
+| 3 | 66.354 ms | 60.783 ms | 5.571 ms | 179 | 11.121 ms |
 
 ## Session Phase Attribution
 
@@ -45,44 +46,44 @@ Equivalent lifecycle phases come from `CreateSession -> InjectGlobals -> Execute
 
 | Iteration | Create->InjectGlobals | InjectGlobals->Execute | Execute | ExecutionResult->Destroy | Residual Overhead |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | 12.000 ms | 0.000 ms | 162.509 ms | 0.000 ms | 2.263 ms |
-| 2 | 6.000 ms | 0.000 ms | 62.265 ms | 0.000 ms | 0.644 ms |
-| 3 | 4.000 ms | 0.000 ms | 61.345 ms | 0.000 ms | 1.474 ms |
+| 1 | 12.000 ms | 0.000 ms | 145.747 ms | 0.000 ms | 2.485 ms |
+| 2 | 6.000 ms | 0.000 ms | 63.643 ms | 0.000 ms | 0.881 ms |
+| 3 | 4.000 ms | 0.000 ms | 60.783 ms | 0.000 ms | 1.571 ms |
 
 ## Bridge Methods By Time
 
 | Method | Calls/Iter | Time/Iter | Mean/Call | Response Bytes/Iter |
 | --- | ---: | ---: | ---: | ---: |
-| `_loadPolyfill` | 17.000 | 27.428 ms | 1.613 ms | 233610.000 |
-| `_bridgeDispatch` | 161.000 | 12.901 ms | 0.080 ms | 176998.667 |
-| `_log` | 1.000 | 0.064 ms | 0.064 ms | 47.000 |
+| `_loadPolyfill` | 17.000 | 25.936 ms | 1.526 ms | 233610.000 |
+| `_bridgeDispatch` | 161.000 | 12.045 ms | 0.075 ms | 176998.667 |
+| `_log` | 1.000 | 0.075 ms | 0.075 ms | 47.000 |
 
 ## _loadPolyfill Attribution
 
 | Kind | Calls/Iter | Time/Iter | Response Bytes/Iter | Attributed Targets | Unattributed Calls/Iter |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| real polyfill-body loads | 17.000 | 27.428 ms | 233610.000 | 17 | 0.000 |
+| real polyfill-body loads | 17.000 | 25.936 ms | 233610.000 | 17 | 0.000 |
 | __bd:* bridge-dispatch wrappers | 0.000 | 0.000 ms | 0.000 | 0 | 0.000 |
 
 ## _loadPolyfill Target Hotspots
 
 | Kind | Ranking | Target | Calls/Iter | Time/Iter | Response Bytes/Iter |
 | --- | --- | --- | ---: | ---: | ---: |
-| real polyfill-body loads | by calls | `stream` | 1.000 | 6.854 ms | 82604.667 |
-| real polyfill-body loads | by calls | `url` | 1.000 | 6.710 ms | 41826.000 |
-| real polyfill-body loads | by calls | `stream/web` | 1.000 | 5.240 ms | 57983.333 |
-| real polyfill-body loads | by calls | `util` | 1.000 | 4.593 ms | 27772.000 |
-| real polyfill-body loads | by calls | `buffer` | 1.000 | 2.053 ms | 16810.667 |
-| real polyfill-body loads | by time | `stream` | 1.000 | 6.854 ms | 82604.667 |
-| real polyfill-body loads | by time | `url` | 1.000 | 6.710 ms | 41826.000 |
-| real polyfill-body loads | by time | `stream/web` | 1.000 | 5.240 ms | 57983.333 |
-| real polyfill-body loads | by time | `util` | 1.000 | 4.593 ms | 27772.000 |
-| real polyfill-body loads | by time | `buffer` | 1.000 | 2.053 ms | 16810.667 |
-| real polyfill-body loads | by response bytes | `stream` | 1.000 | 6.854 ms | 82604.667 |
-| real polyfill-body loads | by response bytes | `stream/web` | 1.000 | 5.240 ms | 57983.333 |
-| real polyfill-body loads | by response bytes | `url` | 1.000 | 6.710 ms | 41826.000 |
-| real polyfill-body loads | by response bytes | `util` | 1.000 | 4.593 ms | 27772.000 |
-| real polyfill-body loads | by response bytes | `buffer` | 1.000 | 2.053 ms | 16810.667 |
+| real polyfill-body loads | by calls | `stream` | 1.000 | 6.692 ms | 82604.667 |
+| real polyfill-body loads | by calls | `stream/web` | 1.000 | 5.880 ms | 57983.333 |
+| real polyfill-body loads | by calls | `url` | 1.000 | 4.924 ms | 41826.000 |
+| real polyfill-body loads | by calls | `util` | 1.000 | 4.878 ms | 27772.000 |
+| real polyfill-body loads | by calls | `buffer` | 1.000 | 1.525 ms | 16810.667 |
+| real polyfill-body loads | by time | `stream` | 1.000 | 6.692 ms | 82604.667 |
+| real polyfill-body loads | by time | `stream/web` | 1.000 | 5.880 ms | 57983.333 |
+| real polyfill-body loads | by time | `url` | 1.000 | 4.924 ms | 41826.000 |
+| real polyfill-body loads | by time | `util` | 1.000 | 4.878 ms | 27772.000 |
+| real polyfill-body loads | by time | `buffer` | 1.000 | 1.525 ms | 16810.667 |
+| real polyfill-body loads | by response bytes | `stream` | 1.000 | 6.692 ms | 82604.667 |
+| real polyfill-body loads | by response bytes | `stream/web` | 1.000 | 5.880 ms | 57983.333 |
+| real polyfill-body loads | by response bytes | `url` | 1.000 | 4.924 ms | 41826.000 |
+| real polyfill-body loads | by response bytes | `util` | 1.000 | 4.878 ms | 27772.000 |
+| real polyfill-body loads | by response bytes | `buffer` | 1.000 | 1.525 ms | 16810.667 |
 | __bd:* bridge-dispatch wrappers | - | - | - | - | - |
 
 ## Frame Bytes
@@ -99,4 +100,46 @@ Equivalent lifecycle phases come from `CreateSession -> InjectGlobals -> Execute
 | `recv:DestroySessionResult` | 1.000 | 39.000 | 0.000 |
 | `send:DestroySession` | 1.000 | 38.000 | 0.000 |
 | `send:Authenticate` | 0.333 | 12.667 | 0.000 |
+
+## Comparison To Previous Baseline
+
+Baseline scenario timestamp: 2026-03-31T22:51:14.756Z
+
+- Warm wall: 67.864 -> 68.439 ms (+0.575 ms (+0.85%))
+- Bridge calls/iteration: 179.000 -> 179.000 calls (0.000 calls (0.00%))
+- Warm fixed overhead: 6.059 -> 6.226 ms (+0.167 ms (+2.76%))
+- Warm Create->InjectGlobals: 5.000 -> 5.000 ms (0.000 ms (0.00%))
+- Warm InjectGlobals->Execute: 0.000 -> 0.000 ms (0.000 ms)
+- Warm ExecutionResult->Destroy: 0.000 -> 0.000 ms (0.000 ms)
+- Warm residual overhead: 1.059 -> 1.226 ms (+0.167 ms (+15.77%))
+- Bridge time/iteration: 40.393 -> 38.055 ms (-2.338 ms (-5.79%))
+- BridgeResponse encoded bytes/iteration: 410655.667 -> 410655.667 bytes (0.000 bytes (0.00%))
+- _loadPolyfill real polyfill-body loads: calls 17.000 -> 17.000 calls (0.000 calls (0.00%)); time 27.428 -> 25.936 ms (-1.492 ms (-5.44%)); response bytes 233610.000 -> 233610.000 bytes (0.000 bytes (0.00%))
+- _loadPolyfill __bd:* bridge-dispatch wrappers: calls 0.000 -> 0.000 calls (0.000 calls); time 0.000 -> 0.000 ms (0.000 ms); response bytes 0.000 -> 0.000 bytes (0.000 bytes)
+
+### _loadPolyfill Target Deltas
+
+| Kind | Ranking | Target | Calls/Iter | Time/Iter | Response Bytes/Iter |
+| --- | --- | --- | --- | --- | --- |
+| real polyfill-body loads | by calls | `stream` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 6.854 -> 6.692 ms (-0.162 ms (-2.36%)) | 82604.667 -> 82604.667 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by calls | `stream/web` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 5.240 -> 5.880 ms (+0.640 ms (+12.21%)) | 57983.333 -> 57983.333 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by calls | `url` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 6.710 -> 4.924 ms (-1.786 ms (-26.62%)) | 41826.000 -> 41826.000 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by calls | `util` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 4.593 -> 4.878 ms (+0.285 ms (+6.21%)) | 27772.000 -> 27772.000 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by calls | `buffer` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 2.053 -> 1.525 ms (-0.528 ms (-25.72%)) | 16810.667 -> 16810.667 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by time | `url` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 6.710 -> 4.924 ms (-1.786 ms (-26.62%)) | 41826.000 -> 41826.000 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by time | `stream/web` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 5.240 -> 5.880 ms (+0.640 ms (+12.21%)) | 57983.333 -> 57983.333 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by time | `buffer` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 2.053 -> 1.525 ms (-0.528 ms (-25.72%)) | 16810.667 -> 16810.667 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by time | `util` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 4.593 -> 4.878 ms (+0.285 ms (+6.21%)) | 27772.000 -> 27772.000 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by time | `events` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 0.891 -> 1.146 ms (+0.255 ms (+28.62%)) | 4042.333 -> 4042.333 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by response bytes | `stream` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 6.854 -> 6.692 ms (-0.162 ms (-2.36%)) | 82604.667 -> 82604.667 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by response bytes | `stream/web` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 5.240 -> 5.880 ms (+0.640 ms (+12.21%)) | 57983.333 -> 57983.333 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by response bytes | `url` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 6.710 -> 4.924 ms (-1.786 ms (-26.62%)) | 41826.000 -> 41826.000 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by response bytes | `util` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 4.593 -> 4.878 ms (+0.285 ms (+6.21%)) | 27772.000 -> 27772.000 bytes (0.000 bytes (0.00%)) |
+| real polyfill-body loads | by response bytes | `buffer` | 1.000 -> 1.000 calls (0.000 calls (0.00%)) | 2.053 -> 1.525 ms (-0.528 ms (-25.72%)) | 16810.667 -> 16810.667 bytes (0.000 bytes (0.00%)) |
+
+| Delta Type | Name | Before | After | Delta |
+| --- | --- | ---: | ---: | ---: |
+| Method time | `_loadPolyfill` | 27.428 | 25.936 | -1.492 |
+| Method time | `_bridgeDispatch` | 12.901 | 12.045 | -0.856 |
+| Method time | `_log` | 0.064 | 0.075 | +0.011 |
 

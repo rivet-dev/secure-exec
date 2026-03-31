@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -74,6 +74,104 @@ const PI_SNAPSHOT_PRELOADED_POLYFILLS = [
 	"vm",
 	"tty",
 ] as const;
+const requireFromPiPackage = createRequire(realpathSync(PI_SDK_ENTRY));
+const TEXT_CODEC_ENTRY = requireFromPiPackage.resolve("@borewit/text-codec");
+
+type HotImportMicrobenchmarkId =
+	| "micro-import-stream"
+	| "micro-import-stream-web"
+	| "micro-import-crypto"
+	| "micro-import-zlib"
+	| "micro-import-assert"
+	| "micro-import-url"
+	| "micro-import-text-codec";
+
+type HotImportMicrobenchmarkSpec = {
+	importTarget: string;
+	importTargetLabel: string;
+	loadMode: "require" | "dynamic_import";
+	importRef: string;
+	expectedModuleType: "function" | "object";
+	checkKey: string;
+	checkExpression: string;
+	expectedCheckType: "function";
+};
+
+const HOT_IMPORT_MICROBENCHMARKS = {
+	"micro-import-stream": {
+		importTarget: "stream",
+		importTargetLabel: "stream",
+		loadMode: "require",
+		importRef: "/bench-micro-import-stream.mjs",
+		expectedModuleType: "function",
+		checkKey: "readableType",
+		checkExpression: "moduleValue.Readable",
+		expectedCheckType: "function",
+	},
+	"micro-import-stream-web": {
+		importTarget: "stream/web",
+		importTargetLabel: "stream/web",
+		loadMode: "require",
+		importRef: "/bench-micro-import-stream-web.mjs",
+		expectedModuleType: "object",
+		checkKey: "readableStreamType",
+		checkExpression: "moduleValue.ReadableStream",
+		expectedCheckType: "function",
+	},
+	"micro-import-crypto": {
+		importTarget: "crypto",
+		importTargetLabel: "crypto",
+		loadMode: "require",
+		importRef: "/bench-micro-import-crypto.mjs",
+		expectedModuleType: "object",
+		checkKey: "createHashType",
+		checkExpression: "moduleValue.createHash",
+		expectedCheckType: "function",
+	},
+	"micro-import-zlib": {
+		importTarget: "zlib",
+		importTargetLabel: "zlib",
+		loadMode: "require",
+		importRef: "/bench-micro-import-zlib.mjs",
+		expectedModuleType: "object",
+		checkKey: "gzipSyncType",
+		checkExpression: "moduleValue.gzipSync",
+		expectedCheckType: "function",
+	},
+	"micro-import-assert": {
+		importTarget: "assert",
+		importTargetLabel: "assert",
+		loadMode: "require",
+		importRef: "/bench-micro-import-assert.mjs",
+		expectedModuleType: "function",
+		checkKey: "strictEqualType",
+		checkExpression: "moduleValue.strictEqual",
+		expectedCheckType: "function",
+	},
+	"micro-import-url": {
+		importTarget: "url",
+		importTargetLabel: "url",
+		loadMode: "require",
+		importRef: "/bench-micro-import-url.mjs",
+		expectedModuleType: "object",
+		checkKey: "urlCtorType",
+		checkExpression: "moduleValue.URL",
+		expectedCheckType: "function",
+	},
+	"micro-import-text-codec": {
+		importTarget: TEXT_CODEC_ENTRY,
+		importTargetLabel: "@borewit/text-codec/lib/index.js",
+		loadMode: "dynamic_import",
+		importRef: "/bench-micro-import-text-codec.mjs",
+		expectedModuleType: "object",
+		checkKey: "textDecodeType",
+		checkExpression: "moduleValue.textDecode",
+		expectedCheckType: "function",
+	},
+} as const satisfies Record<
+	HotImportMicrobenchmarkId,
+	HotImportMicrobenchmarkSpec
+>;
 
 type BenchmarkSample = {
 	iteration: number;
@@ -269,6 +367,9 @@ function assertInstalled(): void {
 	}
 	if (!existsSync(JSZIP_ENTRY)) {
 		throw new Error("jszip is not installed");
+	}
+	if (!existsSync(TEXT_CODEC_ENTRY)) {
+		throw new Error("@borewit/text-codec entry is not installed");
 	}
 }
 
@@ -475,6 +576,101 @@ function extractChecks(
 				: undefined,
 		]),
 	);
+}
+
+function getHotImportMicrobenchmarkSpec(
+	scenarioId: ModuleLoadScenarioId,
+): HotImportMicrobenchmarkSpec | undefined {
+	return HOT_IMPORT_MICROBENCHMARKS[
+		scenarioId as HotImportMicrobenchmarkId
+	];
+}
+
+function buildHotImportLoadStatement(spec: HotImportMicrobenchmarkSpec): string {
+	if (spec.loadMode === "dynamic_import") {
+		return `const moduleValue = await globalThis.__dynamicImport(${JSON.stringify(spec.importTarget)}, ${JSON.stringify(spec.importRef)});`;
+	}
+	return `const moduleValue = require(${JSON.stringify(spec.importTarget)});`;
+}
+
+function validateEmptySessionPayload(
+	context: string,
+	payload: Record<string, unknown>,
+): ScenarioChecks {
+	if (payload.noop !== true) {
+		throw new Error(
+			`Empty-session ${context} failed: ${JSON.stringify(payload)}`,
+		);
+	}
+	return extractChecks(payload, ["noop"]);
+}
+
+function validateHotImportPayload(
+	context: string,
+	scenarioId: ModuleLoadScenarioId,
+	payload: Record<string, unknown>,
+): ScenarioChecks {
+	const spec = getHotImportMicrobenchmarkSpec(scenarioId);
+	if (!spec) {
+		throw new Error(`Unknown hot-import microbenchmark: ${scenarioId}`);
+	}
+	if (
+		payload.importTarget !== spec.importTargetLabel ||
+		payload.moduleType !== spec.expectedModuleType ||
+		payload[spec.checkKey] !== spec.expectedCheckType
+	) {
+		throw new Error(
+			`Hot-import ${scenarioId} ${context} failed: ${JSON.stringify(payload)}`,
+		);
+	}
+	return extractChecks(payload, ["importTarget", "moduleType", spec.checkKey]);
+}
+
+function buildEmptySessionCode(): string {
+	return `
+(async () => {
+  try {
+    const startedAt = performance.now();
+    const finishedAt = performance.now();
+    console.log(JSON.stringify({
+      ok: true,
+      sandboxMs: Number((finishedAt - startedAt).toFixed(3)),
+      noop: true,
+    }));
+  } catch (error) {
+    console.log(JSON.stringify({
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    process.exitCode = 1;
+  }
+})();
+`;
+}
+
+function buildHotImportCode(spec: HotImportMicrobenchmarkSpec): string {
+	return `
+(async () => {
+  try {
+    const startedAt = performance.now();
+    ${buildHotImportLoadStatement(spec)}
+    const finishedAt = performance.now();
+    console.log(JSON.stringify({
+      ok: true,
+      sandboxMs: Number((finishedAt - startedAt).toFixed(3)),
+      importTarget: ${JSON.stringify(spec.importTargetLabel)},
+      moduleType: typeof moduleValue,
+      ${spec.checkKey}: typeof (${spec.checkExpression}),
+    }));
+  } catch (error) {
+    console.log(JSON.stringify({
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    process.exitCode = 1;
+  }
+})();
+`;
 }
 
 function buildHonoStartupCode(): string {
@@ -927,6 +1123,42 @@ export default {
 `;
 }
 
+function buildEmptySessionReplayCode(
+	mode: "stdout" | "exports" = "stdout",
+): string {
+	const body = `
+      const startedAt = performance.now();
+      const finishedAt = performance.now();
+      return {
+        workloadMs: Number((finishedAt - startedAt).toFixed(3)),
+        noop: true,
+      };
+`;
+	return mode === "exports"
+		? buildSameSessionReplayModuleCode(body)
+		: buildSameSessionReplayStdoutCode(body);
+}
+
+function buildHotImportReplayCode(
+	spec: HotImportMicrobenchmarkSpec,
+	mode: "stdout" | "exports" = "stdout",
+): string {
+	const body = `
+      const startedAt = performance.now();
+      ${buildHotImportLoadStatement(spec)}
+      const finishedAt = performance.now();
+      return {
+        workloadMs: Number((finishedAt - startedAt).toFixed(3)),
+        importTarget: ${JSON.stringify(spec.importTargetLabel)},
+        moduleType: typeof moduleValue,
+        ${spec.checkKey}: typeof (${spec.checkExpression}),
+      };
+`;
+	return mode === "exports"
+		? buildSameSessionReplayModuleCode(body)
+		: buildSameSessionReplayStdoutCode(body);
+}
+
 function buildHonoStartupReplayCode(mode: "stdout" | "exports" = "stdout"): string {
 	const body = `
       const startedAt = performance.now();
@@ -1351,6 +1583,13 @@ function buildReplayChecks(
 	scenarioId: ModuleLoadScenarioId,
 	payload: Record<string, unknown>,
 ): ScenarioChecks {
+	if (scenarioId === "micro-empty-session") {
+		return validateEmptySessionPayload("replay", payload);
+	}
+	const hotImportSpec = getHotImportMicrobenchmarkSpec(scenarioId);
+	if (hotImportSpec) {
+		return validateHotImportPayload("replay", scenarioId, payload);
+	}
 	switch (scenarioId) {
 		case "hono-startup":
 			if (payload.honoType !== "function" || payload.fetchType !== "function") {
@@ -1436,69 +1675,93 @@ async function measureSameSessionReplayMode(
 	let useNetwork = false;
 	let cleanup: (() => Promise<void>) | undefined;
 
-	switch (scenarioId) {
-		case "hono-startup":
-			code = buildHonoStartupReplayCode(replayCodeMode);
-			break;
-		case "hono-end-to-end":
-			code = buildHonoEndToEndReplayCode(replayCodeMode);
-			break;
-		case "pdf-lib-startup":
-			code = buildPdfLibStartupReplayCode(replayCodeMode);
-			break;
-		case "pdf-lib-end-to-end":
-			code = buildPdfLibEndToEndReplayCode(replayCodeMode);
-			break;
-		case "jszip-startup":
-			code = buildJsZipStartupReplayCode(replayCodeMode);
-			break;
-		case "jszip-end-to-end":
-			code = buildJsZipEndToEndReplayCode(replayCodeMode);
-			break;
-		case "pi-sdk-startup":
-			code = buildPiSdkStartupReplayCode(replayCodeMode);
-			break;
-		case "pi-sdk-end-to-end": {
-			mockServer.reset([
-				{ type: "text", text: "benchmark-pi-sdk-response" },
-				{ type: "text", text: "benchmark-pi-sdk-response" },
-			]);
-			const { workDir, agentDir } = await createPiWorkDir(mockServer, true);
-			cwd = workDir;
-			useHostFileSystem = true;
-			useNetwork = true;
-			cleanup = async () => {
-				await rm(workDir, { recursive: true, force: true });
-			};
-			code = buildPiSdkEndToEndReplayCode(workDir, agentDir, replayCodeMode);
-			break;
-		}
-		case "pi-cli-startup": {
-			const { workDir, agentDir } = await createPiWorkDir(mockServer, false);
-			cwd = workDir;
-			stdin = "";
-			useHostFileSystem = true;
-			cleanup = async () => {
-				await rm(workDir, { recursive: true, force: true });
-			};
-			code = buildPiCliStartupReplayCode(workDir, agentDir, replayCodeMode);
-			break;
-		}
-		case "pi-cli-end-to-end": {
-			mockServer.reset([
-				{ type: "text", text: "benchmark-pi-cli-response" },
-				{ type: "text", text: "benchmark-pi-cli-response" },
-			]);
-			const { workDir, agentDir } = await createPiWorkDir(mockServer, true);
-			cwd = workDir;
-			stdin = "";
-			useHostFileSystem = true;
-			useNetwork = true;
-			cleanup = async () => {
-				await rm(workDir, { recursive: true, force: true });
-			};
-			code = buildPiCliEndToEndReplayCode(workDir, agentDir, replayCodeMode);
-			break;
+	if (scenarioId === "micro-empty-session") {
+		code = buildEmptySessionReplayCode(replayCodeMode);
+	} else {
+		const hotImportSpec = getHotImportMicrobenchmarkSpec(scenarioId);
+		if (hotImportSpec) {
+			code = buildHotImportReplayCode(hotImportSpec, replayCodeMode);
+		} else {
+			switch (scenarioId) {
+				case "hono-startup":
+					code = buildHonoStartupReplayCode(replayCodeMode);
+					break;
+				case "hono-end-to-end":
+					code = buildHonoEndToEndReplayCode(replayCodeMode);
+					break;
+				case "pdf-lib-startup":
+					code = buildPdfLibStartupReplayCode(replayCodeMode);
+					break;
+				case "pdf-lib-end-to-end":
+					code = buildPdfLibEndToEndReplayCode(replayCodeMode);
+					break;
+				case "jszip-startup":
+					code = buildJsZipStartupReplayCode(replayCodeMode);
+					break;
+				case "jszip-end-to-end":
+					code = buildJsZipEndToEndReplayCode(replayCodeMode);
+					break;
+				case "pi-sdk-startup":
+					code = buildPiSdkStartupReplayCode(replayCodeMode);
+					break;
+				case "pi-sdk-end-to-end": {
+					mockServer.reset([
+						{ type: "text", text: "benchmark-pi-sdk-response" },
+						{ type: "text", text: "benchmark-pi-sdk-response" },
+					]);
+					const { workDir, agentDir } = await createPiWorkDir(mockServer, true);
+					cwd = workDir;
+					useHostFileSystem = true;
+					useNetwork = true;
+					cleanup = async () => {
+						await rm(workDir, { recursive: true, force: true });
+					};
+					code = buildPiSdkEndToEndReplayCode(
+						workDir,
+						agentDir,
+						replayCodeMode,
+					);
+					break;
+				}
+				case "pi-cli-startup": {
+					const { workDir, agentDir } = await createPiWorkDir(
+						mockServer,
+						false,
+					);
+					cwd = workDir;
+					stdin = "";
+					useHostFileSystem = true;
+					cleanup = async () => {
+						await rm(workDir, { recursive: true, force: true });
+					};
+					code = buildPiCliStartupReplayCode(
+						workDir,
+						agentDir,
+						replayCodeMode,
+					);
+					break;
+				}
+				case "pi-cli-end-to-end": {
+					mockServer.reset([
+						{ type: "text", text: "benchmark-pi-cli-response" },
+						{ type: "text", text: "benchmark-pi-cli-response" },
+					]);
+					const { workDir, agentDir } = await createPiWorkDir(mockServer, true);
+					cwd = workDir;
+					stdin = "";
+					useHostFileSystem = true;
+					useNetwork = true;
+					cleanup = async () => {
+						await rm(workDir, { recursive: true, force: true });
+					};
+					code = buildPiCliEndToEndReplayCode(
+						workDir,
+						agentDir,
+						replayCodeMode,
+					);
+					break;
+				}
+			}
 		}
 	}
 
@@ -1588,6 +1851,47 @@ async function runScenarioIteration(
 			...options,
 			snapshotPreloadedPolyfills,
 		});
+
+	if (scenarioId === "micro-empty-session") {
+		const capture = await runCapture({
+			code: buildEmptySessionCode(),
+			cwd: SECURE_EXEC_ROOT,
+		});
+		const payload = parseTrailingJsonObject(capture.stdoutText);
+		return {
+			iteration,
+			wallMs: capture.wallMs,
+			code: capture.code,
+			errorMessage: capture.errorMessage,
+			stdoutBytes: Buffer.byteLength(capture.stdoutText, "utf8"),
+			stderrBytes: Buffer.byteLength(capture.stderrText, "utf8"),
+			sandboxMs: Number(payload.sandboxMs ?? 0),
+			stdoutPreview: preview(capture.stdoutText),
+			stderrPreview: preview(capture.stderrText),
+			checks: validateEmptySessionPayload("iteration", payload),
+		};
+	}
+
+	const hotImportSpec = getHotImportMicrobenchmarkSpec(scenarioId);
+	if (hotImportSpec) {
+		const capture = await runCapture({
+			code: buildHotImportCode(hotImportSpec),
+			cwd: SECURE_EXEC_ROOT,
+		});
+		const payload = parseTrailingJsonObject(capture.stdoutText);
+		return {
+			iteration,
+			wallMs: capture.wallMs,
+			code: capture.code,
+			errorMessage: capture.errorMessage,
+			stdoutBytes: Buffer.byteLength(capture.stdoutText, "utf8"),
+			stderrBytes: Buffer.byteLength(capture.stderrText, "utf8"),
+			sandboxMs: Number(payload.sandboxMs ?? 0),
+			stdoutPreview: preview(capture.stdoutText),
+			stderrPreview: preview(capture.stderrText),
+			checks: validateHotImportPayload("iteration", scenarioId, payload),
+		};
+	}
 
 	switch (scenarioId) {
 		case "hono-startup": {

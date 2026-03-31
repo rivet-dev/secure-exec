@@ -1,0 +1,137 @@
+{
+  "scenarioId": "micro-import-stream",
+  "title": "Microbench Import stream",
+  "target": "microbench",
+  "kind": "import",
+  "description": "Requires the hot Pi builtin `stream` once to isolate single-import bootstrap cost.",
+  "iterations": 3,
+  "createdAt": "2026-03-31T23:09:16.966Z",
+  "artifacts": {
+    "resultFile": "micro-import-stream/result.json",
+    "metricsFile": "micro-import-stream/metrics.prom",
+    "logFile": "micro-import-stream/ipc.ndjson"
+  },
+  "samples": [
+    {
+      "iteration": 1,
+      "wallMs": 92.787,
+      "code": 0,
+      "stdoutBytes": 99,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"importTarget\":\"stream\",\"moduleType\":\"function\",\"readableType\":\"function\"}",
+      "stderrPreview": "",
+      "checks": {
+        "importTarget": "stream",
+        "moduleType": "function",
+        "readableType": "function"
+      }
+    },
+    {
+      "iteration": 2,
+      "wallMs": 29.354,
+      "code": 0,
+      "stdoutBytes": 99,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"importTarget\":\"stream\",\"moduleType\":\"function\",\"readableType\":\"function\"}",
+      "stderrPreview": "",
+      "checks": {
+        "importTarget": "stream",
+        "moduleType": "function",
+        "readableType": "function"
+      }
+    },
+    {
+      "iteration": 3,
+      "wallMs": 27.778,
+      "code": 0,
+      "stdoutBytes": 99,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"importTarget\":\"stream\",\"moduleType\":\"function\",\"readableType\":\"function\"}",
+      "stderrPreview": "",
+      "checks": {
+        "importTarget": "stream",
+        "moduleType": "function",
+        "readableType": "function"
+      }
+    }
+  ],
+  "benchmarkModes": {
+    "sandboxTrueColdStart": {
+      "warmSnapshotEnabled": {
+        "totalWallMs": 188.623,
+        "runtimeCreateMs": 98.086,
+        "firstPassWallMs": 90.537,
+        "firstPassSandboxMs": 0,
+        "checks": {
+          "importTarget": "stream",
+          "moduleType": "function",
+          "readableType": "function"
+        }
+      },
+      "warmSnapshotDisabled": {
+        "totalWallMs": 187.089,
+        "runtimeCreateMs": 5.534,
+        "firstPassWallMs": 181.555,
+        "firstPassSandboxMs": 0,
+        "checks": {
+          "importTarget": "stream",
+          "moduleType": "function",
+          "readableType": "function"
+        }
+      }
+    },
+    "sandboxNewSessionReplay": {
+      "warmSnapshotEnabled": {
+        "coldWallMs": 92.787,
+        "warmWallMsMean": 28.566,
+        "coldSandboxMs": 0,
+        "warmSandboxMsMean": 0
+      },
+      "warmSnapshotDisabled": {
+        "coldWallMs": 184.581,
+        "warmWallMsMean": 28.834,
+        "coldSandboxMs": 0,
+        "warmSandboxMsMean": 0
+      }
+    },
+    "sandboxSameSessionReplay": {
+      "totalWallMs": 90.675,
+      "firstPassMs": 0,
+      "replayPassMs": 0,
+      "firstPassChecks": {
+        "importTarget": "stream",
+        "moduleType": "function",
+        "readableType": "function"
+      },
+      "replayPassChecks": {
+        "importTarget": "stream",
+        "moduleType": "function",
+        "readableType": "function"
+      }
+    },
+    "hostSameSessionControl": {
+      "totalWallMs": 0.819,
+      "firstPassMs": 0.795,
+      "replayPassMs": 0.015,
+      "firstPassChecks": {
+        "importTarget": "stream",
+        "moduleType": "function",
+        "readableType": "function"
+      },
+      "replayPassChecks": {
+        "importTarget": "stream",
+        "moduleType": "function",
+        "readableType": "function"
+      }
+    }
+  },
+  "summary": {
+    "coldWallMs": 92.787,
+    "warmWallMsMean": 28.566,
+    "coldSandboxMs": 0,
+    "warmSandboxMsMean": 0
+  }
+}

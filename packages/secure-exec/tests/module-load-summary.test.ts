@@ -975,6 +975,9 @@ describe("module-load summary generation", () => {
 
 		expect(buildBenchmarkSummaryMarkdown(report)).toContain("comparison.md");
 		expect(buildBenchmarkSummaryMarkdown(report)).toContain("Transport RTT");
+		expect(buildBenchmarkSummaryMarkdown(report)).toContain(
+			"| Scenario | Kind | Sandbox New-Session Warm Wall Mean |",
+		);
 		expect(buildBenchmarkComparisonMarkdown(report)).toContain("BridgeResponse encoded bytes/iteration");
 		expect(buildBenchmarkComparisonMarkdown(report)).toContain("Transport RTT");
 		expect(buildBenchmarkComparisonMarkdown(report)).toContain("_fsExists");
@@ -1128,6 +1131,7 @@ describe("module-load summary generation", () => {
 
 		expect(summary.benchmarkModes?.sandboxTrueColdStart?.warmSnapshotEnabled.totalWallMs).toBe(95);
 		expect(buildScenarioSummaryMarkdown(summary)).toContain("## Benchmark Modes");
+		expect(buildScenarioSummaryMarkdown(summary)).toContain("Kind: `startup`");
 		expect(buildScenarioSummaryMarkdown(summary)).toContain(
 			"Sandbox true cold start, warm snapshot enabled",
 		);

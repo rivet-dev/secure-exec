@@ -1,0 +1,137 @@
+{
+  "scenarioId": "micro-import-crypto",
+  "title": "Microbench Import crypto",
+  "target": "microbench",
+  "kind": "import",
+  "description": "Requires the hot Pi builtin `crypto` once to isolate crypto bootstrap cost.",
+  "iterations": 3,
+  "createdAt": "2026-03-31T23:09:23.309Z",
+  "artifacts": {
+    "resultFile": "micro-import-crypto/result.json",
+    "metricsFile": "micro-import-crypto/metrics.prom",
+    "logFile": "micro-import-crypto/ipc.ndjson"
+  },
+  "samples": [
+    {
+      "iteration": 1,
+      "wallMs": 177.345,
+      "code": 0,
+      "stdoutBytes": 99,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"importTarget\":\"crypto\",\"moduleType\":\"object\",\"createHashType\":\"function\"}",
+      "stderrPreview": "",
+      "checks": {
+        "importTarget": "crypto",
+        "moduleType": "object",
+        "createHashType": "function"
+      }
+    },
+    {
+      "iteration": 2,
+      "wallMs": 49.711,
+      "code": 0,
+      "stdoutBytes": 99,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"importTarget\":\"crypto\",\"moduleType\":\"object\",\"createHashType\":\"function\"}",
+      "stderrPreview": "",
+      "checks": {
+        "importTarget": "crypto",
+        "moduleType": "object",
+        "createHashType": "function"
+      }
+    },
+    {
+      "iteration": 3,
+      "wallMs": 48.006,
+      "code": 0,
+      "stdoutBytes": 99,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"importTarget\":\"crypto\",\"moduleType\":\"object\",\"createHashType\":\"function\"}",
+      "stderrPreview": "",
+      "checks": {
+        "importTarget": "crypto",
+        "moduleType": "object",
+        "createHashType": "function"
+      }
+    }
+  ],
+  "benchmarkModes": {
+    "sandboxTrueColdStart": {
+      "warmSnapshotEnabled": {
+        "totalWallMs": 261.029,
+        "runtimeCreateMs": 100.264,
+        "firstPassWallMs": 160.765,
+        "firstPassSandboxMs": 0,
+        "checks": {
+          "importTarget": "crypto",
+          "moduleType": "object",
+          "createHashType": "function"
+        }
+      },
+      "warmSnapshotDisabled": {
+        "totalWallMs": 265.663,
+        "runtimeCreateMs": 4.448,
+        "firstPassWallMs": 261.215,
+        "firstPassSandboxMs": 0,
+        "checks": {
+          "importTarget": "crypto",
+          "moduleType": "object",
+          "createHashType": "function"
+        }
+      }
+    },
+    "sandboxNewSessionReplay": {
+      "warmSnapshotEnabled": {
+        "coldWallMs": 177.345,
+        "warmWallMsMean": 48.858,
+        "coldSandboxMs": 0,
+        "warmSandboxMsMean": 0
+      },
+      "warmSnapshotDisabled": {
+        "coldWallMs": 267.473,
+        "warmWallMsMean": 48.426,
+        "coldSandboxMs": 0,
+        "warmSandboxMsMean": 0
+      }
+    },
+    "sandboxSameSessionReplay": {
+      "totalWallMs": 170.557,
+      "firstPassMs": 0,
+      "replayPassMs": 0,
+      "firstPassChecks": {
+        "importTarget": "crypto",
+        "moduleType": "object",
+        "createHashType": "function"
+      },
+      "replayPassChecks": {
+        "importTarget": "crypto",
+        "moduleType": "object",
+        "createHashType": "function"
+      }
+    },
+    "hostSameSessionControl": {
+      "totalWallMs": 0.07,
+      "firstPassMs": 0.053,
+      "replayPassMs": 0.011,
+      "firstPassChecks": {
+        "importTarget": "crypto",
+        "moduleType": "object",
+        "createHashType": "function"
+      },
+      "replayPassChecks": {
+        "importTarget": "crypto",
+        "moduleType": "object",
+        "createHashType": "function"
+      }
+    }
+  },
+  "summary": {
+    "coldWallMs": 177.345,
+    "warmWallMsMean": 48.858,
+    "coldSandboxMs": 0,
+    "warmSandboxMsMean": 0
+  }
+}

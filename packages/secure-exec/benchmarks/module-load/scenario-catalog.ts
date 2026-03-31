@@ -1,14 +1,88 @@
-export type ModuleLoadScenarioKind = "startup" | "end_to_end";
+export type ModuleLoadScenarioKind =
+	| "startup"
+	| "end_to_end"
+	| "lifecycle"
+	| "import";
 
 export interface ModuleLoadScenarioDefinition {
 	id: string;
 	title: string;
-	target: "hono" | "pdf_lib" | "jszip" | "pi_sdk" | "pi_cli";
+	target:
+		| "microbench"
+		| "hono"
+		| "pdf_lib"
+		| "jszip"
+		| "pi_sdk"
+		| "pi_cli";
 	kind: ModuleLoadScenarioKind;
 	description: string;
 }
 
 export const MODULE_LOAD_SCENARIOS: readonly ModuleLoadScenarioDefinition[] = [
+	{
+		id: "micro-empty-session",
+		title: "Microbench Empty Session",
+		target: "microbench",
+		kind: "lifecycle",
+		description:
+			"Executes a no-op script to isolate fresh-session create, execute, and destroy overhead.",
+	},
+	{
+		id: "micro-import-stream",
+		title: "Microbench Import stream",
+		target: "microbench",
+		kind: "import",
+		description:
+			"Requires the hot Pi builtin `stream` once to isolate single-import bootstrap cost.",
+	},
+	{
+		id: "micro-import-stream-web",
+		title: "Microbench Import stream/web",
+		target: "microbench",
+		kind: "import",
+		description:
+			"Requires the hot Pi builtin `stream/web` once to isolate web-stream bootstrap cost.",
+	},
+	{
+		id: "micro-import-crypto",
+		title: "Microbench Import crypto",
+		target: "microbench",
+		kind: "import",
+		description:
+			"Requires the hot Pi builtin `crypto` once to isolate crypto bootstrap cost.",
+	},
+	{
+		id: "micro-import-zlib",
+		title: "Microbench Import zlib",
+		target: "microbench",
+		kind: "import",
+		description:
+			"Requires the hot Pi builtin `zlib` once to isolate compression bootstrap cost.",
+	},
+	{
+		id: "micro-import-assert",
+		title: "Microbench Import assert",
+		target: "microbench",
+		kind: "import",
+		description:
+			"Requires the hot Pi builtin `assert` once to isolate assertion/bootstrap cost.",
+	},
+	{
+		id: "micro-import-url",
+		title: "Microbench Import url",
+		target: "microbench",
+		kind: "import",
+		description:
+			"Requires the hot Pi builtin `url` once to isolate URL/bootstrap cost.",
+	},
+	{
+		id: "micro-import-text-codec",
+		title: "Microbench Import @borewit/text-codec",
+		target: "microbench",
+		kind: "import",
+		description:
+			"Dynamically imports the resolved `@borewit/text-codec` entry file to isolate projected package-file loading from the Pi startup path.",
+	},
 	{
 		id: "hono-startup",
 		title: "Hono Startup",

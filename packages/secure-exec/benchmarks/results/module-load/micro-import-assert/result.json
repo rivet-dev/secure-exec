@@ -1,0 +1,137 @@
+{
+  "scenarioId": "micro-import-assert",
+  "title": "Microbench Import assert",
+  "target": "microbench",
+  "kind": "import",
+  "description": "Requires the hot Pi builtin `assert` once to isolate assertion/bootstrap cost.",
+  "iterations": 3,
+  "createdAt": "2026-03-31T23:09:29.298Z",
+  "artifacts": {
+    "resultFile": "micro-import-assert/result.json",
+    "metricsFile": "micro-import-assert/metrics.prom",
+    "logFile": "micro-import-assert/ipc.ndjson"
+  },
+  "samples": [
+    {
+      "iteration": 1,
+      "wallMs": 90.746,
+      "code": 0,
+      "stdoutBytes": 102,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"importTarget\":\"assert\",\"moduleType\":\"function\",\"strictEqualType\":\"function\"}",
+      "stderrPreview": "",
+      "checks": {
+        "importTarget": "assert",
+        "moduleType": "function",
+        "strictEqualType": "function"
+      }
+    },
+    {
+      "iteration": 2,
+      "wallMs": 30.293,
+      "code": 0,
+      "stdoutBytes": 102,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"importTarget\":\"assert\",\"moduleType\":\"function\",\"strictEqualType\":\"function\"}",
+      "stderrPreview": "",
+      "checks": {
+        "importTarget": "assert",
+        "moduleType": "function",
+        "strictEqualType": "function"
+      }
+    },
+    {
+      "iteration": 3,
+      "wallMs": 27.678,
+      "code": 0,
+      "stdoutBytes": 102,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"importTarget\":\"assert\",\"moduleType\":\"function\",\"strictEqualType\":\"function\"}",
+      "stderrPreview": "",
+      "checks": {
+        "importTarget": "assert",
+        "moduleType": "function",
+        "strictEqualType": "function"
+      }
+    }
+  ],
+  "benchmarkModes": {
+    "sandboxTrueColdStart": {
+      "warmSnapshotEnabled": {
+        "totalWallMs": 185.98,
+        "runtimeCreateMs": 99.926,
+        "firstPassWallMs": 86.054,
+        "firstPassSandboxMs": 0,
+        "checks": {
+          "importTarget": "assert",
+          "moduleType": "function",
+          "strictEqualType": "function"
+        }
+      },
+      "warmSnapshotDisabled": {
+        "totalWallMs": 186.341,
+        "runtimeCreateMs": 4.765,
+        "firstPassWallMs": 181.576,
+        "firstPassSandboxMs": 0,
+        "checks": {
+          "importTarget": "assert",
+          "moduleType": "function",
+          "strictEqualType": "function"
+        }
+      }
+    },
+    "sandboxNewSessionReplay": {
+      "warmSnapshotEnabled": {
+        "coldWallMs": 90.746,
+        "warmWallMsMean": 28.986,
+        "coldSandboxMs": 0,
+        "warmSandboxMsMean": 0
+      },
+      "warmSnapshotDisabled": {
+        "coldWallMs": 185.363,
+        "warmWallMsMean": 26.895,
+        "coldSandboxMs": 0,
+        "warmSandboxMsMean": 0
+      }
+    },
+    "sandboxSameSessionReplay": {
+      "totalWallMs": 88.131,
+      "firstPassMs": 0,
+      "replayPassMs": 0,
+      "firstPassChecks": {
+        "importTarget": "assert",
+        "moduleType": "function",
+        "strictEqualType": "function"
+      },
+      "replayPassChecks": {
+        "importTarget": "assert",
+        "moduleType": "function",
+        "strictEqualType": "function"
+      }
+    },
+    "hostSameSessionControl": {
+      "totalWallMs": 1.952,
+      "firstPassMs": 1.93,
+      "replayPassMs": 0.017,
+      "firstPassChecks": {
+        "importTarget": "assert",
+        "moduleType": "function",
+        "strictEqualType": "function"
+      },
+      "replayPassChecks": {
+        "importTarget": "assert",
+        "moduleType": "function",
+        "strictEqualType": "function"
+      }
+    }
+  },
+  "summary": {
+    "coldWallMs": 90.746,
+    "warmWallMsMean": 28.986,
+    "coldSandboxMs": 0,
+    "warmSandboxMsMean": 0
+  }
+}

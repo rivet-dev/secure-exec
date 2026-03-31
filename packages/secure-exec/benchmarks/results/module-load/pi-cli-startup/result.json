@@ -5,7 +5,7 @@
   "kind": "startup",
   "description": "Boots the Pi CLI help path inside the sandbox.",
   "iterations": 3,
-  "createdAt": "2026-03-31T22:52:17.914Z",
+  "createdAt": "2026-03-31T23:10:34.284Z",
   "artifacts": {
     "resultFile": "pi-cli-startup/result.json",
     "metricsFile": "pi-cli-startup/metrics.prom",
@@ -14,7 +14,7 @@
   "samples": [
     {
       "iteration": 1,
-      "wallMs": 2203.231,
+      "wallMs": 1182.127,
       "code": 0,
       "stdoutBytes": 4096,
       "stderrBytes": 220,
@@ -26,7 +26,7 @@
     },
     {
       "iteration": 2,
-      "wallMs": 1552.208,
+      "wallMs": 933.476,
       "code": 0,
       "stdoutBytes": 4096,
       "stderrBytes": 220,
@@ -38,7 +38,7 @@
     },
     {
       "iteration": 3,
-      "wallMs": 1653.806,
+      "wallMs": 973.808,
       "code": 0,
       "stdoutBytes": 4096,
       "stderrBytes": 220,
@@ -52,17 +52,17 @@
   "benchmarkModes": {
     "sandboxTrueColdStart": {
       "warmSnapshotEnabled": {
-        "totalWallMs": 2193.705,
-        "runtimeCreateMs": 183.48,
-        "firstPassWallMs": 2010.225,
+        "totalWallMs": 1284.64,
+        "runtimeCreateMs": 181.918,
+        "firstPassWallMs": 1102.722,
         "checks": {
           "stdoutHasUsage": true
         }
       },
       "warmSnapshotDisabled": {
-        "totalWallMs": 1994.483,
-        "runtimeCreateMs": 4.85,
-        "firstPassWallMs": 1989.633,
+        "totalWallMs": 1311.226,
+        "runtimeCreateMs": 4.693,
+        "firstPassWallMs": 1306.533,
         "checks": {
           "stdoutHasUsage": true
         }
@@ -70,16 +70,16 @@
     },
     "sandboxNewSessionReplay": {
       "warmSnapshotEnabled": {
-        "coldWallMs": 2203.231,
-        "warmWallMsMean": 1603.007
+        "coldWallMs": 1182.127,
+        "warmWallMsMean": 953.642
       },
       "warmSnapshotDisabled": {
-        "coldWallMs": 2462.8,
-        "warmWallMsMean": 1561.701
+        "coldWallMs": 1283.351,
+        "warmWallMsMean": 893.856
       }
     },
     "sandboxSameSessionReplay": {
-      "totalWallMs": 2040.786,
+      "totalWallMs": 1134.964,
       "firstPassMs": 0,
       "replayPassMs": 0,
       "firstPassChecks": {
@@ -90,9 +90,9 @@
       }
     },
     "hostSameSessionControl": {
-      "totalWallMs": 337.462,
-      "firstPassMs": 336.846,
-      "replayPassMs": 0.614,
+      "totalWallMs": 332.585,
+      "firstPassMs": 331.985,
+      "replayPassMs": 0.597,
       "firstPassChecks": {
         "completed": true
       },
@@ -102,7 +102,7 @@
     }
   },
   "summary": {
-    "coldWallMs": 2203.231,
-    "warmWallMsMean": 1603.007
+    "coldWallMs": 1182.127,
+    "warmWallMsMean": 953.642
   }
 }

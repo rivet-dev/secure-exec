@@ -1961,6 +1961,7 @@ export function buildScenarioSummaryMarkdown(summary: ScenarioDerivedSummary): s
 		`# ${summary.title}`,
 		"",
 		`Scenario: \`${summary.scenarioId}\``,
+		`Kind: \`${summary.kind}\``,
 		`Generated: ${summary.createdAt}`,
 		`Description: ${summary.description}`,
 		"Primary comparison mode: `sandbox new-session replay (warm snapshot enabled)`",
@@ -2250,15 +2251,15 @@ export function buildBenchmarkSummaryMarkdown(report: BenchmarkSummaryReport): s
 		`Baseline summary: ${report.baseline?.createdAt ?? "none"}`,
 		"Primary comparison mode: `sandbox new-session replay (warm snapshot enabled)`",
 		"",
-		"Use `comparison.md` for before/after deltas on the primary sandbox new-session replay mode, including the split between real `_loadPolyfill` bodies and `__bd:*` dispatch wrappers plus ranked target-level deltas. Use the per-scenario `summary.md` files for copy-ready control-mode numbers such as true cold start, same-session replay, snapshot-off replay, host controls, and current target hotspots.",
+		"Use `comparison.md` for before/after deltas on the primary sandbox new-session replay mode, including the split between real `_loadPolyfill` bodies and `__bd:*` dispatch wrappers plus ranked target-level deltas. Lifecycle microbench rows isolate fixed session overhead; import microbench rows isolate single-import/bootstrap hotspots. Use the per-scenario `summary.md` files for copy-ready control-mode numbers such as true cold start, same-session replay, snapshot-off replay, host controls, and current target hotspots.",
 		"",
-		"| Scenario | Sandbox New-Session Warm Wall Mean | Bridge Calls/Iter | Warm Fixed Overhead | Dominant Method Time | Dominant Frame Bytes |",
-		"| --- | ---: | ---: | ---: | --- | --- |",
+		"| Scenario | Kind | Sandbox New-Session Warm Wall Mean | Bridge Calls/Iter | Warm Fixed Overhead | Dominant Method Time | Dominant Frame Bytes |",
+		"| --- | --- | ---: | ---: | ---: | --- | --- |",
 	];
 
 	for (const scenario of report.scenarioOverview) {
 		lines.push(
-			`| ${scenario.title} | ${formatMetric(scenario.warmWallMsMean)} | ${scenario.bridgeCallsPerIteration.toFixed(3)} | ${formatMetric(scenario.fixedSessionOverheadWarmMsMean)} | ${scenario.dominantBridgeMethodByTime ? `\`${scenario.dominantBridgeMethodByTime.method}\` ${scenario.dominantBridgeMethodByTime.durationMsPerIteration.toFixed(3)} ms/iter` : "-"} | ${scenario.dominantFrameByEncodedBytes ? `\`${scenario.dominantFrameByEncodedBytes.direction}:${scenario.dominantFrameByEncodedBytes.frameType}\` ${scenario.dominantFrameByEncodedBytes.encodedBytesPerIteration.toFixed(3)} B/iter` : "-"} |`,
+			`| ${scenario.title} | \`${scenario.kind}\` | ${formatMetric(scenario.warmWallMsMean)} | ${scenario.bridgeCallsPerIteration.toFixed(3)} | ${formatMetric(scenario.fixedSessionOverheadWarmMsMean)} | ${scenario.dominantBridgeMethodByTime ? `\`${scenario.dominantBridgeMethodByTime.method}\` ${scenario.dominantBridgeMethodByTime.durationMsPerIteration.toFixed(3)} ms/iter` : "-"} | ${scenario.dominantFrameByEncodedBytes ? `\`${scenario.dominantFrameByEncodedBytes.direction}:${scenario.dominantFrameByEncodedBytes.frameType}\` ${scenario.dominantFrameByEncodedBytes.encodedBytesPerIteration.toFixed(3)} B/iter` : "-"} |`,
 		);
 	}
 

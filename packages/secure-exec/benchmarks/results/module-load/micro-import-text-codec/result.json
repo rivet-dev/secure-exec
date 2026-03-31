@@ -1,0 +1,137 @@
+{
+  "scenarioId": "micro-import-text-codec",
+  "title": "Microbench Import @borewit/text-codec",
+  "target": "microbench",
+  "kind": "import",
+  "description": "Dynamically imports the resolved `@borewit/text-codec` entry file to isolate projected package-file loading from the Pi startup path.",
+  "iterations": 3,
+  "createdAt": "2026-03-31T23:09:35.142Z",
+  "artifacts": {
+    "resultFile": "micro-import-text-codec/result.json",
+    "metricsFile": "micro-import-text-codec/metrics.prom",
+    "logFile": "micro-import-text-codec/ipc.ndjson"
+  },
+  "samples": [
+    {
+      "iteration": 1,
+      "wallMs": 96.299,
+      "code": 0,
+      "stdoutBytes": 125,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"importTarget\":\"@borewit/text-codec/lib/index.js\",\"moduleType\":\"object\",\"textDecodeType\":\"function\"}",
+      "stderrPreview": "",
+      "checks": {
+        "importTarget": "@borewit/text-codec/lib/index.js",
+        "moduleType": "object",
+        "textDecodeType": "function"
+      }
+    },
+    {
+      "iteration": 2,
+      "wallMs": 30.178,
+      "code": 0,
+      "stdoutBytes": 125,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"importTarget\":\"@borewit/text-codec/lib/index.js\",\"moduleType\":\"object\",\"textDecodeType\":\"function\"}",
+      "stderrPreview": "",
+      "checks": {
+        "importTarget": "@borewit/text-codec/lib/index.js",
+        "moduleType": "object",
+        "textDecodeType": "function"
+      }
+    },
+    {
+      "iteration": 3,
+      "wallMs": 24.778,
+      "code": 0,
+      "stdoutBytes": 125,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"importTarget\":\"@borewit/text-codec/lib/index.js\",\"moduleType\":\"object\",\"textDecodeType\":\"function\"}",
+      "stderrPreview": "",
+      "checks": {
+        "importTarget": "@borewit/text-codec/lib/index.js",
+        "moduleType": "object",
+        "textDecodeType": "function"
+      }
+    }
+  ],
+  "benchmarkModes": {
+    "sandboxTrueColdStart": {
+      "warmSnapshotEnabled": {
+        "totalWallMs": 197.02,
+        "runtimeCreateMs": 99.27,
+        "firstPassWallMs": 97.75,
+        "firstPassSandboxMs": 0,
+        "checks": {
+          "importTarget": "@borewit/text-codec/lib/index.js",
+          "moduleType": "object",
+          "textDecodeType": "function"
+        }
+      },
+      "warmSnapshotDisabled": {
+        "totalWallMs": 189.786,
+        "runtimeCreateMs": 4.591,
+        "firstPassWallMs": 185.195,
+        "firstPassSandboxMs": 0,
+        "checks": {
+          "importTarget": "@borewit/text-codec/lib/index.js",
+          "moduleType": "object",
+          "textDecodeType": "function"
+        }
+      }
+    },
+    "sandboxNewSessionReplay": {
+      "warmSnapshotEnabled": {
+        "coldWallMs": 96.299,
+        "warmWallMsMean": 27.478,
+        "coldSandboxMs": 0,
+        "warmSandboxMsMean": 0
+      },
+      "warmSnapshotDisabled": {
+        "coldWallMs": 187.226,
+        "warmWallMsMean": 26.326,
+        "coldSandboxMs": 0,
+        "warmSandboxMsMean": 0
+      }
+    },
+    "sandboxSameSessionReplay": {
+      "totalWallMs": 108.07,
+      "firstPassMs": 0,
+      "replayPassMs": 0,
+      "firstPassChecks": {
+        "importTarget": "@borewit/text-codec/lib/index.js",
+        "moduleType": "object",
+        "textDecodeType": "function"
+      },
+      "replayPassChecks": {
+        "importTarget": "@borewit/text-codec/lib/index.js",
+        "moduleType": "object",
+        "textDecodeType": "function"
+      }
+    },
+    "hostSameSessionControl": {
+      "totalWallMs": 2.056,
+      "firstPassMs": 1.974,
+      "replayPassMs": 0.08,
+      "firstPassChecks": {
+        "importTarget": "@borewit/text-codec/lib/index.js",
+        "moduleType": "object",
+        "textDecodeType": "function"
+      },
+      "replayPassChecks": {
+        "importTarget": "@borewit/text-codec/lib/index.js",
+        "moduleType": "object",
+        "textDecodeType": "function"
+      }
+    }
+  },
+  "summary": {
+    "coldWallMs": 96.299,
+    "warmWallMsMean": 27.478,
+    "coldSandboxMs": 0,
+    "warmSandboxMsMean": 0
+  }
+}

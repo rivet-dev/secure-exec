@@ -1,0 +1,137 @@
+{
+  "scenarioId": "micro-import-zlib",
+  "title": "Microbench Import zlib",
+  "target": "microbench",
+  "kind": "import",
+  "description": "Requires the hot Pi builtin `zlib` once to isolate compression bootstrap cost.",
+  "iterations": 3,
+  "createdAt": "2026-03-31T23:09:26.350Z",
+  "artifacts": {
+    "resultFile": "micro-import-zlib/result.json",
+    "metricsFile": "micro-import-zlib/metrics.prom",
+    "logFile": "micro-import-zlib/ipc.ndjson"
+  },
+  "samples": [
+    {
+      "iteration": 1,
+      "wallMs": 106.154,
+      "code": 0,
+      "stdoutBytes": 95,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"importTarget\":\"zlib\",\"moduleType\":\"object\",\"gzipSyncType\":\"function\"}",
+      "stderrPreview": "",
+      "checks": {
+        "importTarget": "zlib",
+        "moduleType": "object",
+        "gzipSyncType": "function"
+      }
+    },
+    {
+      "iteration": 2,
+      "wallMs": 32.34,
+      "code": 0,
+      "stdoutBytes": 95,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"importTarget\":\"zlib\",\"moduleType\":\"object\",\"gzipSyncType\":\"function\"}",
+      "stderrPreview": "",
+      "checks": {
+        "importTarget": "zlib",
+        "moduleType": "object",
+        "gzipSyncType": "function"
+      }
+    },
+    {
+      "iteration": 3,
+      "wallMs": 30.944,
+      "code": 0,
+      "stdoutBytes": 95,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"importTarget\":\"zlib\",\"moduleType\":\"object\",\"gzipSyncType\":\"function\"}",
+      "stderrPreview": "",
+      "checks": {
+        "importTarget": "zlib",
+        "moduleType": "object",
+        "gzipSyncType": "function"
+      }
+    }
+  ],
+  "benchmarkModes": {
+    "sandboxTrueColdStart": {
+      "warmSnapshotEnabled": {
+        "totalWallMs": 198.341,
+        "runtimeCreateMs": 98.009,
+        "firstPassWallMs": 100.332,
+        "firstPassSandboxMs": 0,
+        "checks": {
+          "importTarget": "zlib",
+          "moduleType": "object",
+          "gzipSyncType": "function"
+        }
+      },
+      "warmSnapshotDisabled": {
+        "totalWallMs": 203.165,
+        "runtimeCreateMs": 5.763,
+        "firstPassWallMs": 197.402,
+        "firstPassSandboxMs": 0,
+        "checks": {
+          "importTarget": "zlib",
+          "moduleType": "object",
+          "gzipSyncType": "function"
+        }
+      }
+    },
+    "sandboxNewSessionReplay": {
+      "warmSnapshotEnabled": {
+        "coldWallMs": 106.154,
+        "warmWallMsMean": 31.642,
+        "coldSandboxMs": 0,
+        "warmSandboxMsMean": 0
+      },
+      "warmSnapshotDisabled": {
+        "coldWallMs": 191.894,
+        "warmWallMsMean": 32.885,
+        "coldSandboxMs": 0,
+        "warmSandboxMsMean": 0
+      }
+    },
+    "sandboxSameSessionReplay": {
+      "totalWallMs": 101.591,
+      "firstPassMs": 0,
+      "replayPassMs": 0,
+      "firstPassChecks": {
+        "importTarget": "zlib",
+        "moduleType": "object",
+        "gzipSyncType": "function"
+      },
+      "replayPassChecks": {
+        "importTarget": "zlib",
+        "moduleType": "object",
+        "gzipSyncType": "function"
+      }
+    },
+    "hostSameSessionControl": {
+      "totalWallMs": 1.308,
+      "firstPassMs": 1.286,
+      "replayPassMs": 0.019,
+      "firstPassChecks": {
+        "importTarget": "zlib",
+        "moduleType": "object",
+        "gzipSyncType": "function"
+      },
+      "replayPassChecks": {
+        "importTarget": "zlib",
+        "moduleType": "object",
+        "gzipSyncType": "function"
+      }
+    }
+  },
+  "summary": {
+    "coldWallMs": 106.154,
+    "warmWallMsMean": 31.642,
+    "coldSandboxMs": 0,
+    "warmSandboxMsMean": 0
+  }
+}

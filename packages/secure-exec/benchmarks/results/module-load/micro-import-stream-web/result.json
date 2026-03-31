@@ -1,0 +1,137 @@
+{
+  "scenarioId": "micro-import-stream-web",
+  "title": "Microbench Import stream/web",
+  "target": "microbench",
+  "kind": "import",
+  "description": "Requires the hot Pi builtin `stream/web` once to isolate web-stream bootstrap cost.",
+  "iterations": 3,
+  "createdAt": "2026-03-31T23:09:19.830Z",
+  "artifacts": {
+    "resultFile": "micro-import-stream-web/result.json",
+    "metricsFile": "micro-import-stream-web/metrics.prom",
+    "logFile": "micro-import-stream-web/ipc.ndjson"
+  },
+  "samples": [
+    {
+      "iteration": 1,
+      "wallMs": 73.926,
+      "code": 0,
+      "stdoutBytes": 107,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"importTarget\":\"stream/web\",\"moduleType\":\"object\",\"readableStreamType\":\"function\"}",
+      "stderrPreview": "",
+      "checks": {
+        "importTarget": "stream/web",
+        "moduleType": "object",
+        "readableStreamType": "function"
+      }
+    },
+    {
+      "iteration": 2,
+      "wallMs": 27.526,
+      "code": 0,
+      "stdoutBytes": 107,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"importTarget\":\"stream/web\",\"moduleType\":\"object\",\"readableStreamType\":\"function\"}",
+      "stderrPreview": "",
+      "checks": {
+        "importTarget": "stream/web",
+        "moduleType": "object",
+        "readableStreamType": "function"
+      }
+    },
+    {
+      "iteration": 3,
+      "wallMs": 25.158,
+      "code": 0,
+      "stdoutBytes": 107,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"importTarget\":\"stream/web\",\"moduleType\":\"object\",\"readableStreamType\":\"function\"}",
+      "stderrPreview": "",
+      "checks": {
+        "importTarget": "stream/web",
+        "moduleType": "object",
+        "readableStreamType": "function"
+      }
+    }
+  ],
+  "benchmarkModes": {
+    "sandboxTrueColdStart": {
+      "warmSnapshotEnabled": {
+        "totalWallMs": 163.579,
+        "runtimeCreateMs": 97.787,
+        "firstPassWallMs": 65.792,
+        "firstPassSandboxMs": 0,
+        "checks": {
+          "importTarget": "stream/web",
+          "moduleType": "object",
+          "readableStreamType": "function"
+        }
+      },
+      "warmSnapshotDisabled": {
+        "totalWallMs": 163.938,
+        "runtimeCreateMs": 4.673,
+        "firstPassWallMs": 159.265,
+        "firstPassSandboxMs": 0,
+        "checks": {
+          "importTarget": "stream/web",
+          "moduleType": "object",
+          "readableStreamType": "function"
+        }
+      }
+    },
+    "sandboxNewSessionReplay": {
+      "warmSnapshotEnabled": {
+        "coldWallMs": 73.926,
+        "warmWallMsMean": 26.342,
+        "coldSandboxMs": 0,
+        "warmSandboxMsMean": 0
+      },
+      "warmSnapshotDisabled": {
+        "coldWallMs": 158.454,
+        "warmWallMsMean": 25.169,
+        "coldSandboxMs": 0,
+        "warmSandboxMsMean": 0
+      }
+    },
+    "sandboxSameSessionReplay": {
+      "totalWallMs": 67.193,
+      "firstPassMs": 0,
+      "replayPassMs": 0,
+      "firstPassChecks": {
+        "importTarget": "stream/web",
+        "moduleType": "object",
+        "readableStreamType": "function"
+      },
+      "replayPassChecks": {
+        "importTarget": "stream/web",
+        "moduleType": "object",
+        "readableStreamType": "function"
+      }
+    },
+    "hostSameSessionControl": {
+      "totalWallMs": 1.682,
+      "firstPassMs": 1.661,
+      "replayPassMs": 0.019,
+      "firstPassChecks": {
+        "importTarget": "stream/web",
+        "moduleType": "object",
+        "readableStreamType": "function"
+      },
+      "replayPassChecks": {
+        "importTarget": "stream/web",
+        "moduleType": "object",
+        "readableStreamType": "function"
+      }
+    }
+  },
+  "summary": {
+    "coldWallMs": 73.926,
+    "warmWallMsMean": 26.342,
+    "coldSandboxMs": 0,
+    "warmSandboxMsMean": 0
+  }
+}
