@@ -1,0 +1,64 @@
+{
+  "scenarioId": "jszip-end-to-end",
+  "title": "JSZip End-to-End",
+  "target": "jszip",
+  "kind": "end_to_end",
+  "description": "Builds a representative nested archive and serializes it to a zip payload.",
+  "createdAt": "2026-03-31T05:29:29.401Z",
+  "iterations": 3,
+  "artifacts": {
+    "resultFile": "jszip-end-to-end/result.json",
+    "metricsFile": "jszip-end-to-end/metrics.prom",
+    "logFile": "jszip-end-to-end/ipc.ndjson"
+  },
+  "samples": [
+    {
+      "iteration": 1,
+      "wallMs": 832.404,
+      "code": 0,
+      "stdoutBytes": 61,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"fileCount\":16,\"archiveBytes\":65879}",
+      "stderrPreview": "",
+      "checks": {
+        "fileCount": 16,
+        "archiveBytes": 65879
+      }
+    },
+    {
+      "iteration": 2,
+      "wallMs": 589.857,
+      "code": 0,
+      "stdoutBytes": 61,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"fileCount\":16,\"archiveBytes\":65879}",
+      "stderrPreview": "",
+      "checks": {
+        "fileCount": 16,
+        "archiveBytes": 65879
+      }
+    },
+    {
+      "iteration": 3,
+      "wallMs": 587.047,
+      "code": 0,
+      "stdoutBytes": 61,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"fileCount\":16,\"archiveBytes\":65879}",
+      "stderrPreview": "",
+      "checks": {
+        "fileCount": 16,
+        "archiveBytes": 65879
+      }
+    }
+  ],
+  "summary": {
+    "coldWallMs": 832.404,
+    "warmWallMsMean": 588.452,
+    "coldSandboxMs": 0,
+    "warmSandboxMsMean": 0
+  }
+}

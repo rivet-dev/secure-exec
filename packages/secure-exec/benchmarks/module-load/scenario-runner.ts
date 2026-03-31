@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
@@ -23,20 +24,18 @@ import {
 } from "./scenario-catalog.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const requireFromBench = createRequire(import.meta.url);
 const SECURE_EXEC_ROOT = path.resolve(__dirname, "../..");
 const RESULTS_ROOT = path.resolve(__dirname, "../results/module-load");
-const PI_SDK_ENTRY = path.resolve(
+const PI_PACKAGE_ROOT = path.resolve(
 	SECURE_EXEC_ROOT,
-	"node_modules/@mariozechner/pi-coding-agent/dist/index.js",
+	"node_modules/@mariozechner/pi-coding-agent",
 );
-const PI_CLI_ENTRY = path.resolve(
-	SECURE_EXEC_ROOT,
-	"node_modules/@mariozechner/pi-coding-agent/dist/cli.js",
-);
-const PI_MAIN_ENTRY = path.resolve(
-	SECURE_EXEC_ROOT,
-	"node_modules/@mariozechner/pi-coding-agent/dist/main.js",
-);
+const PI_SDK_ENTRY = path.join(PI_PACKAGE_ROOT, "dist/index.js");
+const PI_CLI_ENTRY = path.join(PI_PACKAGE_ROOT, "dist/cli.js");
+const PI_MAIN_ENTRY = path.join(PI_PACKAGE_ROOT, "dist/main.js");
+const PDF_LIB_ENTRY = requireFromBench.resolve("pdf-lib");
+const JSZIP_ENTRY = requireFromBench.resolve("jszip");
 const PI_BASE_FLAGS = [
 	"--verbose",
 	"--no-session",
@@ -189,6 +188,12 @@ function assertInstalled(): void {
 			"@mariozechner/pi-coding-agent main entry is not installed",
 		);
 	}
+	if (!existsSync(PDF_LIB_ENTRY)) {
+		throw new Error("pdf-lib is not installed");
+	}
+	if (!existsSync(JSZIP_ENTRY)) {
+		throw new Error("jszip is not installed");
+	}
 }
 
 async function createPiWorkDir(
@@ -310,6 +315,189 @@ function buildHonoEndToEndCode(): string {
       error: error instanceof Error ? error.message : String(error),
     }));
     process.exitCode = 1;
+  }
+})();
+`;
+}
+
+function buildPdfLibStartupCode(): string {
+	return `
+(async () => {
+  try {
+    const startedAt = performance.now();
+    const { PDFDocument, StandardFonts } = require("pdf-lib");
+    const pdfDoc = await PDFDocument.create();
+    await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const finishedAt = performance.now();
+    console.log(JSON.stringify({
+      ok: true,
+      sandboxMs: Number((finishedAt - startedAt).toFixed(3)),
+      pdfDocumentType: typeof PDFDocument,
+      standardFontName: String(StandardFonts.Helvetica),
+      pageCount: pdfDoc.getPageCount(),
+    }));
+  } catch (error) {
+    console.log(JSON.stringify({
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    process.exitCode = 1;
+  }
+})();
+`;
+}
+
+function buildPdfLibEndToEndCode(): string {
+	return `
+const keepAlive = setInterval(() => {}, 10);
+(async () => {
+  try {
+    const startedAt = performance.now();
+    const { PDFDocument, StandardFonts } = require("pdf-lib");
+    const pdfDoc = await PDFDocument.create();
+    await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const form = pdfDoc.getForm();
+
+    for (let pageIndex = 0; pageIndex < 5; pageIndex += 1) {
+      const page = pdfDoc.addPage([612, 792]);
+      page.drawText("SecureExec pdf-lib benchmark", {
+        x: 50,
+        y: 750,
+        size: 18,
+      });
+      for (let fieldIndex = 0; fieldIndex < 10; fieldIndex += 1) {
+        const textField = form.createTextField("p" + pageIndex + "_f" + fieldIndex);
+        textField.setText("field-" + pageIndex + "-" + fieldIndex);
+        textField.addToPage(page, {
+          x: 50,
+          y: 700 - fieldIndex * 60,
+          width: 220,
+          height: 28,
+        });
+      }
+    }
+
+    const bytes = await pdfDoc.save();
+    const finishedAt = performance.now();
+    console.log(JSON.stringify({
+      ok: true,
+      sandboxMs: Number((finishedAt - startedAt).toFixed(3)),
+      pageCount: pdfDoc.getPageCount(),
+      fieldCount: form.getFields().length,
+      savedSize: bytes.length,
+    }));
+  } catch (error) {
+    console.log(JSON.stringify({
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    process.exitCode = 1;
+  } finally {
+    clearInterval(keepAlive);
+  }
+})();
+`;
+}
+
+function buildJsZipStartupCode(): string {
+	return `
+(async () => {
+  try {
+    const startedAt = performance.now();
+    const JSZip = require("jszip");
+    const zip = new JSZip();
+    zip.file("README.txt", "secure-exec benchmark");
+    const fileCount = Object.values(zip.files).filter((entry) => !entry.dir).length;
+    const finishedAt = performance.now();
+    console.log(JSON.stringify({
+      ok: true,
+      sandboxMs: Number((finishedAt - startedAt).toFixed(3)),
+      jszipType: typeof JSZip,
+      generateAsyncType: typeof zip.generateAsync,
+      fileCount,
+    }));
+  } catch (error) {
+    console.log(JSON.stringify({
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    process.exitCode = 1;
+  }
+})();
+`;
+}
+
+function buildJsZipEndToEndCode(): string {
+	return `
+const keepAlive = setInterval(() => {}, 10);
+(async () => {
+  try {
+    const startedAt = performance.now();
+    const JSZip = require("jszip");
+    const zip = new JSZip();
+    const sharedParagraph = Array.from(
+      { length: 16 },
+      (_, index) => "Section " + index + ": " + "benchmark-data-".repeat(24),
+    ).join("\\n");
+
+    for (let docIndex = 0; docIndex < 8; docIndex += 1) {
+      zip.file(
+        "docs/chapter-" + docIndex + ".md",
+        "# Chapter " + docIndex + "\\n\\n" + sharedParagraph + "\\n\\n" + "line-".repeat(96),
+      );
+    }
+
+    for (let datasetIndex = 0; datasetIndex < 4; datasetIndex += 1) {
+      const rows = Array.from({ length: 20 }, (_, rowIndex) => ({
+        id: "row-" + datasetIndex + "-" + rowIndex,
+        status: rowIndex % 2 === 0 ? "ready" : "pending",
+        weight: datasetIndex * 100 + rowIndex,
+        label: "record-" + String(rowIndex).padStart(3, "0"),
+      }));
+      zip.file(
+        "data/report-" + datasetIndex + ".json",
+        JSON.stringify({ datasetIndex, rows }, null, 2),
+      );
+    }
+
+    for (let assetIndex = 0; assetIndex < 3; assetIndex += 1) {
+      const bytes = Uint8Array.from(
+        { length: 1024 },
+        (_, byteIndex) => (byteIndex * 17 + assetIndex * 29) % 251,
+      );
+      zip.file("assets/blob-" + assetIndex + ".bin", bytes);
+    }
+
+    zip.file(
+      "manifest.json",
+      JSON.stringify({
+        generatedBy: "secure-exec-module-load-benchmark",
+        docs: 8,
+        datasets: 4,
+        assets: 3,
+      }, null, 2),
+    );
+
+    const archive = await zip.generateAsync({
+      type: "uint8array",
+      compression: "STORE",
+    });
+    const fileCount = Object.values(zip.files).filter((entry) => !entry.dir).length;
+    const finishedAt = performance.now();
+    console.log(JSON.stringify({
+      ok: true,
+      sandboxMs: Number((finishedAt - startedAt).toFixed(3)),
+      fileCount,
+      archiveBytes: archive.length,
+    }));
+  } catch (error) {
+    console.log(JSON.stringify({
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    process.exitCode = 1;
+  } finally {
+    clearInterval(keepAlive);
   }
 })();
 `;
@@ -502,6 +690,122 @@ async function runScenarioIteration(
 				checks: {
 					status: Number(payload.status),
 					body: String(payload.body),
+				},
+			};
+		}
+		case "pdf-lib-startup": {
+			const capture = await runRuntimeExec(v8Runtime, {
+				code: buildPdfLibStartupCode(),
+				cwd: SECURE_EXEC_ROOT,
+			});
+			const payload = parseTrailingJsonObject(capture.stdoutText);
+			if (payload.ok !== true || payload.pdfDocumentType !== "function") {
+				throw new Error(`pdf-lib startup failed: ${JSON.stringify(payload)}`);
+			}
+			return {
+				iteration,
+				wallMs: capture.wallMs,
+				code: capture.code,
+				errorMessage: capture.errorMessage,
+				stdoutBytes: Buffer.byteLength(capture.stdoutText, "utf8"),
+				stderrBytes: Buffer.byteLength(capture.stderrText, "utf8"),
+				sandboxMs: Number(payload.sandboxMs ?? 0),
+				stdoutPreview: preview(capture.stdoutText),
+				stderrPreview: preview(capture.stderrText),
+				checks: {
+					pdfDocumentType: String(payload.pdfDocumentType),
+					pageCount: Number(payload.pageCount ?? 0),
+					standardFontName: String(payload.standardFontName),
+				},
+			};
+		}
+		case "pdf-lib-end-to-end": {
+			const capture = await runRuntimeExec(v8Runtime, {
+				code: buildPdfLibEndToEndCode(),
+				cwd: SECURE_EXEC_ROOT,
+			});
+			const payload = parseTrailingJsonObject(capture.stdoutText);
+			if (
+				payload.ok !== true ||
+				Number(payload.pageCount ?? 0) !== 5 ||
+				Number(payload.fieldCount ?? 0) !== 50 ||
+				Number(payload.savedSize ?? 0) <= 10_000
+			) {
+				throw new Error(`pdf-lib end-to-end failed: ${JSON.stringify(payload)}`);
+			}
+			return {
+				iteration,
+				wallMs: capture.wallMs,
+				code: capture.code,
+				errorMessage: capture.errorMessage,
+				stdoutBytes: Buffer.byteLength(capture.stdoutText, "utf8"),
+				stderrBytes: Buffer.byteLength(capture.stderrText, "utf8"),
+				sandboxMs: Number(payload.sandboxMs ?? 0),
+				stdoutPreview: preview(capture.stdoutText),
+				stderrPreview: preview(capture.stderrText),
+				checks: {
+					pageCount: Number(payload.pageCount ?? 0),
+					fieldCount: Number(payload.fieldCount ?? 0),
+					savedSize: Number(payload.savedSize ?? 0),
+				},
+			};
+		}
+		case "jszip-startup": {
+			const capture = await runRuntimeExec(v8Runtime, {
+				code: buildJsZipStartupCode(),
+				cwd: SECURE_EXEC_ROOT,
+			});
+			const payload = parseTrailingJsonObject(capture.stdoutText);
+			if (
+				payload.ok !== true ||
+				payload.jszipType !== "function" ||
+				payload.generateAsyncType !== "function"
+			) {
+				throw new Error(`JSZip startup failed: ${JSON.stringify(payload)}`);
+			}
+			return {
+				iteration,
+				wallMs: capture.wallMs,
+				code: capture.code,
+				errorMessage: capture.errorMessage,
+				stdoutBytes: Buffer.byteLength(capture.stdoutText, "utf8"),
+				stderrBytes: Buffer.byteLength(capture.stderrText, "utf8"),
+				sandboxMs: Number(payload.sandboxMs ?? 0),
+				stdoutPreview: preview(capture.stdoutText),
+				stderrPreview: preview(capture.stderrText),
+				checks: {
+					jszipType: String(payload.jszipType),
+					generateAsyncType: String(payload.generateAsyncType),
+					fileCount: Number(payload.fileCount ?? 0),
+				},
+			};
+		}
+		case "jszip-end-to-end": {
+			const capture = await runRuntimeExec(v8Runtime, {
+				code: buildJsZipEndToEndCode(),
+				cwd: SECURE_EXEC_ROOT,
+			});
+			const payload = parseTrailingJsonObject(capture.stdoutText);
+			if (
+				payload.ok !== true ||
+				Number(payload.fileCount ?? 0) !== 16 ||
+				Number(payload.archiveBytes ?? 0) <= 2_000
+			) {
+				throw new Error(`JSZip end-to-end failed: ${JSON.stringify(payload)}`);
+			}
+			return {
+				iteration,
+				wallMs: capture.wallMs,
+				code: capture.code,
+				errorMessage: capture.errorMessage,
+				stdoutBytes: Buffer.byteLength(capture.stdoutText, "utf8"),
+				stderrBytes: Buffer.byteLength(capture.stderrText, "utf8"),
+				sandboxMs: Number(payload.sandboxMs ?? 0),
+				stdoutPreview: preview(capture.stdoutText),
+				stderrPreview: preview(capture.stderrText),
+				checks: {
+					fileCount: Number(payload.fileCount ?? 0),
+					archiveBytes: Number(payload.archiveBytes ?? 0),
 				},
 			};
 		}

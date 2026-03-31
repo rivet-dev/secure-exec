@@ -1,17 +1,17 @@
 # Hono End-to-End
 
 Scenario: `hono-end-to-end`
-Generated: 2026-03-31T05:04:48.741Z
+Generated: 2026-03-31T05:29:22.634Z
 Description: Loads Hono, builds an app, serves a request, and reads the response.
 
 ## Progress Copy Fields
 
-- Warm wall mean: 142.192 ms
+- Warm wall mean: 158.059 ms
 - Bridge calls/iteration: 102.000
-- Warm fixed session overhead: 107.334 ms
-- Scenario IPC connect RTT: 0.000 ms
-- Warm phase attribution: Create->InjectGlobals 0.000 ms, InjectGlobals->Execute 5.000 ms, ExecutionResult->Destroy 101.500 ms, residual 0.834 ms
-- Dominant bridge time: `_loadPolyfill` 18.455 ms/iteration across 101.000 calls/iteration
+- Warm fixed session overhead: 107.936 ms
+- Scenario IPC connect RTT: 1.000 ms
+- Warm phase attribution: Create->InjectGlobals 0.500 ms, InjectGlobals->Execute 5.000 ms, ExecutionResult->Destroy 101.500 ms, residual 0.936 ms
+- Dominant bridge time: `_loadPolyfill` 18.976 ms/iteration across 101.000 calls/iteration
 - Dominant bridge response bytes: `_loadPolyfill` 408083.000 bytes/iteration
 - Dominant frame bytes: `send:Execute` 1240830.000 bytes/iteration
 
@@ -19,9 +19,9 @@ Description: Loads Hono, builds an app, serves a request, and reads the response
 
 | Iteration | Wall | Execute | Fixed Overhead | Bridge Calls | Bridge Time |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | 285.306 ms | 171.815 ms | 113.491 ms | 102 | 46.732 ms |
-| 2 | 143.635 ms | 35.743 ms | 107.892 ms | 102 | 4.641 ms |
-| 3 | 140.750 ms | 33.974 ms | 106.776 ms | 102 | 4.161 ms |
+| 1 | 281.582 ms | 167.196 ms | 114.386 ms | 102 | 42.083 ms |
+| 2 | 152.528 ms | 43.727 ms | 108.801 ms | 102 | 6.520 ms |
+| 3 | 163.590 ms | 56.519 ms | 107.071 ms | 102 | 8.487 ms |
 
 ## Session Phase Attribution
 
@@ -29,16 +29,16 @@ Equivalent lifecycle phases come from `CreateSession -> InjectGlobals -> Execute
 
 | Iteration | Create->InjectGlobals | InjectGlobals->Execute | Execute | ExecutionResult->Destroy | Residual Overhead |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | 2.000 ms | 6.000 ms | 171.815 ms | 103.000 ms | 2.491 ms |
-| 2 | 0.000 ms | 5.000 ms | 35.743 ms | 102.000 ms | 0.892 ms |
-| 3 | 0.000 ms | 5.000 ms | 33.974 ms | 101.000 ms | 0.776 ms |
+| 1 | 3.000 ms | 6.000 ms | 167.196 ms | 104.000 ms | 1.386 ms |
+| 2 | 1.000 ms | 5.000 ms | 43.727 ms | 102.000 ms | 0.801 ms |
+| 3 | 0.000 ms | 5.000 ms | 56.519 ms | 101.000 ms | 1.071 ms |
 
 ## Bridge Methods By Time
 
 | Method | Calls/Iter | Time/Iter | Mean/Call | Response Bytes/Iter |
 | --- | ---: | ---: | ---: | ---: |
-| `_loadPolyfill` | 101.000 | 18.455 ms | 0.183 ms | 408083.000 |
-| `_log` | 1.000 | 0.056 ms | 0.056 ms | 47.000 |
+| `_loadPolyfill` | 101.000 | 18.976 ms | 0.188 ms | 408083.000 |
+| `_log` | 1.000 | 0.054 ms | 0.054 ms | 47.000 |
 
 ## Frame Bytes
 
@@ -56,20 +56,20 @@ Equivalent lifecycle phases come from `CreateSession -> InjectGlobals -> Execute
 
 ## Comparison To Previous Baseline
 
-Baseline scenario timestamp: 2026-03-31T05:03:25.171Z
+Baseline scenario timestamp: 2026-03-31T05:26:29.694Z
 
-- Warm wall: 145.863 -> 142.192 ms (-3.671 ms (-2.52%))
+- Warm wall: 147.534 -> 158.059 ms (+10.525 ms (+7.13%))
 - Bridge calls/iteration: 102.000 -> 102.000 calls (0.000 calls (0.00%))
-- Warm fixed overhead: 108.204 -> 107.334 ms (-0.870 ms (-0.80%))
-- Warm Create->InjectGlobals: 0.000 -> 0.000 ms (0.000 ms)
+- Warm fixed overhead: 107.888 -> 107.936 ms (+0.048 ms (+0.04%))
+- Warm Create->InjectGlobals: 0.500 -> 0.500 ms (0.000 ms (0.00%))
 - Warm InjectGlobals->Execute: 5.000 -> 5.000 ms (0.000 ms (0.00%))
-- Warm ExecutionResult->Destroy: 102.500 -> 101.500 ms (-1.000 ms (-0.98%))
-- Warm residual overhead: 0.705 -> 0.834 ms (+0.129 ms (+18.30%))
-- Bridge time/iteration: 21.852 -> 18.511 ms (-3.341 ms (-15.29%))
+- Warm ExecutionResult->Destroy: 102.000 -> 101.500 ms (-0.500 ms (-0.49%))
+- Warm residual overhead: 0.388 -> 0.936 ms (+0.548 ms (+141.24%))
+- Bridge time/iteration: 23.426 -> 19.030 ms (-4.396 ms (-18.77%))
 - BridgeResponse encoded bytes/iteration: 408130.000 -> 408130.000 bytes (0.000 bytes (0.00%))
 
 | Delta Type | Name | Before | After | Delta |
 | --- | --- | ---: | ---: | ---: |
-| Method time | `_loadPolyfill` | 21.799 | 18.455 | -3.344 |
-| Method time | `_log` | 0.053 | 0.056 | +0.003 |
+| Method time | `_loadPolyfill` | 23.347 | 18.976 | -4.371 |
+| Method time | `_log` | 0.080 | 0.054 | -0.026 |
 

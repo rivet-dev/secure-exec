@@ -1,0 +1,67 @@
+{
+  "scenarioId": "pdf-lib-end-to-end",
+  "title": "pdf-lib End-to-End",
+  "target": "pdf_lib",
+  "kind": "end_to_end",
+  "description": "Creates a multi-page PDF with 50 form fields and serializes the document.",
+  "createdAt": "2026-03-31T05:29:25.657Z",
+  "iterations": 3,
+  "artifacts": {
+    "resultFile": "pdf-lib-end-to-end/result.json",
+    "metricsFile": "pdf-lib-end-to-end/metrics.prom",
+    "logFile": "pdf-lib-end-to-end/ipc.ndjson"
+  },
+  "samples": [
+    {
+      "iteration": 1,
+      "wallMs": 524.241,
+      "code": 0,
+      "stdoutBytes": 73,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"pageCount\":5,\"fieldCount\":50,\"savedSize\":41186}",
+      "stderrPreview": "",
+      "checks": {
+        "pageCount": 5,
+        "fieldCount": 50,
+        "savedSize": 41186
+      }
+    },
+    {
+      "iteration": 2,
+      "wallMs": 346.528,
+      "code": 0,
+      "stdoutBytes": 73,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"pageCount\":5,\"fieldCount\":50,\"savedSize\":41186}",
+      "stderrPreview": "",
+      "checks": {
+        "pageCount": 5,
+        "fieldCount": 50,
+        "savedSize": 41186
+      }
+    },
+    {
+      "iteration": 3,
+      "wallMs": 347.427,
+      "code": 0,
+      "stdoutBytes": 73,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"pageCount\":5,\"fieldCount\":50,\"savedSize\":41186}",
+      "stderrPreview": "",
+      "checks": {
+        "pageCount": 5,
+        "fieldCount": 50,
+        "savedSize": 41186
+      }
+    }
+  ],
+  "summary": {
+    "coldWallMs": 524.241,
+    "warmWallMsMean": 346.978,
+    "coldSandboxMs": 0,
+    "warmSandboxMsMean": 0
+  }
+}

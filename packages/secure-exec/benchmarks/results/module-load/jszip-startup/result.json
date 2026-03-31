@@ -1,0 +1,67 @@
+{
+  "scenarioId": "jszip-startup",
+  "title": "JSZip Startup",
+  "target": "jszip",
+  "kind": "startup",
+  "description": "Loads JSZip, creates an archive, and stages a starter file.",
+  "createdAt": "2026-03-31T05:29:26.999Z",
+  "iterations": 3,
+  "artifacts": {
+    "resultFile": "jszip-startup/result.json",
+    "metricsFile": "jszip-startup/metrics.prom",
+    "logFile": "jszip-startup/ipc.ndjson"
+  },
+  "samples": [
+    {
+      "iteration": 1,
+      "wallMs": 561.239,
+      "code": 0,
+      "stdoutBytes": 93,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"jszipType\":\"function\",\"generateAsyncType\":\"function\",\"fileCount\":1}",
+      "stderrPreview": "",
+      "checks": {
+        "jszipType": "function",
+        "generateAsyncType": "function",
+        "fileCount": 1
+      }
+    },
+    {
+      "iteration": 2,
+      "wallMs": 185.33,
+      "code": 0,
+      "stdoutBytes": 93,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"jszipType\":\"function\",\"generateAsyncType\":\"function\",\"fileCount\":1}",
+      "stderrPreview": "",
+      "checks": {
+        "jszipType": "function",
+        "generateAsyncType": "function",
+        "fileCount": 1
+      }
+    },
+    {
+      "iteration": 3,
+      "wallMs": 173.589,
+      "code": 0,
+      "stdoutBytes": 93,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"jszipType\":\"function\",\"generateAsyncType\":\"function\",\"fileCount\":1}",
+      "stderrPreview": "",
+      "checks": {
+        "jszipType": "function",
+        "generateAsyncType": "function",
+        "fileCount": 1
+      }
+    }
+  ],
+  "summary": {
+    "coldWallMs": 561.239,
+    "warmWallMsMean": 179.459,
+    "coldSandboxMs": 0,
+    "warmSandboxMsMean": 0
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "scenarioId": "pdf-lib-startup",
+  "title": "pdf-lib Startup",
+  "target": "pdf_lib",
+  "kind": "startup",
+  "description": "Loads pdf-lib, creates a document, and embeds a standard font.",
+  "createdAt": "2026-03-31T05:29:24.028Z",
+  "iterations": 3,
+  "artifacts": {
+    "resultFile": "pdf-lib-startup/result.json",
+    "metricsFile": "pdf-lib-startup/metrics.prom",
+    "logFile": "pdf-lib-startup/ipc.ndjson"
+  },
+  "samples": [
+    {
+      "iteration": 1,
+      "wallMs": 444.597,
+      "code": 0,
+      "stdoutBytes": 99,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"pdfDocumentType\":\"function\",\"standardFontName\":\"Helvetica\",\"pageCount\":0}",
+      "stderrPreview": "",
+      "checks": {
+        "pdfDocumentType": "function",
+        "pageCount": 0,
+        "standardFontName": "Helvetica"
+      }
+    },
+    {
+      "iteration": 2,
+      "wallMs": 287.311,
+      "code": 0,
+      "stdoutBytes": 99,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"pdfDocumentType\":\"function\",\"standardFontName\":\"Helvetica\",\"pageCount\":0}",
+      "stderrPreview": "",
+      "checks": {
+        "pdfDocumentType": "function",
+        "pageCount": 0,
+        "standardFontName": "Helvetica"
+      }
+    },
+    {
+      "iteration": 3,
+      "wallMs": 279.158,
+      "code": 0,
+      "stdoutBytes": 99,
+      "stderrBytes": 0,
+      "sandboxMs": 0,
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"pdfDocumentType\":\"function\",\"standardFontName\":\"Helvetica\",\"pageCount\":0}",
+      "stderrPreview": "",
+      "checks": {
+        "pdfDocumentType": "function",
+        "pageCount": 0,
+        "standardFontName": "Helvetica"
+      }
+    }
+  ],
+  "summary": {
+    "coldWallMs": 444.597,
+    "warmWallMsMean": 283.235,
+    "coldSandboxMs": 0,
+    "warmSandboxMsMean": 0
+  }
+}

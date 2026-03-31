@@ -68,8 +68,24 @@
         "Touched packages typecheck."
       ],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "notes": "Use `/tmp/pdfbench.js` as the seed for the `pdf-lib` workload. The goal is not just to import the library, but to keep committed startup and end-to-end benchmark numbers for heavier document/archive codepaths so future perf work optimizes them too."
+    },
+    {
+      "id": "US-013",
+      "title": "Restore repeated-session compressed JSZip benchmarking",
+      "description": "As a maintainer, I need the JSZip end-to-end scenario to survive repeated fresh sessions with compression enabled so the benchmark can track realistic compressed archive workloads instead of the current STORE fallback.",
+      "acceptanceCriteria": [
+        "The `jszip-end-to-end` scenario completes all benchmark iterations with a compressed archive path enabled instead of hanging on the third fresh session.",
+        "Committed `result.json`, `ipc.ndjson`, `summary.md`, and `summary.json` artifacts show the restored compressed JSZip scenario and preserve the current representative nested archive workload shape.",
+        "Focused regression coverage or a reproducer proves the repeated-session hang is fixed and does not regress silently.",
+        "Append before/after benchmark deltas to `scripts/ralph/progress.txt` for the affected JSZip scenario, including warm wall time, bridge calls per iteration, and the dominant IPC counters touched by this story.",
+        "Relevant targeted tests pass.",
+        "Touched packages typecheck."
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": "US-012 committed a stable STORE-based nested-archive baseline after repeated DEFLATE runs hung on iteration 3 inside `packages/secure-exec/benchmarks/module-load/scenario-runner.ts`."
     },
     {
       "id": "US-004",

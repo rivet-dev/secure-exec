@@ -1,97 +1,96 @@
 # Module Load Benchmark Comparison
 
-Current benchmark: 2026-03-31T05:05:15.176Z (9adad215396587b45268138893f1efffe08c06ed)
-Baseline benchmark: 2026-03-31T05:03:50.186Z (9adad215396587b45268138893f1efffe08c06ed)
+Current benchmark: 2026-03-31T05:29:53.612Z (6197d51aa59337c452dded8d5317cab31e30b8a5)
+Baseline benchmark: none
 
 Copy the warm wall, bridge calls/iteration, warm fixed overhead, and the highlighted method/frame deltas below into `scripts/ralph/progress.txt`.
 
 ## Hono Startup
 
-- Warm wall: 158.655 -> 151.127 ms (-7.528 ms (-4.75%))
+- Warm wall: 144.133 -> 143.668 ms (-0.465 ms (-0.32%))
 - Bridge calls/iteration: 102.000 -> 102.000 calls (0.000 calls (0.00%))
-- Warm fixed overhead: 107.977 -> 107.166 ms (-0.811 ms (-0.75%))
-- Warm Create->InjectGlobals: 0.500 -> 0.500 ms (0.000 ms (0.00%))
-- Warm InjectGlobals->Execute: 4.500 -> 4.500 ms (0.000 ms (0.00%))
-- Warm ExecutionResult->Destroy: 102.500 -> 101.500 ms (-1.000 ms (-0.98%))
-- Warm residual overhead: 0.478 -> 0.665 ms (+0.187 ms (+39.12%))
-- Bridge time/iteration: 18.284 -> 25.744 ms (+7.460 ms (+40.80%))
+- Warm fixed overhead: 108.197 -> 108.096 ms (-0.101 ms (-0.09%))
+- Warm Create->InjectGlobals: 0.000 -> 0.500 ms (+0.500 ms)
+- Warm InjectGlobals->Execute: 5.000 -> 5.000 ms (0.000 ms (0.00%))
+- Warm ExecutionResult->Destroy: 102.500 -> 102.000 ms (-0.500 ms (-0.49%))
+- Warm residual overhead: 0.697 -> 0.596 ms (-0.101 ms (-14.49%))
+- Bridge time/iteration: 17.115 -> 20.530 ms (+3.415 ms (+19.95%))
 - BridgeResponse encoded bytes/iteration: 408130.000 -> 408130.000 bytes (0.000 bytes (0.00%))
-- Largest method-time delta: `_loadPolyfill` 18.208 -> 25.621 ms/iteration (+7.413)
+- Largest method-time delta: `_loadPolyfill` 17.042 -> 20.373 ms/iteration (+3.331)
 
 ## Hono End-to-End
 
-- Warm wall: 145.863 -> 142.192 ms (-3.671 ms (-2.52%))
+- Warm wall: 147.534 -> 158.059 ms (+10.525 ms (+7.13%))
 - Bridge calls/iteration: 102.000 -> 102.000 calls (0.000 calls (0.00%))
-- Warm fixed overhead: 108.204 -> 107.334 ms (-0.870 ms (-0.80%))
-- Warm Create->InjectGlobals: 0.000 -> 0.000 ms (0.000 ms)
+- Warm fixed overhead: 107.888 -> 107.936 ms (+0.048 ms (+0.04%))
+- Warm Create->InjectGlobals: 0.500 -> 0.500 ms (0.000 ms (0.00%))
 - Warm InjectGlobals->Execute: 5.000 -> 5.000 ms (0.000 ms (0.00%))
-- Warm ExecutionResult->Destroy: 102.500 -> 101.500 ms (-1.000 ms (-0.98%))
-- Warm residual overhead: 0.705 -> 0.834 ms (+0.129 ms (+18.30%))
-- Bridge time/iteration: 21.852 -> 18.511 ms (-3.341 ms (-15.29%))
+- Warm ExecutionResult->Destroy: 102.000 -> 101.500 ms (-0.500 ms (-0.49%))
+- Warm residual overhead: 0.388 -> 0.936 ms (+0.548 ms (+141.24%))
+- Bridge time/iteration: 23.426 -> 19.030 ms (-4.396 ms (-18.77%))
 - BridgeResponse encoded bytes/iteration: 408130.000 -> 408130.000 bytes (0.000 bytes (0.00%))
-- Largest method-time delta: `_loadPolyfill` 21.799 -> 18.455 ms/iteration (-3.344)
+- Largest method-time delta: `_loadPolyfill` 23.347 -> 18.976 ms/iteration (-4.371)
+
+## pdf-lib Startup
+
+- Warm wall: 280.452 -> 283.235 ms (+2.783 ms (+0.99%))
+- Bridge calls/iteration: 1651.000 -> 1651.000 calls (0.000 calls (0.00%))
+- Warm fixed overhead: 107.194 -> 107.558 ms (+0.364 ms (+0.34%))
+- Warm Create->InjectGlobals: 0.000 -> 0.000 ms (0.000 ms)
+- Warm InjectGlobals->Execute: 5.000 -> 5.500 ms (+0.500 ms (+10.00%))
+- Warm ExecutionResult->Destroy: 102.000 -> 102.000 ms (0.000 ms (0.00%))
+- Warm residual overhead: 0.194 -> 0.058 ms (-0.136 ms (-70.10%))
+- Bridge time/iteration: 67.254 -> 63.273 ms (-3.981 ms (-5.92%))
+- BridgeResponse encoded bytes/iteration: 1918520.000 -> 1918520.000 bytes (0.000 bytes (0.00%))
+- Largest method-time delta: `_loadPolyfill` 67.157 -> 63.188 ms/iteration (-3.969)
+
+## pdf-lib End-to-End
+
+- Warm wall: 501.043 -> 346.978 ms (-154.065 ms (-30.75%))
+- Bridge calls/iteration: 1666.000 -> 1666.000 calls (0.000 calls (0.00%))
+- Warm fixed overhead: 107.704 -> 107.320 ms (-0.384 ms (-0.36%))
+- Warm Create->InjectGlobals: 0.000 -> 0.500 ms (+0.500 ms)
+- Warm InjectGlobals->Execute: 5.000 -> 5.000 ms (0.000 ms (0.00%))
+- Warm ExecutionResult->Destroy: 102.000 -> 102.000 ms (0.000 ms (0.00%))
+- Warm residual overhead: 0.705 -> -0.180 ms (-0.885 ms (-125.53%))
+- Bridge time/iteration: 109.755 -> 64.197 ms (-45.558 ms (-41.51%))
+- BridgeResponse encoded bytes/iteration: 1919390.000 -> 1919390.000 bytes (0.000 bytes (0.00%))
+- Largest method-time delta: `_loadPolyfill` 109.612 -> 64.109 ms/iteration (-45.503)
+
+## JSZip Startup
+
+- Warm wall: 205.767 -> 179.459 ms (-26.308 ms (-12.79%))
+- Bridge calls/iteration: 405.000 -> 405.000 calls (0.000 calls (0.00%))
+- Warm fixed overhead: 107.606 -> 107.322 ms (-0.284 ms (-0.26%))
+- Warm Create->InjectGlobals: 0.500 -> 0.000 ms (-0.500 ms (-100.00%))
+- Warm InjectGlobals->Execute: 4.500 -> 5.000 ms (+0.500 ms (+11.11%))
+- Warm ExecutionResult->Destroy: 102.000 -> 102.000 ms (0.000 ms (0.00%))
+- Warm residual overhead: 0.606 -> 0.322 ms (-0.284 ms (-46.87%))
+- Bridge time/iteration: 50.993 -> 85.171 ms (+34.178 ms (+67.03%))
+- BridgeResponse encoded bytes/iteration: 1207899.000 -> 1207899.000 bytes (0.000 bytes (0.00%))
+- Largest method-time delta: `_loadPolyfill` 50.935 -> 85.118 ms/iteration (+34.183)
+
+## JSZip End-to-End
+
+- No previous baseline was available for this scenario.
 
 ## Pi SDK Startup
 
-- Warm wall: 1617.322 -> 1605.896 ms (-11.426 ms (-0.71%))
-- Bridge calls/iteration: 5278.000 -> 5278.000 calls (0.000 calls (0.00%))
-- Warm fixed overhead: 107.416 -> 107.982 ms (+0.566 ms (+0.53%))
-- Warm Create->InjectGlobals: 0.000 -> 0.500 ms (+0.500 ms)
-- Warm InjectGlobals->Execute: 4.000 -> 4.500 ms (+0.500 ms (+12.50%))
-- Warm ExecutionResult->Destroy: 102.500 -> 103.500 ms (+1.000 ms (+0.98%))
-- Warm residual overhead: 0.915 -> -0.518 ms (-1.433 ms (-156.61%))
-- Bridge time/iteration: 832.306 -> 854.939 ms (+22.633 ms (+2.72%))
-- BridgeResponse encoded bytes/iteration: 9362446.000 -> 9362446.000 bytes (0.000 bytes (0.00%))
-- Largest method-time delta: `_loadPolyfill` 785.697 -> 813.611 ms/iteration (+27.914)
+- No previous baseline was available for this scenario.
 
 ## Pi SDK End-to-End
 
-- Warm wall: 1870.868 -> 1991.222 ms (+120.354 ms (+6.43%))
-- Bridge calls/iteration: 5747.000 -> 5747.000 calls (0.000 calls (0.00%))
-- Warm fixed overhead: 107.290 -> 107.215 ms (-0.075 ms (-0.07%))
-- Warm Create->InjectGlobals: 0.500 -> 0.000 ms (-0.500 ms (-100.00%))
-- Warm InjectGlobals->Execute: 4.000 -> 4.500 ms (+0.500 ms (+12.50%))
-- Warm ExecutionResult->Destroy: 102.500 -> 102.000 ms (-0.500 ms (-0.49%))
-- Warm residual overhead: 0.290 -> 0.715 ms (+0.425 ms (+146.55%))
-- Bridge time/iteration: 879.758 -> 1009.139 ms (+129.381 ms (+14.71%))
-- BridgeResponse encoded bytes/iteration: 9715780.000 -> 9715780.000 bytes (0.000 bytes (0.00%))
-- Largest method-time delta: `_loadPolyfill` 800.693 -> 935.682 ms/iteration (+134.989)
+- No previous baseline was available for this scenario.
 
 ## Pi CLI Startup
 
-- Warm wall: 1920.839 -> 1927.126 ms (+6.287 ms (+0.33%))
-- Bridge calls/iteration: 5336.000 -> 5336.000 calls (0.000 calls (0.00%))
-- Warm fixed overhead: 107.693 -> 107.510 ms (-0.183 ms (-0.17%))
-- Warm Create->InjectGlobals: 0.000 -> 0.500 ms (+0.500 ms)
-- Warm InjectGlobals->Execute: 4.500 -> 4.000 ms (-0.500 ms (-11.11%))
-- Warm ExecutionResult->Destroy: 102.500 -> 102.500 ms (0.000 ms (0.00%))
-- Warm residual overhead: 0.693 -> 0.509 ms (-0.184 ms (-26.55%))
-- Bridge time/iteration: 905.879 -> 1071.685 ms (+165.806 ms (+18.30%))
-- BridgeResponse encoded bytes/iteration: 9381013.333 -> 9381014.000 bytes (+0.667 bytes (0.00%))
-- Largest method-time delta: `_loadPolyfill` 815.840 -> 977.736 ms/iteration (+161.896)
-- Largest method-byte delta: `_fsStat` 204.333 -> 205.000 encoded bytes/iteration (+0.667)
-- Largest frame-byte delta: `send:BridgeResponse` 9381013.333 -> 9381014.000 encoded bytes/iteration (+0.667)
+- No previous baseline was available for this scenario.
 
 ## Pi CLI End-to-End
 
-- Warm wall: 1734.487 -> 1749.175 ms (+14.688 ms (+0.85%))
-- Bridge calls/iteration: 5784.000 -> 5784.000 calls (0.000 calls (0.00%))
-- Warm fixed overhead: 5.563 -> 5.340 ms (-0.223 ms (-4.01%))
-- Warm Create->InjectGlobals: 0.000 -> 0.000 ms (0.000 ms)
-- Warm InjectGlobals->Execute: 5.000 -> 4.500 ms (-0.500 ms (-10.00%))
-- Warm ExecutionResult->Destroy: 0.500 -> 0.000 ms (-0.500 ms (-100.00%))
-- Warm residual overhead: 0.064 -> 0.840 ms (+0.776 ms (+1212.50%))
-- Bridge time/iteration: 966.936 -> 929.697 ms (-37.239 ms (-3.85%))
-- BridgeResponse encoded bytes/iteration: 9737452.333 -> 9737452.333 bytes (0.000 bytes (0.00%))
-- Largest method-time delta: `_loadPolyfill` 862.442 -> 826.220 ms/iteration (-36.222)
+- No previous baseline was available for this scenario.
 
 ## Transport RTT
 
-- Connect RTT: 0.210 -> 0.198 ms (-0.012 ms (-5.71%))
-- 1 B mean RTT: 0.024 -> 0.022 ms (-0.002 ms (-8.33%))
-- 1 B P95 RTT: 0.036 -> 0.040 ms (+0.004 ms (+11.11%))
-- 1 KB mean RTT: 0.022 -> 0.017 ms (-0.005 ms (-22.73%))
-- 1 KB P95 RTT: 0.030 -> 0.020 ms (-0.010 ms (-33.33%))
-- 64 KB mean RTT: 0.334 -> 0.143 ms (-0.191 ms (-57.19%))
-- 64 KB P95 RTT: 0.725 -> 0.181 ms (-0.544 ms (-75.03%))
+- No previous baseline was available for transport RTT.
 

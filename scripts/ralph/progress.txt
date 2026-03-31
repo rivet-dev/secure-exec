@@ -5,6 +5,7 @@ Started: Mon Mar 30 08:41:55 PM PDT 2026
 ## Codebase Patterns
 - Active module-load benchmark artifacts live in `packages/secure-exec/benchmarks/results/module-load/`; refresh them with the full `pnpm --filter secure-exec bench:module-load` run after each performance story.
 - Headless CLI workloads inside standalone `NodeRuntime.exec()` should pass `stdin: ""`; for Pi's direct `dist/main.js` print-mode path with an explicit `--print` message, set `process.stdin.isTTY = true` inside the sandbox harness or Pi stalls in its piped-stdin probe before provider traffic.
+- Promise-heavy standalone `NodeRuntime.exec()` benchmark scripts need an explicit live handle (for example a short `setInterval()` cleared in `finally`) until the final stdout JSON is emitted, or exec-mode runs can return `code: 0` before long async library work like `pdfDoc.save()` or `zip.generateAsync()` produces output.
 - For Pi startup and end-to-end perf stories, record warm wall time together with bridge calls/iteration and dominant IPC counters (`_loadPolyfill`, BridgeResponse bytes, and any new network callsites) instead of relying on a single aggregate number.
 - Module-load benchmark progress reporting now comes from generated `packages/secure-exec/benchmarks/results/module-load/comparison.md` plus per-scenario `summary.json`; fixed session overhead is `sample.wallMs - ipc_execute.finish.durationMs` for the matching session in `ipc.ndjson`.
 - Module-load phase attribution now comes from `CreateSession -> InjectGlobals -> Execute -> ExecutionResult -> DestroySession` timestamps in per-scenario `ipc.ndjson`, and raw authenticated IPC RTT lives in top-level `transport-rtt.json` / `transport-rtt.md`.
@@ -61,4 +62,18 @@ Started: Mon Mar 30 08:41:55 PM PDT 2026
   - The direct Pi CLI benchmark path can stay in standalone `NodeRuntime.exec()` without the SDK surrogate if the harness calls `dist/main.js` with an explicit `--print` message and marks `process.stdin.isTTY = true`; otherwise Pi blocks in its piped-stdin probe before any provider traffic.
   - The benchmark-visible payoff of dropping the surrogate is mostly session-lifecycle removal: Pi CLI end-to-end warm fixed overhead fell from `~109.7 ms` to `~5.3 ms`, with `ExecutionResult->Destroy` effectively disappearing from the hot path.
   - When the direct headless path regresses, a timeout that reports `requestCount`, `stdout`, and `stderr` is enough to distinguish “stuck before provider traffic” from post-response shutdown bugs.
+---
+## [2026-03-30 22:31 PDT] - US-012
+- Added `pdf-lib` and `jszip` startup/end-to-end scenarios to the shared module-load benchmark catalog and runner, installed the new benchmark dependencies, adapted the `pdf-lib` workload from `/tmp/pdfbench.js`, committed fresh benchmark artifacts/summaries for all ten scenarios, and added a focused scenario-catalog regression test.
+- Benchmark baselines:
+  - `pdf-lib-startup`: warm wall `283.235 ms`; bridge calls `1651`/iteration; warm fixed overhead `107.558 ms`; dominant `_loadPolyfill` `63.188 ms` across `1650` calls/iteration; dominant frame `send:BridgeResponse` `1918520` encoded bytes/iteration.
+  - `pdf-lib-end-to-end`: warm wall `346.978 ms`; bridge calls `1666`/iteration; warm fixed overhead `107.320 ms`; dominant `_loadPolyfill` `64.109 ms` across `1665` calls/iteration; dominant frame `send:BridgeResponse` `1919390` encoded bytes/iteration.
+  - `jszip-startup`: warm wall `179.459 ms`; bridge calls `405`/iteration; warm fixed overhead `107.322 ms`; dominant `_loadPolyfill` `85.118 ms` across `404` calls/iteration; dominant frame `send:Execute` `1240834` encoded bytes/iteration.
+  - `jszip-end-to-end`: warm wall `588.452 ms`; bridge calls `519`/iteration; warm fixed overhead `107.377 ms`; dominant `_loadPolyfill` `80.144 ms` across `518` calls/iteration; dominant frame `send:Execute` `1242293` encoded bytes/iteration.
+- Added follow-up story `US-013` plus a `docs-internal/todo.md` note for the repeated-session compressed JSZip path; the committed JSZip baseline currently uses a stable STORE serialization path because repeated DEFLATE runs hung on iteration 3.
+- Files changed: `AGENTS.md`, `docs-internal/todo.md`, `packages/secure-exec/benchmarks/module-load/scenario-catalog.ts`, `packages/secure-exec/benchmarks/module-load/scenario-runner.ts`, `packages/secure-exec/benchmarks/results/module-load/*`, `packages/secure-exec/package.json`, `packages/secure-exec/tests/module-load-scenarios.test.ts`, `pnpm-lock.yaml`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Promise-only benchmark workloads in standalone `NodeRuntime.exec()` need an explicit keepalive handle until the final log call, or the sandbox can exit cleanly before the trailing JSON hits stdout.
+  - Package-local `dist/*` entrypoints that are not exported through a dependency's `exports` map still need to be addressed via the package symlink under the local `node_modules/` tree; `createRequire.resolve("pkg/dist/foo.js")` will fail even when the file exists on disk.
+  - The current JSZip benchmark shape is intentionally nested and non-trivial, but its compressed `DEFLATE` variant is not stable across three fresh sessions yet; use `US-013` instead of silently swapping the workload back.
 ---
