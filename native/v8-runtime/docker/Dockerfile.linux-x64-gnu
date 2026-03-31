@@ -1,8 +1,8 @@
-# Build base pinned to Ubuntu 22.04 (glibc 2.35) for portability.
+# Build base pinned to Debian Bullseye (glibc 2.31) for portability.
 # See docs-internal/arch/glibc-portability.md
-FROM rust:1.85.0-jammy AS builder
+FROM rust:1.85.0-bullseye AS builder
 WORKDIR /build
-COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY Cargo.toml Cargo.lock rust-toolchain.toml build.rs ./
 RUN mkdir src && echo 'fn main() {}' > src/main.rs
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
