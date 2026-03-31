@@ -351,13 +351,19 @@ export async function createV8Runtime(
 			options?.warmupBridgeCode &&
 			process.env.SECURE_EXEC_NO_SNAPSHOT_WARMUP !== "1"
 		) {
+			const warmupBridgeCodeRef = buildBridgeCodeCacheKey(
+				options.warmupBridgeCode,
+			);
 			observability?.recordRuntimeEvent("runtime_warm_snapshot", {
 				bridgeCodeBytes: Buffer.byteLength(options.warmupBridgeCode, "utf8"),
 			});
 			ipcClient.send({
 				type: "WarmSnapshot",
 				bridgeCode: options.warmupBridgeCode,
+				bridgeCodeRef: warmupBridgeCodeRef,
 			});
+			promotedBridgeCodeCacheKeys.add(warmupBridgeCodeRef);
+			await waitForRuntimeBarrier(ipcClient);
 		}
 
 		// No active sessions yet — unref socket so it doesn't block exit

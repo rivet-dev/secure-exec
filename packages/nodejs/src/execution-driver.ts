@@ -89,6 +89,7 @@ import type {
 import type { BudgetState } from "./isolate-bootstrap.js";
 import { type FlattenedBinding, flattenBindingTree, BINDING_PREFIX } from "./bindings.js";
 import { createNodeHostNetworkAdapter } from "./host-network-adapter.js";
+import { bundlePolyfillSync, hasPolyfill } from "./polyfills.js";
 
 export { NodeExecutionDriverOptions };
 
@@ -147,20 +148,52 @@ interface DriverState {
 	liveStdinSource?: NodeExecutionDriverOptions["liveStdinSource"];
 }
 
-// Shared V8 runtime process — one per Node.js process, lazy-initialized
-let sharedV8Runtime: V8Runtime | null = null;
-let sharedV8RuntimePromise: Promise<V8Runtime> | null = null;
+const SNAPSHOT_PRELOADED_POLYFILLS_GLOBAL =
+	"__secureExecSnapshotPreloadedPolyfillSources";
 
-async function getSharedV8Runtime(): Promise<V8Runtime> {
-	if (sharedV8Runtime?.isAlive) return sharedV8Runtime;
-	if (sharedV8RuntimePromise) return sharedV8RuntimePromise;
+function normalizeSnapshotPreloadedPolyfills(
+	modules?: readonly string[],
+): string[] {
+	if (!modules?.length) return [];
+	const normalized = new Set<string>();
+	for (const moduleName of modules) {
+		const name = moduleName.replace(/^node:/, "");
+		if (!hasPolyfill(name)) {
+			throw new Error(
+				`Cannot snapshot-preload missing builtin polyfill: ${moduleName}`,
+			);
+		}
+		normalized.add(name);
+	}
+	return [...normalized].sort();
+}
 
-	sharedV8RuntimePromise = createNodeV8Runtime().then((rt) => {
-		sharedV8Runtime = rt;
-		sharedV8RuntimePromise = null;
+function getSnapshotPreloadCacheKey(modules?: readonly string[]): string {
+	return normalizeSnapshotPreloadedPolyfills(modules).join("\0");
+}
+
+// Shared V8 runtime process — keyed by snapshot preload config.
+const sharedV8RuntimeByConfig = new Map<string, V8Runtime>();
+const sharedV8RuntimePromiseByConfig = new Map<string, Promise<V8Runtime>>();
+
+async function getSharedV8Runtime(
+	snapshotPreloadedPolyfills?: readonly string[],
+): Promise<V8Runtime> {
+	const cacheKey = getSnapshotPreloadCacheKey(snapshotPreloadedPolyfills);
+	const cached = sharedV8RuntimeByConfig.get(cacheKey);
+	if (cached?.isAlive) return cached;
+	const pending = sharedV8RuntimePromiseByConfig.get(cacheKey);
+	if (pending) return pending;
+
+	const runtimePromise = createNodeV8Runtime({
+		snapshotPreloadedPolyfills,
+	}).then((rt) => {
+		sharedV8RuntimeByConfig.set(cacheKey, rt);
+		sharedV8RuntimePromiseByConfig.delete(cacheKey);
 		return rt;
 	});
-	return sharedV8RuntimePromise;
+	sharedV8RuntimePromiseByConfig.set(cacheKey, runtimePromise);
+	return runtimePromise;
 }
 
 // Minimal polyfills for APIs the bridge IIFE expects but the Rust V8 runtime doesn't provide.
@@ -734,7 +767,34 @@ function buildBridgeDispatchShim(): string {
 const BRIDGE_DISPATCH_SHIM = buildBridgeDispatchShim();
 
 // Cache assembled bridge code (same across all executions)
-let bridgeCodeCache: string | null = null;
+const bridgeCodeCache = new Map<string, string>();
+
+function buildSnapshotPreloadedPolyfillCode(
+	snapshotPreloadedPolyfills?: readonly string[],
+): string {
+	const normalized = normalizeSnapshotPreloadedPolyfills(
+		snapshotPreloadedPolyfills,
+	);
+	if (normalized.length === 0) {
+		return "";
+	}
+
+	const preloadedSources = Object.fromEntries(
+		normalized.map((moduleName) => [moduleName, bundlePolyfillSync(moduleName)]),
+	);
+
+	return [
+		";(function(){",
+		`const preloadedSources = Object.freeze(${stableJsonStringify(preloadedSources)});`,
+		`Object.defineProperty(globalThis, ${JSON.stringify(SNAPSHOT_PRELOADED_POLYFILLS_GLOBAL)}, {`,
+		"  value: preloadedSources,",
+		"  writable: false,",
+		"  configurable: true,",
+		"  enumerable: false,",
+		"});",
+		"})();",
+	].join("\n");
+}
 
 function buildPostRestoreStaticBridgeCode(): string {
 	const parts = [
@@ -762,8 +822,12 @@ function buildPostRestoreStaticBridgeCode(): string {
 	return parts.join("\n");
 }
 
-function buildFullBridgeCode(): string {
-	if (bridgeCodeCache) return bridgeCodeCache;
+function buildFullBridgeCode(
+	snapshotPreloadedPolyfills?: readonly string[],
+): string {
+	const cacheKey = getSnapshotPreloadCacheKey(snapshotPreloadedPolyfills);
+	const cached = bridgeCodeCache.get(cacheKey);
+	if (cached) return cached;
 
 	// Assemble the full bridge code IIFE from component scripts.
 	// Only include code that can run without bridge calls (snapshot phase).
@@ -775,19 +839,28 @@ function buildFullBridgeCode(): string {
 		getInitialBridgeGlobalsSetupCode(),
 		getRawBridgeCode(),
 		getBridgeAttachCode(),
+		buildSnapshotPreloadedPolyfillCode(snapshotPreloadedPolyfills),
 		buildPostRestoreStaticBridgeCode(),
 	];
 
-	bridgeCodeCache = parts.join("\n");
-	return bridgeCodeCache;
+	const bridgeCode = parts.join("\n");
+	bridgeCodeCache.set(cacheKey, bridgeCode);
+	return bridgeCode;
+}
+
+export interface NodeV8RuntimeOptions extends V8RuntimeOptions {
+	snapshotPreloadedPolyfills?: readonly string[];
 }
 
 export async function createNodeV8Runtime(
-	options: V8RuntimeOptions = {},
+	options: NodeV8RuntimeOptions = {},
 ): Promise<V8Runtime> {
+	const { snapshotPreloadedPolyfills, ...runtimeOptions } = options;
 	return createV8Runtime({
-		...options,
-		warmupBridgeCode: options.warmupBridgeCode ?? buildFullBridgeCode(),
+		...runtimeOptions,
+		warmupBridgeCode:
+			options.warmupBridgeCode ??
+			buildFullBridgeCode(snapshotPreloadedPolyfills),
 	});
 }
 
@@ -809,6 +882,7 @@ export class NodeExecutionDriver implements RuntimeDriver {
 	private configuredMaxHandles?: number;
 	private pid?: number;
 	private readonly v8Runtime?: V8Runtime;
+	private readonly snapshotPreloadedPolyfills?: readonly string[];
 	// Track the current V8 session so it can be destroyed on terminate/dispose
 	private _currentSession: V8Session | null = null;
 
@@ -824,6 +898,7 @@ export class NodeExecutionDriver implements RuntimeDriver {
 		this.configuredMaxTimers = budgets?.maxTimers;
 		this.configuredMaxHandles = budgets?.maxHandles;
 		this.pid = options.pid ?? 1;
+		this.snapshotPreloadedPolyfills = options.snapshotPreloadedPolyfills;
 		const system = options.system;
 		const permissions = system.permissions;
 		if (!this.socketTable) {
@@ -1088,7 +1163,9 @@ export class NodeExecutionDriver implements RuntimeDriver {
 				})();
 
 		// Get or create V8 runtime
-		const v8Runtime = this.v8Runtime ?? await getSharedV8Runtime();
+			const v8Runtime =
+				this.v8Runtime ??
+				await getSharedV8Runtime(this.snapshotPreloadedPolyfills);
 		const cpuTimeLimitMs = getExecutionTimeoutMs(options.cpuTimeLimitMs, s.cpuTimeLimitMs);
 
 		const sessionOpts: V8SessionOptions = {
@@ -1265,7 +1342,7 @@ export class NodeExecutionDriver implements RuntimeDriver {
 			}
 
 			// Build bridge code with embedded config
-			const bridgeCode = buildFullBridgeCode();
+			const bridgeCode = buildFullBridgeCode(this.snapshotPreloadedPolyfills);
 
 			// Build post-restore script with per-execution config
 			const bindingKeys = this.flattenedBindings

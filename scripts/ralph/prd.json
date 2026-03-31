@@ -216,8 +216,24 @@
         "Touched packages typecheck."
       ],
       "priority": 10,
+      "passes": true,
+      "notes": "Completed by snapshot-preloading the safe Pi builtin set (`util`, `buffer`, `string_decoder`, `events`, `path`, `internal/mime`, `constants`, `vm`, `tty`) into the bridge bootstrap, teaching `require-setup` to satisfy those bare requires from the warmed snapshot bundle before `_loadPolyfill`, and extending `WarmSnapshot` to register the bridge-code ref immediately so the first fresh-session `Execute` can reuse the warmed snapshot path. The committed benchmark artifacts cut Pi `send:Execute` bytes from about `507-508 KB` to `13-14 KB` per warm iteration, while focused runtime regression proves the configured preloaded builtins avoid `_loadPolyfill`. Follow-up `US-017` tracks the larger builtin modules that still fail under snapshot-preload and keep the remaining `_loadPolyfill` response bytes on the hot path."
+    },
+    {
+      "id": "US-017",
+      "title": "Stabilize broader builtin snapshot-preload coverage for Pi startup",
+      "description": "As a maintainer, I need the remaining hot builtin modules on Pi startup to preload safely through the snapshot path so the bridge no longer pays large `_loadPolyfill` response bytes for modules that still cannot be snapshotted today.",
+      "acceptanceCriteria": [
+        "The next hot builtin candidates on the Pi startup path (`stream`, `stream/web`, `crypto`, `zlib`, `assert`, `url`, or an updated subset backed by committed evidence) either load correctly from the snapshot-preload path or are explicitly ruled out with a concrete failure reason.",
+        "Committed benchmark artifacts show whether expanding the preload set reduces Pi `_loadPolyfill` bridge time or BridgeResponse bytes beyond the current `send:Execute` win from `US-008`.",
+        "Focused regression coverage protects snapshot restore and require-time correctness for any newly preloaded builtins.",
+        "Append before/after benchmark deltas to `scripts/ralph/progress.txt` for the affected scenarios, including warm wall time, bridge calls per iteration, and the dominant IPC counters touched by this story.",
+        "Relevant targeted tests pass.",
+        "Touched packages typecheck."
+      ],
+      "priority": 13,
       "passes": false,
-      "notes": "The current benchmark already pays a one-time `WarmSnapshot` transfer of about `1.05 MB` per scenario. This story should only land if a snapshot or preload path beats the current repeated bridge behavior in committed numbers."
+      "notes": "US-008 landed the safe preload set, but broader builtin candidates such as `stream`, `stream/web`, `crypto`, `zlib`, `assert`, and `url` still destabilize snapshot restore or fail at require time when forced onto the snapshot-preload path."
     },
     {
       "id": "US-009",

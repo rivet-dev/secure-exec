@@ -244,6 +244,75 @@ describe("runtime driver specific: node", () => {
 	});
 
 	it(
+		"loads configured snapshot-preloaded polyfills without calling _loadPolyfill",
+		async () => {
+			const runtime = new NodeRuntime({
+				systemDriver: createNodeDriver({}),
+				runtimeDriverFactory: createNodeRuntimeDriverFactory({
+					snapshotPreloadedPolyfills: [
+						"util",
+						"buffer",
+						"string_decoder",
+						"path",
+						"events",
+						"constants",
+						"vm",
+						"tty",
+						"internal/mime",
+					],
+				}),
+			});
+			runtimes.add(runtime);
+
+			const result = await runtime.run(
+				`
+					const seen = [];
+					const original = _loadPolyfill.applySyncPromise;
+					_loadPolyfill.applySyncPromise = function(ctx, args) {
+						seen.push(args[0]);
+						return original.call(this, ctx, args);
+					};
+
+					const util = require("util");
+					const buffer = require("buffer");
+					const stringDecoder = require("string_decoder");
+					const path = require("path");
+					const events = require("events");
+					const constants = require("constants");
+					const vm = require("vm");
+					const tty = require("tty");
+					const mime = require("internal/mime");
+
+					export const seenValues = seen;
+					export const inspectType = typeof util.inspect;
+					export const bufferType = typeof buffer.Buffer;
+					export const stringDecoderType = typeof stringDecoder.StringDecoder;
+					export const pathJoinType = typeof path.join;
+					export const eventEmitterType = typeof events.EventEmitter;
+					export const constantType = typeof constants.E2BIG;
+					export const vmScriptType = typeof vm.Script;
+					export const ttyType = typeof tty.isatty;
+					export const mimeType = typeof mime.MIMEType;
+				`,
+			);
+
+			expect(result.exports).toEqual({
+				seenValues: [],
+				inspectType: "function",
+				bufferType: "function",
+				stringDecoderType: "function",
+				pathJoinType: "function",
+				eventEmitterType: "function",
+				constantType: "number",
+				vmScriptType: "function",
+				ttyType: "function",
+				mimeType: "function",
+			});
+		},
+		20_000,
+	);
+
+	it(
 		"memoizes repeated bare-specifier polyfill misses within a single workload",
 		async () => {
 			const runtime = createRuntime();

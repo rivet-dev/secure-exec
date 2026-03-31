@@ -274,9 +274,19 @@ fn handle_connection(
                 }
             }
             // Handle WarmSnapshot: pre-warm the snapshot cache (fire-and-forget, no response)
-            BinaryFrame::WarmSnapshot { bridge_code } => {
-                if let Err(e) = snapshot_cache.get_or_create(&bridge_code) {
-                    eprintln!("connection {}: WarmSnapshot failed: {}", connection_id, e);
+            BinaryFrame::WarmSnapshot {
+                bridge_code,
+                bridge_code_ref,
+            } => {
+                match snapshot_cache.get_or_create(&bridge_code) {
+                    Ok(blob) => {
+                        if !bridge_code_ref.is_empty() {
+                            snapshot_cache.remember_reference(&bridge_code_ref, blob);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("connection {}: WarmSnapshot failed: {}", connection_id, e);
+                    }
                 }
             }
             BinaryFrame::Ping { payload } => {

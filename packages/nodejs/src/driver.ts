@@ -46,6 +46,7 @@ export interface NodeDriverOptions {
 export interface NodeRuntimeDriverFactoryOptions {
 	createIsolate?(memoryLimit: number): unknown;
 	v8Runtime?: V8Runtime;
+	snapshotPreloadedPolyfills?: readonly string[];
 }
 
 /** Thin VFS adapter that delegates directly to `node:fs/promises`. */
@@ -275,6 +276,7 @@ export function createNodeRuntimeDriverFactory(
 				...runtimeOptions,
 				createIsolate: options.createIsolate,
 				v8Runtime: options.v8Runtime,
+				snapshotPreloadedPolyfills: options.snapshotPreloadedPolyfills,
 			}),
 	};
 }

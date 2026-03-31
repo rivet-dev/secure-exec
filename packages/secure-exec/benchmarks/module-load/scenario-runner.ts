@@ -48,6 +48,17 @@ const PI_BASE_FLAGS = [
 	"--model",
 	"claude-sonnet-4-20250514",
 ] as const;
+const PI_SNAPSHOT_PRELOADED_POLYFILLS = [
+	"util",
+	"buffer",
+	"string_decoder",
+	"events",
+	"path",
+	"internal/mime",
+	"constants",
+	"vm",
+	"tty",
+] as const;
 
 type BenchmarkSample = {
 	iteration: number;
@@ -153,6 +164,15 @@ function preview(text: string, maxBytes = 240): string {
 	return Buffer.from(text, "utf8").subarray(0, maxBytes).toString("utf8");
 }
 
+function getSnapshotPreloadedPolyfills(
+	scenarioId: ModuleLoadScenarioId,
+): readonly string[] | undefined {
+	if (scenarioId.startsWith("pi-")) {
+		return PI_SNAPSHOT_PRELOADED_POLYFILLS;
+	}
+	return undefined;
+}
+
 function parseTrailingJsonObject(stdoutText: string): Record<string, unknown> {
 	const trimmed = stdoutText.trim();
 	if (!trimmed) {
@@ -230,6 +250,7 @@ async function runRuntimeExec(
 		stdin?: string;
 		useHostFileSystem?: boolean;
 		useNetwork?: boolean;
+		snapshotPreloadedPolyfills?: readonly string[];
 	},
 ): Promise<RuntimeCapture> {
 	const stdout: string[] = [];
@@ -245,7 +266,10 @@ async function runRuntimeExec(
 			permissions: allowAll,
 			useDefaultNetwork: options.useNetwork,
 		}),
-		runtimeDriverFactory: createNodeRuntimeDriverFactory({ v8Runtime }),
+		runtimeDriverFactory: createNodeRuntimeDriverFactory({
+			v8Runtime,
+			snapshotPreloadedPolyfills: options.snapshotPreloadedPolyfills,
+		}),
 	});
 
 	const startedAt = performance.now();
@@ -644,9 +668,16 @@ async function runScenarioIteration(
 	mockServer: MockLlmServerHandle,
 	iteration: number,
 ): Promise<BenchmarkSample> {
+	const snapshotPreloadedPolyfills = getSnapshotPreloadedPolyfills(scenarioId);
+	const runCapture = (options: Parameters<typeof runRuntimeExec>[1]) =>
+		runRuntimeExec(v8Runtime, {
+			...options,
+			snapshotPreloadedPolyfills,
+		});
+
 	switch (scenarioId) {
 		case "hono-startup": {
-			const capture = await runRuntimeExec(v8Runtime, {
+			const capture = await runCapture({
 				code: buildHonoStartupCode(),
 				cwd: SECURE_EXEC_ROOT,
 			});
@@ -671,7 +702,7 @@ async function runScenarioIteration(
 			};
 		}
 		case "hono-end-to-end": {
-			const capture = await runRuntimeExec(v8Runtime, {
+			const capture = await runCapture({
 				code: buildHonoEndToEndCode(),
 				cwd: SECURE_EXEC_ROOT,
 			});
@@ -696,7 +727,7 @@ async function runScenarioIteration(
 			};
 		}
 		case "pdf-lib-startup": {
-			const capture = await runRuntimeExec(v8Runtime, {
+			const capture = await runCapture({
 				code: buildPdfLibStartupCode(),
 				cwd: SECURE_EXEC_ROOT,
 			});
@@ -722,7 +753,7 @@ async function runScenarioIteration(
 			};
 		}
 		case "pdf-lib-end-to-end": {
-			const capture = await runRuntimeExec(v8Runtime, {
+			const capture = await runCapture({
 				code: buildPdfLibEndToEndCode(),
 				cwd: SECURE_EXEC_ROOT,
 			});
@@ -753,7 +784,7 @@ async function runScenarioIteration(
 			};
 		}
 		case "jszip-startup": {
-			const capture = await runRuntimeExec(v8Runtime, {
+			const capture = await runCapture({
 				code: buildJsZipStartupCode(),
 				cwd: SECURE_EXEC_ROOT,
 			});
@@ -783,7 +814,7 @@ async function runScenarioIteration(
 			};
 		}
 		case "jszip-end-to-end": {
-			const capture = await runRuntimeExec(v8Runtime, {
+			const capture = await runCapture({
 				code: buildJsZipEndToEndCode(),
 				cwd: SECURE_EXEC_ROOT,
 			});
@@ -815,7 +846,7 @@ async function runScenarioIteration(
 			};
 		}
 		case "pi-sdk-startup": {
-			const capture = await runRuntimeExec(v8Runtime, {
+			const capture = await runCapture({
 				code: buildPiSdkStartupCode(),
 				cwd: SECURE_EXEC_ROOT,
 			});
@@ -848,7 +879,7 @@ async function runScenarioIteration(
 			]);
 			const { workDir, agentDir } = await createPiWorkDir(mockServer, true);
 			try {
-				const capture = await runRuntimeExec(v8Runtime, {
+				const capture = await runCapture({
 					code: buildPiSdkEndToEndCode(workDir, agentDir),
 					cwd: workDir,
 					useHostFileSystem: true,
@@ -882,7 +913,7 @@ async function runScenarioIteration(
 		case "pi-cli-startup": {
 			const { workDir, agentDir } = await createPiWorkDir(mockServer, false);
 			try {
-				const capture = await runRuntimeExec(v8Runtime, {
+				const capture = await runCapture({
 					code: buildPiCliStartupCode(workDir, agentDir),
 					cwd: workDir,
 					stdin: "",
@@ -919,7 +950,7 @@ async function runScenarioIteration(
 			]);
 			const { workDir, agentDir } = await createPiWorkDir(mockServer, true);
 			try {
-				const capture = await runRuntimeExec(v8Runtime, {
+				const capture = await runCapture({
 					code: buildPiCliEndToEndCode(workDir, agentDir),
 					cwd: workDir,
 					stdin: "",
@@ -971,8 +1002,12 @@ async function main(): Promise<void> {
 	await writeFile(args.logFile, "", "utf8");
 
 	const mockServer = await createMockLlmServer([]);
+	const snapshotPreloadedPolyfills = getSnapshotPreloadedPolyfills(
+		args.scenarioId,
+	);
 	const v8Runtime = await createNodeV8Runtime({
 		binaryPath: args.binaryPath,
+		snapshotPreloadedPolyfills,
 		observability: {
 			logFile: args.logFile,
 			metrics: {

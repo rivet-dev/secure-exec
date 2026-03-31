@@ -145,15 +145,20 @@ describe("Host → Rust messages", () => {
 		roundtrip({
 			type: "WarmSnapshot",
 			bridgeCode: "(function(){ /* bridge IIFE */ })()",
+			bridgeCodeRef: "bridge:abc123",
 		});
 	});
 
 	it("round-trips WarmSnapshot with empty bridge code", () => {
-		roundtrip({ type: "WarmSnapshot", bridgeCode: "" });
+		roundtrip({ type: "WarmSnapshot", bridgeCode: "", bridgeCodeRef: "" });
 	});
 
 	it("round-trips WarmSnapshot with large bridge code", () => {
-		roundtrip({ type: "WarmSnapshot", bridgeCode: "x".repeat(100_000) });
+		roundtrip({
+			type: "WarmSnapshot",
+			bridgeCode: "x".repeat(100_000),
+			bridgeCodeRef: "bridge:large",
+		});
 	});
 
 	it("round-trips Ping", () => {
@@ -460,6 +465,7 @@ describe("session_id extraction", () => {
 		const frame: BinaryFrame = {
 			type: "WarmSnapshot",
 			bridgeCode: "bridge()",
+			bridgeCodeRef: "bridge:abc123",
 		};
 		const encoded = encodeFrame(frame);
 		const raw = encoded.subarray(4);
@@ -548,7 +554,14 @@ describe("wire format interop", () => {
 				0x07,
 			],
 			[{ type: "TerminateExecution", sessionId: "s" }, 0x08],
-			[{ type: "WarmSnapshot", bridgeCode: "bridge()" }, 0x09],
+			[
+				{
+					type: "WarmSnapshot",
+					bridgeCode: "bridge()",
+					bridgeCodeRef: "bridge:abc123",
+				},
+				0x09,
+			],
 			[{ type: "Ping", payload: Buffer.alloc(0) }, 0x0a],
 			[
 				{
@@ -677,6 +690,7 @@ describe("wire format interop", () => {
 		const frame: BinaryFrame = {
 			type: "WarmSnapshot",
 			bridgeCode: "hi",
+			bridgeCodeRef: "ref",
 		};
 		const encoded = encodeFrame(frame);
 		const body = encoded.subarray(4);
@@ -684,7 +698,9 @@ describe("wire format interop", () => {
 		expect(body[1]).toBe(0); // sid_len = 0
 		expect(body.readUInt32BE(2)).toBe(2); // bridge_code_len
 		expect(body.toString("utf8", 6, 8)).toBe("hi"); // bridge_code
-		expect(body.length).toBe(8); // total body: 1+1+4+2
+		expect(body.readUInt16BE(8)).toBe(3); // bridge_code_ref_len
+		expect(body.toString("utf8", 10, 13)).toBe("ref"); // bridge_code_ref
+		expect(body.length).toBe(13); // total body: 1+1+4+2+2+3
 	});
 
 	it("ExecutionResult flags and error layout match Rust", () => {

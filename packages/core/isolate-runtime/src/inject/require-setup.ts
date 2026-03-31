@@ -4026,6 +4026,11 @@
       // Memoize polyfill bridge probes per session so repeated bare requires do not
       // keep crossing the host bridge after the first hit or miss.
       const __polyfillProbeCache = Object.create(null);
+      const __snapshotPreloadedPolyfillSources =
+        globalThis.__secureExecSnapshotPreloadedPolyfillSources &&
+        typeof globalThis.__secureExecSnapshotPreloadedPolyfillSources === 'object'
+          ? globalThis.__secureExecSnapshotPreloadedPolyfillSources
+          : null;
       // Memoize resolution results for projected node_modules imports. Those trees
       // are read-only inside moduleAccess, so repeated package-internal requires
       // can safely reuse the same resolution result or miss.
@@ -4570,7 +4575,13 @@
         // skip the bridge entirely for those to avoid repeated null probes.
         let polyfillCode = null;
         if (isBare) {
-          if (Object.prototype.hasOwnProperty.call(__polyfillProbeCache, name)) {
+          if (
+            __snapshotPreloadedPolyfillSources &&
+            Object.prototype.hasOwnProperty.call(__snapshotPreloadedPolyfillSources, name)
+          ) {
+            polyfillCode = __snapshotPreloadedPolyfillSources[name];
+            __polyfillProbeCache[name] = polyfillCode;
+          } else if (Object.prototype.hasOwnProperty.call(__polyfillProbeCache, name)) {
             polyfillCode = __polyfillProbeCache[name];
           } else {
             polyfillCode = _loadPolyfill.applySyncPromise(undefined, [name]);

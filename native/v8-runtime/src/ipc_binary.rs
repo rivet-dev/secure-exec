@@ -83,6 +83,7 @@ pub enum BinaryFrame {
     },
     WarmSnapshot {
         bridge_code: String,
+        bridge_code_ref: String,
     },
     Ping {
         payload: Vec<u8>,
@@ -297,12 +298,18 @@ fn encode_body(buf: &mut Vec<u8>, frame: &BinaryFrame) -> io::Result<()> {
             buf.push(MSG_TERMINATE_EXECUTION);
             write_session_id(buf, session_id)?;
         }
-        BinaryFrame::WarmSnapshot { bridge_code } => {
+        BinaryFrame::WarmSnapshot {
+            bridge_code,
+            bridge_code_ref,
+        } => {
             buf.push(MSG_WARM_SNAPSHOT);
             buf.push(0); // no session_id
             let bc_bytes = bridge_code.as_bytes();
             buf.extend_from_slice(&(bc_bytes.len() as u32).to_be_bytes());
             buf.extend_from_slice(bc_bytes);
+            let bridge_code_ref_bytes = bridge_code_ref.as_bytes();
+            buf.extend_from_slice(&(bridge_code_ref_bytes.len() as u16).to_be_bytes());
+            buf.extend_from_slice(bridge_code_ref_bytes);
         }
         BinaryFrame::Ping { payload } => {
             buf.push(MSG_PING);
@@ -465,7 +472,12 @@ fn decode_body(buf: &[u8]) -> io::Result<BinaryFrame> {
         MSG_WARM_SNAPSHOT => {
             let bc_len = read_u32(buf, &mut pos)? as usize;
             let bridge_code = read_utf8(buf, &mut pos, bc_len)?;
-            Ok(BinaryFrame::WarmSnapshot { bridge_code })
+            let bridge_code_ref_len = read_u16(buf, &mut pos)? as usize;
+            let bridge_code_ref = read_utf8(buf, &mut pos, bridge_code_ref_len)?;
+            Ok(BinaryFrame::WarmSnapshot {
+                bridge_code,
+                bridge_code_ref,
+            })
         }
         MSG_PING => {
             let payload = buf[pos..].to_vec();
@@ -907,6 +919,7 @@ mod tests {
     fn roundtrip_warm_snapshot() {
         roundtrip(&BinaryFrame::WarmSnapshot {
             bridge_code: "(function(){ /* bridge IIFE */ })()".into(),
+            bridge_code_ref: "bridge:abc123".into(),
         });
     }
 
@@ -914,6 +927,7 @@ mod tests {
     fn roundtrip_warm_snapshot_empty_bridge_code() {
         roundtrip(&BinaryFrame::WarmSnapshot {
             bridge_code: "".into(),
+            bridge_code_ref: "".into(),
         });
     }
 
@@ -921,6 +935,7 @@ mod tests {
     fn roundtrip_warm_snapshot_large_bridge_code() {
         roundtrip(&BinaryFrame::WarmSnapshot {
             bridge_code: "x".repeat(100_000),
+            bridge_code_ref: "bridge:large".into(),
         });
     }
 
@@ -928,6 +943,7 @@ mod tests {
     fn extract_session_id_warm_snapshot_returns_none() {
         let frame = BinaryFrame::WarmSnapshot {
             bridge_code: "bridge()".into(),
+            bridge_code_ref: "bridge:abc123".into(),
         };
         let mut buf = Vec::new();
         write_frame(&mut buf, &frame).expect("write");
@@ -1250,6 +1266,7 @@ mod tests {
             (
                 BinaryFrame::WarmSnapshot {
                     bridge_code: "bridge()".into(),
+                    bridge_code_ref: "bridge:abc123".into(),
                 },
                 0x09,
             ),

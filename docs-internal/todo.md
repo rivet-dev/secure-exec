@@ -109,6 +109,10 @@ docs-internal/specs/cli-tool-e2e.md
   - Current baseline is `5240-5664` `_loadPolyfill` calls per Pi iteration and `~860-911 ms` host bridge time, with BridgeResponse bytes dominating total traffic.
   - After the resolver/probe cache work removed `_resolveModule` from the Pi bridge-method tables, the remaining startup hotspot is still `__bd:_loadFileSync` / `_loadPolyfill` response-byte transfer rather than resolver fallback traffic.
 
+- [ ] Stabilize broader snapshot-preloaded builtin coverage for Pi startup paths.
+  - The current safe snapshot-preload set is `util`, `buffer`, `string_decoder`, `events`, `path`, `internal/mime`, `constants`, `vm`, and `tty`. Larger hot-path candidates such as `stream`, `stream/web`, `crypto`, `zlib`, `assert`, and `url` currently trip snapshot-restore or require-time failures, so the remaining `_loadPolyfill` response bytes stay on the bridge path.
+  - Files: `packages/nodejs/src/polyfills.ts`, `packages/nodejs/src/execution-driver.ts`, `packages/secure-exec/benchmarks/module-load/scenario-runner.ts`
+
 - [ ] Split module-load `_loadPolyfill` attribution between real polyfill loads and `__bd:*` bridge wrappers.
   - The current benchmark bucket still mixes actual polyfill-body loads with generic dispatch wrappers like `_resolveModuleSync` and `_loadFileSync`, which hides whether a fix removed repeated polyfill misses or only shifted the remaining unique bridge work.
   - Files: `packages/secure-exec/benchmarks/module-load/summary.ts`, `packages/v8/src/ipc-observability.ts`, `packages/core/isolate-runtime/src/inject/require-setup.ts`

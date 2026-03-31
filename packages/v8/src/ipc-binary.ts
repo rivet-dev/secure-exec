@@ -84,7 +84,7 @@ export type BinaryFrame =
 			payload: Buffer;
 	  }
 	| { type: "TerminateExecution"; sessionId: string }
-	| { type: "WarmSnapshot"; bridgeCode: string }
+	| { type: "WarmSnapshot"; bridgeCode: string; bridgeCodeRef?: string }
 	| { type: "Ping"; payload: Buffer }
 	// Rust → Host
 	| {
@@ -223,7 +223,15 @@ export function decodeFrame(buf: Buffer): BinaryFrame {
 			const bcLen = buf.readUInt32BE(pos);
 			pos += 4;
 			const bridgeCode = buf.toString("utf8", pos, pos + bcLen);
-			return { type: "WarmSnapshot", bridgeCode };
+			pos += bcLen;
+			const bridgeCodeRefLen = buf.readUInt16BE(pos);
+			pos += 2;
+			const bridgeCodeRef = buf.toString(
+				"utf8",
+				pos,
+				pos + bridgeCodeRefLen,
+			);
+			return { type: "WarmSnapshot", bridgeCode, bridgeCodeRef };
 		}
 		case MSG_PING: {
 			const payload = Buffer.from(buf.subarray(pos));
@@ -417,8 +425,13 @@ function encodeBody(frame: BinaryFrame): Buffer {
 			const bcBuf = Buffer.from(frame.bridgeCode, "utf8");
 			const bcLen = Buffer.alloc(4);
 			bcLen.writeUInt32BE(bcBuf.length, 0);
+			const bridgeCodeRefBuf = Buffer.from(frame.bridgeCodeRef ?? "", "utf8");
+			const bridgeCodeRefLen = Buffer.alloc(2);
+			bridgeCodeRefLen.writeUInt16BE(bridgeCodeRefBuf.length, 0);
 			parts.push(bcLen);
 			parts.push(bcBuf);
+			parts.push(bridgeCodeRefLen);
+			parts.push(bridgeCodeRefBuf);
 			break;
 		}
 		case "Ping": {

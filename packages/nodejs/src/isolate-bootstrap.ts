@@ -22,6 +22,8 @@ import type { BindingTree } from "./bindings.js";
 export interface NodeExecutionDriverOptions extends RuntimeDriverOptions {
 	createIsolate?(memoryLimit: number): unknown;
 	v8Runtime?: V8Runtime;
+	/** Optional builtin polyfill sources to bake into the bridge snapshot. */
+	snapshotPreloadedPolyfills?: readonly string[];
 	bindings?: BindingTree;
 	/** Callback to toggle PTY raw mode — wired by kernel runtime when PTY is attached. */
 	onPtySetRawMode?: (mode: boolean) => void;

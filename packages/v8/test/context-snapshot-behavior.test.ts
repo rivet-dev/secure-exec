@@ -533,6 +533,54 @@ describe.skipIf(skipUnlessBinary)("V8 context snapshot behavior", () => {
 			}
 		});
 
+		it("uses the warmup snapshot bridge ref on the first execute", async () => {
+			const tempDir = await mkdtemp(
+				join(tmpdir(), "secure-exec-v8-warmup-bridge-ref-"),
+			);
+			const logFile = join(tempDir, "ipc.ndjson");
+			const bridgeCode =
+				`(function(){globalThis.__bridgeReady=true;/*${"x".repeat(8192)}*/})();`;
+			const runtime = await createRuntime({
+				observability: { logFile },
+				warmupBridgeCode: bridgeCode,
+			});
+			const execOptions = defaultExecOptions({
+				bridgeCode,
+				userCode: `
+					if (globalThis.__bridgeReady !== true) {
+						throw new Error("bridge snapshot did not initialize");
+					}
+				`,
+			});
+
+			try {
+				const session = await runtime.createSession();
+				const result = await session.execute(execOptions);
+				expect(result.code).toBe(0);
+				expect(result.error).toBeFalsy();
+				await session.destroy();
+
+				await runtime.dispose();
+				const runtimeIndex = runtimes.indexOf(runtime);
+				if (runtimeIndex !== -1) {
+					runtimes.splice(runtimeIndex, 1);
+				}
+
+				const executeFrames = (await readLogEntries(logFile)).filter(
+					(entry) =>
+						entry.kind === "ipc_frame" &&
+						entry.direction === "send" &&
+						entry.frameType === "Execute",
+				);
+
+				expect(executeFrames).toHaveLength(1);
+				expect(executeFrames[0].bridgeCodeBytes).toBe(0);
+				expect(executeFrames[0].bridgeCodeRefBytes).toBeGreaterThan(0);
+			} finally {
+				await rm(tempDir, { recursive: true, force: true });
+			}
+		});
+
 		it("reuses cached post-restore bootstrap source across fresh sessions", async () => {
 			const tempDir = await mkdtemp(
 				join(tmpdir(), "secure-exec-v8-post-restore-ref-"),

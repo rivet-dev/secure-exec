@@ -33,23 +33,17 @@ const CUSTOM_POLYFILL_ENTRY_POINTS = new Map([
 // e.g., { path: "/path/to/path-browserify/index.js", fs: null, ... }
 // We use this mapping instead of maintaining our own
 
-/**
- * Bundle a stdlib polyfill module using esbuild
- */
-export async function bundlePolyfill(moduleName: string): Promise<string> {
-	const cached = polyfillCache.get(moduleName);
-	if (cached) return cached;
-
-	// Get the polyfill entry point from node-stdlib-browser
+function resolvePolyfillEntryPoint(moduleName: string): string {
 	const entryPoint =
 		CUSTOM_POLYFILL_ENTRY_POINTS.get(moduleName) ??
 		stdLibBrowser[moduleName as keyof typeof stdLibBrowser];
 	if (!entryPoint) {
 		throw new Error(`No polyfill available for module: ${moduleName}`);
 	}
+	return entryPoint;
+}
 
-	// Build alias mappings for all Node.js builtins
-	// This ensures nested dependencies (like crypto -> stream) are resolved correctly
+function buildPolyfillAliases(): Record<string, string> {
 	const alias: Record<string, string> = {};
 	for (const [name, path] of Object.entries(stdLibBrowser)) {
 		if (path !== null) {
@@ -61,10 +55,13 @@ export async function bundlePolyfill(moduleName: string): Promise<string> {
 		alias.__secure_exec_crypto_browserify__ = stdLibBrowser.crypto;
 	}
 	alias["web-streams-polyfill/dist/ponyfill.js"] = WEB_STREAMS_PONYFILL_PATH;
+	return alias;
+}
 
-	// Bundle using esbuild with CommonJS format
-	// This ensures proper module.exports handling for all module types including JSON
-	const result = await esbuild.build({
+function createPolyfillBuildOptions(
+	entryPoint: string,
+): esbuild.BuildOptions {
+	return {
 		entryPoints: [entryPoint],
 		bundle: true,
 		write: false,
@@ -72,7 +69,7 @@ export async function bundlePolyfill(moduleName: string): Promise<string> {
 		platform: "browser",
 		target: "es2020",
 		minify: false,
-		alias,
+		alias: buildPolyfillAliases(),
 		define: {
 			"process.env.NODE_ENV": '"production"',
 			global: "globalThis",
@@ -81,10 +78,10 @@ export async function bundlePolyfill(moduleName: string): Promise<string> {
 		// Without this, node-stdlib-browser's process polyfill gets bundled and
 		// overwrites globalThis.process, breaking process.argv modifications.
 		external: ["process"],
-	});
+	};
+}
 
-	const code = result.outputFiles[0].text;
-
+function wrapBundledPolyfill(code: string): string {
 	// Check if this is a JSON module (esbuild creates *_default but doesn't export it)
 	// For JSON modules, look for the default export pattern and extract it
 	const defaultExportMatch = code.match(/var\s+(\w+_default)\s*=\s*\{/);
@@ -106,6 +103,43 @@ export async function bundlePolyfill(moduleName: string): Promise<string> {
     return module.exports;
   })()`;
 	}
+
+	return wrappedCode;
+}
+
+/**
+ * Bundle a stdlib polyfill module using esbuild
+ */
+export async function bundlePolyfill(moduleName: string): Promise<string> {
+	const cached = polyfillCache.get(moduleName);
+	if (cached) return cached;
+
+	const entryPoint = resolvePolyfillEntryPoint(moduleName);
+	const result = await esbuild.build(createPolyfillBuildOptions(entryPoint));
+	const outputFile = result.outputFiles?.[0];
+	if (!outputFile) {
+		throw new Error(`esbuild produced no polyfill output for ${moduleName}`);
+	}
+	const wrappedCode = wrapBundledPolyfill(outputFile.text);
+
+	polyfillCache.set(moduleName, wrappedCode);
+	return wrappedCode;
+}
+
+/**
+ * Synchronous variant used while assembling static snapshot bridge code.
+ */
+export function bundlePolyfillSync(moduleName: string): string {
+	const cached = polyfillCache.get(moduleName);
+	if (cached) return cached;
+
+	const entryPoint = resolvePolyfillEntryPoint(moduleName);
+	const result = esbuild.buildSync(createPolyfillBuildOptions(entryPoint));
+	const outputFile = result.outputFiles?.[0];
+	if (!outputFile) {
+		throw new Error(`esbuild produced no polyfill output for ${moduleName}`);
+	}
+	const wrappedCode = wrapBundledPolyfill(outputFile.text);
 
 	polyfillCache.set(moduleName, wrappedCode);
 	return wrappedCode;

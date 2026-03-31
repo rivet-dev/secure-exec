@@ -126,6 +126,9 @@ declare global {
 		  }) => void)
 		| undefined;
 	var __runtimeResetProcessState: (() => void) | undefined;
+	var __secureExecSnapshotPreloadedPolyfillSources:
+		| Record<string, string>
+		| undefined;
 	var __runtimeProcessCwdOverride: unknown;
 	var __runtimeProcessEnvOverride: unknown;
 	var __runtimeStdinData: unknown;
