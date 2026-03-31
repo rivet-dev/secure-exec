@@ -1,0 +1,480 @@
+{
+  "createdAt": "2026-03-31T04:18:38.754Z",
+  "gitCommit": "41215f4827a6759f97c60556672c51105bf74ddf",
+  "baseline": {
+    "createdAt": "2026-03-31T04:02:18.756Z",
+    "gitCommit": "f32fdfd33bf844cfb50284b07412da1db4b9fd1f",
+    "host": {
+      "node": "v24.13.0",
+      "platform": "linux",
+      "arch": "x64",
+      "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+      "cores": 20,
+      "ramGb": 62.558
+    },
+    "v8BinaryPath": "/home/nathan/se6/native/v8-runtime/target/release/secure-exec-v8",
+    "iterations": 3
+  },
+  "scenarios": [
+    {
+      "scenarioId": "hono-startup",
+      "title": "Hono Startup",
+      "comparisonToPrevious": {
+        "baselineScenarioCreatedAt": "2026-03-31T04:01:51.150Z",
+        "metrics": {
+          "warmWallMsMean": {
+            "before": 153.889,
+            "after": 141.156,
+            "delta": -12.733,
+            "deltaPercent": -8.274
+          },
+          "bridgeCallsPerIteration": {
+            "before": 102,
+            "after": 102,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "fixedSessionOverheadWarmMsMean": {
+            "before": 108.073,
+            "after": 108.902,
+            "delta": 0.829,
+            "deltaPercent": 0.767
+          },
+          "bridgeDurationPerIterationMs": {
+            "before": 22.174,
+            "after": 21.626,
+            "delta": -0.548,
+            "deltaPercent": -2.471
+          },
+          "bridgeResponseFrameBytesPerIteration": {
+            "before": 408130,
+            "after": 408130,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "executeWarmMsMean": {
+            "before": 45.816,
+            "after": 32.254,
+            "delta": -13.562,
+            "deltaPercent": -29.601
+          }
+        },
+        "bridgeMethodDurationDeltas": [
+          {
+            "method": "_loadPolyfill",
+            "before": 22.048,
+            "after": 21.553,
+            "delta": -0.495
+          },
+          {
+            "method": "_log",
+            "before": 0.125,
+            "after": 0.073,
+            "delta": -0.052
+          }
+        ],
+        "bridgeMethodCountDeltas": [],
+        "bridgeMethodResponseByteDeltas": [],
+        "frameEncodedByteDeltas": []
+      }
+    },
+    {
+      "scenarioId": "hono-end-to-end",
+      "title": "Hono End-to-End",
+      "comparisonToPrevious": {
+        "baselineScenarioCreatedAt": "2026-03-31T04:01:52.147Z",
+        "metrics": {
+          "warmWallMsMean": {
+            "before": 143.365,
+            "after": 145.024,
+            "delta": 1.659,
+            "deltaPercent": 1.157
+          },
+          "bridgeCallsPerIteration": {
+            "before": 102,
+            "after": 102,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "fixedSessionOverheadWarmMsMean": {
+            "before": 107.237,
+            "after": 107.84,
+            "delta": 0.603,
+            "deltaPercent": 0.562
+          },
+          "bridgeDurationPerIterationMs": {
+            "before": 16.426,
+            "after": 29.472,
+            "delta": 13.046,
+            "deltaPercent": 79.423
+          },
+          "bridgeResponseFrameBytesPerIteration": {
+            "before": 408130,
+            "after": 408130,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "executeWarmMsMean": {
+            "before": 36.127,
+            "after": 37.184,
+            "delta": 1.057,
+            "deltaPercent": 2.926
+          }
+        },
+        "bridgeMethodDurationDeltas": [
+          {
+            "method": "_loadPolyfill",
+            "before": 16.322,
+            "after": 29.381,
+            "delta": 13.059
+          },
+          {
+            "method": "_log",
+            "before": 0.104,
+            "after": 0.092,
+            "delta": -0.012
+          }
+        ],
+        "bridgeMethodCountDeltas": [],
+        "bridgeMethodResponseByteDeltas": [],
+        "frameEncodedByteDeltas": []
+      }
+    },
+    {
+      "scenarioId": "pi-sdk-startup",
+      "title": "Pi SDK Startup",
+      "comparisonToPrevious": {
+        "baselineScenarioCreatedAt": "2026-03-31T04:01:58.056Z",
+        "metrics": {
+          "warmWallMsMean": {
+            "before": 1615.126,
+            "after": 1676.693,
+            "delta": 61.567,
+            "deltaPercent": 3.812
+          },
+          "bridgeCallsPerIteration": {
+            "before": 5278,
+            "after": 5278,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "fixedSessionOverheadWarmMsMean": {
+            "before": 107.054,
+            "after": 107.224,
+            "delta": 0.17,
+            "deltaPercent": 0.159
+          },
+          "bridgeDurationPerIterationMs": {
+            "before": 843.322,
+            "after": 925.197,
+            "delta": 81.875,
+            "deltaPercent": 9.709
+          },
+          "bridgeResponseFrameBytesPerIteration": {
+            "before": 9362446,
+            "after": 9362446,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "executeWarmMsMean": {
+            "before": 1508.072,
+            "after": 1569.469,
+            "delta": 61.397,
+            "deltaPercent": 4.071
+          }
+        },
+        "bridgeMethodDurationDeltas": [
+          {
+            "method": "_loadPolyfill",
+            "before": 802.036,
+            "after": 873.085,
+            "delta": 71.049
+          },
+          {
+            "method": "_resolveModule",
+            "before": 40.252,
+            "after": 51.084,
+            "delta": 10.832
+          },
+          {
+            "method": "_fsExists",
+            "before": 0.422,
+            "after": 0.568,
+            "delta": 0.146
+          },
+          {
+            "method": "_log",
+            "before": 0.212,
+            "after": 0.101,
+            "delta": -0.111
+          },
+          {
+            "method": "_fsReadFile",
+            "before": 0.4,
+            "after": 0.36,
+            "delta": -0.04
+          }
+        ],
+        "bridgeMethodCountDeltas": [],
+        "bridgeMethodResponseByteDeltas": [],
+        "frameEncodedByteDeltas": []
+      }
+    },
+    {
+      "scenarioId": "pi-sdk-end-to-end",
+      "title": "Pi SDK End-to-End",
+      "comparisonToPrevious": {
+        "baselineScenarioCreatedAt": "2026-03-31T04:02:05.028Z",
+        "metrics": {
+          "warmWallMsMean": {
+            "before": 2004.673,
+            "after": 2062.543,
+            "delta": 57.87,
+            "deltaPercent": 2.887
+          },
+          "bridgeCallsPerIteration": {
+            "before": 5747,
+            "after": 5747,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "fixedSessionOverheadWarmMsMean": {
+            "before": 105.947,
+            "after": 106.51,
+            "delta": 0.563,
+            "deltaPercent": 0.531
+          },
+          "bridgeDurationPerIterationMs": {
+            "before": 1046.459,
+            "after": 1047.848,
+            "delta": 1.389,
+            "deltaPercent": 0.133
+          },
+          "bridgeResponseFrameBytesPerIteration": {
+            "before": 9715780,
+            "after": 9715780,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "executeWarmMsMean": {
+            "before": 1898.726,
+            "after": 1956.034,
+            "delta": 57.308,
+            "deltaPercent": 3.018
+          }
+        },
+        "bridgeMethodDurationDeltas": [
+          {
+            "method": "_fsExists",
+            "before": 36.854,
+            "after": 28.566,
+            "delta": -8.288
+          },
+          {
+            "method": "_loadPolyfill",
+            "before": 962.518,
+            "after": 968.389,
+            "delta": 5.871
+          },
+          {
+            "method": "_networkFetchRaw",
+            "before": 3.014,
+            "after": 6.162,
+            "delta": 3.148
+          },
+          {
+            "method": "_resolveModule",
+            "before": 41.152,
+            "after": 41.488,
+            "delta": 0.336
+          },
+          {
+            "method": "_fsReadFile",
+            "before": 2.626,
+            "after": 2.889,
+            "delta": 0.263
+          }
+        ],
+        "bridgeMethodCountDeltas": [],
+        "bridgeMethodResponseByteDeltas": [],
+        "frameEncodedByteDeltas": []
+      }
+    },
+    {
+      "scenarioId": "pi-cli-startup",
+      "title": "Pi CLI Startup",
+      "comparisonToPrevious": {
+        "baselineScenarioCreatedAt": "2026-03-31T04:02:11.634Z",
+        "metrics": {
+          "warmWallMsMean": {
+            "before": 1919.521,
+            "after": 1899.87,
+            "delta": -19.651,
+            "deltaPercent": -1.024
+          },
+          "bridgeCallsPerIteration": {
+            "before": 5336,
+            "after": 5336,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "fixedSessionOverheadWarmMsMean": {
+            "before": 107.798,
+            "after": 107.644,
+            "delta": -0.154,
+            "deltaPercent": -0.143
+          },
+          "bridgeDurationPerIterationMs": {
+            "before": 1003.838,
+            "after": 1067.942,
+            "delta": 64.104,
+            "deltaPercent": 6.386
+          },
+          "bridgeResponseFrameBytesPerIteration": {
+            "before": 9381014.667,
+            "after": 9381015.333,
+            "delta": 0.666,
+            "deltaPercent": 0
+          },
+          "executeWarmMsMean": {
+            "before": 1811.723,
+            "after": 1792.226,
+            "delta": -19.497,
+            "deltaPercent": -1.076
+          }
+        },
+        "bridgeMethodDurationDeltas": [
+          {
+            "method": "_loadPolyfill",
+            "before": 899.241,
+            "after": 964.642,
+            "delta": 65.401
+          },
+          {
+            "method": "_resolveModule",
+            "before": 42.821,
+            "after": 39.102,
+            "delta": -3.719
+          },
+          {
+            "method": "_fsExists",
+            "before": 50.061,
+            "after": 49.175,
+            "delta": -0.886
+          },
+          {
+            "method": "_fsMkdir",
+            "before": 4.386,
+            "after": 5.269,
+            "delta": 0.883
+          },
+          {
+            "method": "_fsStat",
+            "before": 0.891,
+            "after": 1.686,
+            "delta": 0.795
+          }
+        ],
+        "bridgeMethodCountDeltas": [],
+        "bridgeMethodResponseByteDeltas": [
+          {
+            "method": "_fsStat",
+            "before": 205.667,
+            "after": 206.333,
+            "delta": 0.666
+          }
+        ],
+        "frameEncodedByteDeltas": [
+          {
+            "direction": "send",
+            "frameType": "BridgeResponse",
+            "before": 9381014.667,
+            "after": 9381015.333,
+            "delta": 0.666
+          }
+        ]
+      }
+    },
+    {
+      "scenarioId": "pi-cli-end-to-end",
+      "title": "Pi CLI End-to-End",
+      "comparisonToPrevious": {
+        "baselineScenarioCreatedAt": "2026-03-31T04:02:18.714Z",
+        "metrics": {
+          "warmWallMsMean": {
+            "before": 2036.938,
+            "after": 2099.842,
+            "delta": 62.904,
+            "deltaPercent": 3.088
+          },
+          "bridgeCallsPerIteration": {
+            "before": 5797,
+            "after": 5797,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "fixedSessionOverheadWarmMsMean": {
+            "before": 107.02,
+            "after": 107.25,
+            "delta": 0.23,
+            "deltaPercent": 0.215
+          },
+          "bridgeDurationPerIterationMs": {
+            "before": 1045.575,
+            "after": 1119.11,
+            "delta": 73.535,
+            "deltaPercent": 7.033
+          },
+          "bridgeResponseFrameBytesPerIteration": {
+            "before": 9750510,
+            "after": 9750510,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "executeWarmMsMean": {
+            "before": 1929.917,
+            "after": 1992.592,
+            "delta": 62.675,
+            "deltaPercent": 3.248
+          }
+        },
+        "bridgeMethodDurationDeltas": [
+          {
+            "method": "_loadPolyfill",
+            "before": 969.95,
+            "after": 1048.381,
+            "delta": 78.431
+          },
+          {
+            "method": "_resolveModule",
+            "before": 41.918,
+            "after": 35.958,
+            "delta": -5.96
+          },
+          {
+            "method": "_fsExists",
+            "before": 28.078,
+            "after": 29.43,
+            "delta": 1.352
+          },
+          {
+            "method": "_fsReadFile",
+            "before": 1.926,
+            "after": 1.415,
+            "delta": -0.511
+          },
+          {
+            "method": "_networkFetchRaw",
+            "before": 3.33,
+            "after": 3.607,
+            "delta": 0.277
+          }
+        ],
+        "bridgeMethodCountDeltas": [],
+        "bridgeMethodResponseByteDeltas": [],
+        "frameEncodedByteDeltas": []
+      }
+    }
+  ],
+  "failures": []
+}

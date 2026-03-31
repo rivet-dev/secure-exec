@@ -1,6 +1,6 @@
 {
-  "createdAt": "2026-03-31T04:02:18.756Z",
-  "gitCommit": "f32fdfd33bf844cfb50284b07412da1db4b9fd1f",
+  "createdAt": "2026-03-31T04:18:38.754Z",
+  "gitCommit": "41215f4827a6759f97c60556672c51105bf74ddf",
   "host": {
     "node": "v24.13.0",
     "platform": "linux",
@@ -11,26 +11,47 @@
   },
   "v8BinaryPath": "/home/nathan/se6/native/v8-runtime/target/release/secure-exec-v8",
   "iterations": 3,
+  "baseline": {
+    "createdAt": "2026-03-31T04:02:18.756Z",
+    "gitCommit": "f32fdfd33bf844cfb50284b07412da1db4b9fd1f",
+    "host": {
+      "node": "v24.13.0",
+      "platform": "linux",
+      "arch": "x64",
+      "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+      "cores": 20,
+      "ramGb": 62.558
+    },
+    "v8BinaryPath": "/home/nathan/se6/native/v8-runtime/target/release/secure-exec-v8",
+    "iterations": 3
+  },
+  "progressGuide": {
+    "copyTheseFields": [
+      "Warm wall mean",
+      "Bridge calls per iteration",
+      "Warm fixed session overhead",
+      "Dominant bridge method time and byte deltas from comparison.md"
+    ],
+    "comparisonArtifact": "comparison.md"
+  },
   "results": [
     {
-      "status": "passed",
       "scenarioId": "hono-startup",
       "title": "Hono Startup",
       "target": "hono",
       "kind": "startup",
       "description": "Loads Hono and constructs a minimal app.",
-      "createdAt": "2026-03-31T04:01:51.150Z",
+      "createdAt": "2026-03-31T04:18:09.493Z",
       "iterations": 3,
       "artifacts": {
         "resultFile": "hono-startup/result.json",
         "metricsFile": "hono-startup/metrics.prom",
-        "logFile": "hono-startup/ipc.ndjson",
-        "runnerLogFile": "hono-startup/runner.log"
+        "logFile": "hono-startup/ipc.ndjson"
       },
       "samples": [
         {
           "iteration": 1,
-          "wallMs": 302.365,
+          "wallMs": 303.453,
           "code": 0,
           "stdoutBytes": 70,
           "stderrBytes": 0,
@@ -44,7 +65,7 @@
         },
         {
           "iteration": 2,
-          "wallMs": 165.766,
+          "wallMs": 142.446,
           "code": 0,
           "stdoutBytes": 70,
           "stderrBytes": 0,
@@ -58,7 +79,7 @@
         },
         {
           "iteration": 3,
-          "wallMs": 142.012,
+          "wallMs": 139.865,
           "code": 0,
           "stdoutBytes": 70,
           "stderrBytes": 0,
@@ -72,31 +93,29 @@
         }
       ],
       "summary": {
-        "coldWallMs": 302.365,
-        "warmWallMsMean": 153.889,
+        "coldWallMs": 303.453,
+        "warmWallMsMean": 141.156,
         "coldSandboxMs": 0,
         "warmSandboxMsMean": 0
       }
     },
     {
-      "status": "passed",
       "scenarioId": "hono-end-to-end",
       "title": "Hono End-to-End",
       "target": "hono",
       "kind": "end_to_end",
       "description": "Loads Hono, builds an app, serves a request, and reads the response.",
-      "createdAt": "2026-03-31T04:01:52.147Z",
+      "createdAt": "2026-03-31T04:18:10.561Z",
       "iterations": 3,
       "artifacts": {
         "resultFile": "hono-end-to-end/result.json",
         "metricsFile": "hono-end-to-end/metrics.prom",
-        "logFile": "hono-end-to-end/ipc.ndjson",
-        "runnerLogFile": "hono-end-to-end/runner.log"
+        "logFile": "hono-end-to-end/ipc.ndjson"
       },
       "samples": [
         {
           "iteration": 1,
-          "wallMs": 276.735,
+          "wallMs": 348.304,
           "code": 0,
           "stdoutBytes": 84,
           "stderrBytes": 0,
@@ -110,7 +129,7 @@
         },
         {
           "iteration": 2,
-          "wallMs": 144.151,
+          "wallMs": 140.848,
           "code": 0,
           "stdoutBytes": 84,
           "stderrBytes": 0,
@@ -124,7 +143,7 @@
         },
         {
           "iteration": 3,
-          "wallMs": 142.578,
+          "wallMs": 149.201,
           "code": 0,
           "stdoutBytes": 84,
           "stderrBytes": 0,
@@ -138,31 +157,29 @@
         }
       ],
       "summary": {
-        "coldWallMs": 276.735,
-        "warmWallMsMean": 143.365,
+        "coldWallMs": 348.304,
+        "warmWallMsMean": 145.024,
         "coldSandboxMs": 0,
         "warmSandboxMsMean": 0
       }
     },
     {
-      "status": "passed",
       "scenarioId": "pi-sdk-startup",
       "title": "Pi SDK Startup",
       "target": "pi_sdk",
       "kind": "startup",
       "description": "Loads the Pi SDK entry module and inspects its exported surface.",
-      "createdAt": "2026-03-31T04:01:58.056Z",
+      "createdAt": "2026-03-31T04:18:16.910Z",
       "iterations": 3,
       "artifacts": {
         "resultFile": "pi-sdk-startup/result.json",
         "metricsFile": "pi-sdk-startup/metrics.prom",
-        "logFile": "pi-sdk-startup/ipc.ndjson",
-        "runnerLogFile": "pi-sdk-startup/runner.log"
+        "logFile": "pi-sdk-startup/ipc.ndjson"
       },
       "samples": [
         {
           "iteration": 1,
-          "wallMs": 2267.032,
+          "wallMs": 2585.241,
           "code": 0,
           "stdoutBytes": 91,
           "stderrBytes": 0,
@@ -176,7 +193,7 @@
         },
         {
           "iteration": 2,
-          "wallMs": 2065.573,
+          "wallMs": 1734.741,
           "code": 0,
           "stdoutBytes": 91,
           "stderrBytes": 0,
@@ -190,7 +207,7 @@
         },
         {
           "iteration": 3,
-          "wallMs": 1164.678,
+          "wallMs": 1618.645,
           "code": 0,
           "stdoutBytes": 91,
           "stderrBytes": 0,
@@ -204,31 +221,29 @@
         }
       ],
       "summary": {
-        "coldWallMs": 2267.032,
-        "warmWallMsMean": 1615.126,
+        "coldWallMs": 2585.241,
+        "warmWallMsMean": 1676.693,
         "coldSandboxMs": 0,
         "warmSandboxMsMean": 0
       }
     },
     {
-      "status": "passed",
       "scenarioId": "pi-sdk-end-to-end",
       "title": "Pi SDK End-to-End",
       "target": "pi_sdk",
       "kind": "end_to_end",
       "description": "Runs createAgentSession + runPrintMode against the mock Anthropic SSE server.",
-      "createdAt": "2026-03-31T04:02:05.028Z",
+      "createdAt": "2026-03-31T04:18:24.133Z",
       "iterations": 3,
       "artifacts": {
         "resultFile": "pi-sdk-end-to-end/result.json",
         "metricsFile": "pi-sdk-end-to-end/metrics.prom",
-        "logFile": "pi-sdk-end-to-end/ipc.ndjson",
-        "runnerLogFile": "pi-sdk-end-to-end/runner.log"
+        "logFile": "pi-sdk-end-to-end/ipc.ndjson"
       },
       "samples": [
         {
           "iteration": 1,
-          "wallMs": 2515.994,
+          "wallMs": 2685.426,
           "code": 0,
           "stdoutBytes": 67,
           "stderrBytes": 0,
@@ -242,7 +257,7 @@
         },
         {
           "iteration": 2,
-          "wallMs": 1783.678,
+          "wallMs": 2090.401,
           "code": 0,
           "stdoutBytes": 67,
           "stderrBytes": 0,
@@ -256,7 +271,7 @@
         },
         {
           "iteration": 3,
-          "wallMs": 2225.667,
+          "wallMs": 2034.686,
           "code": 0,
           "stdoutBytes": 67,
           "stderrBytes": 0,
@@ -270,31 +285,29 @@
         }
       ],
       "summary": {
-        "coldWallMs": 2515.994,
-        "warmWallMsMean": 2004.673,
+        "coldWallMs": 2685.426,
+        "warmWallMsMean": 2062.543,
         "coldSandboxMs": 0,
         "warmSandboxMsMean": 0
       }
     },
     {
-      "status": "passed",
       "scenarioId": "pi-cli-startup",
       "title": "Pi CLI Startup",
       "target": "pi_cli",
       "kind": "startup",
       "description": "Boots the Pi CLI help path inside the sandbox.",
-      "createdAt": "2026-03-31T04:02:11.634Z",
+      "createdAt": "2026-03-31T04:18:31.052Z",
       "iterations": 3,
       "artifacts": {
         "resultFile": "pi-cli-startup/result.json",
         "metricsFile": "pi-cli-startup/metrics.prom",
-        "logFile": "pi-cli-startup/ipc.ndjson",
-        "runnerLogFile": "pi-cli-startup/runner.log"
+        "logFile": "pi-cli-startup/ipc.ndjson"
       },
       "samples": [
         {
           "iteration": 1,
-          "wallMs": 2324.069,
+          "wallMs": 2691.391,
           "code": 0,
           "stdoutBytes": 4096,
           "stderrBytes": 220,
@@ -306,7 +319,7 @@
         },
         {
           "iteration": 2,
-          "wallMs": 1777.464,
+          "wallMs": 1808.662,
           "code": 0,
           "stdoutBytes": 4096,
           "stderrBytes": 220,
@@ -318,7 +331,7 @@
         },
         {
           "iteration": 3,
-          "wallMs": 2061.577,
+          "wallMs": 1991.078,
           "code": 0,
           "stdoutBytes": 4096,
           "stderrBytes": 220,
@@ -330,29 +343,27 @@
         }
       ],
       "summary": {
-        "coldWallMs": 2324.069,
-        "warmWallMsMean": 1919.521
+        "coldWallMs": 2691.391,
+        "warmWallMsMean": 1899.87
       }
     },
     {
-      "status": "passed",
       "scenarioId": "pi-cli-end-to-end",
       "title": "Pi CLI End-to-End",
       "target": "pi_cli",
       "kind": "end_to_end",
       "description": "Loads the Pi CLI module graph, then drives Pi print-mode against the mock Anthropic SSE server.",
-      "createdAt": "2026-03-31T04:02:18.714Z",
+      "createdAt": "2026-03-31T04:18:38.419Z",
       "iterations": 3,
       "artifacts": {
         "resultFile": "pi-cli-end-to-end/result.json",
         "metricsFile": "pi-cli-end-to-end/metrics.prom",
-        "logFile": "pi-cli-end-to-end/ipc.ndjson",
-        "runnerLogFile": "pi-cli-end-to-end/runner.log"
+        "logFile": "pi-cli-end-to-end/ipc.ndjson"
       },
       "samples": [
         {
           "iteration": 1,
-          "wallMs": 2577.123,
+          "wallMs": 2705.941,
           "code": 0,
           "stdoutBytes": 25,
           "stderrBytes": 0,
@@ -365,7 +376,7 @@
         },
         {
           "iteration": 2,
-          "wallMs": 2152.298,
+          "wallMs": 2092.796,
           "code": 0,
           "stdoutBytes": 25,
           "stderrBytes": 0,
@@ -378,7 +389,7 @@
         },
         {
           "iteration": 3,
-          "wallMs": 1921.577,
+          "wallMs": 2106.889,
           "code": 0,
           "stdoutBytes": 25,
           "stderrBytes": 0,
@@ -391,8 +402,4889 @@
         }
       ],
       "summary": {
-        "coldWallMs": 2577.123,
-        "warmWallMsMean": 2036.938
+        "coldWallMs": 2705.941,
+        "warmWallMsMean": 2099.842
+      }
+    }
+  ],
+  "scenarioSummaries": [
+    {
+      "scenarioId": "hono-startup",
+      "title": "Hono Startup",
+      "target": "hono",
+      "kind": "startup",
+      "description": "Loads Hono and constructs a minimal app.",
+      "createdAt": "2026-03-31T04:18:09.493Z",
+      "iterations": 3,
+      "artifacts": {
+        "resultFile": "hono-startup/result.json",
+        "metricsFile": "hono-startup/metrics.prom",
+        "logFile": "hono-startup/ipc.ndjson",
+        "summaryFile": "hono-startup/summary.json",
+        "summaryMarkdownFile": "hono-startup/summary.md"
+      },
+      "timing": {
+        "coldWallMs": 303.453,
+        "warmWallMsMean": 141.156,
+        "coldSandboxMs": 0,
+        "warmSandboxMsMean": 0,
+        "coldExecuteDurationMs": 189.292,
+        "warmExecuteDurationMsMean": 32.254,
+        "coldFixedSessionOverheadMs": 114.161,
+        "warmFixedSessionOverheadMsMean": 108.902
+      },
+      "iterationsDetail": [
+        {
+          "iteration": 1,
+          "sessionId": "3a60dac15c51e7f788b9bde5b7963247",
+          "wallMs": 303.453,
+          "sandboxMs": 0,
+          "executeDurationMs": 189.292,
+          "fixedSessionOverheadMs": 114.161,
+          "bridgeCalls": 102,
+          "bridgeDurationMs": 56.836,
+          "bridgeCallEncodedBytes": 15407,
+          "bridgeResponseEncodedBytes": 408130,
+          "bridgeCallPayloadBytes": 9194,
+          "bridgeResponsePayloadBytes": 403336,
+          "stdoutBytes": 70,
+          "stderrBytes": 0,
+          "checks": {
+            "honoType": "function",
+            "fetchType": "function"
+          }
+        },
+        {
+          "iteration": 2,
+          "sessionId": "88841ae88a56e1bf6cdde724d4637c0d",
+          "wallMs": 142.446,
+          "sandboxMs": 0,
+          "executeDurationMs": 32.866,
+          "fixedSessionOverheadMs": 109.58,
+          "bridgeCalls": 102,
+          "bridgeDurationMs": 4.221,
+          "bridgeCallEncodedBytes": 15407,
+          "bridgeResponseEncodedBytes": 408130,
+          "bridgeCallPayloadBytes": 9194,
+          "bridgeResponsePayloadBytes": 403336,
+          "stdoutBytes": 70,
+          "stderrBytes": 0,
+          "checks": {
+            "honoType": "function",
+            "fetchType": "function"
+          }
+        },
+        {
+          "iteration": 3,
+          "sessionId": "33a9de38514d0fdbd08cd7d50b71a9bb",
+          "wallMs": 139.865,
+          "sandboxMs": 0,
+          "executeDurationMs": 31.641,
+          "fixedSessionOverheadMs": 108.224,
+          "bridgeCalls": 102,
+          "bridgeDurationMs": 3.821,
+          "bridgeCallEncodedBytes": 15407,
+          "bridgeResponseEncodedBytes": 408130,
+          "bridgeCallPayloadBytes": 9194,
+          "bridgeResponsePayloadBytes": 403336,
+          "stdoutBytes": 70,
+          "stderrBytes": 0,
+          "checks": {
+            "honoType": "function",
+            "fetchType": "function"
+          }
+        }
+      ],
+      "bridge": {
+        "totalCalls": 306,
+        "callsPerIteration": 102,
+        "totalDurationMs": 64.878,
+        "durationMsPerIteration": 21.626,
+        "methodsByCount": [
+          {
+            "method": "_loadPolyfill",
+            "callsTotal": 303,
+            "callsPerIteration": 101,
+            "totalDurationMs": 64.66,
+            "durationMsPerIteration": 21.553,
+            "meanDurationMsPerCall": 0.213,
+            "requestEncodedBytesTotal": 45822,
+            "requestEncodedBytesPerIteration": 15274,
+            "requestPayloadBytesTotal": 27339,
+            "requestPayloadBytesPerIteration": 9113,
+            "responseEncodedBytesTotal": 1224249,
+            "responseEncodedBytesPerIteration": 408083,
+            "responsePayloadBytesTotal": 1210008,
+            "responsePayloadBytesPerIteration": 403336,
+            "statusCounts": {
+              "0": 303
+            }
+          },
+          {
+            "method": "_log",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 0.218,
+            "durationMsPerIteration": 0.073,
+            "meanDurationMsPerCall": 0.073,
+            "requestEncodedBytesTotal": 399,
+            "requestEncodedBytesPerIteration": 133,
+            "requestPayloadBytesTotal": 243,
+            "requestPayloadBytesPerIteration": 81,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          }
+        ],
+        "methodsByTime": [
+          {
+            "method": "_loadPolyfill",
+            "callsTotal": 303,
+            "callsPerIteration": 101,
+            "totalDurationMs": 64.66,
+            "durationMsPerIteration": 21.553,
+            "meanDurationMsPerCall": 0.213,
+            "requestEncodedBytesTotal": 45822,
+            "requestEncodedBytesPerIteration": 15274,
+            "requestPayloadBytesTotal": 27339,
+            "requestPayloadBytesPerIteration": 9113,
+            "responseEncodedBytesTotal": 1224249,
+            "responseEncodedBytesPerIteration": 408083,
+            "responsePayloadBytesTotal": 1210008,
+            "responsePayloadBytesPerIteration": 403336,
+            "statusCounts": {
+              "0": 303
+            }
+          },
+          {
+            "method": "_log",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 0.218,
+            "durationMsPerIteration": 0.073,
+            "meanDurationMsPerCall": 0.073,
+            "requestEncodedBytesTotal": 399,
+            "requestEncodedBytesPerIteration": 133,
+            "requestPayloadBytesTotal": 243,
+            "requestPayloadBytesPerIteration": 81,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          }
+        ],
+        "methodsByResponseBytes": [
+          {
+            "method": "_loadPolyfill",
+            "callsTotal": 303,
+            "callsPerIteration": 101,
+            "totalDurationMs": 64.66,
+            "durationMsPerIteration": 21.553,
+            "meanDurationMsPerCall": 0.213,
+            "requestEncodedBytesTotal": 45822,
+            "requestEncodedBytesPerIteration": 15274,
+            "requestPayloadBytesTotal": 27339,
+            "requestPayloadBytesPerIteration": 9113,
+            "responseEncodedBytesTotal": 1224249,
+            "responseEncodedBytesPerIteration": 408083,
+            "responsePayloadBytesTotal": 1210008,
+            "responsePayloadBytesPerIteration": 403336,
+            "statusCounts": {
+              "0": 303
+            }
+          },
+          {
+            "method": "_log",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 0.218,
+            "durationMsPerIteration": 0.073,
+            "meanDurationMsPerCall": 0.073,
+            "requestEncodedBytesTotal": 399,
+            "requestEncodedBytesPerIteration": 133,
+            "requestPayloadBytesTotal": 243,
+            "requestPayloadBytesPerIteration": 81,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          }
+        ],
+        "framesByEncodedBytes": [
+          {
+            "direction": "send",
+            "frameType": "Execute",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 3722139,
+            "encodedBytesPerIteration": 1240713,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "BridgeResponse",
+            "countTotal": 306,
+            "countPerIteration": 102,
+            "encodedBytesTotal": 1224390,
+            "encodedBytesPerIteration": 408130,
+            "payloadBytesTotal": 1210008,
+            "payloadBytesPerIteration": 403336
+          },
+          {
+            "direction": "send",
+            "frameType": "WarmSnapshot",
+            "countTotal": 1,
+            "countPerIteration": 0.333,
+            "encodedBytesTotal": 1044961,
+            "encodedBytesPerIteration": 348320.333,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "recv",
+            "frameType": "BridgeCall",
+            "countTotal": 306,
+            "countPerIteration": 102,
+            "encodedBytesTotal": 46221,
+            "encodedBytesPerIteration": 15407,
+            "payloadBytesTotal": 27582,
+            "payloadBytesPerIteration": 9194
+          },
+          {
+            "direction": "send",
+            "frameType": "InjectGlobals",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 708,
+            "encodedBytesPerIteration": 236,
+            "payloadBytesTotal": 594,
+            "payloadBytesPerIteration": 198
+          },
+          {
+            "direction": "send",
+            "frameType": "CreateSession",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 138,
+            "encodedBytesPerIteration": 46,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "recv",
+            "frameType": "ExecutionResult",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 129,
+            "encodedBytesPerIteration": 43,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "DestroySession",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 114,
+            "encodedBytesPerIteration": 38,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "Authenticate",
+            "countTotal": 1,
+            "countPerIteration": 0.333,
+            "encodedBytesTotal": 38,
+            "encodedBytesPerIteration": 12.667,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          }
+        ],
+        "frames": [
+          {
+            "direction": "recv",
+            "frameType": "BridgeCall",
+            "countTotal": 306,
+            "countPerIteration": 102,
+            "encodedBytesTotal": 46221,
+            "encodedBytesPerIteration": 15407,
+            "payloadBytesTotal": 27582,
+            "payloadBytesPerIteration": 9194
+          },
+          {
+            "direction": "recv",
+            "frameType": "ExecutionResult",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 129,
+            "encodedBytesPerIteration": 43,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "Authenticate",
+            "countTotal": 1,
+            "countPerIteration": 0.333,
+            "encodedBytesTotal": 38,
+            "encodedBytesPerIteration": 12.667,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "BridgeResponse",
+            "countTotal": 306,
+            "countPerIteration": 102,
+            "encodedBytesTotal": 1224390,
+            "encodedBytesPerIteration": 408130,
+            "payloadBytesTotal": 1210008,
+            "payloadBytesPerIteration": 403336
+          },
+          {
+            "direction": "send",
+            "frameType": "CreateSession",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 138,
+            "encodedBytesPerIteration": 46,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "DestroySession",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 114,
+            "encodedBytesPerIteration": 38,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "Execute",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 3722139,
+            "encodedBytesPerIteration": 1240713,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "InjectGlobals",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 708,
+            "encodedBytesPerIteration": 236,
+            "payloadBytesTotal": 594,
+            "payloadBytesPerIteration": 198
+          },
+          {
+            "direction": "send",
+            "frameType": "WarmSnapshot",
+            "countTotal": 1,
+            "countPerIteration": 0.333,
+            "encodedBytesTotal": 1044961,
+            "encodedBytesPerIteration": 348320.333,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          }
+        ]
+      },
+      "progressSignals": {
+        "warmWallMsMean": 141.156,
+        "bridgeCallsPerIteration": 102,
+        "fixedSessionOverheadWarmMsMean": 108.902,
+        "dominantBridgeMethodByTime": {
+          "method": "_loadPolyfill",
+          "durationMsPerIteration": 21.553,
+          "callsPerIteration": 101
+        },
+        "dominantBridgeMethodByCount": {
+          "method": "_loadPolyfill",
+          "callsPerIteration": 101,
+          "durationMsPerIteration": 21.553
+        },
+        "dominantBridgeMethodByResponseBytes": {
+          "method": "_loadPolyfill",
+          "responseEncodedBytesPerIteration": 408083
+        },
+        "dominantFrameByEncodedBytes": {
+          "direction": "send",
+          "frameType": "Execute",
+          "encodedBytesPerIteration": 1240713
+        }
+      },
+      "comparisonToPrevious": {
+        "baselineScenarioCreatedAt": "2026-03-31T04:01:51.150Z",
+        "metrics": {
+          "warmWallMsMean": {
+            "before": 153.889,
+            "after": 141.156,
+            "delta": -12.733,
+            "deltaPercent": -8.274
+          },
+          "bridgeCallsPerIteration": {
+            "before": 102,
+            "after": 102,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "fixedSessionOverheadWarmMsMean": {
+            "before": 108.073,
+            "after": 108.902,
+            "delta": 0.829,
+            "deltaPercent": 0.767
+          },
+          "bridgeDurationPerIterationMs": {
+            "before": 22.174,
+            "after": 21.626,
+            "delta": -0.548,
+            "deltaPercent": -2.471
+          },
+          "bridgeResponseFrameBytesPerIteration": {
+            "before": 408130,
+            "after": 408130,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "executeWarmMsMean": {
+            "before": 45.816,
+            "after": 32.254,
+            "delta": -13.562,
+            "deltaPercent": -29.601
+          }
+        },
+        "bridgeMethodDurationDeltas": [
+          {
+            "method": "_loadPolyfill",
+            "before": 22.048,
+            "after": 21.553,
+            "delta": -0.495
+          },
+          {
+            "method": "_log",
+            "before": 0.125,
+            "after": 0.073,
+            "delta": -0.052
+          }
+        ],
+        "bridgeMethodCountDeltas": [],
+        "bridgeMethodResponseByteDeltas": [],
+        "frameEncodedByteDeltas": []
+      }
+    },
+    {
+      "scenarioId": "hono-end-to-end",
+      "title": "Hono End-to-End",
+      "target": "hono",
+      "kind": "end_to_end",
+      "description": "Loads Hono, builds an app, serves a request, and reads the response.",
+      "createdAt": "2026-03-31T04:18:10.561Z",
+      "iterations": 3,
+      "artifacts": {
+        "resultFile": "hono-end-to-end/result.json",
+        "metricsFile": "hono-end-to-end/metrics.prom",
+        "logFile": "hono-end-to-end/ipc.ndjson",
+        "summaryFile": "hono-end-to-end/summary.json",
+        "summaryMarkdownFile": "hono-end-to-end/summary.md"
+      },
+      "timing": {
+        "coldWallMs": 348.304,
+        "warmWallMsMean": 145.024,
+        "coldSandboxMs": 0,
+        "warmSandboxMsMean": 0,
+        "coldExecuteDurationMs": 233.86,
+        "warmExecuteDurationMsMean": 37.184,
+        "coldFixedSessionOverheadMs": 114.444,
+        "warmFixedSessionOverheadMsMean": 107.84
+      },
+      "iterationsDetail": [
+        {
+          "iteration": 1,
+          "sessionId": "74cdee338df9e3613d04a9b6641a80c7",
+          "wallMs": 348.304,
+          "sandboxMs": 0,
+          "executeDurationMs": 233.86,
+          "fixedSessionOverheadMs": 114.444,
+          "bridgeCalls": 102,
+          "bridgeDurationMs": 78.74,
+          "bridgeCallEncodedBytes": 15421,
+          "bridgeResponseEncodedBytes": 408130,
+          "bridgeCallPayloadBytes": 9208,
+          "bridgeResponsePayloadBytes": 403336,
+          "stdoutBytes": 84,
+          "stderrBytes": 0,
+          "checks": {
+            "status": 200,
+            "body": "{\"ok\":true,\"framework\":\"hono\"}"
+          }
+        },
+        {
+          "iteration": 2,
+          "sessionId": "731393214e2961931f392ff0113f68b5",
+          "wallMs": 140.848,
+          "sandboxMs": 0,
+          "executeDurationMs": 32.693,
+          "fixedSessionOverheadMs": 108.155,
+          "bridgeCalls": 102,
+          "bridgeDurationMs": 4.004,
+          "bridgeCallEncodedBytes": 15421,
+          "bridgeResponseEncodedBytes": 408130,
+          "bridgeCallPayloadBytes": 9208,
+          "bridgeResponsePayloadBytes": 403336,
+          "stdoutBytes": 84,
+          "stderrBytes": 0,
+          "checks": {
+            "status": 200,
+            "body": "{\"ok\":true,\"framework\":\"hono\"}"
+          }
+        },
+        {
+          "iteration": 3,
+          "sessionId": "69c03783175731984a04e3e90b1c604d",
+          "wallMs": 149.201,
+          "sandboxMs": 0,
+          "executeDurationMs": 41.675,
+          "fixedSessionOverheadMs": 107.526,
+          "bridgeCalls": 102,
+          "bridgeDurationMs": 5.673,
+          "bridgeCallEncodedBytes": 15421,
+          "bridgeResponseEncodedBytes": 408130,
+          "bridgeCallPayloadBytes": 9208,
+          "bridgeResponsePayloadBytes": 403336,
+          "stdoutBytes": 84,
+          "stderrBytes": 0,
+          "checks": {
+            "status": 200,
+            "body": "{\"ok\":true,\"framework\":\"hono\"}"
+          }
+        }
+      ],
+      "bridge": {
+        "totalCalls": 306,
+        "callsPerIteration": 102,
+        "totalDurationMs": 88.417,
+        "durationMsPerIteration": 29.472,
+        "methodsByCount": [
+          {
+            "method": "_loadPolyfill",
+            "callsTotal": 303,
+            "callsPerIteration": 101,
+            "totalDurationMs": 88.142,
+            "durationMsPerIteration": 29.381,
+            "meanDurationMsPerCall": 0.291,
+            "requestEncodedBytesTotal": 45822,
+            "requestEncodedBytesPerIteration": 15274,
+            "requestPayloadBytesTotal": 27339,
+            "requestPayloadBytesPerIteration": 9113,
+            "responseEncodedBytesTotal": 1224249,
+            "responseEncodedBytesPerIteration": 408083,
+            "responsePayloadBytesTotal": 1210008,
+            "responsePayloadBytesPerIteration": 403336,
+            "statusCounts": {
+              "0": 303
+            }
+          },
+          {
+            "method": "_log",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 0.275,
+            "durationMsPerIteration": 0.092,
+            "meanDurationMsPerCall": 0.092,
+            "requestEncodedBytesTotal": 441,
+            "requestEncodedBytesPerIteration": 147,
+            "requestPayloadBytesTotal": 285,
+            "requestPayloadBytesPerIteration": 95,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          }
+        ],
+        "methodsByTime": [
+          {
+            "method": "_loadPolyfill",
+            "callsTotal": 303,
+            "callsPerIteration": 101,
+            "totalDurationMs": 88.142,
+            "durationMsPerIteration": 29.381,
+            "meanDurationMsPerCall": 0.291,
+            "requestEncodedBytesTotal": 45822,
+            "requestEncodedBytesPerIteration": 15274,
+            "requestPayloadBytesTotal": 27339,
+            "requestPayloadBytesPerIteration": 9113,
+            "responseEncodedBytesTotal": 1224249,
+            "responseEncodedBytesPerIteration": 408083,
+            "responsePayloadBytesTotal": 1210008,
+            "responsePayloadBytesPerIteration": 403336,
+            "statusCounts": {
+              "0": 303
+            }
+          },
+          {
+            "method": "_log",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 0.275,
+            "durationMsPerIteration": 0.092,
+            "meanDurationMsPerCall": 0.092,
+            "requestEncodedBytesTotal": 441,
+            "requestEncodedBytesPerIteration": 147,
+            "requestPayloadBytesTotal": 285,
+            "requestPayloadBytesPerIteration": 95,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          }
+        ],
+        "methodsByResponseBytes": [
+          {
+            "method": "_loadPolyfill",
+            "callsTotal": 303,
+            "callsPerIteration": 101,
+            "totalDurationMs": 88.142,
+            "durationMsPerIteration": 29.381,
+            "meanDurationMsPerCall": 0.291,
+            "requestEncodedBytesTotal": 45822,
+            "requestEncodedBytesPerIteration": 15274,
+            "requestPayloadBytesTotal": 27339,
+            "requestPayloadBytesPerIteration": 9113,
+            "responseEncodedBytesTotal": 1224249,
+            "responseEncodedBytesPerIteration": 408083,
+            "responsePayloadBytesTotal": 1210008,
+            "responsePayloadBytesPerIteration": 403336,
+            "statusCounts": {
+              "0": 303
+            }
+          },
+          {
+            "method": "_log",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 0.275,
+            "durationMsPerIteration": 0.092,
+            "meanDurationMsPerCall": 0.092,
+            "requestEncodedBytesTotal": 441,
+            "requestEncodedBytesPerIteration": 147,
+            "requestPayloadBytesTotal": 285,
+            "requestPayloadBytesPerIteration": 95,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          }
+        ],
+        "framesByEncodedBytes": [
+          {
+            "direction": "send",
+            "frameType": "Execute",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 3722490,
+            "encodedBytesPerIteration": 1240830,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "BridgeResponse",
+            "countTotal": 306,
+            "countPerIteration": 102,
+            "encodedBytesTotal": 1224390,
+            "encodedBytesPerIteration": 408130,
+            "payloadBytesTotal": 1210008,
+            "payloadBytesPerIteration": 403336
+          },
+          {
+            "direction": "send",
+            "frameType": "WarmSnapshot",
+            "countTotal": 1,
+            "countPerIteration": 0.333,
+            "encodedBytesTotal": 1044961,
+            "encodedBytesPerIteration": 348320.333,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "recv",
+            "frameType": "BridgeCall",
+            "countTotal": 306,
+            "countPerIteration": 102,
+            "encodedBytesTotal": 46263,
+            "encodedBytesPerIteration": 15421,
+            "payloadBytesTotal": 27624,
+            "payloadBytesPerIteration": 9208
+          },
+          {
+            "direction": "send",
+            "frameType": "InjectGlobals",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 708,
+            "encodedBytesPerIteration": 236,
+            "payloadBytesTotal": 594,
+            "payloadBytesPerIteration": 198
+          },
+          {
+            "direction": "send",
+            "frameType": "CreateSession",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 138,
+            "encodedBytesPerIteration": 46,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "recv",
+            "frameType": "ExecutionResult",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 129,
+            "encodedBytesPerIteration": 43,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "DestroySession",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 114,
+            "encodedBytesPerIteration": 38,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "Authenticate",
+            "countTotal": 1,
+            "countPerIteration": 0.333,
+            "encodedBytesTotal": 38,
+            "encodedBytesPerIteration": 12.667,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          }
+        ],
+        "frames": [
+          {
+            "direction": "recv",
+            "frameType": "BridgeCall",
+            "countTotal": 306,
+            "countPerIteration": 102,
+            "encodedBytesTotal": 46263,
+            "encodedBytesPerIteration": 15421,
+            "payloadBytesTotal": 27624,
+            "payloadBytesPerIteration": 9208
+          },
+          {
+            "direction": "recv",
+            "frameType": "ExecutionResult",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 129,
+            "encodedBytesPerIteration": 43,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "Authenticate",
+            "countTotal": 1,
+            "countPerIteration": 0.333,
+            "encodedBytesTotal": 38,
+            "encodedBytesPerIteration": 12.667,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "BridgeResponse",
+            "countTotal": 306,
+            "countPerIteration": 102,
+            "encodedBytesTotal": 1224390,
+            "encodedBytesPerIteration": 408130,
+            "payloadBytesTotal": 1210008,
+            "payloadBytesPerIteration": 403336
+          },
+          {
+            "direction": "send",
+            "frameType": "CreateSession",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 138,
+            "encodedBytesPerIteration": 46,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "DestroySession",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 114,
+            "encodedBytesPerIteration": 38,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "Execute",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 3722490,
+            "encodedBytesPerIteration": 1240830,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "InjectGlobals",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 708,
+            "encodedBytesPerIteration": 236,
+            "payloadBytesTotal": 594,
+            "payloadBytesPerIteration": 198
+          },
+          {
+            "direction": "send",
+            "frameType": "WarmSnapshot",
+            "countTotal": 1,
+            "countPerIteration": 0.333,
+            "encodedBytesTotal": 1044961,
+            "encodedBytesPerIteration": 348320.333,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          }
+        ]
+      },
+      "progressSignals": {
+        "warmWallMsMean": 145.024,
+        "bridgeCallsPerIteration": 102,
+        "fixedSessionOverheadWarmMsMean": 107.84,
+        "dominantBridgeMethodByTime": {
+          "method": "_loadPolyfill",
+          "durationMsPerIteration": 29.381,
+          "callsPerIteration": 101
+        },
+        "dominantBridgeMethodByCount": {
+          "method": "_loadPolyfill",
+          "callsPerIteration": 101,
+          "durationMsPerIteration": 29.381
+        },
+        "dominantBridgeMethodByResponseBytes": {
+          "method": "_loadPolyfill",
+          "responseEncodedBytesPerIteration": 408083
+        },
+        "dominantFrameByEncodedBytes": {
+          "direction": "send",
+          "frameType": "Execute",
+          "encodedBytesPerIteration": 1240830
+        }
+      },
+      "comparisonToPrevious": {
+        "baselineScenarioCreatedAt": "2026-03-31T04:01:52.147Z",
+        "metrics": {
+          "warmWallMsMean": {
+            "before": 143.365,
+            "after": 145.024,
+            "delta": 1.659,
+            "deltaPercent": 1.157
+          },
+          "bridgeCallsPerIteration": {
+            "before": 102,
+            "after": 102,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "fixedSessionOverheadWarmMsMean": {
+            "before": 107.237,
+            "after": 107.84,
+            "delta": 0.603,
+            "deltaPercent": 0.562
+          },
+          "bridgeDurationPerIterationMs": {
+            "before": 16.426,
+            "after": 29.472,
+            "delta": 13.046,
+            "deltaPercent": 79.423
+          },
+          "bridgeResponseFrameBytesPerIteration": {
+            "before": 408130,
+            "after": 408130,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "executeWarmMsMean": {
+            "before": 36.127,
+            "after": 37.184,
+            "delta": 1.057,
+            "deltaPercent": 2.926
+          }
+        },
+        "bridgeMethodDurationDeltas": [
+          {
+            "method": "_loadPolyfill",
+            "before": 16.322,
+            "after": 29.381,
+            "delta": 13.059
+          },
+          {
+            "method": "_log",
+            "before": 0.104,
+            "after": 0.092,
+            "delta": -0.012
+          }
+        ],
+        "bridgeMethodCountDeltas": [],
+        "bridgeMethodResponseByteDeltas": [],
+        "frameEncodedByteDeltas": []
+      }
+    },
+    {
+      "scenarioId": "pi-sdk-startup",
+      "title": "Pi SDK Startup",
+      "target": "pi_sdk",
+      "kind": "startup",
+      "description": "Loads the Pi SDK entry module and inspects its exported surface.",
+      "createdAt": "2026-03-31T04:18:16.910Z",
+      "iterations": 3,
+      "artifacts": {
+        "resultFile": "pi-sdk-startup/result.json",
+        "metricsFile": "pi-sdk-startup/metrics.prom",
+        "logFile": "pi-sdk-startup/ipc.ndjson",
+        "summaryFile": "pi-sdk-startup/summary.json",
+        "summaryMarkdownFile": "pi-sdk-startup/summary.md"
+      },
+      "timing": {
+        "coldWallMs": 2585.241,
+        "warmWallMsMean": 1676.693,
+        "coldSandboxMs": 0,
+        "warmSandboxMsMean": 0,
+        "coldExecuteDurationMs": 2471.775,
+        "warmExecuteDurationMsMean": 1569.469,
+        "coldFixedSessionOverheadMs": 113.466,
+        "warmFixedSessionOverheadMsMean": 107.224
+      },
+      "iterationsDetail": [
+        {
+          "iteration": 1,
+          "sessionId": "24cb105aee5aae9aa6c847ae6dc1f18b",
+          "wallMs": 2585.241,
+          "sandboxMs": 0,
+          "executeDurationMs": 2471.775,
+          "fixedSessionOverheadMs": 113.466,
+          "bridgeCalls": 5278,
+          "bridgeDurationMs": 1312.559,
+          "bridgeCallEncodedBytes": 882903,
+          "bridgeResponseEncodedBytes": 9362446,
+          "bridgeCallPayloadBytes": 560930,
+          "bridgeResponsePayloadBytes": 9114380,
+          "stdoutBytes": 91,
+          "stderrBytes": 0,
+          "checks": {
+            "createAgentSessionType": "function",
+            "runPrintModeType": "function"
+          }
+        },
+        {
+          "iteration": 2,
+          "sessionId": "39f9d44b72f403e8943436e6afe09515",
+          "wallMs": 1734.741,
+          "sandboxMs": 0,
+          "executeDurationMs": 1627.307,
+          "fixedSessionOverheadMs": 107.434,
+          "bridgeCalls": 5278,
+          "bridgeDurationMs": 741.811,
+          "bridgeCallEncodedBytes": 882903,
+          "bridgeResponseEncodedBytes": 9362446,
+          "bridgeCallPayloadBytes": 560930,
+          "bridgeResponsePayloadBytes": 9114380,
+          "stdoutBytes": 91,
+          "stderrBytes": 0,
+          "checks": {
+            "createAgentSessionType": "function",
+            "runPrintModeType": "function"
+          }
+        },
+        {
+          "iteration": 3,
+          "sessionId": "8f67e6fc3722c7c8fa2e1f85ff6ab164",
+          "wallMs": 1618.645,
+          "sandboxMs": 0,
+          "executeDurationMs": 1511.631,
+          "fixedSessionOverheadMs": 107.014,
+          "bridgeCalls": 5278,
+          "bridgeDurationMs": 721.222,
+          "bridgeCallEncodedBytes": 882903,
+          "bridgeResponseEncodedBytes": 9362446,
+          "bridgeCallPayloadBytes": 560930,
+          "bridgeResponsePayloadBytes": 9114380,
+          "stdoutBytes": 91,
+          "stderrBytes": 0,
+          "checks": {
+            "createAgentSessionType": "function",
+            "runPrintModeType": "function"
+          }
+        }
+      ],
+      "bridge": {
+        "totalCalls": 15834,
+        "callsPerIteration": 5278,
+        "totalDurationMs": 2775.592,
+        "durationMsPerIteration": 925.197,
+        "methodsByCount": [
+          {
+            "method": "_loadPolyfill",
+            "callsTotal": 15720,
+            "callsPerIteration": 5240,
+            "totalDurationMs": 2619.255,
+            "durationMsPerIteration": 873.085,
+            "meanDurationMsPerCall": 0.167,
+            "requestEncodedBytesTotal": 2626764,
+            "requestEncodedBytesPerIteration": 875588,
+            "requestPayloadBytesTotal": 1667844,
+            "requestPayloadBytesPerIteration": 555948,
+            "responseEncodedBytesTotal": 28062579,
+            "responseEncodedBytesPerIteration": 9354193,
+            "responsePayloadBytesTotal": 27323739,
+            "responsePayloadBytesPerIteration": 9107913,
+            "statusCounts": {
+              "0": 15720
+            }
+          },
+          {
+            "method": "_resolveModule",
+            "callsTotal": 102,
+            "callsPerIteration": 34,
+            "totalDurationMs": 153.251,
+            "durationMsPerIteration": 51.084,
+            "meanDurationMsPerCall": 1.502,
+            "requestEncodedBytesTotal": 19581,
+            "requestEncodedBytesPerIteration": 6527,
+            "requestPayloadBytesTotal": 13257,
+            "requestPayloadBytesPerIteration": 4419,
+            "responseEncodedBytesTotal": 14385,
+            "responseEncodedBytesPerIteration": 4795,
+            "responsePayloadBytesTotal": 9591,
+            "responsePayloadBytesPerIteration": 3197,
+            "statusCounts": {
+              "0": 102
+            }
+          },
+          {
+            "method": "_fsExists",
+            "callsTotal": 6,
+            "callsPerIteration": 2,
+            "totalDurationMs": 1.704,
+            "durationMsPerIteration": 0.568,
+            "meanDurationMsPerCall": 0.284,
+            "requestEncodedBytesTotal": 1269,
+            "requestEncodedBytesPerIteration": 423,
+            "requestPayloadBytesTotal": 927,
+            "requestPayloadBytesPerIteration": 309,
+            "responseEncodedBytesTotal": 300,
+            "responseEncodedBytesPerIteration": 100,
+            "responsePayloadBytesTotal": 18,
+            "responsePayloadBytesPerIteration": 6,
+            "statusCounts": {
+              "0": 6
+            }
+          },
+          {
+            "method": "_fsReadFile",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 1.08,
+            "durationMsPerIteration": 0.36,
+            "meanDurationMsPerCall": 0.36,
+            "requestEncodedBytesTotal": 633,
+            "requestEncodedBytesPerIteration": 211,
+            "requestPayloadBytesTotal": 456,
+            "requestPayloadBytesPerIteration": 152,
+            "responseEncodedBytesTotal": 9933,
+            "responseEncodedBytesPerIteration": 3311,
+            "responsePayloadBytesTotal": 9792,
+            "responsePayloadBytesPerIteration": 3264,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_log",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 0.302,
+            "durationMsPerIteration": 0.101,
+            "meanDurationMsPerCall": 0.101,
+            "requestEncodedBytesTotal": 462,
+            "requestEncodedBytesPerIteration": 154,
+            "requestPayloadBytesTotal": 306,
+            "requestPayloadBytesPerIteration": 102,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          }
+        ],
+        "methodsByTime": [
+          {
+            "method": "_loadPolyfill",
+            "callsTotal": 15720,
+            "callsPerIteration": 5240,
+            "totalDurationMs": 2619.255,
+            "durationMsPerIteration": 873.085,
+            "meanDurationMsPerCall": 0.167,
+            "requestEncodedBytesTotal": 2626764,
+            "requestEncodedBytesPerIteration": 875588,
+            "requestPayloadBytesTotal": 1667844,
+            "requestPayloadBytesPerIteration": 555948,
+            "responseEncodedBytesTotal": 28062579,
+            "responseEncodedBytesPerIteration": 9354193,
+            "responsePayloadBytesTotal": 27323739,
+            "responsePayloadBytesPerIteration": 9107913,
+            "statusCounts": {
+              "0": 15720
+            }
+          },
+          {
+            "method": "_resolveModule",
+            "callsTotal": 102,
+            "callsPerIteration": 34,
+            "totalDurationMs": 153.251,
+            "durationMsPerIteration": 51.084,
+            "meanDurationMsPerCall": 1.502,
+            "requestEncodedBytesTotal": 19581,
+            "requestEncodedBytesPerIteration": 6527,
+            "requestPayloadBytesTotal": 13257,
+            "requestPayloadBytesPerIteration": 4419,
+            "responseEncodedBytesTotal": 14385,
+            "responseEncodedBytesPerIteration": 4795,
+            "responsePayloadBytesTotal": 9591,
+            "responsePayloadBytesPerIteration": 3197,
+            "statusCounts": {
+              "0": 102
+            }
+          },
+          {
+            "method": "_fsExists",
+            "callsTotal": 6,
+            "callsPerIteration": 2,
+            "totalDurationMs": 1.704,
+            "durationMsPerIteration": 0.568,
+            "meanDurationMsPerCall": 0.284,
+            "requestEncodedBytesTotal": 1269,
+            "requestEncodedBytesPerIteration": 423,
+            "requestPayloadBytesTotal": 927,
+            "requestPayloadBytesPerIteration": 309,
+            "responseEncodedBytesTotal": 300,
+            "responseEncodedBytesPerIteration": 100,
+            "responsePayloadBytesTotal": 18,
+            "responsePayloadBytesPerIteration": 6,
+            "statusCounts": {
+              "0": 6
+            }
+          },
+          {
+            "method": "_fsReadFile",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 1.08,
+            "durationMsPerIteration": 0.36,
+            "meanDurationMsPerCall": 0.36,
+            "requestEncodedBytesTotal": 633,
+            "requestEncodedBytesPerIteration": 211,
+            "requestPayloadBytesTotal": 456,
+            "requestPayloadBytesPerIteration": 152,
+            "responseEncodedBytesTotal": 9933,
+            "responseEncodedBytesPerIteration": 3311,
+            "responsePayloadBytesTotal": 9792,
+            "responsePayloadBytesPerIteration": 3264,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_log",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 0.302,
+            "durationMsPerIteration": 0.101,
+            "meanDurationMsPerCall": 0.101,
+            "requestEncodedBytesTotal": 462,
+            "requestEncodedBytesPerIteration": 154,
+            "requestPayloadBytesTotal": 306,
+            "requestPayloadBytesPerIteration": 102,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          }
+        ],
+        "methodsByResponseBytes": [
+          {
+            "method": "_loadPolyfill",
+            "callsTotal": 15720,
+            "callsPerIteration": 5240,
+            "totalDurationMs": 2619.255,
+            "durationMsPerIteration": 873.085,
+            "meanDurationMsPerCall": 0.167,
+            "requestEncodedBytesTotal": 2626764,
+            "requestEncodedBytesPerIteration": 875588,
+            "requestPayloadBytesTotal": 1667844,
+            "requestPayloadBytesPerIteration": 555948,
+            "responseEncodedBytesTotal": 28062579,
+            "responseEncodedBytesPerIteration": 9354193,
+            "responsePayloadBytesTotal": 27323739,
+            "responsePayloadBytesPerIteration": 9107913,
+            "statusCounts": {
+              "0": 15720
+            }
+          },
+          {
+            "method": "_resolveModule",
+            "callsTotal": 102,
+            "callsPerIteration": 34,
+            "totalDurationMs": 153.251,
+            "durationMsPerIteration": 51.084,
+            "meanDurationMsPerCall": 1.502,
+            "requestEncodedBytesTotal": 19581,
+            "requestEncodedBytesPerIteration": 6527,
+            "requestPayloadBytesTotal": 13257,
+            "requestPayloadBytesPerIteration": 4419,
+            "responseEncodedBytesTotal": 14385,
+            "responseEncodedBytesPerIteration": 4795,
+            "responsePayloadBytesTotal": 9591,
+            "responsePayloadBytesPerIteration": 3197,
+            "statusCounts": {
+              "0": 102
+            }
+          },
+          {
+            "method": "_fsReadFile",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 1.08,
+            "durationMsPerIteration": 0.36,
+            "meanDurationMsPerCall": 0.36,
+            "requestEncodedBytesTotal": 633,
+            "requestEncodedBytesPerIteration": 211,
+            "requestPayloadBytesTotal": 456,
+            "requestPayloadBytesPerIteration": 152,
+            "responseEncodedBytesTotal": 9933,
+            "responseEncodedBytesPerIteration": 3311,
+            "responsePayloadBytesTotal": 9792,
+            "responsePayloadBytesPerIteration": 3264,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_fsExists",
+            "callsTotal": 6,
+            "callsPerIteration": 2,
+            "totalDurationMs": 1.704,
+            "durationMsPerIteration": 0.568,
+            "meanDurationMsPerCall": 0.284,
+            "requestEncodedBytesTotal": 1269,
+            "requestEncodedBytesPerIteration": 423,
+            "requestPayloadBytesTotal": 927,
+            "requestPayloadBytesPerIteration": 309,
+            "responseEncodedBytesTotal": 300,
+            "responseEncodedBytesPerIteration": 100,
+            "responsePayloadBytesTotal": 18,
+            "responsePayloadBytesPerIteration": 6,
+            "statusCounts": {
+              "0": 6
+            }
+          },
+          {
+            "method": "_log",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 0.302,
+            "durationMsPerIteration": 0.101,
+            "meanDurationMsPerCall": 0.101,
+            "requestEncodedBytesTotal": 462,
+            "requestEncodedBytesPerIteration": 154,
+            "requestPayloadBytesTotal": 306,
+            "requestPayloadBytesPerIteration": 102,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          }
+        ],
+        "framesByEncodedBytes": [
+          {
+            "direction": "send",
+            "frameType": "BridgeResponse",
+            "countTotal": 15834,
+            "countPerIteration": 5278,
+            "encodedBytesTotal": 28087338,
+            "encodedBytesPerIteration": 9362446,
+            "payloadBytesTotal": 27343140,
+            "payloadBytesPerIteration": 9114380
+          },
+          {
+            "direction": "send",
+            "frameType": "Execute",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 3722448,
+            "encodedBytesPerIteration": 1240816,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "recv",
+            "frameType": "BridgeCall",
+            "countTotal": 15834,
+            "countPerIteration": 5278,
+            "encodedBytesTotal": 2648709,
+            "encodedBytesPerIteration": 882903,
+            "payloadBytesTotal": 1682790,
+            "payloadBytesPerIteration": 560930
+          },
+          {
+            "direction": "send",
+            "frameType": "WarmSnapshot",
+            "countTotal": 1,
+            "countPerIteration": 0.333,
+            "encodedBytesTotal": 1044961,
+            "encodedBytesPerIteration": 348320.333,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "InjectGlobals",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 708,
+            "encodedBytesPerIteration": 236,
+            "payloadBytesTotal": 594,
+            "payloadBytesPerIteration": 198
+          },
+          {
+            "direction": "send",
+            "frameType": "CreateSession",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 138,
+            "encodedBytesPerIteration": 46,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "recv",
+            "frameType": "ExecutionResult",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 129,
+            "encodedBytesPerIteration": 43,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "DestroySession",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 114,
+            "encodedBytesPerIteration": 38,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "Authenticate",
+            "countTotal": 1,
+            "countPerIteration": 0.333,
+            "encodedBytesTotal": 38,
+            "encodedBytesPerIteration": 12.667,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          }
+        ],
+        "frames": [
+          {
+            "direction": "recv",
+            "frameType": "BridgeCall",
+            "countTotal": 15834,
+            "countPerIteration": 5278,
+            "encodedBytesTotal": 2648709,
+            "encodedBytesPerIteration": 882903,
+            "payloadBytesTotal": 1682790,
+            "payloadBytesPerIteration": 560930
+          },
+          {
+            "direction": "recv",
+            "frameType": "ExecutionResult",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 129,
+            "encodedBytesPerIteration": 43,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "Authenticate",
+            "countTotal": 1,
+            "countPerIteration": 0.333,
+            "encodedBytesTotal": 38,
+            "encodedBytesPerIteration": 12.667,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "BridgeResponse",
+            "countTotal": 15834,
+            "countPerIteration": 5278,
+            "encodedBytesTotal": 28087338,
+            "encodedBytesPerIteration": 9362446,
+            "payloadBytesTotal": 27343140,
+            "payloadBytesPerIteration": 9114380
+          },
+          {
+            "direction": "send",
+            "frameType": "CreateSession",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 138,
+            "encodedBytesPerIteration": 46,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "DestroySession",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 114,
+            "encodedBytesPerIteration": 38,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "Execute",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 3722448,
+            "encodedBytesPerIteration": 1240816,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "InjectGlobals",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 708,
+            "encodedBytesPerIteration": 236,
+            "payloadBytesTotal": 594,
+            "payloadBytesPerIteration": 198
+          },
+          {
+            "direction": "send",
+            "frameType": "WarmSnapshot",
+            "countTotal": 1,
+            "countPerIteration": 0.333,
+            "encodedBytesTotal": 1044961,
+            "encodedBytesPerIteration": 348320.333,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          }
+        ]
+      },
+      "progressSignals": {
+        "warmWallMsMean": 1676.693,
+        "bridgeCallsPerIteration": 5278,
+        "fixedSessionOverheadWarmMsMean": 107.224,
+        "dominantBridgeMethodByTime": {
+          "method": "_loadPolyfill",
+          "durationMsPerIteration": 873.085,
+          "callsPerIteration": 5240
+        },
+        "dominantBridgeMethodByCount": {
+          "method": "_loadPolyfill",
+          "callsPerIteration": 5240,
+          "durationMsPerIteration": 873.085
+        },
+        "dominantBridgeMethodByResponseBytes": {
+          "method": "_loadPolyfill",
+          "responseEncodedBytesPerIteration": 9354193
+        },
+        "dominantFrameByEncodedBytes": {
+          "direction": "send",
+          "frameType": "BridgeResponse",
+          "encodedBytesPerIteration": 9362446
+        }
+      },
+      "comparisonToPrevious": {
+        "baselineScenarioCreatedAt": "2026-03-31T04:01:58.056Z",
+        "metrics": {
+          "warmWallMsMean": {
+            "before": 1615.126,
+            "after": 1676.693,
+            "delta": 61.567,
+            "deltaPercent": 3.812
+          },
+          "bridgeCallsPerIteration": {
+            "before": 5278,
+            "after": 5278,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "fixedSessionOverheadWarmMsMean": {
+            "before": 107.054,
+            "after": 107.224,
+            "delta": 0.17,
+            "deltaPercent": 0.159
+          },
+          "bridgeDurationPerIterationMs": {
+            "before": 843.322,
+            "after": 925.197,
+            "delta": 81.875,
+            "deltaPercent": 9.709
+          },
+          "bridgeResponseFrameBytesPerIteration": {
+            "before": 9362446,
+            "after": 9362446,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "executeWarmMsMean": {
+            "before": 1508.072,
+            "after": 1569.469,
+            "delta": 61.397,
+            "deltaPercent": 4.071
+          }
+        },
+        "bridgeMethodDurationDeltas": [
+          {
+            "method": "_loadPolyfill",
+            "before": 802.036,
+            "after": 873.085,
+            "delta": 71.049
+          },
+          {
+            "method": "_resolveModule",
+            "before": 40.252,
+            "after": 51.084,
+            "delta": 10.832
+          },
+          {
+            "method": "_fsExists",
+            "before": 0.422,
+            "after": 0.568,
+            "delta": 0.146
+          },
+          {
+            "method": "_log",
+            "before": 0.212,
+            "after": 0.101,
+            "delta": -0.111
+          },
+          {
+            "method": "_fsReadFile",
+            "before": 0.4,
+            "after": 0.36,
+            "delta": -0.04
+          }
+        ],
+        "bridgeMethodCountDeltas": [],
+        "bridgeMethodResponseByteDeltas": [],
+        "frameEncodedByteDeltas": []
+      }
+    },
+    {
+      "scenarioId": "pi-sdk-end-to-end",
+      "title": "Pi SDK End-to-End",
+      "target": "pi_sdk",
+      "kind": "end_to_end",
+      "description": "Runs createAgentSession + runPrintMode against the mock Anthropic SSE server.",
+      "createdAt": "2026-03-31T04:18:24.133Z",
+      "iterations": 3,
+      "artifacts": {
+        "resultFile": "pi-sdk-end-to-end/result.json",
+        "metricsFile": "pi-sdk-end-to-end/metrics.prom",
+        "logFile": "pi-sdk-end-to-end/ipc.ndjson",
+        "summaryFile": "pi-sdk-end-to-end/summary.json",
+        "summaryMarkdownFile": "pi-sdk-end-to-end/summary.md"
+      },
+      "timing": {
+        "coldWallMs": 2685.426,
+        "warmWallMsMean": 2062.543,
+        "coldSandboxMs": 0,
+        "warmSandboxMsMean": 0,
+        "coldExecuteDurationMs": 2569.297,
+        "warmExecuteDurationMsMean": 1956.034,
+        "coldFixedSessionOverheadMs": 116.129,
+        "warmFixedSessionOverheadMsMean": 106.51
+      },
+      "iterationsDetail": [
+        {
+          "iteration": 1,
+          "sessionId": "6731e9cbc50edfad21d8834f25529623",
+          "wallMs": 2685.426,
+          "sandboxMs": 0,
+          "executeDurationMs": 2569.297,
+          "fixedSessionOverheadMs": 116.129,
+          "bridgeCalls": 5747,
+          "bridgeDurationMs": 1384.199,
+          "bridgeCallEncodedBytes": 966611,
+          "bridgeResponseEncodedBytes": 9715780,
+          "bridgeCallPayloadBytes": 616170,
+          "bridgeResponsePayloadBytes": 9445671,
+          "mockRequests": 1,
+          "stdoutBytes": 67,
+          "stderrBytes": 0,
+          "checks": {
+            "messageCount": 2
+          }
+        },
+        {
+          "iteration": 2,
+          "sessionId": "063b4ffc96c4ad7b7a8ccc672470a647",
+          "wallMs": 2090.401,
+          "sandboxMs": 0,
+          "executeDurationMs": 1983.226,
+          "fixedSessionOverheadMs": 107.175,
+          "bridgeCalls": 5747,
+          "bridgeDurationMs": 927.002,
+          "bridgeCallEncodedBytes": 966611,
+          "bridgeResponseEncodedBytes": 9715780,
+          "bridgeCallPayloadBytes": 616170,
+          "bridgeResponsePayloadBytes": 9445671,
+          "mockRequests": 1,
+          "stdoutBytes": 67,
+          "stderrBytes": 0,
+          "checks": {
+            "messageCount": 2
+          }
+        },
+        {
+          "iteration": 3,
+          "sessionId": "145a5ef6f6bc6afb26f3a5932d0ca1b3",
+          "wallMs": 2034.686,
+          "sandboxMs": 0,
+          "executeDurationMs": 1928.842,
+          "fixedSessionOverheadMs": 105.844,
+          "bridgeCalls": 5747,
+          "bridgeDurationMs": 832.342,
+          "bridgeCallEncodedBytes": 966611,
+          "bridgeResponseEncodedBytes": 9715780,
+          "bridgeCallPayloadBytes": 616170,
+          "bridgeResponsePayloadBytes": 9445671,
+          "mockRequests": 1,
+          "stdoutBytes": 67,
+          "stderrBytes": 0,
+          "checks": {
+            "messageCount": 2
+          }
+        }
+      ],
+      "bridge": {
+        "totalCalls": 17241,
+        "callsPerIteration": 5747,
+        "totalDurationMs": 3143.543,
+        "durationMsPerIteration": 1047.848,
+        "methodsByCount": [
+          {
+            "method": "_loadPolyfill",
+            "callsTotal": 16992,
+            "callsPerIteration": 5664,
+            "totalDurationMs": 2905.166,
+            "durationMsPerIteration": 968.389,
+            "meanDurationMsPerCall": 0.171,
+            "requestEncodedBytesTotal": 2846049,
+            "requestEncodedBytesPerIteration": 948683,
+            "requestPayloadBytesTotal": 1809537,
+            "requestPayloadBytesPerIteration": 603179,
+            "responseEncodedBytesTotal": 29111475,
+            "responseEncodedBytesPerIteration": 9703825,
+            "responsePayloadBytesTotal": 28312851,
+            "responsePayloadBytesPerIteration": 9437617,
+            "statusCounts": {
+              "0": 16992
+            }
+          },
+          {
+            "method": "_fsExists",
+            "callsTotal": 114,
+            "callsPerIteration": 38,
+            "totalDurationMs": 85.698,
+            "durationMsPerIteration": 28.566,
+            "meanDurationMsPerCall": 0.752,
+            "requestEncodedBytesTotal": 14415,
+            "requestEncodedBytesPerIteration": 4805,
+            "requestPayloadBytesTotal": 7917,
+            "requestPayloadBytesPerIteration": 2639,
+            "responseEncodedBytesTotal": 5700,
+            "responseEncodedBytesPerIteration": 1900,
+            "responsePayloadBytesTotal": 342,
+            "responsePayloadBytesPerIteration": 114,
+            "statusCounts": {
+              "0": 114
+            }
+          },
+          {
+            "method": "_resolveModule",
+            "callsTotal": 102,
+            "callsPerIteration": 34,
+            "totalDurationMs": 124.464,
+            "durationMsPerIteration": 41.488,
+            "meanDurationMsPerCall": 1.22,
+            "requestEncodedBytesTotal": 19581,
+            "requestEncodedBytesPerIteration": 6527,
+            "requestPayloadBytesTotal": 13257,
+            "requestPayloadBytesPerIteration": 4419,
+            "responseEncodedBytesTotal": 14385,
+            "responseEncodedBytesPerIteration": 4795,
+            "responsePayloadBytesTotal": 9591,
+            "responsePayloadBytesPerIteration": 3197,
+            "statusCounts": {
+              "0": 102
+            }
+          },
+          {
+            "method": "_cryptoRandomUUID",
+            "callsTotal": 15,
+            "callsPerIteration": 5,
+            "totalDurationMs": 0.649,
+            "durationMsPerIteration": 0.216,
+            "meanDurationMsPerCall": 0.043,
+            "requestEncodedBytesTotal": 1080,
+            "requestEncodedBytesPerIteration": 360,
+            "requestPayloadBytesTotal": 105,
+            "requestPayloadBytesPerIteration": 35,
+            "responseEncodedBytesTotal": 1305,
+            "responseEncodedBytesPerIteration": 435,
+            "responsePayloadBytesTotal": 600,
+            "responsePayloadBytesPerIteration": 200,
+            "statusCounts": {
+              "0": 15
+            }
+          },
+          {
+            "method": "_log",
+            "callsTotal": 9,
+            "callsPerIteration": 3,
+            "totalDurationMs": 0.412,
+            "durationMsPerIteration": 0.137,
+            "meanDurationMsPerCall": 0.046,
+            "requestEncodedBytesTotal": 768,
+            "requestEncodedBytesPerIteration": 256,
+            "requestPayloadBytesTotal": 300,
+            "requestPayloadBytesPerIteration": 100,
+            "responseEncodedBytesTotal": 423,
+            "responseEncodedBytesPerIteration": 141,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 9
+            }
+          },
+          {
+            "method": "_fsReadFile",
+            "callsTotal": 6,
+            "callsPerIteration": 2,
+            "totalDurationMs": 8.668,
+            "durationMsPerIteration": 2.889,
+            "meanDurationMsPerCall": 1.445,
+            "requestEncodedBytesTotal": 996,
+            "requestEncodedBytesPerIteration": 332,
+            "requestPayloadBytesTotal": 642,
+            "requestPayloadBytesPerIteration": 214,
+            "responseEncodedBytesTotal": 10359,
+            "responseEncodedBytesPerIteration": 3453,
+            "responsePayloadBytesTotal": 10077,
+            "responsePayloadBytesPerIteration": 3359,
+            "statusCounts": {
+              "0": 6
+            }
+          },
+          {
+            "method": "_networkFetchRaw",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 18.486,
+            "durationMsPerIteration": 6.162,
+            "meanDurationMsPerCall": 6.162,
+            "requestEncodedBytesTotal": 16944,
+            "requestEncodedBytesPerIteration": 5648,
+            "requestPayloadBytesTotal": 16752,
+            "requestPayloadBytesPerIteration": 5584,
+            "responseEncodedBytesTotal": 3693,
+            "responseEncodedBytesPerIteration": 1231,
+            "responsePayloadBytesTotal": 3552,
+            "responsePayloadBytesPerIteration": 1184,
+            "statusCounts": {
+              "0": 3
+            }
+          }
+        ],
+        "methodsByTime": [
+          {
+            "method": "_loadPolyfill",
+            "callsTotal": 16992,
+            "callsPerIteration": 5664,
+            "totalDurationMs": 2905.166,
+            "durationMsPerIteration": 968.389,
+            "meanDurationMsPerCall": 0.171,
+            "requestEncodedBytesTotal": 2846049,
+            "requestEncodedBytesPerIteration": 948683,
+            "requestPayloadBytesTotal": 1809537,
+            "requestPayloadBytesPerIteration": 603179,
+            "responseEncodedBytesTotal": 29111475,
+            "responseEncodedBytesPerIteration": 9703825,
+            "responsePayloadBytesTotal": 28312851,
+            "responsePayloadBytesPerIteration": 9437617,
+            "statusCounts": {
+              "0": 16992
+            }
+          },
+          {
+            "method": "_resolveModule",
+            "callsTotal": 102,
+            "callsPerIteration": 34,
+            "totalDurationMs": 124.464,
+            "durationMsPerIteration": 41.488,
+            "meanDurationMsPerCall": 1.22,
+            "requestEncodedBytesTotal": 19581,
+            "requestEncodedBytesPerIteration": 6527,
+            "requestPayloadBytesTotal": 13257,
+            "requestPayloadBytesPerIteration": 4419,
+            "responseEncodedBytesTotal": 14385,
+            "responseEncodedBytesPerIteration": 4795,
+            "responsePayloadBytesTotal": 9591,
+            "responsePayloadBytesPerIteration": 3197,
+            "statusCounts": {
+              "0": 102
+            }
+          },
+          {
+            "method": "_fsExists",
+            "callsTotal": 114,
+            "callsPerIteration": 38,
+            "totalDurationMs": 85.698,
+            "durationMsPerIteration": 28.566,
+            "meanDurationMsPerCall": 0.752,
+            "requestEncodedBytesTotal": 14415,
+            "requestEncodedBytesPerIteration": 4805,
+            "requestPayloadBytesTotal": 7917,
+            "requestPayloadBytesPerIteration": 2639,
+            "responseEncodedBytesTotal": 5700,
+            "responseEncodedBytesPerIteration": 1900,
+            "responsePayloadBytesTotal": 342,
+            "responsePayloadBytesPerIteration": 114,
+            "statusCounts": {
+              "0": 114
+            }
+          },
+          {
+            "method": "_networkFetchRaw",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 18.486,
+            "durationMsPerIteration": 6.162,
+            "meanDurationMsPerCall": 6.162,
+            "requestEncodedBytesTotal": 16944,
+            "requestEncodedBytesPerIteration": 5648,
+            "requestPayloadBytesTotal": 16752,
+            "requestPayloadBytesPerIteration": 5584,
+            "responseEncodedBytesTotal": 3693,
+            "responseEncodedBytesPerIteration": 1231,
+            "responsePayloadBytesTotal": 3552,
+            "responsePayloadBytesPerIteration": 1184,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_fsReadFile",
+            "callsTotal": 6,
+            "callsPerIteration": 2,
+            "totalDurationMs": 8.668,
+            "durationMsPerIteration": 2.889,
+            "meanDurationMsPerCall": 1.445,
+            "requestEncodedBytesTotal": 996,
+            "requestEncodedBytesPerIteration": 332,
+            "requestPayloadBytesTotal": 642,
+            "requestPayloadBytesPerIteration": 214,
+            "responseEncodedBytesTotal": 10359,
+            "responseEncodedBytesPerIteration": 3453,
+            "responsePayloadBytesTotal": 10077,
+            "responsePayloadBytesPerIteration": 3359,
+            "statusCounts": {
+              "0": 6
+            }
+          },
+          {
+            "method": "_cryptoRandomUUID",
+            "callsTotal": 15,
+            "callsPerIteration": 5,
+            "totalDurationMs": 0.649,
+            "durationMsPerIteration": 0.216,
+            "meanDurationMsPerCall": 0.043,
+            "requestEncodedBytesTotal": 1080,
+            "requestEncodedBytesPerIteration": 360,
+            "requestPayloadBytesTotal": 105,
+            "requestPayloadBytesPerIteration": 35,
+            "responseEncodedBytesTotal": 1305,
+            "responseEncodedBytesPerIteration": 435,
+            "responsePayloadBytesTotal": 600,
+            "responsePayloadBytesPerIteration": 200,
+            "statusCounts": {
+              "0": 15
+            }
+          },
+          {
+            "method": "_log",
+            "callsTotal": 9,
+            "callsPerIteration": 3,
+            "totalDurationMs": 0.412,
+            "durationMsPerIteration": 0.137,
+            "meanDurationMsPerCall": 0.046,
+            "requestEncodedBytesTotal": 768,
+            "requestEncodedBytesPerIteration": 256,
+            "requestPayloadBytesTotal": 300,
+            "requestPayloadBytesPerIteration": 100,
+            "responseEncodedBytesTotal": 423,
+            "responseEncodedBytesPerIteration": 141,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 9
+            }
+          }
+        ],
+        "methodsByResponseBytes": [
+          {
+            "method": "_loadPolyfill",
+            "callsTotal": 16992,
+            "callsPerIteration": 5664,
+            "totalDurationMs": 2905.166,
+            "durationMsPerIteration": 968.389,
+            "meanDurationMsPerCall": 0.171,
+            "requestEncodedBytesTotal": 2846049,
+            "requestEncodedBytesPerIteration": 948683,
+            "requestPayloadBytesTotal": 1809537,
+            "requestPayloadBytesPerIteration": 603179,
+            "responseEncodedBytesTotal": 29111475,
+            "responseEncodedBytesPerIteration": 9703825,
+            "responsePayloadBytesTotal": 28312851,
+            "responsePayloadBytesPerIteration": 9437617,
+            "statusCounts": {
+              "0": 16992
+            }
+          },
+          {
+            "method": "_resolveModule",
+            "callsTotal": 102,
+            "callsPerIteration": 34,
+            "totalDurationMs": 124.464,
+            "durationMsPerIteration": 41.488,
+            "meanDurationMsPerCall": 1.22,
+            "requestEncodedBytesTotal": 19581,
+            "requestEncodedBytesPerIteration": 6527,
+            "requestPayloadBytesTotal": 13257,
+            "requestPayloadBytesPerIteration": 4419,
+            "responseEncodedBytesTotal": 14385,
+            "responseEncodedBytesPerIteration": 4795,
+            "responsePayloadBytesTotal": 9591,
+            "responsePayloadBytesPerIteration": 3197,
+            "statusCounts": {
+              "0": 102
+            }
+          },
+          {
+            "method": "_fsReadFile",
+            "callsTotal": 6,
+            "callsPerIteration": 2,
+            "totalDurationMs": 8.668,
+            "durationMsPerIteration": 2.889,
+            "meanDurationMsPerCall": 1.445,
+            "requestEncodedBytesTotal": 996,
+            "requestEncodedBytesPerIteration": 332,
+            "requestPayloadBytesTotal": 642,
+            "requestPayloadBytesPerIteration": 214,
+            "responseEncodedBytesTotal": 10359,
+            "responseEncodedBytesPerIteration": 3453,
+            "responsePayloadBytesTotal": 10077,
+            "responsePayloadBytesPerIteration": 3359,
+            "statusCounts": {
+              "0": 6
+            }
+          },
+          {
+            "method": "_fsExists",
+            "callsTotal": 114,
+            "callsPerIteration": 38,
+            "totalDurationMs": 85.698,
+            "durationMsPerIteration": 28.566,
+            "meanDurationMsPerCall": 0.752,
+            "requestEncodedBytesTotal": 14415,
+            "requestEncodedBytesPerIteration": 4805,
+            "requestPayloadBytesTotal": 7917,
+            "requestPayloadBytesPerIteration": 2639,
+            "responseEncodedBytesTotal": 5700,
+            "responseEncodedBytesPerIteration": 1900,
+            "responsePayloadBytesTotal": 342,
+            "responsePayloadBytesPerIteration": 114,
+            "statusCounts": {
+              "0": 114
+            }
+          },
+          {
+            "method": "_networkFetchRaw",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 18.486,
+            "durationMsPerIteration": 6.162,
+            "meanDurationMsPerCall": 6.162,
+            "requestEncodedBytesTotal": 16944,
+            "requestEncodedBytesPerIteration": 5648,
+            "requestPayloadBytesTotal": 16752,
+            "requestPayloadBytesPerIteration": 5584,
+            "responseEncodedBytesTotal": 3693,
+            "responseEncodedBytesPerIteration": 1231,
+            "responsePayloadBytesTotal": 3552,
+            "responsePayloadBytesPerIteration": 1184,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_cryptoRandomUUID",
+            "callsTotal": 15,
+            "callsPerIteration": 5,
+            "totalDurationMs": 0.649,
+            "durationMsPerIteration": 0.216,
+            "meanDurationMsPerCall": 0.043,
+            "requestEncodedBytesTotal": 1080,
+            "requestEncodedBytesPerIteration": 360,
+            "requestPayloadBytesTotal": 105,
+            "requestPayloadBytesPerIteration": 35,
+            "responseEncodedBytesTotal": 1305,
+            "responseEncodedBytesPerIteration": 435,
+            "responsePayloadBytesTotal": 600,
+            "responsePayloadBytesPerIteration": 200,
+            "statusCounts": {
+              "0": 15
+            }
+          },
+          {
+            "method": "_log",
+            "callsTotal": 9,
+            "callsPerIteration": 3,
+            "totalDurationMs": 0.412,
+            "durationMsPerIteration": 0.137,
+            "meanDurationMsPerCall": 0.046,
+            "requestEncodedBytesTotal": 768,
+            "requestEncodedBytesPerIteration": 256,
+            "requestPayloadBytesTotal": 300,
+            "requestPayloadBytesPerIteration": 100,
+            "responseEncodedBytesTotal": 423,
+            "responseEncodedBytesPerIteration": 141,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 9
+            }
+          }
+        ],
+        "framesByEncodedBytes": [
+          {
+            "direction": "send",
+            "frameType": "BridgeResponse",
+            "countTotal": 17241,
+            "countPerIteration": 5747,
+            "encodedBytesTotal": 29147340,
+            "encodedBytesPerIteration": 9715780,
+            "payloadBytesTotal": 28337013,
+            "payloadBytesPerIteration": 9445671
+          },
+          {
+            "direction": "send",
+            "frameType": "Execute",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 3725205,
+            "encodedBytesPerIteration": 1241735,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "recv",
+            "frameType": "BridgeCall",
+            "countTotal": 17241,
+            "countPerIteration": 5747,
+            "encodedBytesTotal": 2899833,
+            "encodedBytesPerIteration": 966611,
+            "payloadBytesTotal": 1848510,
+            "payloadBytesPerIteration": 616170
+          },
+          {
+            "direction": "send",
+            "frameType": "WarmSnapshot",
+            "countTotal": 1,
+            "countPerIteration": 0.333,
+            "encodedBytesTotal": 1044961,
+            "encodedBytesPerIteration": 348320.333,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "InjectGlobals",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 684,
+            "encodedBytesPerIteration": 228,
+            "payloadBytesTotal": 570,
+            "payloadBytesPerIteration": 190
+          },
+          {
+            "direction": "send",
+            "frameType": "CreateSession",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 138,
+            "encodedBytesPerIteration": 46,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "recv",
+            "frameType": "ExecutionResult",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 129,
+            "encodedBytesPerIteration": 43,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "DestroySession",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 114,
+            "encodedBytesPerIteration": 38,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "Authenticate",
+            "countTotal": 1,
+            "countPerIteration": 0.333,
+            "encodedBytesTotal": 38,
+            "encodedBytesPerIteration": 12.667,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          }
+        ],
+        "frames": [
+          {
+            "direction": "recv",
+            "frameType": "BridgeCall",
+            "countTotal": 17241,
+            "countPerIteration": 5747,
+            "encodedBytesTotal": 2899833,
+            "encodedBytesPerIteration": 966611,
+            "payloadBytesTotal": 1848510,
+            "payloadBytesPerIteration": 616170
+          },
+          {
+            "direction": "recv",
+            "frameType": "ExecutionResult",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 129,
+            "encodedBytesPerIteration": 43,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "Authenticate",
+            "countTotal": 1,
+            "countPerIteration": 0.333,
+            "encodedBytesTotal": 38,
+            "encodedBytesPerIteration": 12.667,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "BridgeResponse",
+            "countTotal": 17241,
+            "countPerIteration": 5747,
+            "encodedBytesTotal": 29147340,
+            "encodedBytesPerIteration": 9715780,
+            "payloadBytesTotal": 28337013,
+            "payloadBytesPerIteration": 9445671
+          },
+          {
+            "direction": "send",
+            "frameType": "CreateSession",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 138,
+            "encodedBytesPerIteration": 46,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "DestroySession",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 114,
+            "encodedBytesPerIteration": 38,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "Execute",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 3725205,
+            "encodedBytesPerIteration": 1241735,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "InjectGlobals",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 684,
+            "encodedBytesPerIteration": 228,
+            "payloadBytesTotal": 570,
+            "payloadBytesPerIteration": 190
+          },
+          {
+            "direction": "send",
+            "frameType": "WarmSnapshot",
+            "countTotal": 1,
+            "countPerIteration": 0.333,
+            "encodedBytesTotal": 1044961,
+            "encodedBytesPerIteration": 348320.333,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          }
+        ]
+      },
+      "progressSignals": {
+        "warmWallMsMean": 2062.543,
+        "bridgeCallsPerIteration": 5747,
+        "fixedSessionOverheadWarmMsMean": 106.51,
+        "dominantBridgeMethodByTime": {
+          "method": "_loadPolyfill",
+          "durationMsPerIteration": 968.389,
+          "callsPerIteration": 5664
+        },
+        "dominantBridgeMethodByCount": {
+          "method": "_loadPolyfill",
+          "callsPerIteration": 5664,
+          "durationMsPerIteration": 968.389
+        },
+        "dominantBridgeMethodByResponseBytes": {
+          "method": "_loadPolyfill",
+          "responseEncodedBytesPerIteration": 9703825
+        },
+        "dominantFrameByEncodedBytes": {
+          "direction": "send",
+          "frameType": "BridgeResponse",
+          "encodedBytesPerIteration": 9715780
+        }
+      },
+      "comparisonToPrevious": {
+        "baselineScenarioCreatedAt": "2026-03-31T04:02:05.028Z",
+        "metrics": {
+          "warmWallMsMean": {
+            "before": 2004.673,
+            "after": 2062.543,
+            "delta": 57.87,
+            "deltaPercent": 2.887
+          },
+          "bridgeCallsPerIteration": {
+            "before": 5747,
+            "after": 5747,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "fixedSessionOverheadWarmMsMean": {
+            "before": 105.947,
+            "after": 106.51,
+            "delta": 0.563,
+            "deltaPercent": 0.531
+          },
+          "bridgeDurationPerIterationMs": {
+            "before": 1046.459,
+            "after": 1047.848,
+            "delta": 1.389,
+            "deltaPercent": 0.133
+          },
+          "bridgeResponseFrameBytesPerIteration": {
+            "before": 9715780,
+            "after": 9715780,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "executeWarmMsMean": {
+            "before": 1898.726,
+            "after": 1956.034,
+            "delta": 57.308,
+            "deltaPercent": 3.018
+          }
+        },
+        "bridgeMethodDurationDeltas": [
+          {
+            "method": "_fsExists",
+            "before": 36.854,
+            "after": 28.566,
+            "delta": -8.288
+          },
+          {
+            "method": "_loadPolyfill",
+            "before": 962.518,
+            "after": 968.389,
+            "delta": 5.871
+          },
+          {
+            "method": "_networkFetchRaw",
+            "before": 3.014,
+            "after": 6.162,
+            "delta": 3.148
+          },
+          {
+            "method": "_resolveModule",
+            "before": 41.152,
+            "after": 41.488,
+            "delta": 0.336
+          },
+          {
+            "method": "_fsReadFile",
+            "before": 2.626,
+            "after": 2.889,
+            "delta": 0.263
+          }
+        ],
+        "bridgeMethodCountDeltas": [],
+        "bridgeMethodResponseByteDeltas": [],
+        "frameEncodedByteDeltas": []
+      }
+    },
+    {
+      "scenarioId": "pi-cli-startup",
+      "title": "Pi CLI Startup",
+      "target": "pi_cli",
+      "kind": "startup",
+      "description": "Boots the Pi CLI help path inside the sandbox.",
+      "createdAt": "2026-03-31T04:18:31.052Z",
+      "iterations": 3,
+      "artifacts": {
+        "resultFile": "pi-cli-startup/result.json",
+        "metricsFile": "pi-cli-startup/metrics.prom",
+        "logFile": "pi-cli-startup/ipc.ndjson",
+        "summaryFile": "pi-cli-startup/summary.json",
+        "summaryMarkdownFile": "pi-cli-startup/summary.md"
+      },
+      "timing": {
+        "coldWallMs": 2691.391,
+        "warmWallMsMean": 1899.87,
+        "coldExecuteDurationMs": 2579.741,
+        "warmExecuteDurationMsMean": 1792.226,
+        "coldFixedSessionOverheadMs": 111.65,
+        "warmFixedSessionOverheadMsMean": 107.644
+      },
+      "iterationsDetail": [
+        {
+          "iteration": 1,
+          "sessionId": "6631b9f31c793be23bc5a5d9205f169d",
+          "wallMs": 2691.391,
+          "executeDurationMs": 2579.741,
+          "fixedSessionOverheadMs": 111.65,
+          "bridgeCalls": 5336,
+          "bridgeDurationMs": 1423.612,
+          "bridgeCallEncodedBytes": 893538,
+          "bridgeResponseEncodedBytes": 9381016,
+          "bridgeCallPayloadBytes": 568233,
+          "bridgeResponsePayloadBytes": 9130224,
+          "stdoutBytes": 4096,
+          "stderrBytes": 220,
+          "checks": {
+            "stdoutHasUsage": true
+          }
+        },
+        {
+          "iteration": 2,
+          "sessionId": "4ba44b23df812aa900b3a91f46fe4769",
+          "wallMs": 1808.662,
+          "executeDurationMs": 1699.966,
+          "fixedSessionOverheadMs": 108.696,
+          "bridgeCalls": 5336,
+          "bridgeDurationMs": 848.222,
+          "bridgeCallEncodedBytes": 893538,
+          "bridgeResponseEncodedBytes": 9381016,
+          "bridgeCallPayloadBytes": 568233,
+          "bridgeResponsePayloadBytes": 9130224,
+          "stdoutBytes": 4096,
+          "stderrBytes": 220,
+          "checks": {
+            "stdoutHasUsage": true
+          }
+        },
+        {
+          "iteration": 3,
+          "sessionId": "289a4e03c75fdafd74494e00854fdd0b",
+          "wallMs": 1991.078,
+          "executeDurationMs": 1884.486,
+          "fixedSessionOverheadMs": 106.592,
+          "bridgeCalls": 5336,
+          "bridgeDurationMs": 931.993,
+          "bridgeCallEncodedBytes": 893538,
+          "bridgeResponseEncodedBytes": 9381014,
+          "bridgeCallPayloadBytes": 568233,
+          "bridgeResponsePayloadBytes": 9130222,
+          "stdoutBytes": 4096,
+          "stderrBytes": 220,
+          "checks": {
+            "stdoutHasUsage": true
+          }
+        }
+      ],
+      "bridge": {
+        "totalCalls": 16008,
+        "callsPerIteration": 5336,
+        "totalDurationMs": 3203.827,
+        "durationMsPerIteration": 1067.942,
+        "methodsByCount": [
+          {
+            "method": "_loadPolyfill",
+            "callsTotal": 15741,
+            "callsPerIteration": 5247,
+            "totalDurationMs": 2893.925,
+            "durationMsPerIteration": 964.642,
+            "meanDurationMsPerCall": 0.184,
+            "requestEncodedBytesTotal": 2629341,
+            "requestEncodedBytesPerIteration": 876447,
+            "requestPayloadBytesTotal": 1669140,
+            "requestPayloadBytesPerIteration": 556380,
+            "responseEncodedBytesTotal": 28110204,
+            "responseEncodedBytesPerIteration": 9370068,
+            "responsePayloadBytesTotal": 27370377,
+            "responsePayloadBytesPerIteration": 9123459,
+            "statusCounts": {
+              "0": 15741
+            }
+          },
+          {
+            "method": "_fsExists",
+            "callsTotal": 132,
+            "callsPerIteration": 44,
+            "totalDurationMs": 147.526,
+            "durationMsPerIteration": 49.175,
+            "meanDurationMsPerCall": 1.118,
+            "requestEncodedBytesTotal": 14772,
+            "requestEncodedBytesPerIteration": 4924,
+            "requestPayloadBytesTotal": 7248,
+            "requestPayloadBytesPerIteration": 2416,
+            "responseEncodedBytesTotal": 6600,
+            "responseEncodedBytesPerIteration": 2200,
+            "responsePayloadBytesTotal": 396,
+            "responsePayloadBytesPerIteration": 132,
+            "statusCounts": {
+              "0": 132
+            }
+          },
+          {
+            "method": "_resolveModule",
+            "callsTotal": 102,
+            "callsPerIteration": 34,
+            "totalDurationMs": 117.306,
+            "durationMsPerIteration": 39.102,
+            "meanDurationMsPerCall": 1.15,
+            "requestEncodedBytesTotal": 19581,
+            "requestEncodedBytesPerIteration": 6527,
+            "requestPayloadBytesTotal": 13257,
+            "requestPayloadBytesPerIteration": 4419,
+            "responseEncodedBytesTotal": 14385,
+            "responseEncodedBytesPerIteration": 4795,
+            "responsePayloadBytesTotal": 9591,
+            "responsePayloadBytesPerIteration": 3197,
+            "statusCounts": {
+              "0": 102
+            }
+          },
+          {
+            "method": "_fsReadFile",
+            "callsTotal": 6,
+            "callsPerIteration": 2,
+            "totalDurationMs": 6.322,
+            "durationMsPerIteration": 2.107,
+            "meanDurationMsPerCall": 1.054,
+            "requestEncodedBytesTotal": 990,
+            "requestEncodedBytesPerIteration": 330,
+            "requestPayloadBytesTotal": 636,
+            "requestPayloadBytesPerIteration": 212,
+            "responseEncodedBytesTotal": 10092,
+            "responseEncodedBytesPerIteration": 3364,
+            "responsePayloadBytesTotal": 9810,
+            "responsePayloadBytesPerIteration": 3270,
+            "statusCounts": {
+              "0": 6
+            }
+          },
+          {
+            "method": "_fsMkdir",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 15.808,
+            "durationMsPerIteration": 5.269,
+            "meanDurationMsPerCall": 5.269,
+            "requestEncodedBytesTotal": 372,
+            "requestEncodedBytesPerIteration": 124,
+            "requestPayloadBytesTotal": 204,
+            "requestPayloadBytesPerIteration": 68,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_fsStat",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 5.057,
+            "durationMsPerIteration": 1.686,
+            "meanDurationMsPerCall": 1.686,
+            "requestEncodedBytesTotal": 360,
+            "requestEncodedBytesPerIteration": 120,
+            "requestPayloadBytesTotal": 195,
+            "requestPayloadBytesPerIteration": 65,
+            "responseEncodedBytesTotal": 619,
+            "responseEncodedBytesPerIteration": 206.333,
+            "responsePayloadBytesTotal": 478,
+            "responsePayloadBytesPerIteration": 159.333,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_fsWriteFile",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 4.462,
+            "durationMsPerIteration": 1.487,
+            "meanDurationMsPerCall": 1.487,
+            "requestEncodedBytesTotal": 378,
+            "requestEncodedBytesPerIteration": 126,
+            "requestPayloadBytesTotal": 198,
+            "requestPayloadBytesPerIteration": 66,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_fsUtimes",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 4.306,
+            "durationMsPerIteration": 1.435,
+            "meanDurationMsPerCall": 1.435,
+            "requestEncodedBytesTotal": 432,
+            "requestEncodedBytesPerIteration": 144,
+            "requestPayloadBytesTotal": 261,
+            "requestPayloadBytesPerIteration": 87,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_fsChmod",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 4.261,
+            "durationMsPerIteration": 1.42,
+            "meanDurationMsPerCall": 1.42,
+            "requestEncodedBytesTotal": 363,
+            "requestEncodedBytesPerIteration": 121,
+            "requestPayloadBytesTotal": 195,
+            "requestPayloadBytesPerIteration": 65,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_fsRmdir",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 3.954,
+            "durationMsPerIteration": 1.318,
+            "meanDurationMsPerCall": 1.318,
+            "requestEncodedBytesTotal": 363,
+            "requestEncodedBytesPerIteration": 121,
+            "requestPayloadBytesTotal": 195,
+            "requestPayloadBytesPerIteration": 65,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_fsReadDir",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 0.71,
+            "durationMsPerIteration": 0.237,
+            "meanDurationMsPerCall": 0.237,
+            "requestEncodedBytesTotal": 324,
+            "requestEncodedBytesPerIteration": 108,
+            "requestPayloadBytesTotal": 150,
+            "requestPayloadBytesPerIteration": 50,
+            "responseEncodedBytesTotal": 159,
+            "responseEncodedBytesPerIteration": 53,
+            "responsePayloadBytesTotal": 18,
+            "responsePayloadBytesPerIteration": 6,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_log",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 0.131,
+            "durationMsPerIteration": 0.044,
+            "meanDurationMsPerCall": 0.044,
+            "requestEncodedBytesTotal": 12480,
+            "requestEncodedBytesPerIteration": 4160,
+            "requestPayloadBytesTotal": 12324,
+            "requestPayloadBytesPerIteration": 4108,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_error",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 0.059,
+            "durationMsPerIteration": 0.02,
+            "meanDurationMsPerCall": 0.02,
+            "requestEncodedBytesTotal": 858,
+            "requestEncodedBytesPerIteration": 286,
+            "requestPayloadBytesTotal": 696,
+            "requestPayloadBytesPerIteration": 232,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          }
+        ],
+        "methodsByTime": [
+          {
+            "method": "_loadPolyfill",
+            "callsTotal": 15741,
+            "callsPerIteration": 5247,
+            "totalDurationMs": 2893.925,
+            "durationMsPerIteration": 964.642,
+            "meanDurationMsPerCall": 0.184,
+            "requestEncodedBytesTotal": 2629341,
+            "requestEncodedBytesPerIteration": 876447,
+            "requestPayloadBytesTotal": 1669140,
+            "requestPayloadBytesPerIteration": 556380,
+            "responseEncodedBytesTotal": 28110204,
+            "responseEncodedBytesPerIteration": 9370068,
+            "responsePayloadBytesTotal": 27370377,
+            "responsePayloadBytesPerIteration": 9123459,
+            "statusCounts": {
+              "0": 15741
+            }
+          },
+          {
+            "method": "_fsExists",
+            "callsTotal": 132,
+            "callsPerIteration": 44,
+            "totalDurationMs": 147.526,
+            "durationMsPerIteration": 49.175,
+            "meanDurationMsPerCall": 1.118,
+            "requestEncodedBytesTotal": 14772,
+            "requestEncodedBytesPerIteration": 4924,
+            "requestPayloadBytesTotal": 7248,
+            "requestPayloadBytesPerIteration": 2416,
+            "responseEncodedBytesTotal": 6600,
+            "responseEncodedBytesPerIteration": 2200,
+            "responsePayloadBytesTotal": 396,
+            "responsePayloadBytesPerIteration": 132,
+            "statusCounts": {
+              "0": 132
+            }
+          },
+          {
+            "method": "_resolveModule",
+            "callsTotal": 102,
+            "callsPerIteration": 34,
+            "totalDurationMs": 117.306,
+            "durationMsPerIteration": 39.102,
+            "meanDurationMsPerCall": 1.15,
+            "requestEncodedBytesTotal": 19581,
+            "requestEncodedBytesPerIteration": 6527,
+            "requestPayloadBytesTotal": 13257,
+            "requestPayloadBytesPerIteration": 4419,
+            "responseEncodedBytesTotal": 14385,
+            "responseEncodedBytesPerIteration": 4795,
+            "responsePayloadBytesTotal": 9591,
+            "responsePayloadBytesPerIteration": 3197,
+            "statusCounts": {
+              "0": 102
+            }
+          },
+          {
+            "method": "_fsMkdir",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 15.808,
+            "durationMsPerIteration": 5.269,
+            "meanDurationMsPerCall": 5.269,
+            "requestEncodedBytesTotal": 372,
+            "requestEncodedBytesPerIteration": 124,
+            "requestPayloadBytesTotal": 204,
+            "requestPayloadBytesPerIteration": 68,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_fsReadFile",
+            "callsTotal": 6,
+            "callsPerIteration": 2,
+            "totalDurationMs": 6.322,
+            "durationMsPerIteration": 2.107,
+            "meanDurationMsPerCall": 1.054,
+            "requestEncodedBytesTotal": 990,
+            "requestEncodedBytesPerIteration": 330,
+            "requestPayloadBytesTotal": 636,
+            "requestPayloadBytesPerIteration": 212,
+            "responseEncodedBytesTotal": 10092,
+            "responseEncodedBytesPerIteration": 3364,
+            "responsePayloadBytesTotal": 9810,
+            "responsePayloadBytesPerIteration": 3270,
+            "statusCounts": {
+              "0": 6
+            }
+          },
+          {
+            "method": "_fsStat",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 5.057,
+            "durationMsPerIteration": 1.686,
+            "meanDurationMsPerCall": 1.686,
+            "requestEncodedBytesTotal": 360,
+            "requestEncodedBytesPerIteration": 120,
+            "requestPayloadBytesTotal": 195,
+            "requestPayloadBytesPerIteration": 65,
+            "responseEncodedBytesTotal": 619,
+            "responseEncodedBytesPerIteration": 206.333,
+            "responsePayloadBytesTotal": 478,
+            "responsePayloadBytesPerIteration": 159.333,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_fsWriteFile",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 4.462,
+            "durationMsPerIteration": 1.487,
+            "meanDurationMsPerCall": 1.487,
+            "requestEncodedBytesTotal": 378,
+            "requestEncodedBytesPerIteration": 126,
+            "requestPayloadBytesTotal": 198,
+            "requestPayloadBytesPerIteration": 66,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_fsUtimes",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 4.306,
+            "durationMsPerIteration": 1.435,
+            "meanDurationMsPerCall": 1.435,
+            "requestEncodedBytesTotal": 432,
+            "requestEncodedBytesPerIteration": 144,
+            "requestPayloadBytesTotal": 261,
+            "requestPayloadBytesPerIteration": 87,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_fsChmod",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 4.261,
+            "durationMsPerIteration": 1.42,
+            "meanDurationMsPerCall": 1.42,
+            "requestEncodedBytesTotal": 363,
+            "requestEncodedBytesPerIteration": 121,
+            "requestPayloadBytesTotal": 195,
+            "requestPayloadBytesPerIteration": 65,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_fsRmdir",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 3.954,
+            "durationMsPerIteration": 1.318,
+            "meanDurationMsPerCall": 1.318,
+            "requestEncodedBytesTotal": 363,
+            "requestEncodedBytesPerIteration": 121,
+            "requestPayloadBytesTotal": 195,
+            "requestPayloadBytesPerIteration": 65,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_fsReadDir",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 0.71,
+            "durationMsPerIteration": 0.237,
+            "meanDurationMsPerCall": 0.237,
+            "requestEncodedBytesTotal": 324,
+            "requestEncodedBytesPerIteration": 108,
+            "requestPayloadBytesTotal": 150,
+            "requestPayloadBytesPerIteration": 50,
+            "responseEncodedBytesTotal": 159,
+            "responseEncodedBytesPerIteration": 53,
+            "responsePayloadBytesTotal": 18,
+            "responsePayloadBytesPerIteration": 6,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_log",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 0.131,
+            "durationMsPerIteration": 0.044,
+            "meanDurationMsPerCall": 0.044,
+            "requestEncodedBytesTotal": 12480,
+            "requestEncodedBytesPerIteration": 4160,
+            "requestPayloadBytesTotal": 12324,
+            "requestPayloadBytesPerIteration": 4108,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_error",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 0.059,
+            "durationMsPerIteration": 0.02,
+            "meanDurationMsPerCall": 0.02,
+            "requestEncodedBytesTotal": 858,
+            "requestEncodedBytesPerIteration": 286,
+            "requestPayloadBytesTotal": 696,
+            "requestPayloadBytesPerIteration": 232,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          }
+        ],
+        "methodsByResponseBytes": [
+          {
+            "method": "_loadPolyfill",
+            "callsTotal": 15741,
+            "callsPerIteration": 5247,
+            "totalDurationMs": 2893.925,
+            "durationMsPerIteration": 964.642,
+            "meanDurationMsPerCall": 0.184,
+            "requestEncodedBytesTotal": 2629341,
+            "requestEncodedBytesPerIteration": 876447,
+            "requestPayloadBytesTotal": 1669140,
+            "requestPayloadBytesPerIteration": 556380,
+            "responseEncodedBytesTotal": 28110204,
+            "responseEncodedBytesPerIteration": 9370068,
+            "responsePayloadBytesTotal": 27370377,
+            "responsePayloadBytesPerIteration": 9123459,
+            "statusCounts": {
+              "0": 15741
+            }
+          },
+          {
+            "method": "_resolveModule",
+            "callsTotal": 102,
+            "callsPerIteration": 34,
+            "totalDurationMs": 117.306,
+            "durationMsPerIteration": 39.102,
+            "meanDurationMsPerCall": 1.15,
+            "requestEncodedBytesTotal": 19581,
+            "requestEncodedBytesPerIteration": 6527,
+            "requestPayloadBytesTotal": 13257,
+            "requestPayloadBytesPerIteration": 4419,
+            "responseEncodedBytesTotal": 14385,
+            "responseEncodedBytesPerIteration": 4795,
+            "responsePayloadBytesTotal": 9591,
+            "responsePayloadBytesPerIteration": 3197,
+            "statusCounts": {
+              "0": 102
+            }
+          },
+          {
+            "method": "_fsReadFile",
+            "callsTotal": 6,
+            "callsPerIteration": 2,
+            "totalDurationMs": 6.322,
+            "durationMsPerIteration": 2.107,
+            "meanDurationMsPerCall": 1.054,
+            "requestEncodedBytesTotal": 990,
+            "requestEncodedBytesPerIteration": 330,
+            "requestPayloadBytesTotal": 636,
+            "requestPayloadBytesPerIteration": 212,
+            "responseEncodedBytesTotal": 10092,
+            "responseEncodedBytesPerIteration": 3364,
+            "responsePayloadBytesTotal": 9810,
+            "responsePayloadBytesPerIteration": 3270,
+            "statusCounts": {
+              "0": 6
+            }
+          },
+          {
+            "method": "_fsExists",
+            "callsTotal": 132,
+            "callsPerIteration": 44,
+            "totalDurationMs": 147.526,
+            "durationMsPerIteration": 49.175,
+            "meanDurationMsPerCall": 1.118,
+            "requestEncodedBytesTotal": 14772,
+            "requestEncodedBytesPerIteration": 4924,
+            "requestPayloadBytesTotal": 7248,
+            "requestPayloadBytesPerIteration": 2416,
+            "responseEncodedBytesTotal": 6600,
+            "responseEncodedBytesPerIteration": 2200,
+            "responsePayloadBytesTotal": 396,
+            "responsePayloadBytesPerIteration": 132,
+            "statusCounts": {
+              "0": 132
+            }
+          },
+          {
+            "method": "_fsStat",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 5.057,
+            "durationMsPerIteration": 1.686,
+            "meanDurationMsPerCall": 1.686,
+            "requestEncodedBytesTotal": 360,
+            "requestEncodedBytesPerIteration": 120,
+            "requestPayloadBytesTotal": 195,
+            "requestPayloadBytesPerIteration": 65,
+            "responseEncodedBytesTotal": 619,
+            "responseEncodedBytesPerIteration": 206.333,
+            "responsePayloadBytesTotal": 478,
+            "responsePayloadBytesPerIteration": 159.333,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_fsReadDir",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 0.71,
+            "durationMsPerIteration": 0.237,
+            "meanDurationMsPerCall": 0.237,
+            "requestEncodedBytesTotal": 324,
+            "requestEncodedBytesPerIteration": 108,
+            "requestPayloadBytesTotal": 150,
+            "requestPayloadBytesPerIteration": 50,
+            "responseEncodedBytesTotal": 159,
+            "responseEncodedBytesPerIteration": 53,
+            "responsePayloadBytesTotal": 18,
+            "responsePayloadBytesPerIteration": 6,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_fsWriteFile",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 4.462,
+            "durationMsPerIteration": 1.487,
+            "meanDurationMsPerCall": 1.487,
+            "requestEncodedBytesTotal": 378,
+            "requestEncodedBytesPerIteration": 126,
+            "requestPayloadBytesTotal": 198,
+            "requestPayloadBytesPerIteration": 66,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_fsChmod",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 4.261,
+            "durationMsPerIteration": 1.42,
+            "meanDurationMsPerCall": 1.42,
+            "requestEncodedBytesTotal": 363,
+            "requestEncodedBytesPerIteration": 121,
+            "requestPayloadBytesTotal": 195,
+            "requestPayloadBytesPerIteration": 65,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_fsMkdir",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 15.808,
+            "durationMsPerIteration": 5.269,
+            "meanDurationMsPerCall": 5.269,
+            "requestEncodedBytesTotal": 372,
+            "requestEncodedBytesPerIteration": 124,
+            "requestPayloadBytesTotal": 204,
+            "requestPayloadBytesPerIteration": 68,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_fsUtimes",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 4.306,
+            "durationMsPerIteration": 1.435,
+            "meanDurationMsPerCall": 1.435,
+            "requestEncodedBytesTotal": 432,
+            "requestEncodedBytesPerIteration": 144,
+            "requestPayloadBytesTotal": 261,
+            "requestPayloadBytesPerIteration": 87,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_fsRmdir",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 3.954,
+            "durationMsPerIteration": 1.318,
+            "meanDurationMsPerCall": 1.318,
+            "requestEncodedBytesTotal": 363,
+            "requestEncodedBytesPerIteration": 121,
+            "requestPayloadBytesTotal": 195,
+            "requestPayloadBytesPerIteration": 65,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_log",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 0.131,
+            "durationMsPerIteration": 0.044,
+            "meanDurationMsPerCall": 0.044,
+            "requestEncodedBytesTotal": 12480,
+            "requestEncodedBytesPerIteration": 4160,
+            "requestPayloadBytesTotal": 12324,
+            "requestPayloadBytesPerIteration": 4108,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_error",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 0.059,
+            "durationMsPerIteration": 0.02,
+            "meanDurationMsPerCall": 0.02,
+            "requestEncodedBytesTotal": 858,
+            "requestEncodedBytesPerIteration": 286,
+            "requestPayloadBytesTotal": 696,
+            "requestPayloadBytesPerIteration": 232,
+            "responseEncodedBytesTotal": 141,
+            "responseEncodedBytesPerIteration": 47,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 3
+            }
+          }
+        ],
+        "framesByEncodedBytes": [
+          {
+            "direction": "send",
+            "frameType": "BridgeResponse",
+            "countTotal": 16008,
+            "countPerIteration": 5336,
+            "encodedBytesTotal": 28143046,
+            "encodedBytesPerIteration": 9381015.333,
+            "payloadBytesTotal": 27390670,
+            "payloadBytesPerIteration": 9130223.333
+          },
+          {
+            "direction": "send",
+            "frameType": "Execute",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 3722982,
+            "encodedBytesPerIteration": 1240994,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "recv",
+            "frameType": "BridgeCall",
+            "countTotal": 16008,
+            "countPerIteration": 5336,
+            "encodedBytesTotal": 2680614,
+            "encodedBytesPerIteration": 893538,
+            "payloadBytesTotal": 1704699,
+            "payloadBytesPerIteration": 568233
+          },
+          {
+            "direction": "send",
+            "frameType": "WarmSnapshot",
+            "countTotal": 1,
+            "countPerIteration": 0.333,
+            "encodedBytesTotal": 1044961,
+            "encodedBytesPerIteration": 348320.333,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "InjectGlobals",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 684,
+            "encodedBytesPerIteration": 228,
+            "payloadBytesTotal": 570,
+            "payloadBytesPerIteration": 190
+          },
+          {
+            "direction": "send",
+            "frameType": "CreateSession",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 138,
+            "encodedBytesPerIteration": 46,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "recv",
+            "frameType": "ExecutionResult",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 129,
+            "encodedBytesPerIteration": 43,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "DestroySession",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 114,
+            "encodedBytesPerIteration": 38,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "Authenticate",
+            "countTotal": 1,
+            "countPerIteration": 0.333,
+            "encodedBytesTotal": 38,
+            "encodedBytesPerIteration": 12.667,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          }
+        ],
+        "frames": [
+          {
+            "direction": "recv",
+            "frameType": "BridgeCall",
+            "countTotal": 16008,
+            "countPerIteration": 5336,
+            "encodedBytesTotal": 2680614,
+            "encodedBytesPerIteration": 893538,
+            "payloadBytesTotal": 1704699,
+            "payloadBytesPerIteration": 568233
+          },
+          {
+            "direction": "recv",
+            "frameType": "ExecutionResult",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 129,
+            "encodedBytesPerIteration": 43,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "Authenticate",
+            "countTotal": 1,
+            "countPerIteration": 0.333,
+            "encodedBytesTotal": 38,
+            "encodedBytesPerIteration": 12.667,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "BridgeResponse",
+            "countTotal": 16008,
+            "countPerIteration": 5336,
+            "encodedBytesTotal": 28143046,
+            "encodedBytesPerIteration": 9381015.333,
+            "payloadBytesTotal": 27390670,
+            "payloadBytesPerIteration": 9130223.333
+          },
+          {
+            "direction": "send",
+            "frameType": "CreateSession",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 138,
+            "encodedBytesPerIteration": 46,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "DestroySession",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 114,
+            "encodedBytesPerIteration": 38,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "Execute",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 3722982,
+            "encodedBytesPerIteration": 1240994,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "InjectGlobals",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 684,
+            "encodedBytesPerIteration": 228,
+            "payloadBytesTotal": 570,
+            "payloadBytesPerIteration": 190
+          },
+          {
+            "direction": "send",
+            "frameType": "WarmSnapshot",
+            "countTotal": 1,
+            "countPerIteration": 0.333,
+            "encodedBytesTotal": 1044961,
+            "encodedBytesPerIteration": 348320.333,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          }
+        ]
+      },
+      "progressSignals": {
+        "warmWallMsMean": 1899.87,
+        "bridgeCallsPerIteration": 5336,
+        "fixedSessionOverheadWarmMsMean": 107.644,
+        "dominantBridgeMethodByTime": {
+          "method": "_loadPolyfill",
+          "durationMsPerIteration": 964.642,
+          "callsPerIteration": 5247
+        },
+        "dominantBridgeMethodByCount": {
+          "method": "_loadPolyfill",
+          "callsPerIteration": 5247,
+          "durationMsPerIteration": 964.642
+        },
+        "dominantBridgeMethodByResponseBytes": {
+          "method": "_loadPolyfill",
+          "responseEncodedBytesPerIteration": 9370068
+        },
+        "dominantFrameByEncodedBytes": {
+          "direction": "send",
+          "frameType": "BridgeResponse",
+          "encodedBytesPerIteration": 9381015.333
+        }
+      },
+      "comparisonToPrevious": {
+        "baselineScenarioCreatedAt": "2026-03-31T04:02:11.634Z",
+        "metrics": {
+          "warmWallMsMean": {
+            "before": 1919.521,
+            "after": 1899.87,
+            "delta": -19.651,
+            "deltaPercent": -1.024
+          },
+          "bridgeCallsPerIteration": {
+            "before": 5336,
+            "after": 5336,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "fixedSessionOverheadWarmMsMean": {
+            "before": 107.798,
+            "after": 107.644,
+            "delta": -0.154,
+            "deltaPercent": -0.143
+          },
+          "bridgeDurationPerIterationMs": {
+            "before": 1003.838,
+            "after": 1067.942,
+            "delta": 64.104,
+            "deltaPercent": 6.386
+          },
+          "bridgeResponseFrameBytesPerIteration": {
+            "before": 9381014.667,
+            "after": 9381015.333,
+            "delta": 0.666,
+            "deltaPercent": 0
+          },
+          "executeWarmMsMean": {
+            "before": 1811.723,
+            "after": 1792.226,
+            "delta": -19.497,
+            "deltaPercent": -1.076
+          }
+        },
+        "bridgeMethodDurationDeltas": [
+          {
+            "method": "_loadPolyfill",
+            "before": 899.241,
+            "after": 964.642,
+            "delta": 65.401
+          },
+          {
+            "method": "_resolveModule",
+            "before": 42.821,
+            "after": 39.102,
+            "delta": -3.719
+          },
+          {
+            "method": "_fsExists",
+            "before": 50.061,
+            "after": 49.175,
+            "delta": -0.886
+          },
+          {
+            "method": "_fsMkdir",
+            "before": 4.386,
+            "after": 5.269,
+            "delta": 0.883
+          },
+          {
+            "method": "_fsStat",
+            "before": 0.891,
+            "after": 1.686,
+            "delta": 0.795
+          }
+        ],
+        "bridgeMethodCountDeltas": [],
+        "bridgeMethodResponseByteDeltas": [
+          {
+            "method": "_fsStat",
+            "before": 205.667,
+            "after": 206.333,
+            "delta": 0.666
+          }
+        ],
+        "frameEncodedByteDeltas": [
+          {
+            "direction": "send",
+            "frameType": "BridgeResponse",
+            "before": 9381014.667,
+            "after": 9381015.333,
+            "delta": 0.666
+          }
+        ]
+      }
+    },
+    {
+      "scenarioId": "pi-cli-end-to-end",
+      "title": "Pi CLI End-to-End",
+      "target": "pi_cli",
+      "kind": "end_to_end",
+      "description": "Loads the Pi CLI module graph, then drives Pi print-mode against the mock Anthropic SSE server.",
+      "createdAt": "2026-03-31T04:18:38.419Z",
+      "iterations": 3,
+      "artifacts": {
+        "resultFile": "pi-cli-end-to-end/result.json",
+        "metricsFile": "pi-cli-end-to-end/metrics.prom",
+        "logFile": "pi-cli-end-to-end/ipc.ndjson",
+        "summaryFile": "pi-cli-end-to-end/summary.json",
+        "summaryMarkdownFile": "pi-cli-end-to-end/summary.md"
+      },
+      "timing": {
+        "coldWallMs": 2705.941,
+        "warmWallMsMean": 2099.842,
+        "coldExecuteDurationMs": 2589.983,
+        "warmExecuteDurationMsMean": 1992.592,
+        "coldFixedSessionOverheadMs": 115.958,
+        "warmFixedSessionOverheadMsMean": 107.25
+      },
+      "iterationsDetail": [
+        {
+          "iteration": 1,
+          "sessionId": "c242db9a6a497fdea5431da2d5252a93",
+          "wallMs": 2705.941,
+          "executeDurationMs": 2589.983,
+          "fixedSessionOverheadMs": 115.958,
+          "bridgeCalls": 5797,
+          "bridgeDurationMs": 1405.742,
+          "bridgeCallEncodedBytes": 974499,
+          "bridgeResponseEncodedBytes": 9750510,
+          "bridgeCallPayloadBytes": 620995,
+          "bridgeResponsePayloadBytes": 9478051,
+          "mockRequests": 1,
+          "stdoutBytes": 25,
+          "stderrBytes": 0,
+          "checks": {
+            "responseSeen": true
+          }
+        },
+        {
+          "iteration": 2,
+          "sessionId": "f05b74a5016cd265da4da301b9bcccc7",
+          "wallMs": 2092.796,
+          "executeDurationMs": 1984.566,
+          "fixedSessionOverheadMs": 108.23,
+          "bridgeCalls": 5797,
+          "bridgeDurationMs": 982.996,
+          "bridgeCallEncodedBytes": 974499,
+          "bridgeResponseEncodedBytes": 9750510,
+          "bridgeCallPayloadBytes": 620995,
+          "bridgeResponsePayloadBytes": 9478051,
+          "mockRequests": 1,
+          "stdoutBytes": 25,
+          "stderrBytes": 0,
+          "checks": {
+            "responseSeen": true
+          }
+        },
+        {
+          "iteration": 3,
+          "sessionId": "1a62ad91bd32f93e3d00037e56396c78",
+          "wallMs": 2106.889,
+          "executeDurationMs": 2000.619,
+          "fixedSessionOverheadMs": 106.27,
+          "bridgeCalls": 5797,
+          "bridgeDurationMs": 968.591,
+          "bridgeCallEncodedBytes": 974499,
+          "bridgeResponseEncodedBytes": 9750510,
+          "bridgeCallPayloadBytes": 620995,
+          "bridgeResponsePayloadBytes": 9478051,
+          "mockRequests": 1,
+          "stdoutBytes": 25,
+          "stderrBytes": 0,
+          "checks": {
+            "responseSeen": true
+          }
+        }
+      ],
+      "bridge": {
+        "totalCalls": 17391,
+        "callsPerIteration": 5797,
+        "totalDurationMs": 3357.329,
+        "durationMsPerIteration": 1119.11,
+        "methodsByCount": [
+          {
+            "method": "_loadPolyfill",
+            "callsTotal": 17148,
+            "callsPerIteration": 5716,
+            "totalDurationMs": 3145.144,
+            "durationMsPerIteration": 1048.381,
+            "meanDurationMsPerCall": 0.183,
+            "requestEncodedBytesTotal": 2870301,
+            "requestEncodedBytesPerIteration": 956767,
+            "requestPayloadBytesTotal": 1824273,
+            "requestPayloadBytesPerIteration": 608091,
+            "responseEncodedBytesTotal": 29215956,
+            "responseEncodedBytesPerIteration": 9738652,
+            "responsePayloadBytesTotal": 28410000,
+            "responsePayloadBytesPerIteration": 9470000,
+            "statusCounts": {
+              "0": 17148
+            }
+          },
+          {
+            "method": "_fsExists",
+            "callsTotal": 111,
+            "callsPerIteration": 37,
+            "totalDurationMs": 88.29,
+            "durationMsPerIteration": 29.43,
+            "meanDurationMsPerCall": 0.795,
+            "requestEncodedBytesTotal": 14151,
+            "requestEncodedBytesPerIteration": 4717,
+            "requestPayloadBytesTotal": 7824,
+            "requestPayloadBytesPerIteration": 2608,
+            "responseEncodedBytesTotal": 5550,
+            "responseEncodedBytesPerIteration": 1850,
+            "responsePayloadBytesTotal": 333,
+            "responsePayloadBytesPerIteration": 111,
+            "statusCounts": {
+              "0": 111
+            }
+          },
+          {
+            "method": "_resolveModule",
+            "callsTotal": 102,
+            "callsPerIteration": 34,
+            "totalDurationMs": 107.874,
+            "durationMsPerIteration": 35.958,
+            "meanDurationMsPerCall": 1.058,
+            "requestEncodedBytesTotal": 19581,
+            "requestEncodedBytesPerIteration": 6527,
+            "requestPayloadBytesTotal": 13257,
+            "requestPayloadBytesPerIteration": 4419,
+            "responseEncodedBytesTotal": 14385,
+            "responseEncodedBytesPerIteration": 4795,
+            "responsePayloadBytesTotal": 9591,
+            "responsePayloadBytesPerIteration": 3197,
+            "statusCounts": {
+              "0": 102
+            }
+          },
+          {
+            "method": "_cryptoRandomUUID",
+            "callsTotal": 15,
+            "callsPerIteration": 5,
+            "totalDurationMs": 0.643,
+            "durationMsPerIteration": 0.214,
+            "meanDurationMsPerCall": 0.043,
+            "requestEncodedBytesTotal": 1080,
+            "requestEncodedBytesPerIteration": 360,
+            "requestPayloadBytesTotal": 105,
+            "requestPayloadBytesPerIteration": 35,
+            "responseEncodedBytesTotal": 1305,
+            "responseEncodedBytesPerIteration": 435,
+            "responsePayloadBytesTotal": 600,
+            "responsePayloadBytesPerIteration": 200,
+            "statusCounts": {
+              "0": 15
+            }
+          },
+          {
+            "method": "_fsReadFile",
+            "callsTotal": 6,
+            "callsPerIteration": 2,
+            "totalDurationMs": 4.244,
+            "durationMsPerIteration": 1.415,
+            "meanDurationMsPerCall": 0.707,
+            "requestEncodedBytesTotal": 996,
+            "requestEncodedBytesPerIteration": 332,
+            "requestPayloadBytesTotal": 642,
+            "requestPayloadBytesPerIteration": 214,
+            "responseEncodedBytesTotal": 10359,
+            "responseEncodedBytesPerIteration": 3453,
+            "responsePayloadBytesTotal": 10077,
+            "responsePayloadBytesPerIteration": 3359,
+            "statusCounts": {
+              "0": 6
+            }
+          },
+          {
+            "method": "_log",
+            "callsTotal": 6,
+            "callsPerIteration": 2,
+            "totalDurationMs": 0.312,
+            "durationMsPerIteration": 0.104,
+            "meanDurationMsPerCall": 0.052,
+            "requestEncodedBytesTotal": 453,
+            "requestEncodedBytesPerIteration": 151,
+            "requestPayloadBytesTotal": 141,
+            "requestPayloadBytesPerIteration": 47,
+            "responseEncodedBytesTotal": 282,
+            "responseEncodedBytesPerIteration": 94,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 6
+            }
+          },
+          {
+            "method": "_networkFetchRaw",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 10.822,
+            "durationMsPerIteration": 3.607,
+            "meanDurationMsPerCall": 3.607,
+            "requestEncodedBytesTotal": 16935,
+            "requestEncodedBytesPerIteration": 5645,
+            "requestPayloadBytesTotal": 16743,
+            "requestPayloadBytesPerIteration": 5581,
+            "responseEncodedBytesTotal": 3693,
+            "responseEncodedBytesPerIteration": 1231,
+            "responsePayloadBytesTotal": 3552,
+            "responsePayloadBytesPerIteration": 1184,
+            "statusCounts": {
+              "0": 3
+            }
+          }
+        ],
+        "methodsByTime": [
+          {
+            "method": "_loadPolyfill",
+            "callsTotal": 17148,
+            "callsPerIteration": 5716,
+            "totalDurationMs": 3145.144,
+            "durationMsPerIteration": 1048.381,
+            "meanDurationMsPerCall": 0.183,
+            "requestEncodedBytesTotal": 2870301,
+            "requestEncodedBytesPerIteration": 956767,
+            "requestPayloadBytesTotal": 1824273,
+            "requestPayloadBytesPerIteration": 608091,
+            "responseEncodedBytesTotal": 29215956,
+            "responseEncodedBytesPerIteration": 9738652,
+            "responsePayloadBytesTotal": 28410000,
+            "responsePayloadBytesPerIteration": 9470000,
+            "statusCounts": {
+              "0": 17148
+            }
+          },
+          {
+            "method": "_resolveModule",
+            "callsTotal": 102,
+            "callsPerIteration": 34,
+            "totalDurationMs": 107.874,
+            "durationMsPerIteration": 35.958,
+            "meanDurationMsPerCall": 1.058,
+            "requestEncodedBytesTotal": 19581,
+            "requestEncodedBytesPerIteration": 6527,
+            "requestPayloadBytesTotal": 13257,
+            "requestPayloadBytesPerIteration": 4419,
+            "responseEncodedBytesTotal": 14385,
+            "responseEncodedBytesPerIteration": 4795,
+            "responsePayloadBytesTotal": 9591,
+            "responsePayloadBytesPerIteration": 3197,
+            "statusCounts": {
+              "0": 102
+            }
+          },
+          {
+            "method": "_fsExists",
+            "callsTotal": 111,
+            "callsPerIteration": 37,
+            "totalDurationMs": 88.29,
+            "durationMsPerIteration": 29.43,
+            "meanDurationMsPerCall": 0.795,
+            "requestEncodedBytesTotal": 14151,
+            "requestEncodedBytesPerIteration": 4717,
+            "requestPayloadBytesTotal": 7824,
+            "requestPayloadBytesPerIteration": 2608,
+            "responseEncodedBytesTotal": 5550,
+            "responseEncodedBytesPerIteration": 1850,
+            "responsePayloadBytesTotal": 333,
+            "responsePayloadBytesPerIteration": 111,
+            "statusCounts": {
+              "0": 111
+            }
+          },
+          {
+            "method": "_networkFetchRaw",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 10.822,
+            "durationMsPerIteration": 3.607,
+            "meanDurationMsPerCall": 3.607,
+            "requestEncodedBytesTotal": 16935,
+            "requestEncodedBytesPerIteration": 5645,
+            "requestPayloadBytesTotal": 16743,
+            "requestPayloadBytesPerIteration": 5581,
+            "responseEncodedBytesTotal": 3693,
+            "responseEncodedBytesPerIteration": 1231,
+            "responsePayloadBytesTotal": 3552,
+            "responsePayloadBytesPerIteration": 1184,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_fsReadFile",
+            "callsTotal": 6,
+            "callsPerIteration": 2,
+            "totalDurationMs": 4.244,
+            "durationMsPerIteration": 1.415,
+            "meanDurationMsPerCall": 0.707,
+            "requestEncodedBytesTotal": 996,
+            "requestEncodedBytesPerIteration": 332,
+            "requestPayloadBytesTotal": 642,
+            "requestPayloadBytesPerIteration": 214,
+            "responseEncodedBytesTotal": 10359,
+            "responseEncodedBytesPerIteration": 3453,
+            "responsePayloadBytesTotal": 10077,
+            "responsePayloadBytesPerIteration": 3359,
+            "statusCounts": {
+              "0": 6
+            }
+          },
+          {
+            "method": "_cryptoRandomUUID",
+            "callsTotal": 15,
+            "callsPerIteration": 5,
+            "totalDurationMs": 0.643,
+            "durationMsPerIteration": 0.214,
+            "meanDurationMsPerCall": 0.043,
+            "requestEncodedBytesTotal": 1080,
+            "requestEncodedBytesPerIteration": 360,
+            "requestPayloadBytesTotal": 105,
+            "requestPayloadBytesPerIteration": 35,
+            "responseEncodedBytesTotal": 1305,
+            "responseEncodedBytesPerIteration": 435,
+            "responsePayloadBytesTotal": 600,
+            "responsePayloadBytesPerIteration": 200,
+            "statusCounts": {
+              "0": 15
+            }
+          },
+          {
+            "method": "_log",
+            "callsTotal": 6,
+            "callsPerIteration": 2,
+            "totalDurationMs": 0.312,
+            "durationMsPerIteration": 0.104,
+            "meanDurationMsPerCall": 0.052,
+            "requestEncodedBytesTotal": 453,
+            "requestEncodedBytesPerIteration": 151,
+            "requestPayloadBytesTotal": 141,
+            "requestPayloadBytesPerIteration": 47,
+            "responseEncodedBytesTotal": 282,
+            "responseEncodedBytesPerIteration": 94,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 6
+            }
+          }
+        ],
+        "methodsByResponseBytes": [
+          {
+            "method": "_loadPolyfill",
+            "callsTotal": 17148,
+            "callsPerIteration": 5716,
+            "totalDurationMs": 3145.144,
+            "durationMsPerIteration": 1048.381,
+            "meanDurationMsPerCall": 0.183,
+            "requestEncodedBytesTotal": 2870301,
+            "requestEncodedBytesPerIteration": 956767,
+            "requestPayloadBytesTotal": 1824273,
+            "requestPayloadBytesPerIteration": 608091,
+            "responseEncodedBytesTotal": 29215956,
+            "responseEncodedBytesPerIteration": 9738652,
+            "responsePayloadBytesTotal": 28410000,
+            "responsePayloadBytesPerIteration": 9470000,
+            "statusCounts": {
+              "0": 17148
+            }
+          },
+          {
+            "method": "_resolveModule",
+            "callsTotal": 102,
+            "callsPerIteration": 34,
+            "totalDurationMs": 107.874,
+            "durationMsPerIteration": 35.958,
+            "meanDurationMsPerCall": 1.058,
+            "requestEncodedBytesTotal": 19581,
+            "requestEncodedBytesPerIteration": 6527,
+            "requestPayloadBytesTotal": 13257,
+            "requestPayloadBytesPerIteration": 4419,
+            "responseEncodedBytesTotal": 14385,
+            "responseEncodedBytesPerIteration": 4795,
+            "responsePayloadBytesTotal": 9591,
+            "responsePayloadBytesPerIteration": 3197,
+            "statusCounts": {
+              "0": 102
+            }
+          },
+          {
+            "method": "_fsReadFile",
+            "callsTotal": 6,
+            "callsPerIteration": 2,
+            "totalDurationMs": 4.244,
+            "durationMsPerIteration": 1.415,
+            "meanDurationMsPerCall": 0.707,
+            "requestEncodedBytesTotal": 996,
+            "requestEncodedBytesPerIteration": 332,
+            "requestPayloadBytesTotal": 642,
+            "requestPayloadBytesPerIteration": 214,
+            "responseEncodedBytesTotal": 10359,
+            "responseEncodedBytesPerIteration": 3453,
+            "responsePayloadBytesTotal": 10077,
+            "responsePayloadBytesPerIteration": 3359,
+            "statusCounts": {
+              "0": 6
+            }
+          },
+          {
+            "method": "_fsExists",
+            "callsTotal": 111,
+            "callsPerIteration": 37,
+            "totalDurationMs": 88.29,
+            "durationMsPerIteration": 29.43,
+            "meanDurationMsPerCall": 0.795,
+            "requestEncodedBytesTotal": 14151,
+            "requestEncodedBytesPerIteration": 4717,
+            "requestPayloadBytesTotal": 7824,
+            "requestPayloadBytesPerIteration": 2608,
+            "responseEncodedBytesTotal": 5550,
+            "responseEncodedBytesPerIteration": 1850,
+            "responsePayloadBytesTotal": 333,
+            "responsePayloadBytesPerIteration": 111,
+            "statusCounts": {
+              "0": 111
+            }
+          },
+          {
+            "method": "_networkFetchRaw",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 10.822,
+            "durationMsPerIteration": 3.607,
+            "meanDurationMsPerCall": 3.607,
+            "requestEncodedBytesTotal": 16935,
+            "requestEncodedBytesPerIteration": 5645,
+            "requestPayloadBytesTotal": 16743,
+            "requestPayloadBytesPerIteration": 5581,
+            "responseEncodedBytesTotal": 3693,
+            "responseEncodedBytesPerIteration": 1231,
+            "responsePayloadBytesTotal": 3552,
+            "responsePayloadBytesPerIteration": 1184,
+            "statusCounts": {
+              "0": 3
+            }
+          },
+          {
+            "method": "_cryptoRandomUUID",
+            "callsTotal": 15,
+            "callsPerIteration": 5,
+            "totalDurationMs": 0.643,
+            "durationMsPerIteration": 0.214,
+            "meanDurationMsPerCall": 0.043,
+            "requestEncodedBytesTotal": 1080,
+            "requestEncodedBytesPerIteration": 360,
+            "requestPayloadBytesTotal": 105,
+            "requestPayloadBytesPerIteration": 35,
+            "responseEncodedBytesTotal": 1305,
+            "responseEncodedBytesPerIteration": 435,
+            "responsePayloadBytesTotal": 600,
+            "responsePayloadBytesPerIteration": 200,
+            "statusCounts": {
+              "0": 15
+            }
+          },
+          {
+            "method": "_log",
+            "callsTotal": 6,
+            "callsPerIteration": 2,
+            "totalDurationMs": 0.312,
+            "durationMsPerIteration": 0.104,
+            "meanDurationMsPerCall": 0.052,
+            "requestEncodedBytesTotal": 453,
+            "requestEncodedBytesPerIteration": 151,
+            "requestPayloadBytesTotal": 141,
+            "requestPayloadBytesPerIteration": 47,
+            "responseEncodedBytesTotal": 282,
+            "responseEncodedBytesPerIteration": 94,
+            "responsePayloadBytesTotal": 0,
+            "responsePayloadBytesPerIteration": 0,
+            "statusCounts": {
+              "0": 6
+            }
+          }
+        ],
+        "framesByEncodedBytes": [
+          {
+            "direction": "send",
+            "frameType": "BridgeResponse",
+            "countTotal": 17391,
+            "countPerIteration": 5797,
+            "encodedBytesTotal": 29251530,
+            "encodedBytesPerIteration": 9750510,
+            "payloadBytesTotal": 28434153,
+            "payloadBytesPerIteration": 9478051
+          },
+          {
+            "direction": "send",
+            "frameType": "Execute",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 3728346,
+            "encodedBytesPerIteration": 1242782,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "recv",
+            "frameType": "BridgeCall",
+            "countTotal": 17391,
+            "countPerIteration": 5797,
+            "encodedBytesTotal": 2923497,
+            "encodedBytesPerIteration": 974499,
+            "payloadBytesTotal": 1862985,
+            "payloadBytesPerIteration": 620995
+          },
+          {
+            "direction": "send",
+            "frameType": "WarmSnapshot",
+            "countTotal": 1,
+            "countPerIteration": 0.333,
+            "encodedBytesTotal": 1044961,
+            "encodedBytesPerIteration": 348320.333,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "InjectGlobals",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 684,
+            "encodedBytesPerIteration": 228,
+            "payloadBytesTotal": 570,
+            "payloadBytesPerIteration": 190
+          },
+          {
+            "direction": "send",
+            "frameType": "CreateSession",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 138,
+            "encodedBytesPerIteration": 46,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "recv",
+            "frameType": "ExecutionResult",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 129,
+            "encodedBytesPerIteration": 43,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "DestroySession",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 114,
+            "encodedBytesPerIteration": 38,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "Authenticate",
+            "countTotal": 1,
+            "countPerIteration": 0.333,
+            "encodedBytesTotal": 38,
+            "encodedBytesPerIteration": 12.667,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          }
+        ],
+        "frames": [
+          {
+            "direction": "recv",
+            "frameType": "BridgeCall",
+            "countTotal": 17391,
+            "countPerIteration": 5797,
+            "encodedBytesTotal": 2923497,
+            "encodedBytesPerIteration": 974499,
+            "payloadBytesTotal": 1862985,
+            "payloadBytesPerIteration": 620995
+          },
+          {
+            "direction": "recv",
+            "frameType": "ExecutionResult",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 129,
+            "encodedBytesPerIteration": 43,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "Authenticate",
+            "countTotal": 1,
+            "countPerIteration": 0.333,
+            "encodedBytesTotal": 38,
+            "encodedBytesPerIteration": 12.667,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "BridgeResponse",
+            "countTotal": 17391,
+            "countPerIteration": 5797,
+            "encodedBytesTotal": 29251530,
+            "encodedBytesPerIteration": 9750510,
+            "payloadBytesTotal": 28434153,
+            "payloadBytesPerIteration": 9478051
+          },
+          {
+            "direction": "send",
+            "frameType": "CreateSession",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 138,
+            "encodedBytesPerIteration": 46,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "DestroySession",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 114,
+            "encodedBytesPerIteration": 38,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "Execute",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 3728346,
+            "encodedBytesPerIteration": 1242782,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          },
+          {
+            "direction": "send",
+            "frameType": "InjectGlobals",
+            "countTotal": 3,
+            "countPerIteration": 1,
+            "encodedBytesTotal": 684,
+            "encodedBytesPerIteration": 228,
+            "payloadBytesTotal": 570,
+            "payloadBytesPerIteration": 190
+          },
+          {
+            "direction": "send",
+            "frameType": "WarmSnapshot",
+            "countTotal": 1,
+            "countPerIteration": 0.333,
+            "encodedBytesTotal": 1044961,
+            "encodedBytesPerIteration": 348320.333,
+            "payloadBytesTotal": 0,
+            "payloadBytesPerIteration": 0
+          }
+        ]
+      },
+      "progressSignals": {
+        "warmWallMsMean": 2099.842,
+        "bridgeCallsPerIteration": 5797,
+        "fixedSessionOverheadWarmMsMean": 107.25,
+        "dominantBridgeMethodByTime": {
+          "method": "_loadPolyfill",
+          "durationMsPerIteration": 1048.381,
+          "callsPerIteration": 5716
+        },
+        "dominantBridgeMethodByCount": {
+          "method": "_loadPolyfill",
+          "callsPerIteration": 5716,
+          "durationMsPerIteration": 1048.381
+        },
+        "dominantBridgeMethodByResponseBytes": {
+          "method": "_loadPolyfill",
+          "responseEncodedBytesPerIteration": 9738652
+        },
+        "dominantFrameByEncodedBytes": {
+          "direction": "send",
+          "frameType": "BridgeResponse",
+          "encodedBytesPerIteration": 9750510
+        }
+      },
+      "comparisonToPrevious": {
+        "baselineScenarioCreatedAt": "2026-03-31T04:02:18.714Z",
+        "metrics": {
+          "warmWallMsMean": {
+            "before": 2036.938,
+            "after": 2099.842,
+            "delta": 62.904,
+            "deltaPercent": 3.088
+          },
+          "bridgeCallsPerIteration": {
+            "before": 5797,
+            "after": 5797,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "fixedSessionOverheadWarmMsMean": {
+            "before": 107.02,
+            "after": 107.25,
+            "delta": 0.23,
+            "deltaPercent": 0.215
+          },
+          "bridgeDurationPerIterationMs": {
+            "before": 1045.575,
+            "after": 1119.11,
+            "delta": 73.535,
+            "deltaPercent": 7.033
+          },
+          "bridgeResponseFrameBytesPerIteration": {
+            "before": 9750510,
+            "after": 9750510,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "executeWarmMsMean": {
+            "before": 1929.917,
+            "after": 1992.592,
+            "delta": 62.675,
+            "deltaPercent": 3.248
+          }
+        },
+        "bridgeMethodDurationDeltas": [
+          {
+            "method": "_loadPolyfill",
+            "before": 969.95,
+            "after": 1048.381,
+            "delta": 78.431
+          },
+          {
+            "method": "_resolveModule",
+            "before": 41.918,
+            "after": 35.958,
+            "delta": -5.96
+          },
+          {
+            "method": "_fsExists",
+            "before": 28.078,
+            "after": 29.43,
+            "delta": 1.352
+          },
+          {
+            "method": "_fsReadFile",
+            "before": 1.926,
+            "after": 1.415,
+            "delta": -0.511
+          },
+          {
+            "method": "_networkFetchRaw",
+            "before": 3.33,
+            "after": 3.607,
+            "delta": 0.277
+          }
+        ],
+        "bridgeMethodCountDeltas": [],
+        "bridgeMethodResponseByteDeltas": [],
+        "frameEncodedByteDeltas": []
+      }
+    }
+  ],
+  "scenarioOverview": [
+    {
+      "scenarioId": "hono-startup",
+      "title": "Hono Startup",
+      "target": "hono",
+      "kind": "startup",
+      "status": "passed",
+      "warmWallMsMean": 141.156,
+      "bridgeCallsPerIteration": 102,
+      "fixedSessionOverheadWarmMsMean": 108.902,
+      "dominantBridgeMethodByTime": {
+        "method": "_loadPolyfill",
+        "durationMsPerIteration": 21.553,
+        "callsPerIteration": 101
+      },
+      "dominantFrameByEncodedBytes": {
+        "direction": "send",
+        "frameType": "Execute",
+        "encodedBytesPerIteration": 1240713
+      },
+      "comparisonToPrevious": {
+        "baselineScenarioCreatedAt": "2026-03-31T04:01:51.150Z",
+        "metrics": {
+          "warmWallMsMean": {
+            "before": 153.889,
+            "after": 141.156,
+            "delta": -12.733,
+            "deltaPercent": -8.274
+          },
+          "bridgeCallsPerIteration": {
+            "before": 102,
+            "after": 102,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "fixedSessionOverheadWarmMsMean": {
+            "before": 108.073,
+            "after": 108.902,
+            "delta": 0.829,
+            "deltaPercent": 0.767
+          },
+          "bridgeDurationPerIterationMs": {
+            "before": 22.174,
+            "after": 21.626,
+            "delta": -0.548,
+            "deltaPercent": -2.471
+          },
+          "bridgeResponseFrameBytesPerIteration": {
+            "before": 408130,
+            "after": 408130,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "executeWarmMsMean": {
+            "before": 45.816,
+            "after": 32.254,
+            "delta": -13.562,
+            "deltaPercent": -29.601
+          }
+        },
+        "bridgeMethodDurationDeltas": [
+          {
+            "method": "_loadPolyfill",
+            "before": 22.048,
+            "after": 21.553,
+            "delta": -0.495
+          },
+          {
+            "method": "_log",
+            "before": 0.125,
+            "after": 0.073,
+            "delta": -0.052
+          }
+        ],
+        "bridgeMethodCountDeltas": [],
+        "bridgeMethodResponseByteDeltas": [],
+        "frameEncodedByteDeltas": []
+      }
+    },
+    {
+      "scenarioId": "hono-end-to-end",
+      "title": "Hono End-to-End",
+      "target": "hono",
+      "kind": "end_to_end",
+      "status": "passed",
+      "warmWallMsMean": 145.024,
+      "bridgeCallsPerIteration": 102,
+      "fixedSessionOverheadWarmMsMean": 107.84,
+      "dominantBridgeMethodByTime": {
+        "method": "_loadPolyfill",
+        "durationMsPerIteration": 29.381,
+        "callsPerIteration": 101
+      },
+      "dominantFrameByEncodedBytes": {
+        "direction": "send",
+        "frameType": "Execute",
+        "encodedBytesPerIteration": 1240830
+      },
+      "comparisonToPrevious": {
+        "baselineScenarioCreatedAt": "2026-03-31T04:01:52.147Z",
+        "metrics": {
+          "warmWallMsMean": {
+            "before": 143.365,
+            "after": 145.024,
+            "delta": 1.659,
+            "deltaPercent": 1.157
+          },
+          "bridgeCallsPerIteration": {
+            "before": 102,
+            "after": 102,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "fixedSessionOverheadWarmMsMean": {
+            "before": 107.237,
+            "after": 107.84,
+            "delta": 0.603,
+            "deltaPercent": 0.562
+          },
+          "bridgeDurationPerIterationMs": {
+            "before": 16.426,
+            "after": 29.472,
+            "delta": 13.046,
+            "deltaPercent": 79.423
+          },
+          "bridgeResponseFrameBytesPerIteration": {
+            "before": 408130,
+            "after": 408130,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "executeWarmMsMean": {
+            "before": 36.127,
+            "after": 37.184,
+            "delta": 1.057,
+            "deltaPercent": 2.926
+          }
+        },
+        "bridgeMethodDurationDeltas": [
+          {
+            "method": "_loadPolyfill",
+            "before": 16.322,
+            "after": 29.381,
+            "delta": 13.059
+          },
+          {
+            "method": "_log",
+            "before": 0.104,
+            "after": 0.092,
+            "delta": -0.012
+          }
+        ],
+        "bridgeMethodCountDeltas": [],
+        "bridgeMethodResponseByteDeltas": [],
+        "frameEncodedByteDeltas": []
+      }
+    },
+    {
+      "scenarioId": "pi-sdk-startup",
+      "title": "Pi SDK Startup",
+      "target": "pi_sdk",
+      "kind": "startup",
+      "status": "passed",
+      "warmWallMsMean": 1676.693,
+      "bridgeCallsPerIteration": 5278,
+      "fixedSessionOverheadWarmMsMean": 107.224,
+      "dominantBridgeMethodByTime": {
+        "method": "_loadPolyfill",
+        "durationMsPerIteration": 873.085,
+        "callsPerIteration": 5240
+      },
+      "dominantFrameByEncodedBytes": {
+        "direction": "send",
+        "frameType": "BridgeResponse",
+        "encodedBytesPerIteration": 9362446
+      },
+      "comparisonToPrevious": {
+        "baselineScenarioCreatedAt": "2026-03-31T04:01:58.056Z",
+        "metrics": {
+          "warmWallMsMean": {
+            "before": 1615.126,
+            "after": 1676.693,
+            "delta": 61.567,
+            "deltaPercent": 3.812
+          },
+          "bridgeCallsPerIteration": {
+            "before": 5278,
+            "after": 5278,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "fixedSessionOverheadWarmMsMean": {
+            "before": 107.054,
+            "after": 107.224,
+            "delta": 0.17,
+            "deltaPercent": 0.159
+          },
+          "bridgeDurationPerIterationMs": {
+            "before": 843.322,
+            "after": 925.197,
+            "delta": 81.875,
+            "deltaPercent": 9.709
+          },
+          "bridgeResponseFrameBytesPerIteration": {
+            "before": 9362446,
+            "after": 9362446,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "executeWarmMsMean": {
+            "before": 1508.072,
+            "after": 1569.469,
+            "delta": 61.397,
+            "deltaPercent": 4.071
+          }
+        },
+        "bridgeMethodDurationDeltas": [
+          {
+            "method": "_loadPolyfill",
+            "before": 802.036,
+            "after": 873.085,
+            "delta": 71.049
+          },
+          {
+            "method": "_resolveModule",
+            "before": 40.252,
+            "after": 51.084,
+            "delta": 10.832
+          },
+          {
+            "method": "_fsExists",
+            "before": 0.422,
+            "after": 0.568,
+            "delta": 0.146
+          },
+          {
+            "method": "_log",
+            "before": 0.212,
+            "after": 0.101,
+            "delta": -0.111
+          },
+          {
+            "method": "_fsReadFile",
+            "before": 0.4,
+            "after": 0.36,
+            "delta": -0.04
+          }
+        ],
+        "bridgeMethodCountDeltas": [],
+        "bridgeMethodResponseByteDeltas": [],
+        "frameEncodedByteDeltas": []
+      }
+    },
+    {
+      "scenarioId": "pi-sdk-end-to-end",
+      "title": "Pi SDK End-to-End",
+      "target": "pi_sdk",
+      "kind": "end_to_end",
+      "status": "passed",
+      "warmWallMsMean": 2062.543,
+      "bridgeCallsPerIteration": 5747,
+      "fixedSessionOverheadWarmMsMean": 106.51,
+      "dominantBridgeMethodByTime": {
+        "method": "_loadPolyfill",
+        "durationMsPerIteration": 968.389,
+        "callsPerIteration": 5664
+      },
+      "dominantFrameByEncodedBytes": {
+        "direction": "send",
+        "frameType": "BridgeResponse",
+        "encodedBytesPerIteration": 9715780
+      },
+      "comparisonToPrevious": {
+        "baselineScenarioCreatedAt": "2026-03-31T04:02:05.028Z",
+        "metrics": {
+          "warmWallMsMean": {
+            "before": 2004.673,
+            "after": 2062.543,
+            "delta": 57.87,
+            "deltaPercent": 2.887
+          },
+          "bridgeCallsPerIteration": {
+            "before": 5747,
+            "after": 5747,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "fixedSessionOverheadWarmMsMean": {
+            "before": 105.947,
+            "after": 106.51,
+            "delta": 0.563,
+            "deltaPercent": 0.531
+          },
+          "bridgeDurationPerIterationMs": {
+            "before": 1046.459,
+            "after": 1047.848,
+            "delta": 1.389,
+            "deltaPercent": 0.133
+          },
+          "bridgeResponseFrameBytesPerIteration": {
+            "before": 9715780,
+            "after": 9715780,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "executeWarmMsMean": {
+            "before": 1898.726,
+            "after": 1956.034,
+            "delta": 57.308,
+            "deltaPercent": 3.018
+          }
+        },
+        "bridgeMethodDurationDeltas": [
+          {
+            "method": "_fsExists",
+            "before": 36.854,
+            "after": 28.566,
+            "delta": -8.288
+          },
+          {
+            "method": "_loadPolyfill",
+            "before": 962.518,
+            "after": 968.389,
+            "delta": 5.871
+          },
+          {
+            "method": "_networkFetchRaw",
+            "before": 3.014,
+            "after": 6.162,
+            "delta": 3.148
+          },
+          {
+            "method": "_resolveModule",
+            "before": 41.152,
+            "after": 41.488,
+            "delta": 0.336
+          },
+          {
+            "method": "_fsReadFile",
+            "before": 2.626,
+            "after": 2.889,
+            "delta": 0.263
+          }
+        ],
+        "bridgeMethodCountDeltas": [],
+        "bridgeMethodResponseByteDeltas": [],
+        "frameEncodedByteDeltas": []
+      }
+    },
+    {
+      "scenarioId": "pi-cli-startup",
+      "title": "Pi CLI Startup",
+      "target": "pi_cli",
+      "kind": "startup",
+      "status": "passed",
+      "warmWallMsMean": 1899.87,
+      "bridgeCallsPerIteration": 5336,
+      "fixedSessionOverheadWarmMsMean": 107.644,
+      "dominantBridgeMethodByTime": {
+        "method": "_loadPolyfill",
+        "durationMsPerIteration": 964.642,
+        "callsPerIteration": 5247
+      },
+      "dominantFrameByEncodedBytes": {
+        "direction": "send",
+        "frameType": "BridgeResponse",
+        "encodedBytesPerIteration": 9381015.333
+      },
+      "comparisonToPrevious": {
+        "baselineScenarioCreatedAt": "2026-03-31T04:02:11.634Z",
+        "metrics": {
+          "warmWallMsMean": {
+            "before": 1919.521,
+            "after": 1899.87,
+            "delta": -19.651,
+            "deltaPercent": -1.024
+          },
+          "bridgeCallsPerIteration": {
+            "before": 5336,
+            "after": 5336,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "fixedSessionOverheadWarmMsMean": {
+            "before": 107.798,
+            "after": 107.644,
+            "delta": -0.154,
+            "deltaPercent": -0.143
+          },
+          "bridgeDurationPerIterationMs": {
+            "before": 1003.838,
+            "after": 1067.942,
+            "delta": 64.104,
+            "deltaPercent": 6.386
+          },
+          "bridgeResponseFrameBytesPerIteration": {
+            "before": 9381014.667,
+            "after": 9381015.333,
+            "delta": 0.666,
+            "deltaPercent": 0
+          },
+          "executeWarmMsMean": {
+            "before": 1811.723,
+            "after": 1792.226,
+            "delta": -19.497,
+            "deltaPercent": -1.076
+          }
+        },
+        "bridgeMethodDurationDeltas": [
+          {
+            "method": "_loadPolyfill",
+            "before": 899.241,
+            "after": 964.642,
+            "delta": 65.401
+          },
+          {
+            "method": "_resolveModule",
+            "before": 42.821,
+            "after": 39.102,
+            "delta": -3.719
+          },
+          {
+            "method": "_fsExists",
+            "before": 50.061,
+            "after": 49.175,
+            "delta": -0.886
+          },
+          {
+            "method": "_fsMkdir",
+            "before": 4.386,
+            "after": 5.269,
+            "delta": 0.883
+          },
+          {
+            "method": "_fsStat",
+            "before": 0.891,
+            "after": 1.686,
+            "delta": 0.795
+          }
+        ],
+        "bridgeMethodCountDeltas": [],
+        "bridgeMethodResponseByteDeltas": [
+          {
+            "method": "_fsStat",
+            "before": 205.667,
+            "after": 206.333,
+            "delta": 0.666
+          }
+        ],
+        "frameEncodedByteDeltas": [
+          {
+            "direction": "send",
+            "frameType": "BridgeResponse",
+            "before": 9381014.667,
+            "after": 9381015.333,
+            "delta": 0.666
+          }
+        ]
+      }
+    },
+    {
+      "scenarioId": "pi-cli-end-to-end",
+      "title": "Pi CLI End-to-End",
+      "target": "pi_cli",
+      "kind": "end_to_end",
+      "status": "passed",
+      "warmWallMsMean": 2099.842,
+      "bridgeCallsPerIteration": 5797,
+      "fixedSessionOverheadWarmMsMean": 107.25,
+      "dominantBridgeMethodByTime": {
+        "method": "_loadPolyfill",
+        "durationMsPerIteration": 1048.381,
+        "callsPerIteration": 5716
+      },
+      "dominantFrameByEncodedBytes": {
+        "direction": "send",
+        "frameType": "BridgeResponse",
+        "encodedBytesPerIteration": 9750510
+      },
+      "comparisonToPrevious": {
+        "baselineScenarioCreatedAt": "2026-03-31T04:02:18.714Z",
+        "metrics": {
+          "warmWallMsMean": {
+            "before": 2036.938,
+            "after": 2099.842,
+            "delta": 62.904,
+            "deltaPercent": 3.088
+          },
+          "bridgeCallsPerIteration": {
+            "before": 5797,
+            "after": 5797,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "fixedSessionOverheadWarmMsMean": {
+            "before": 107.02,
+            "after": 107.25,
+            "delta": 0.23,
+            "deltaPercent": 0.215
+          },
+          "bridgeDurationPerIterationMs": {
+            "before": 1045.575,
+            "after": 1119.11,
+            "delta": 73.535,
+            "deltaPercent": 7.033
+          },
+          "bridgeResponseFrameBytesPerIteration": {
+            "before": 9750510,
+            "after": 9750510,
+            "delta": 0,
+            "deltaPercent": 0
+          },
+          "executeWarmMsMean": {
+            "before": 1929.917,
+            "after": 1992.592,
+            "delta": 62.675,
+            "deltaPercent": 3.248
+          }
+        },
+        "bridgeMethodDurationDeltas": [
+          {
+            "method": "_loadPolyfill",
+            "before": 969.95,
+            "after": 1048.381,
+            "delta": 78.431
+          },
+          {
+            "method": "_resolveModule",
+            "before": 41.918,
+            "after": 35.958,
+            "delta": -5.96
+          },
+          {
+            "method": "_fsExists",
+            "before": 28.078,
+            "after": 29.43,
+            "delta": 1.352
+          },
+          {
+            "method": "_fsReadFile",
+            "before": 1.926,
+            "after": 1.415,
+            "delta": -0.511
+          },
+          {
+            "method": "_networkFetchRaw",
+            "before": 3.33,
+            "after": 3.607,
+            "delta": 0.277
+          }
+        ],
+        "bridgeMethodCountDeltas": [],
+        "bridgeMethodResponseByteDeltas": [],
+        "frameEncodedByteDeltas": []
       }
     }
   ]

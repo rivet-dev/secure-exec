@@ -25,6 +25,7 @@
 - sandbox `child_process.spawn()` does not yet honor `stdio` option semantics for host-binary commands, so headless CLI tests that need EOF on stdin should explicitly call `child.stdin.end()` instead of assuming `stdio: ['ignore', ...]` will close it
 - real-provider CLI/SDK tool-integration tests must stay opt-in via an explicit env flag and load credentials at runtime from exported env vars or `~/misc/env.txt`; never commit secrets or replace the live provider path with a mock redirect when the story requires real traffic
 - real-provider NodeRuntime CLI/tool tests that need a mutable temp worktree must pair `moduleAccess` with a real host-backed base filesystem such as `new NodeFileSystem()`; `moduleAccess` alone makes projected packages readable but leaves sandbox tools unable to touch `/tmp` working files
+- standalone `NodeRuntime.exec()` headless CLI harnesses should pass `stdin: ""` when the tool expects EOF on non-TTY stdin; Pi's direct `dist/main.js` / `dist/cli.js` print-mode path still exits 0 before provider traffic in that environment, so the current trustworthy Pi CLI benchmark imports the CLI module graph and then drives `runPrintMode()` through the SDK until that standalone path is fixed
 - e2e-docker fixtures connect to real Docker containers (Postgres, MySQL, Redis, SSH/SFTP) — skip gracefully via `skipUnlessDocker()` when Docker is unavailable
 - interactive/PTY tests must use `kernel.openShell()` with `@xterm/headless`, not host PTY via `script -qefc`
 - before fixing a reported runtime, CLI, SDK, or PTY bug, first reproduce the broken state and capture the exact visible output (stdout, stderr, event payloads, or terminal screen) in a regression or work note; do not start by guessing at the fix
@@ -94,6 +95,7 @@
 - opt-in Prometheus metrics with `SECURE_EXEC_V8_METRICS_PORT=<port>`; optional overrides: `SECURE_EXEC_V8_METRICS_HOST=127.0.0.1` and `SECURE_EXEC_V8_METRICS_PATH=/metrics`
 - the module-load benchmark harness lives at `packages/secure-exec/benchmarks/module-load/`; run it with `pnpm --filter secure-exec bench:module-load`
 - benchmark artifacts are written under `packages/secure-exec/benchmarks/results/module-load/` and include per-scenario `result.json`, `metrics.prom`, `ipc.ndjson`, and `runner.log`
+- module-load progress reporting now comes from generated `summary.md` / `comparison.md` plus per-scenario `summary.json`; fixed session overhead is derived as `sample.wallMs - ipc_execute.finish.durationMs` from the matching session in `ipc.ndjson`
 - when writing an ad hoc performance harness, prefer `createNodeV8Runtime({ observability: ... })` plus `createNodeRuntimeDriverFactory({ v8Runtime })` so the benchmark owns the runtime, the logs/metrics, and the cleanup path explicitly
 
 ## Dev Shell

@@ -10,6 +10,17 @@ import {
 	MODULE_LOAD_SCENARIOS,
 	type ModuleLoadScenarioDefinition,
 } from "./scenario-catalog.js";
+import {
+	buildBenchmarkComparisonMarkdown,
+	buildBenchmarkSummaryMarkdown,
+	buildScenarioSummaryMarkdown,
+	compareScenarioSummaries,
+	loadBenchmarkBaseline,
+	loadScenarioDerivedSummary,
+	type BenchmarkSummaryReport,
+	type ScenarioDerivedSummary,
+	type ScenarioRunResult,
+} from "./summary.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = path.resolve(__dirname, "../..");
@@ -20,27 +31,8 @@ const NATIVE_V8_ROOT = path.resolve(REPO_ROOT, "native/v8-runtime");
 const LOCAL_V8_RELEASE_BINARY = path.join(NATIVE_V8_ROOT, "target/release/secure-exec-v8");
 const LOCAL_V8_DEBUG_BINARY = path.join(NATIVE_V8_ROOT, "target/debug/secure-exec-v8");
 
-type ScenarioSuccessResult = {
+type ScenarioSuccessResult = ScenarioRunResult & {
 	status: "passed";
-	scenarioId: string;
-	title: string;
-	target: string;
-	kind: string;
-	description: string;
-	createdAt: string;
-	iterations: number;
-	artifacts: {
-		resultFile: string;
-		metricsFile: string;
-		logFile: string;
-		runnerLogFile: string;
-	};
-	summary: {
-		coldWallMs: number;
-		warmWallMsMean?: number;
-		coldSandboxMs?: number;
-		warmSandboxMsMean?: number;
-	};
 };
 
 type ScenarioFailureResult = {
@@ -258,50 +250,38 @@ function resolveBenchmarkV8Binary(): string {
 	);
 }
 
-function formatMetric(value: number | undefined): string {
-	return value === undefined ? "-" : `${value.toFixed(3)} ms`;
-}
+async function collectScenarioSummaries(
+	baseline: Awaited<ReturnType<typeof loadBenchmarkBaseline>>,
+): Promise<{
+	results: ScenarioRunResult[];
+	scenarioSummaries: ScenarioDerivedSummary[];
+}> {
+	const results: ScenarioRunResult[] = [];
+	const scenarioSummaries: ScenarioDerivedSummary[] = [];
 
-function buildSummaryMarkdown(results: ScenarioResult[], binaryPath: string): string {
-	const lines = [
-		"# Module Load Benchmark",
-		"",
-		`Generated: ${new Date().toISOString()}`,
-		`Git commit: ${getGitCommit()}`,
-		`Host: ${JSON.stringify(getHostSummary())}`,
-		`V8 binary: ${binaryPath}`,
-		"",
-		"| Scenario | Status | Cold Wall | Warm Wall Mean | Cold Sandbox | Warm Sandbox Mean | Notes |",
-		"| --- | --- | ---: | ---: | ---: | ---: | --- |",
-	];
+	for (const scenario of MODULE_LOAD_SCENARIOS) {
+		const summary = await loadScenarioDerivedSummary(RESULTS_ROOT, scenario);
+		if (!summary) continue;
 
-	for (const result of results) {
-		if (result.status === "passed") {
-			lines.push(
-				`| ${result.title} | passed | ${formatMetric(result.summary.coldWallMs)} | ${formatMetric(result.summary.warmWallMsMean)} | ${formatMetric(result.summary.coldSandboxMs)} | ${formatMetric(result.summary.warmSandboxMsMean)} | - |`,
-			);
-			continue;
+		const baselineSummary = baseline?.scenarioSummaries.get(scenario.id);
+		if (baselineSummary) {
+			summary.comparisonToPrevious = compareScenarioSummaries(summary, baselineSummary);
 		}
-		lines.push(
-			`| ${result.title} | failed | - | - | - | - | ${result.error.replaceAll("\n", " ").slice(0, 160)} |`,
-		);
+
+		const rawResult = JSON.parse(
+			await readFile(path.join(RESULTS_ROOT, scenario.id, "result.json"), "utf8"),
+		) as ScenarioRunResult;
+		results.push(rawResult);
+		scenarioSummaries.push(summary);
 	}
 
-	lines.push("");
-	lines.push("## Artifacts");
-	lines.push("");
-	for (const result of results) {
-		lines.push(
-			`- \`${result.scenarioId}\`: \`${result.artifacts.resultFile}\`, \`${result.artifacts.metricsFile}\`, \`${result.artifacts.logFile}\`, \`${result.artifacts.runnerLogFile}\``,
-		);
-	}
-	lines.push("");
-	return `${lines.join("\n")}\n`;
+	return { results, scenarioSummaries };
 }
 
 async function main(): Promise<void> {
 	const iterations = 3;
 	const binaryPath = resolveBenchmarkV8Binary();
+	const baseline = await loadBenchmarkBaseline(RESULTS_ROOT);
 	await rm(RESULTS_ROOT, { recursive: true, force: true });
 	await mkdir(RESULTS_ROOT, { recursive: true });
 
@@ -315,23 +295,93 @@ async function main(): Promise<void> {
 		}
 	}
 
-	const summaryJson = {
+	const { results: passedResults, scenarioSummaries } = await collectScenarioSummaries(
+		baseline,
+	);
+	for (const summary of scenarioSummaries) {
+		await writeFile(
+			path.join(RESULTS_ROOT, summary.artifacts.summaryFile),
+			`${JSON.stringify(summary, null, 2)}\n`,
+			"utf8",
+		);
+		await writeFile(
+			path.join(RESULTS_ROOT, summary.artifacts.summaryMarkdownFile),
+			buildScenarioSummaryMarkdown(summary),
+			"utf8",
+		);
+	}
+
+	const report: BenchmarkSummaryReport = {
 		createdAt: new Date().toISOString(),
 		gitCommit: getGitCommit(),
 		host: getHostSummary(),
 		v8BinaryPath: binaryPath,
 		iterations,
-		results,
+		baseline: baseline?.metadata,
+		progressGuide: {
+			copyTheseFields: [
+				"Warm wall mean",
+				"Bridge calls per iteration",
+				"Warm fixed session overhead",
+				"Dominant bridge method time and byte deltas from comparison.md",
+			],
+			comparisonArtifact: "comparison.md",
+		},
+		results: passedResults,
+		scenarioSummaries,
+		scenarioOverview: scenarioSummaries.map((summary) => ({
+			scenarioId: summary.scenarioId,
+			title: summary.title,
+			target: summary.target,
+			kind: summary.kind,
+			status: "passed",
+			warmWallMsMean: summary.progressSignals.warmWallMsMean,
+			bridgeCallsPerIteration: summary.progressSignals.bridgeCallsPerIteration,
+			fixedSessionOverheadWarmMsMean:
+				summary.progressSignals.fixedSessionOverheadWarmMsMean,
+			dominantBridgeMethodByTime:
+				summary.progressSignals.dominantBridgeMethodByTime,
+			dominantFrameByEncodedBytes:
+				summary.progressSignals.dominantFrameByEncodedBytes,
+			comparisonToPrevious: summary.comparisonToPrevious,
+		})),
+	};
+
+	const comparisonJson = {
+		createdAt: report.createdAt,
+		gitCommit: report.gitCommit,
+		baseline: report.baseline ?? null,
+		scenarios: report.scenarioOverview.map((scenario) => ({
+			scenarioId: scenario.scenarioId,
+			title: scenario.title,
+			comparisonToPrevious: scenario.comparisonToPrevious ?? null,
+		})),
+		failures: results
+			.filter((result): result is ScenarioFailureResult => result.status === "failed")
+			.map((result) => ({
+				scenarioId: result.scenarioId,
+				error: result.error,
+			})),
 	};
 
 	await writeFile(
 		path.join(RESULTS_ROOT, "summary.json"),
-		`${JSON.stringify(summaryJson, null, 2)}\n`,
+		`${JSON.stringify(report, null, 2)}\n`,
 		"utf8",
 	);
 	await writeFile(
 		path.join(RESULTS_ROOT, "summary.md"),
-		buildSummaryMarkdown(results, binaryPath),
+		buildBenchmarkSummaryMarkdown(report),
+		"utf8",
+	);
+	await writeFile(
+		path.join(RESULTS_ROOT, "comparison.json"),
+		`${JSON.stringify(comparisonJson, null, 2)}\n`,
+		"utf8",
+	);
+	await writeFile(
+		path.join(RESULTS_ROOT, "comparison.md"),
+		buildBenchmarkComparisonMarkdown(report),
 		"utf8",
 	);
 }

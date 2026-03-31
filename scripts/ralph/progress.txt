@@ -6,6 +6,7 @@ Started: Mon Mar 30 08:41:55 PM PDT 2026
 - Active module-load benchmark artifacts live in `packages/secure-exec/benchmarks/results/module-load/`; refresh them with the full `pnpm --filter secure-exec bench:module-load` run after each performance story.
 - Headless CLI workloads inside standalone `NodeRuntime.exec()` should pass `stdin: ""`; Pi's direct `dist/main.js` / `dist/cli.js` path still exits before provider traffic there, so the current trustworthy Pi CLI benchmark imports the CLI module graph and then drives `runPrintMode()` through the SDK.
 - For Pi startup and end-to-end perf stories, record warm wall time together with bridge calls/iteration and dominant IPC counters (`_loadPolyfill`, BridgeResponse bytes, and any new network callsites) instead of relying on a single aggregate number.
+- Module-load benchmark progress reporting now comes from generated `packages/secure-exec/benchmarks/results/module-load/comparison.md` plus per-scenario `summary.json`; fixed session overhead is `sample.wallMs - ipc_execute.finish.durationMs` for the matching session in `ipc.ndjson`.
 
 ## [2026-03-30 21:00 PDT] - US-001
 - Implemented a real Pi CLI end-to-end benchmark path by importing the CLI module graph, explicitly closing headless stdin, and then running Pi print-mode through the SDK against the mock Anthropic server. Also fixed standalone `NodeRuntime` empty-stdin EOF semantics and added focused regression coverage.
@@ -18,4 +19,19 @@ Started: Mon Mar 30 08:41:55 PM PDT 2026
   - Standalone `NodeRuntime` buffered stdin must emit EOF even for empty-string input; otherwise headless CLI code can await `process.stdin` forever and still exit `0`.
   - Pi CLI's direct standalone headless path does not currently honor the benchmark's mock-provider setup; importing the CLI module graph and then driving SDK `runPrintMode()` is the current trustworthy benchmark workaround.
   - For Pi CLI benchmark sanity checks, `mockRequests`, `_loadPolyfill` per iteration, and BridgeResponse bytes reveal quickly whether the scenario reached a real workload.
+---
+## [2026-03-30 21:19 PDT] - US-002
+- Implemented generated module-load benchmark summaries and baseline comparisons. The benchmark now writes per-scenario `summary.json` / `summary.md` files, top-level `summary.json` / `summary.md`, and explicit `comparison.json` / `comparison.md` artifacts derived from `result.json` plus `ipc.ndjson`, with copy-ready progress fields and fixed session overhead.
+- Benchmark deltas from the new generated comparison artifacts (no intentional runtime-path change in this story):
+  - Hono Startup: warm wall `153.889 ms` -> `141.156 ms`; bridge calls stayed `102`/iteration; warm fixed overhead `108.073 ms` -> `108.902 ms`; `_loadPolyfill` `22.048 ms` -> `21.553 ms` host bridge time/iteration; `BridgeResponse` stayed `408130` encoded bytes/iteration.
+  - Hono End-to-End: warm wall `143.365 ms` -> `145.024 ms`; bridge calls stayed `102`/iteration; warm fixed overhead `107.237 ms` -> `107.840 ms`; `_loadPolyfill` `16.322 ms` -> `29.381 ms` host bridge time/iteration; `BridgeResponse` stayed `408130` encoded bytes/iteration.
+  - Pi SDK Startup: warm wall `1615.126 ms` -> `1676.693 ms`; bridge calls stayed `5278`/iteration; warm fixed overhead `107.054 ms` -> `107.224 ms`; `_loadPolyfill` `802.036 ms` -> `873.085 ms` host bridge time/iteration; `BridgeResponse` stayed `9362446` encoded bytes/iteration.
+  - Pi SDK End-to-End: warm wall `2004.673 ms` -> `2062.543 ms`; bridge calls stayed `5747`/iteration; warm fixed overhead `105.947 ms` -> `106.510 ms`; `_fsExists` `36.854 ms` -> `28.566 ms` host bridge time/iteration; `BridgeResponse` stayed `9715780` encoded bytes/iteration.
+  - Pi CLI Startup: warm wall `1919.521 ms` -> `1899.870 ms`; bridge calls stayed `5336`/iteration; warm fixed overhead `107.798 ms` -> `107.644 ms`; `_loadPolyfill` `899.241 ms` -> `964.642 ms` host bridge time/iteration; `BridgeResponse` `9381014.667` -> `9381015.333` encoded bytes/iteration.
+  - Pi CLI End-to-End: warm wall `2036.938 ms` -> `2099.842 ms`; bridge calls stayed `5797`/iteration; warm fixed overhead `107.020 ms` -> `107.250 ms`; `_loadPolyfill` `969.950 ms` -> `1048.381 ms` host bridge time/iteration; `BridgeResponse` stayed `9750510` encoded bytes/iteration.
+- Files changed: `AGENTS.md`, `packages/secure-exec/benchmarks/module-load/run-module-load-benchmarks.ts`, `packages/secure-exec/benchmarks/module-load/summary.ts`, `packages/secure-exec/tests/module-load-summary.test.ts`, `packages/secure-exec/benchmarks/results/module-load/*`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Use `packages/secure-exec/benchmarks/results/module-load/comparison.md` as the source of truth when updating `scripts/ralph/progress.txt`; it already formats before/after warm wall, bridge calls, fixed overhead, and high-signal IPC deltas.
+  - Per-scenario benchmark summaries are derived from `result.json` plus `ipc.ndjson`; the Prometheus scrape remains useful, but the generated progress numbers come from session-aligned IPC log analysis.
+  - Fixed session overhead is stable enough to track by subtracting `ipc_execute.finish.durationMs` from the matching iteration's wall time, which gives a reusable session-cost signal before deeper phase attribution work.
 ---
