@@ -1,0 +1,62 @@
+export type UpstreamBuiltinClassification = "internal" | "public";
+
+export interface UpstreamVersionMetadata {
+	assetLayoutVersion: number;
+	nodeVersion: string;
+	nodeMajorLine: string;
+	releaseDate: string;
+	ltsCodename: string;
+	gitCommit: string;
+	sourceRef: string;
+	upstreamRepository: string;
+	upstreamForkRepository: string;
+	builtinCount: number;
+	publicBuiltinCount: number;
+	internalBuiltinCount: number;
+}
+
+export interface UpstreamBuiltinManifestEntry {
+	id: string;
+	sourcePath: string;
+	assetPath: string;
+	classification: UpstreamBuiltinClassification;
+	sha256: string;
+	bytes: number;
+}
+
+export interface UpstreamBuiltinManifest {
+	assetLayoutVersion: number;
+	nodeVersion: string;
+	gitCommit: string;
+	publicBuiltinCount: number;
+	internalBuiltinCount: number;
+	builtins: UpstreamBuiltinManifestEntry[];
+}
+
+export interface UpstreamBuiltinSource {
+	entry: UpstreamBuiltinManifestEntry;
+	source: string;
+}
+
+export type UpstreamBindingStatus = "deferred" | "implemented" | "planned";
+
+export interface UpstreamInternalBindingDescriptor {
+	name: string;
+	status: UpstreamBindingStatus;
+	notes: string;
+}
+
+export type UpstreamBootstrapPhase = "bootstrap" | "entrypoint" | "per_context";
+
+export interface UpstreamBootstrapStep {
+	phase: UpstreamBootstrapPhase;
+	builtinId: string;
+	description: string;
+}
+
+export interface UpstreamBootstrapPlan {
+	mode: "snapshot-free";
+	nodeVersion: string;
+	requiredBindings: string[];
+	steps: UpstreamBootstrapStep[];
+}

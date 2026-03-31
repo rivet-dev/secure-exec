@@ -568,6 +568,14 @@ Likely new files:
 - `packages/nodejs/src/upstream/callback-registry.ts`
 - `packages/nodejs/src/upstream/asset-loader.ts`
 
+As of the US-004 scaffold, the initial responsibilities are intentionally narrow:
+
+- `asset-loader.ts` reads the pinned vendored asset metadata plus builtin source files from `packages/nodejs/assets/upstream-node/**`
+- `builtin-registry.ts` is metadata-and-source only; builtin compilation and `setInternalLoaders` remain US-005 work
+- `internal-binding-registry.ts` tracks explicit planned binding descriptors so the bring-up surface stays visible instead of implicit
+- `bootstrap-loader.ts` only builds a snapshot-free bring-up plan over vendored assets; it does not execute bootstrap yet
+- `runtime-driver.ts` currently aggregates the scaffold for internal experimentation and is intentionally not wired into the public `NodeRuntime` path yet
+
 ### Existing Files We Will Touch
 
 - `packages/nodejs/src/execution-driver.ts`

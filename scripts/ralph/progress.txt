@@ -7,6 +7,7 @@ Started: Mon Mar 30 06:07:03 PM PDT 2026
 - When WasmVM `host_net` imports change, rebuild `@secure-exec/wasmvm` before validating probes; runtime execution uses `packages/wasmvm/dist/kernel-worker.js`, not just `src/kernel-worker.ts`.
 - Upstream Node asset sync must export from a pinned git ref and validate with `pnpm check:node-upstream-assets`; do not copy builtin files from a dirty checkout or from upstream `main` when the story is pinned to a release tag.
 - `pnpm check:node-upstream-assets` only needs a git checkout that contains the pinned commit; a temporary `git init` plus single-commit fetch is enough for real-release validation.
+- Resolve vendored upstream Node assets relative to `import.meta.url` from `packages/nodejs/src/upstream/` so the same loader works under source tests and built `dist/` output.
 
 ## [2026-03-30 18:23 PDT] - US-001
 - What was implemented: added a host-side upstream Node preflight runner that replays `internal/bootstrap/realm`, probes `internal/bootstrap/node`, and exercises `module_wrap`, `contextify`, `uv`, and `cares_wrap`; documented the exact bootstrap-node blocker and linked it from the runtime plan; added focused vitest coverage for the probe outcomes; added local lexer type shims plus typed callbacks so `@secure-exec/nodejs` typecheck is green again.
@@ -39,4 +40,12 @@ Started: Mon Mar 30 06:07:03 PM PDT 2026
   - Patterns discovered: real-release asset validation does not require a full fork checkout on disk; a temporary repo containing the pinned commit is sufficient for `--check`.
   - Gotchas encountered: the sync script validates the resolved commit hash exactly, so fetching the pinned object is mandatory even when the source repo already has nearby release tags.
   - Useful context: the focused quality bar for this story is green with `pnpm --filter @secure-exec/nodejs check-types`, `pnpm vitest run packages/nodejs/test/upstream-node-asset-sync.test.ts`, and `pnpm check:node-upstream-assets --source <temp repo>`.
+---
+## [2026-03-30 19:32 PDT] - US-004
+- What was implemented: added the initial internal upstream runtime scaffold under `packages/nodejs/src/upstream/`, including vendored asset loading, a metadata-and-source builtin registry, explicit internal-binding planning, a snapshot-free bootstrap bring-up plan, and placeholder host/wasm binding directories; added focused tests for the scaffold and documented the current responsibilities in the upstream runtime plan.
+- Files changed: `packages/nodejs/src/upstream/types.ts`, `packages/nodejs/src/upstream/asset-loader.ts`, `packages/nodejs/src/upstream/builtin-registry.ts`, `packages/nodejs/src/upstream/internal-binding-registry.ts`, `packages/nodejs/src/upstream/bootstrap-loader.ts`, `packages/nodejs/src/upstream/runtime-driver.ts`, `packages/nodejs/src/upstream/host-bindings/index.ts`, `packages/nodejs/src/upstream/wasm-bindings/index.ts`, `packages/nodejs/test/upstream-runtime-scaffold.test.ts`, `docs-internal/specs/upstream-node-runtime-plan.md`, `AGENTS.md`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Patterns discovered: upstream asset loaders should resolve the vendored tree relative to `import.meta.url` so the same code works from `src/` and built `dist/`.
+  - Gotchas encountered: keep the new scaffold internal-only for now; do not wire `src/upstream/*` into `src/index.ts` or the public `NodeRuntime` path before builtin compilation and bootstrap execution exist.
+  - Useful context: the focused quality bar for this story is green with `pnpm --filter @secure-exec/nodejs check-types` and `pnpm vitest run packages/nodejs/test/upstream-runtime-scaffold.test.ts`.
 ---
