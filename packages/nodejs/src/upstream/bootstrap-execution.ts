@@ -51,6 +51,9 @@ export interface ExperimentalUpstreamBootstrapOptions {
 
 const DEFAULT_RUNNER_TIMEOUT_MS = 20_000;
 const textEncoder = new TextEncoder();
+const FS_FIRST_LIGHT_PUBLIC_BUILTINS = ["fs"] as const;
+const NET_FIRST_LIGHT_PUBLIC_BUILTINS = ["net"] as const;
+const REPLACEMENT_PUBLIC_BUILTINS = ["fs", "net"] as const;
 
 function getBootstrapRunnerPath(): string {
 	return fileURLToPath(
@@ -261,21 +264,31 @@ export async function runUpstreamFsFirstLightEval(
 	return runUpstreamBootstrapEval({
 		...request,
 		awaitCompletionSignal: true,
-		vendoredPublicBuiltins: ["fs"],
+		vendoredPublicBuiltins: [...FS_FIRST_LIGHT_PUBLIC_BUILTINS],
+	});
+}
+
+export async function runUpstreamNetFirstLightEval(
+	request: Omit<UpstreamBootstrapEvalRequest, "vendoredPublicBuiltins">,
+): Promise<UpstreamBootstrapEvalResult> {
+	return runUpstreamBootstrapEval({
+		...request,
+		awaitCompletionSignal: true,
+		vendoredPublicBuiltins: [...NET_FIRST_LIGHT_PUBLIC_BUILTINS],
 	});
 }
 
 export function createExperimentalUpstreamFsFirstLightRuntimeDriverFactory(): NodeRuntimeDriverFactory {
 	return createExperimentalUpstreamBootstrapRuntimeDriverFactory({
 		awaitCompletionSignalMode: "always",
-		vendoredPublicBuiltins: ["fs"],
+		vendoredPublicBuiltins: [...FS_FIRST_LIGHT_PUBLIC_BUILTINS],
 	});
 }
 
 export function createReplacementNodeRuntimeDriverFactory(): NodeRuntimeDriverFactory {
 	return createExperimentalUpstreamBootstrapRuntimeDriverFactory({
 		awaitCompletionSignalMode: "auto",
-		vendoredPublicBuiltins: ["fs"],
+		vendoredPublicBuiltins: [...REPLACEMENT_PUBLIC_BUILTINS],
 	});
 }
 
@@ -462,13 +475,13 @@ export function createExperimentalUpstreamBootstrapKernelRuntime(
 export function createExperimentalUpstreamFsFirstLightKernelRuntime(): KernelRuntimeDriver {
 	return createExperimentalUpstreamBootstrapKernelRuntime({
 		awaitCompletionSignalMode: "always",
-		vendoredPublicBuiltins: ["fs"],
+		vendoredPublicBuiltins: [...FS_FIRST_LIGHT_PUBLIC_BUILTINS],
 	});
 }
 
 export function createReplacementNodeKernelRuntime(): KernelRuntimeDriver {
 	return createExperimentalUpstreamBootstrapKernelRuntime({
 		awaitCompletionSignalMode: "auto",
-		vendoredPublicBuiltins: ["fs"],
+		vendoredPublicBuiltins: [...REPLACEMENT_PUBLIC_BUILTINS],
 	});
 }

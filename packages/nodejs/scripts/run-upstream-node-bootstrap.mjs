@@ -2,6 +2,13 @@
 
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import {
+	clearImmediate as hostClearImmediate,
+	clearInterval as hostClearInterval,
+	clearTimeout as hostClearTimeout,
+	setImmediate as hostSetImmediate,
+	setTimeout as hostSetTimeout,
+} from "node:timers";
 import { compileFunction, createContext } from "node:vm";
 import { createUpstreamFsBinding } from "./upstream-node-fs-binding.mjs";
 
@@ -31,6 +38,9 @@ const APPLIED_BINDING_SHIMS = Object.freeze([
 	"trace_events.setTraceCategoryStateUpdateHandler-noop",
 	"internal/options-host-shim",
 	"fs_event_wrap-fsevent-subclass",
+	"tcp_wrap-owner-subclass",
+	"internal/util/debuglog-initializeDebugEnv",
+	"host-internal/util/debuglog-initializeDebugEnv",
 	"public-builtin-host-fallback",
 ]);
 
@@ -220,6 +230,18 @@ function normalizeVendoredPublicBuiltins(values) {
 	return new Set(values.filter((value) => typeof value === "string"));
 }
 
+function normalizeBuiltinRequest(specifier) {
+	if (typeof specifier !== "string") {
+		return null;
+	}
+
+	const normalized = specifier.startsWith("node:")
+		? specifier.slice("node:".length)
+		: specifier;
+
+	return BUILTIN_ENTRIES.has(normalized) ? normalized : null;
+}
+
 function createFsEventWrapBinding() {
 	const hostFsEventWrap = internalBinding("fs_event_wrap");
 	if (
@@ -235,6 +257,24 @@ function createFsEventWrapBinding() {
 	return {
 		...hostFsEventWrap,
 		FSEvent: UpstreamFSEvent,
+	};
+}
+
+function createTcpWrapBinding() {
+	const hostTcpWrap = internalBinding("tcp_wrap");
+	if (
+		!hostTcpWrap ||
+		typeof hostTcpWrap !== "object" ||
+		typeof hostTcpWrap.TCP !== "function"
+	) {
+		return hostTcpWrap;
+	}
+
+	class UpstreamTCP extends hostTcpWrap.TCP {}
+
+	return {
+		...hostTcpWrap,
+		TCP: UpstreamTCP,
 	};
 }
 
@@ -336,11 +376,21 @@ function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 	context.globalThis = context;
 
 	const bootstrapPhases = [];
+	const hostTimerGlobals = {
+		clearImmediate: hostClearImmediate,
+		clearInterval: hostClearInterval,
+		clearTimeout: hostClearTimeout,
+		queueMicrotask,
+		setImmediate: hostSetImmediate,
+		setInterval,
+		setTimeout: hostSetTimeout,
+	};
 	const requestedBindings = new Set();
 	const publicBuiltinFallbacks = new Set();
 	const vendoredPublicBuiltins = normalizeVendoredPublicBuiltins(
 		payload.vendoredPublicBuiltins,
 	);
+	const executeUserCodeDirectly = payload.awaitCompletionSignal === true;
 	const vendoredPublicBuiltinsLoaded = new Set();
 	const optionInfo = internalBinding("options").getCLIOptionsInfo();
 	const fsBindingProvider =
@@ -348,8 +398,9 @@ function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 			? createUpstreamFsBinding({ internalBinding })
 			: null;
 	const fsEventWrapBinding = createFsEventWrapBinding();
+	const tcpWrapBinding = createTcpWrapBinding();
 	const optionsValues = {
-		"--eval": payload.code ?? "",
+		"--eval": executeUserCodeDirectly ? "" : payload.code ?? "",
 		"--print": false,
 		"--import": [],
 		"--experimental-loader": [],
@@ -368,6 +419,7 @@ function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 	const primordials = {};
 	const compiledCache = new Map();
 	const exportCache = new Map();
+	const hostPublicBuiltinCache = new Map();
 	const internalOptionsShim = createInternalOptionsShim(optionInfo, optionsValues);
 	let resolveCompletionSignal;
 	let rejectCompletionSignal;
@@ -510,6 +562,10 @@ function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 			return fsEventWrapBinding;
 		}
 
+		if (name === "tcp_wrap") {
+			return tcpWrapBinding;
+		}
+
 		return internalBinding(name);
 	}
 
@@ -531,6 +587,10 @@ function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 			if (capturedLoaders) {
 				mod.exports = capturedLoaders.requireBuiltin(id);
 			}
+		} else if (id === "internal/util/debuglog") {
+			const hostDebuglog = HOST_REQUIRE("internal/util/debuglog");
+			hostDebuglog.initializeDebugEnv(process.env.NODE_DEBUG);
+			mod.exports = hostDebuglog;
 		} else if (
 			id.startsWith("internal/bootstrap/") ||
 			id.startsWith("internal/main/")
@@ -564,6 +624,109 @@ function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 		return mod.exports;
 	}
 
+	function requireHostVendoredPublicBuiltin(id) {
+		if (hostPublicBuiltinCache.has(id)) {
+			return hostPublicBuiltinCache.get(id).exports;
+		}
+
+		vendoredPublicBuiltinsLoaded.add(id);
+		const mod = { exports: {} };
+		hostPublicBuiltinCache.set(id, mod);
+		const hostRequire = (specifier) => {
+			const builtinId = normalizeBuiltinRequest(specifier);
+			if (!builtinId) {
+				return HOST_REQUIRE(specifier);
+			}
+			if (builtinId === id) {
+				return mod.exports;
+			}
+			const entry = BUILTIN_ENTRIES.get(builtinId);
+			if (entry?.classification === "internal") {
+				return HOST_REQUIRE(builtinId);
+			}
+			return HOST_REQUIRE(`node:${builtinId}`);
+		};
+		hostRequire.resolve = (specifier) => {
+			const builtinId = normalizeBuiltinRequest(specifier);
+			if (builtinId) {
+				return `node:${builtinId}`;
+			}
+			return HOST_REQUIRE.resolve(specifier);
+		};
+		hostRequire.cache = HOST_REQUIRE.cache;
+		hostRequire.main = HOST_REQUIRE.main;
+
+		const compiled = compileFunction(
+			getBuiltinSource(id),
+			["exports", "require", "module", "process", "internalBinding", "primordials"],
+			{
+				filename: `node:${id}`,
+			},
+		);
+		const result = compiled(
+			mod.exports,
+			hostRequire,
+			mod,
+			process,
+			internalBindingShim,
+			primordials,
+		);
+		if (result !== undefined) {
+			mod.exports = result;
+		}
+		hostPublicBuiltinCache.set(id, mod);
+		return mod.exports;
+	}
+
+	function createUserRequire() {
+		const builtinRequire = capturedLoaders?.requireBuiltin ?? requireBuiltin;
+		const userRequire = (specifier) => {
+			const builtinId = normalizeBuiltinRequest(specifier);
+			if (builtinId) {
+				if (
+					executeUserCodeDirectly &&
+					builtinId === "net" &&
+					vendoredPublicBuiltins.has("net")
+				) {
+					return requireHostVendoredPublicBuiltin("net");
+				}
+				return builtinRequire(builtinId);
+			}
+			return HOST_REQUIRE(specifier);
+		};
+		userRequire.resolve = (specifier) => {
+			const builtinId = normalizeBuiltinRequest(specifier);
+			if (builtinId) {
+				return `node:${builtinId}`;
+			}
+			return HOST_REQUIRE.resolve(specifier);
+		};
+		userRequire.cache = HOST_REQUIRE.cache;
+		userRequire.main = HOST_REQUIRE.main;
+		return userRequire;
+	}
+
+	function executeUserEvalCode() {
+		Object.assign(context, hostTimerGlobals);
+		const compiled = compileFunction(
+			payload.code,
+			["exports", "require", "module", "__filename", "__dirname"],
+			{
+				filename: "[eval]",
+				parsingContext: context,
+			},
+		);
+		const mod = { exports: {} };
+		const userRequire = createUserRequire();
+		return compiled(
+			mod.exports,
+			userRequire,
+			mod,
+			"[eval]",
+			payload.cwd ?? process.cwd(),
+		);
+	}
+
 	bootstrapPhases.push("internal/per_context/primordials");
 	compileBuiltin("internal/per_context/primordials")(
 		{},
@@ -584,10 +747,25 @@ function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 	bootstrapPhases.push("internal/bootstrap/node");
 	requireBuiltin("internal/bootstrap/node");
 
-	bootstrapPhases.push("internal/main/eval_string");
-	requireBuiltin("internal/main/eval_string");
+	(capturedLoaders?.requireBuiltin("internal/util/debuglog") ??
+		requireBuiltin("internal/util/debuglog")).initializeDebugEnv(
+		processShim.env.NODE_DEBUG,
+	);
+	HOST_REQUIRE("internal/util/debuglog").initializeDebugEnv(
+		process.env.NODE_DEBUG,
+	);
+
+	let entrypoint = "internal/main/eval_string";
+	if (executeUserCodeDirectly) {
+		entrypoint = "secure_exec/post_bootstrap_eval";
+		executeUserEvalCode();
+	} else {
+		bootstrapPhases.push("internal/main/eval_string");
+		requireBuiltin("internal/main/eval_string");
+	}
 
 	return {
+		entrypoint,
 		awaitCompletionSignal: payload.awaitCompletionSignal === true,
 		bootstrapPhases,
 		completionSignalPromise,
@@ -599,6 +777,7 @@ function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 }
 
 if (internalBinding) {
+	void (async () => {
 	const stdoutChunks = [];
 	const stderrChunks = [];
 	const payload = await readPayload();
@@ -616,7 +795,7 @@ if (internalBinding) {
 			await Promise.race([
 				execution.completionSignalPromise,
 				new Promise((_, reject) => {
-					setTimeout(() => {
+					hostSetTimeout(() => {
 						reject(
 							new Error(
 								"vendored bootstrap runner timed out waiting for __secureExecDone()",
@@ -634,7 +813,7 @@ if (internalBinding) {
 					status: "pass",
 					summary:
 						"vendored internal/per_context/*, internal/bootstrap/realm, internal/bootstrap/node, and internal/main/eval_string completed in snapshot-free mode with explicit host shims",
-					entrypoint: "internal/main/eval_string",
+					entrypoint: execution.entrypoint,
 					code: exitCode,
 					stdout: stdoutChunks.join(""),
 					stderr: stderrChunks.join(""),
@@ -664,7 +843,7 @@ if (internalBinding) {
 						status: "pass",
 						summary:
 							"vendored bootstrap reached internal/main/eval_string and user code exited explicitly",
-						entrypoint: "internal/main/eval_string",
+						entrypoint: execution?.entrypoint ?? "internal/main/eval_string",
 						code: exitCode,
 						stdout: stdoutChunks.join(""),
 						stderr: stderrChunks.join(""),
@@ -713,4 +892,23 @@ if (internalBinding) {
 			process.exitCode = 1;
 		}
 	}
+	})().catch((error) => {
+		process.stdout.write(
+			`${JSON.stringify(
+				{
+					status: "blocked",
+					summary:
+						"vendored bootstrap bring-up failed before the internal/main/eval_string smoke path completed",
+					errorMessage: error instanceof Error ? error.message : String(error),
+					stack: error instanceof Error ? error.stack : undefined,
+					code: 1,
+					stdout: "",
+					stderr: "",
+				},
+				null,
+				2,
+			)}\n`,
+		);
+		process.exitCode = 1;
+	});
 }
