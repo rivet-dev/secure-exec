@@ -7,10 +7,12 @@ import {
 	type StdioEvent,
 } from "@secure-exec/core";
 import { NodeRuntime } from "../../secure-exec/src/runtime.ts";
-import { createNodeDriver } from "../src/driver.ts";
 import {
-	createExperimentalUpstreamBootstrapKernelRuntime,
-	createExperimentalUpstreamBootstrapRuntimeDriverFactory,
+	createNodeDriver,
+	createNodeRuntime,
+	createNodeRuntimeDriverFactory,
+} from "../src/index.ts";
+import {
 	runUpstreamBootstrapEval,
 } from "../src/upstream/bootstrap-execution.ts";
 
@@ -76,8 +78,7 @@ describe("upstream bootstrap bring-up", () => {
 				filesystem: createInMemoryFileSystem(),
 				commandExecutor: createCommandExecutorStub(),
 			}),
-			runtimeDriverFactory:
-				createExperimentalUpstreamBootstrapRuntimeDriverFactory(),
+			runtimeDriverFactory: createNodeRuntimeDriverFactory(),
 			onStdio: (event) => stdio.push(event),
 		});
 
@@ -94,7 +95,7 @@ describe("upstream bootstrap bring-up", () => {
 		kernel = createKernel({
 			filesystem: createInMemoryFileSystem(),
 		});
-		await kernel.mount(createExperimentalUpstreamBootstrapKernelRuntime());
+		await kernel.mount(createNodeRuntime());
 
 		const stdout: Uint8Array[] = [];
 		const stderr: Uint8Array[] = [];

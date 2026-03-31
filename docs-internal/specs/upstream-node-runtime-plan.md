@@ -1020,6 +1020,11 @@ Replace the current runtime implementation wholesale once bootstrap plus `fs` an
 4. update docs and internal architecture notes to reflect the new runtime shape
 5. instrument boot latency, memory, and request/callback counts on the replacement runtime
 
+Current in-tree status:
+
+- public `createNodeRuntimeDriverFactory()` and `createNodeRuntime()` now route to the vendored upstream bootstrap + `fs` first-light wrappers
+- the historical bridge/bootstrap path remains only behind internal `createLegacyNodeRuntimeDriverFactory()` and `createLegacyNodeRuntime()` escape hatches so follow-on `net` / `http` work can diff behavior without keeping the legacy path as the product surface
+
 ### Exit Criteria
 
 - the replacement runtime is the only active Node implementation in-tree

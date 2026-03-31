@@ -9,10 +9,12 @@ import {
 	type StdioEvent,
 } from "@secure-exec/core";
 import { NodeRuntime } from "../../secure-exec/src/runtime.ts";
-import { createNodeDriver } from "../src/driver.ts";
 import {
-	createExperimentalUpstreamFsFirstLightKernelRuntime,
-	createExperimentalUpstreamFsFirstLightRuntimeDriverFactory,
+	createNodeDriver,
+	createNodeRuntime,
+	createNodeRuntimeDriverFactory,
+} from "../src/index.ts";
+import {
 	runUpstreamFsFirstLightEval,
 } from "../src/upstream/bootstrap-execution.ts";
 
@@ -228,8 +230,7 @@ describe("upstream fs first-light", () => {
 				filesystem: createInMemoryFileSystem(),
 				commandExecutor: createCommandExecutorStub(),
 			}),
-			runtimeDriverFactory:
-				createExperimentalUpstreamFsFirstLightRuntimeDriverFactory(),
+			runtimeDriverFactory: createNodeRuntimeDriverFactory(),
 			onStdio: (event) => stdio.push(event),
 		});
 
@@ -249,7 +250,7 @@ describe("upstream fs first-light", () => {
 		kernel = createKernel({
 			filesystem: createInMemoryFileSystem(),
 		});
-		await kernel.mount(createExperimentalUpstreamFsFirstLightKernelRuntime());
+		await kernel.mount(createNodeRuntime());
 
 		const stdout: Uint8Array[] = [];
 		const stderr: Uint8Array[] = [];

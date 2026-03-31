@@ -46,6 +46,7 @@ export interface UpstreamBootstrapEvalResult {
 export interface ExperimentalUpstreamBootstrapOptions {
 	vendoredPublicBuiltins?: readonly string[];
 	awaitCompletionSignal?: boolean;
+	awaitCompletionSignalMode?: "always" | "auto";
 }
 
 const DEFAULT_RUNNER_TIMEOUT_MS = 20_000;
@@ -152,11 +153,24 @@ function normalizeVendoredPublicBuiltins(
 	return [...new Set(values)];
 }
 
+function shouldAwaitCompletionSignal(
+	mode: "always" | "auto" | undefined,
+	code: string,
+): boolean {
+	if (mode === "always") {
+		return true;
+	}
+	if (mode === "auto") {
+		return code.includes("__secureExecDone");
+	}
+	return false;
+}
+
 class ExperimentalUpstreamBootstrapRuntimeDriver implements NodeRuntimeDriver {
 	readonly #runtime: RuntimeDriverOptions["runtime"];
 	readonly #defaultOnStdio?: StdioHook;
 	readonly #vendoredPublicBuiltins: string[];
-	readonly #awaitCompletionSignal: boolean;
+	readonly #awaitCompletionSignalMode?: "always" | "auto";
 
 	constructor(
 		options: RuntimeDriverOptions & ExperimentalUpstreamBootstrapOptions,
@@ -166,7 +180,9 @@ class ExperimentalUpstreamBootstrapRuntimeDriver implements NodeRuntimeDriver {
 		this.#vendoredPublicBuiltins = normalizeVendoredPublicBuiltins(
 			options.vendoredPublicBuiltins,
 		);
-		this.#awaitCompletionSignal = options.awaitCompletionSignal === true;
+		this.#awaitCompletionSignalMode =
+			options.awaitCompletionSignalMode ??
+			(options.awaitCompletionSignal === true ? "always" : undefined);
 	}
 
 	async exec(code: string, options: ExecOptions = {}): Promise<ExecResult> {
@@ -182,7 +198,10 @@ class ExperimentalUpstreamBootstrapRuntimeDriver implements NodeRuntimeDriver {
 				this.#vendoredPublicBuiltins.length > 0
 					? [...this.#vendoredPublicBuiltins]
 					: undefined,
-			awaitCompletionSignal: this.#awaitCompletionSignal,
+			awaitCompletionSignal: shouldAwaitCompletionSignal(
+				this.#awaitCompletionSignalMode,
+				code,
+			),
 		});
 
 		emitBufferedStdio(
@@ -223,12 +242,14 @@ export function createExperimentalUpstreamBootstrapRuntimeDriverFactory(
 	const vendoredPublicBuiltins = normalizeVendoredPublicBuiltins(
 		options.vendoredPublicBuiltins,
 	);
-	const awaitCompletionSignal = options.awaitCompletionSignal === true;
+	const awaitCompletionSignalMode =
+		options.awaitCompletionSignalMode ??
+		(options.awaitCompletionSignal === true ? "always" : undefined);
 	return {
 		createRuntimeDriver: (options) =>
 			new ExperimentalUpstreamBootstrapRuntimeDriver({
 				...options,
-				awaitCompletionSignal,
+				awaitCompletionSignalMode,
 				vendoredPublicBuiltins,
 			}),
 	};
@@ -246,7 +267,14 @@ export async function runUpstreamFsFirstLightEval(
 
 export function createExperimentalUpstreamFsFirstLightRuntimeDriverFactory(): NodeRuntimeDriverFactory {
 	return createExperimentalUpstreamBootstrapRuntimeDriverFactory({
-		awaitCompletionSignal: true,
+		awaitCompletionSignalMode: "always",
+		vendoredPublicBuiltins: ["fs"],
+	});
+}
+
+export function createReplacementNodeRuntimeDriverFactory(): NodeRuntimeDriverFactory {
+	return createExperimentalUpstreamBootstrapRuntimeDriverFactory({
+		awaitCompletionSignalMode: "auto",
 		vendoredPublicBuiltins: ["fs"],
 	});
 }
@@ -309,13 +337,15 @@ class ExperimentalUpstreamBootstrapKernelRuntime implements KernelRuntimeDriver 
 	readonly name = "node-upstream-bootstrap";
 	readonly commands = ["node"];
 	readonly #vendoredPublicBuiltins: string[];
-	readonly #awaitCompletionSignal: boolean;
+	readonly #awaitCompletionSignalMode?: "always" | "auto";
 
 	constructor(options: ExperimentalUpstreamBootstrapOptions = {}) {
 		this.#vendoredPublicBuiltins = normalizeVendoredPublicBuiltins(
 			options.vendoredPublicBuiltins,
 		);
-		this.#awaitCompletionSignal = options.awaitCompletionSignal === true;
+		this.#awaitCompletionSignalMode =
+			options.awaitCompletionSignalMode ??
+			(options.awaitCompletionSignal === true ? "always" : undefined);
 	}
 
 	async init(_kernel: KernelInterface): Promise<void> {}
@@ -373,7 +403,10 @@ class ExperimentalUpstreamBootstrapKernelRuntime implements KernelRuntimeDriver 
 						this.#vendoredPublicBuiltins.length > 0
 							? [...this.#vendoredPublicBuiltins]
 							: undefined,
-					awaitCompletionSignal: this.#awaitCompletionSignal,
+					awaitCompletionSignal: shouldAwaitCompletionSignal(
+						this.#awaitCompletionSignalMode,
+						code,
+					),
 				});
 				const stdout = result.stdout;
 				const stderr =
@@ -428,7 +461,14 @@ export function createExperimentalUpstreamBootstrapKernelRuntime(
 
 export function createExperimentalUpstreamFsFirstLightKernelRuntime(): KernelRuntimeDriver {
 	return createExperimentalUpstreamBootstrapKernelRuntime({
-		awaitCompletionSignal: true,
+		awaitCompletionSignalMode: "always",
+		vendoredPublicBuiltins: ["fs"],
+	});
+}
+
+export function createReplacementNodeKernelRuntime(): KernelRuntimeDriver {
+	return createExperimentalUpstreamBootstrapKernelRuntime({
+		awaitCompletionSignalMode: "auto",
 		vendoredPublicBuiltins: ["fs"],
 	});
 }

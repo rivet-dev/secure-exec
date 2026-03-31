@@ -1,6 +1,7 @@
 // Re-exported from @secure-exec/nodejs — canonical source is packages/nodejs/src/driver.ts
 export {
 	createDefaultNetworkAdapter,
+	createLegacyNodeRuntimeDriverFactory,
 	createNodeDriver,
 	createNodeRuntimeDriverFactory,
 	NodeFileSystem,
