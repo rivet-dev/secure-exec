@@ -22,6 +22,12 @@ export interface UpstreamBootstrapEvalRequest {
 	execArgv?: string[];
 	vendoredPublicBuiltins?: string[];
 	awaitCompletionSignal?: boolean;
+	liveStdio?: boolean;
+	stdinIsTTY?: boolean;
+	stdoutIsTTY?: boolean;
+	stderrIsTTY?: boolean;
+	terminalColumns?: number;
+	terminalRows?: number;
 }
 
 export interface UpstreamBootstrapEvalResult {
@@ -53,6 +59,10 @@ const DEFAULT_RUNNER_TIMEOUT_MS = 20_000;
 const textEncoder = new TextEncoder();
 const FS_FIRST_LIGHT_PUBLIC_BUILTINS = ["fs"] as const;
 const NET_FIRST_LIGHT_PUBLIC_BUILTINS = ["net"] as const;
+const READLINE_FIRST_LIGHT_PUBLIC_BUILTINS = [
+	"readline",
+	"readline/promises",
+] as const;
 const HTTP_FIRST_LIGHT_PUBLIC_BUILTINS = [
 	"net",
 	"http",
@@ -67,12 +77,25 @@ const HTTP_FIRST_LIGHT_PUBLIC_BUILTINS = [
 const REPLACEMENT_PUBLIC_BUILTINS = [
 	"fs",
 	...HTTP_FIRST_LIGHT_PUBLIC_BUILTINS,
+	...READLINE_FIRST_LIGHT_PUBLIC_BUILTINS,
 ] as const;
 
 function getBootstrapRunnerPath(): string {
 	return fileURLToPath(
 		new URL("../../scripts/run-upstream-node-bootstrap.mjs", import.meta.url),
 	);
+}
+
+function getBootstrapRunnerEnv(
+	extraEnv: Record<string, string> = {},
+): NodeJS.ProcessEnv {
+	const env: NodeJS.ProcessEnv = {
+		...process.env,
+		...extraEnv,
+	};
+	delete env.NODE_CHANNEL_FD;
+	delete env.NODE_UNIQUE_ID;
+	return env;
 }
 
 function emitBufferedStdio(
@@ -102,6 +125,7 @@ export async function runUpstreamBootstrapEval(
 			["--expose-internals", "--no-warnings", getBootstrapRunnerPath()],
 			{
 				stdio: ["pipe", "pipe", "pipe"],
+				env: getBootstrapRunnerEnv(),
 			},
 		);
 
@@ -181,6 +205,14 @@ function shouldAwaitCompletionSignal(
 		return code.includes("__secureExecDone");
 	}
 	return false;
+}
+
+function parseTerminalDimension(value: string | undefined): number | undefined {
+	if (typeof value !== "string" || value.length === 0) {
+		return undefined;
+	}
+	const parsed = Number.parseInt(value, 10);
+	return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 class ExperimentalUpstreamBootstrapRuntimeDriver implements NodeRuntimeDriver {
@@ -302,6 +334,16 @@ export async function runUpstreamHttpFirstLightEval(
 	});
 }
 
+export async function runUpstreamReadlineFirstLightEval(
+	request: Omit<UpstreamBootstrapEvalRequest, "vendoredPublicBuiltins">,
+): Promise<UpstreamBootstrapEvalResult> {
+	return runUpstreamBootstrapEval({
+		...request,
+		awaitCompletionSignal: true,
+		vendoredPublicBuiltins: [...READLINE_FIRST_LIGHT_PUBLIC_BUILTINS],
+	});
+}
+
 export function createExperimentalUpstreamFsFirstLightRuntimeDriverFactory(): NodeRuntimeDriverFactory {
 	return createExperimentalUpstreamBootstrapRuntimeDriverFactory({
 		awaitCompletionSignalMode: "always",
@@ -375,6 +417,7 @@ class ExperimentalUpstreamBootstrapKernelRuntime implements KernelRuntimeDriver 
 	readonly commands = ["node"];
 	readonly #vendoredPublicBuiltins: string[];
 	readonly #awaitCompletionSignalMode?: "always" | "auto";
+	#kernel: KernelInterface | null = null;
 
 	constructor(options: ExperimentalUpstreamBootstrapOptions = {}) {
 		this.#vendoredPublicBuiltins = normalizeVendoredPublicBuiltins(
@@ -385,7 +428,194 @@ class ExperimentalUpstreamBootstrapKernelRuntime implements KernelRuntimeDriver 
 			(options.awaitCompletionSignal === true ? "always" : undefined);
 	}
 
-	async init(_kernel: KernelInterface): Promise<void> {}
+	async init(kernel: KernelInterface): Promise<void> {
+		this.#kernel = kernel;
+	}
+
+	#createLiveProcess(
+		code: string,
+		ctx: ProcessContext,
+	): DriverProcess {
+		if (!this.#kernel) {
+			return createImmediateProcessExit(
+				1,
+				`${this.name} was spawned before init() stored the kernel interface`,
+				ctx,
+			);
+		}
+
+		const kernel = this.#kernel;
+		const child = spawn(
+			process.execPath,
+			["--expose-internals", "--no-warnings", getBootstrapRunnerPath()],
+			{
+				stdio: ["pipe", "pipe", "pipe", "ipc"],
+				env: getBootstrapRunnerEnv({
+					SECURE_EXEC_UPSTREAM_LIVE_STDIO: "1",
+				}),
+			},
+		);
+		const childStdin = child.stdin;
+		const childStdout = child.stdout;
+		const childStderr = child.stderr;
+		if (!childStdin || !childStdout || !childStderr) {
+			return createImmediateProcessExit(
+				1,
+				`${this.name} failed to allocate child stdio pipes for live PTY mode`,
+				ctx,
+			);
+		}
+
+		let resolved = false;
+		let stdinClosed = false;
+		let resolveExit!: (code: number) => void;
+		const exitPromise = new Promise<number>((resolve) => {
+			resolveExit = resolve;
+		});
+
+		const finish = (code: number) => {
+			if (resolved) {
+				return;
+			}
+			resolved = true;
+			resolveExit(code);
+			proc.onExit?.(code);
+		};
+
+		const emitOutput = (
+			channel: "stdout" | "stderr",
+			chunk: Uint8Array,
+		) => {
+			if (channel === "stdout") {
+				ctx.onStdout?.(chunk);
+				proc.onStdout?.(chunk);
+				return;
+			}
+			ctx.onStderr?.(chunk);
+			proc.onStderr?.(chunk);
+		};
+
+		const closeChildStdin = () => {
+			if (stdinClosed) {
+				return;
+			}
+			stdinClosed = true;
+			childStdin.end();
+		};
+
+		const proc: DriverProcess = {
+			onStdout: null,
+			onStderr: null,
+			onExit: null,
+			writeStdin(data) {
+				if (ctx.stdinIsTTY || stdinClosed || childStdin.destroyed) {
+					return;
+				}
+				childStdin.write(data);
+			},
+			closeStdin() {
+				closeChildStdin();
+			},
+			kill(signal) {
+				if (resolved) {
+					return;
+				}
+				if (signal === 28) {
+					if (child.connected) {
+						child.send({ type: "signal", signal: "SIGWINCH" });
+					}
+					return;
+				}
+				child.kill(signal as number);
+			},
+			wait: () => exitPromise,
+		};
+
+		childStdout.on("data", (chunk: Buffer) => {
+			emitOutput("stdout", new Uint8Array(chunk));
+		});
+		childStderr.on("data", (chunk: Buffer) => {
+			emitOutput("stderr", new Uint8Array(chunk));
+		});
+		child.on("message", (message) => {
+			if (
+				!message ||
+				typeof message !== "object" ||
+				(message as { type?: unknown }).type !== "pty-set-raw-mode" ||
+				ctx.stdinIsTTY !== true
+			) {
+				return;
+			}
+			const mode = (message as { mode?: unknown }).mode === true;
+			kernel.tcsetattr(ctx.pid, ctx.fds.stdin, {
+				icanon: !mode,
+				echo: !mode,
+				isig: !mode,
+				icrnl: !mode,
+			});
+		});
+		child.on("error", (error) => {
+			emitOutput(
+				"stderr",
+				textEncoder.encode(
+					error instanceof Error ? error.message : String(error),
+				),
+			);
+			finish(1);
+		});
+		child.on("close", (code) => {
+			closeChildStdin();
+			finish(typeof code === "number" ? code : 1);
+		});
+
+		child.send({
+			code,
+			cwd: ctx.cwd,
+			env: ctx.env,
+			argv: ["node", "-e", code],
+			execArgv: [],
+			vendoredPublicBuiltins:
+				this.#vendoredPublicBuiltins.length > 0
+					? [...this.#vendoredPublicBuiltins]
+					: undefined,
+			awaitCompletionSignal: shouldAwaitCompletionSignal(
+				this.#awaitCompletionSignalMode,
+				code,
+			),
+			liveStdio: true,
+			stdinIsTTY: ctx.stdinIsTTY,
+			stdoutIsTTY: ctx.stdoutIsTTY,
+			stderrIsTTY: ctx.stderrIsTTY,
+			terminalColumns: parseTerminalDimension(ctx.env.COLUMNS),
+			terminalRows: parseTerminalDimension(ctx.env.LINES),
+		} satisfies UpstreamBootstrapEvalRequest);
+
+		if (ctx.stdinIsTTY) {
+			queueMicrotask(async () => {
+				try {
+					while (!resolved) {
+						const chunk = await kernel.fdRead(ctx.pid, ctx.fds.stdin, 4096);
+						if (resolved) {
+							break;
+						}
+						if (chunk.length === 0) {
+							closeChildStdin();
+							break;
+						}
+						if (!childStdin.write(chunk)) {
+							await new Promise<void>((resolve) => {
+								childStdin.once("drain", resolve);
+							});
+						}
+					}
+				} catch {
+					closeChildStdin();
+				}
+			});
+		}
+
+		return proc;
+	}
 
 	spawn(command: string, args: string[], ctx: ProcessContext): DriverProcess {
 		if (command !== "node") {
@@ -403,6 +633,15 @@ class ExperimentalUpstreamBootstrapKernelRuntime implements KernelRuntimeDriver 
 				`${this.name} only supports \`node -e <code>\` during the bootstrap bring-up story`,
 				ctx,
 			);
+		}
+
+		if (
+			ctx.streamStdin === true ||
+			ctx.stdinIsTTY === true ||
+			ctx.stdoutIsTTY === true ||
+			ctx.stderrIsTTY === true
+		) {
+			return this.#createLiveProcess(code, ctx);
 		}
 
 		let resolved = false;
@@ -487,7 +726,9 @@ class ExperimentalUpstreamBootstrapKernelRuntime implements KernelRuntimeDriver 
 		return command === "node";
 	}
 
-	async dispose(): Promise<void> {}
+	async dispose(): Promise<void> {
+		this.#kernel = null;
+	}
 }
 
 export function createExperimentalUpstreamBootstrapKernelRuntime(

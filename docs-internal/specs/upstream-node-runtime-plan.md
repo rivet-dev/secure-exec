@@ -962,6 +962,8 @@ Replace the current broad polyfill loader with a Node-shaped host binding regist
    - `tcp_wrap`
 5. make `http` and `readline` run through upstream JS builtins against those bindings
 
+Current readline/PTY first-light keeps vendored `readline` / `readline/promises` on the replacement runtime, but live PTY sessions stay attached to the helper child process's real stdin/stdout while `stdin.setRawMode()` toggles are sent back to the kernel PTY over IPC. That preserves the real kernel line discipline for `kernel.openShell()` instead of faking terminal input inside the bootstrap runner.
+
 ### Exit Criteria
 
 - upstream `http` server/client round-trips in Secure Exec

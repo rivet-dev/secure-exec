@@ -124,6 +124,106 @@ function captureWrite(chunks) {
 	};
 }
 
+function patchOwnValue(target, key, value, restorers) {
+	const hadOwn = Object.prototype.hasOwnProperty.call(target, key);
+	const originalDescriptor = Object.getOwnPropertyDescriptor(target, key);
+	Object.defineProperty(target, key, {
+		configurable: true,
+		enumerable: originalDescriptor?.enumerable ?? true,
+		writable: true,
+		value,
+	});
+	restorers.push(() => {
+		if (hadOwn && originalDescriptor) {
+			Object.defineProperty(target, key, originalDescriptor);
+			return;
+		}
+		delete target[key];
+	});
+}
+
+function configureLiveTtyState(payload, restorers) {
+	if (payload.liveStdio !== true) {
+		return;
+	}
+
+	patchOwnValue(process.stdin, "isTTY", payload.stdinIsTTY === true, restorers);
+	patchOwnValue(process.stdout, "isTTY", payload.stdoutIsTTY === true, restorers);
+	patchOwnValue(process.stderr, "isTTY", payload.stderrIsTTY === true, restorers);
+
+	if (payload.stdinIsTTY === true) {
+		patchOwnValue(process.stdin, "isRaw", false, restorers);
+		patchOwnValue(
+			process.stdin,
+			"setRawMode",
+			(mode) => {
+				const nextMode = mode === true;
+				process.stdin.isRaw = nextMode;
+				if (typeof process.send === "function") {
+					process.send({ type: "pty-set-raw-mode", mode: nextMode });
+				}
+				return process.stdin;
+			},
+			restorers,
+		);
+	}
+
+	if (payload.stdoutIsTTY === true) {
+		patchOwnValue(
+			process.stdout,
+			"columns",
+			payload.terminalColumns ?? 80,
+			restorers,
+		);
+		patchOwnValue(
+			process.stdout,
+			"rows",
+			payload.terminalRows ?? 24,
+			restorers,
+		);
+	}
+
+	if (payload.stderrIsTTY === true) {
+		patchOwnValue(
+			process.stderr,
+			"columns",
+			payload.terminalColumns ?? 80,
+			restorers,
+		);
+		patchOwnValue(
+			process.stderr,
+			"rows",
+			payload.terminalRows ?? 24,
+			restorers,
+		);
+	}
+}
+
+function attachLiveControlChannel(payload) {
+	if (payload.liveStdio !== true || typeof process.send !== "function") {
+		return () => {};
+	}
+
+	const handleMessage = (message) => {
+		if (!message || typeof message !== "object") {
+			return;
+		}
+		if (message.type !== "signal") {
+			return;
+		}
+		if (message.signal === "SIGWINCH") {
+			process.stdout.emit?.("resize");
+			process.stderr.emit?.("resize");
+		}
+		process.emit(message.signal);
+	};
+
+	process.on("message", handleMessage);
+	return () => {
+		process.off?.("message", handleMessage);
+	};
+}
+
 function createProcessCapture(payload, stdoutChunks, stderrChunks) {
 	const originalStdoutWrite = process.stdout.write.bind(process.stdout);
 	const originalStderrWrite = process.stderr.write.bind(process.stderr);
@@ -135,9 +235,13 @@ function createProcessCapture(payload, stdoutChunks, stderrChunks) {
 	const originalProcessSecureExecDone = process.__secureExecDone;
 	const originalGlobalSecureExecDone = globalThis.__secureExecDone;
 	const envSnapshot = new Map();
+	const restorers = [];
+	const restoreControlChannel = attachLiveControlChannel(payload);
 
-	process.stdout.write = captureWrite(stdoutChunks);
-	process.stderr.write = captureWrite(stderrChunks);
+	if (payload.liveStdio !== true) {
+		process.stdout.write = captureWrite(stdoutChunks);
+		process.stderr.write = captureWrite(stderrChunks);
+	}
 	process.exit = ((code = 0) => {
 		throw new ProcessExitSignal(code);
 	});
@@ -168,7 +272,13 @@ function createProcessCapture(payload, stdoutChunks, stderrChunks) {
 		}
 	}
 
+	configureLiveTtyState(payload, restorers);
+
 	return () => {
+		restoreControlChannel();
+		for (let index = restorers.length - 1; index >= 0; index -= 1) {
+			restorers[index]();
+		}
 		process.stdout.write = originalStdoutWrite;
 		process.stderr.write = originalStderrWrite;
 		process.exit = originalExit;
@@ -201,6 +311,12 @@ function createProcessCapture(payload, stdoutChunks, stderrChunks) {
 }
 
 async function readPayload() {
+	if (process.env.SECURE_EXEC_UPSTREAM_LIVE_STDIO === "1") {
+		return await new Promise((resolve) => {
+			process.once("message", resolve);
+		});
+	}
+
 	let json = "";
 	process.stdin.setEncoding("utf8");
 	for await (const chunk of process.stdin) {
@@ -325,13 +441,14 @@ function createProcessShim(payload, stdoutChunks, stderrChunks) {
 	const processShim = Object.create({});
 	const utilBinding = internalBinding("util");
 	const cwd = payload.cwd ?? process.cwd();
+	const useLiveStdio = payload.liveStdio === true;
 
 	Object.assign(processShim, {
 		versions: process.versions,
 		version: process.version,
 		release: process.release,
 		emitWarning() {},
-		env: { ...(payload.env ?? process.env) },
+		env: useLiveStdio ? process.env : { ...(payload.env ?? process.env) },
 		argv: payload.argv ?? ["node"],
 		execArgv: payload.execArgv ?? [],
 		features: process.features,
@@ -341,22 +458,27 @@ function createProcessShim(payload, stdoutChunks, stderrChunks) {
 		arch: process.arch,
 		cwd: () => cwd,
 		nextTick: process.nextTick.bind(process),
-		on: () => processShim,
-		once: () => processShim,
-		emit: () => false,
-		stdout: {
+		on: process.on.bind(process),
+		once: process.once.bind(process),
+		addListener: process.addListener.bind(process),
+		removeListener: process.removeListener.bind(process),
+		removeAllListeners: process.removeAllListeners.bind(process),
+		emit: process.emit.bind(process),
+		listenerCount: process.listenerCount.bind(process),
+		rawListeners: process.rawListeners.bind(process),
+		stdout: useLiveStdio ? process.stdout : {
 			write(chunk) {
 				stdoutChunks.push(normalizeChunk(chunk));
 				return true;
 			},
 		},
-		stderr: {
+		stderr: useLiveStdio ? process.stderr : {
 			write(chunk) {
 				stderrChunks.push(normalizeChunk(chunk));
 				return true;
 			},
 		},
-		stdin: {
+		stdin: useLiveStdio ? process.stdin : {
 			isTTY: false,
 			setEncoding() {},
 			on() {},
@@ -858,6 +980,10 @@ if (internalBinding) {
 		}
 		exitCode = typeof process.exitCode === "number" ? process.exitCode : 0;
 		restoreProcess();
+		if (payload.liveStdio === true) {
+			process.exitCode = exitCode;
+			return;
+		}
 		process.stdout.write(
 			`${JSON.stringify(
 				{
@@ -888,6 +1014,10 @@ if (internalBinding) {
 		if (error instanceof ProcessExitSignal) {
 			exitCode = error.code;
 			restoreProcess();
+			if (payload.liveStdio === true) {
+				process.exitCode = exitCode;
+				return;
+			}
 			process.stdout.write(
 				`${JSON.stringify(
 					{
@@ -924,6 +1054,13 @@ if (internalBinding) {
 			);
 		} else {
 			restoreProcess();
+			if (payload.liveStdio === true) {
+				process.stderr.write(
+					error instanceof Error ? `${error.stack ?? error.message}\n` : `${String(error)}\n`,
+				);
+				process.exitCode = 1;
+				return;
+			}
 			process.stdout.write(
 				`${JSON.stringify(
 					{
