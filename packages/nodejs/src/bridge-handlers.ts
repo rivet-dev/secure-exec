@@ -11,7 +11,7 @@ import * as tls from "node:tls";
 import * as hostUtil from "node:util";
 import * as zlib from "node:zlib";
 import { Duplex, PassThrough } from "node:stream";
-import { readFileSync, realpathSync, existsSync } from "node:fs";
+import { readFileSync, realpathSync, existsSync, statSync } from "node:fs";
 import { dirname as pathDirname, join as pathJoin, resolve as pathResolve } from "node:path";
 import { createRequire } from "node:module";
 import { serialize } from "node:v8";
@@ -2862,7 +2862,10 @@ function normalizeModuleResolveContext(referrer: string): string {
 		return referrer || "/";
 	}
 
-	return pathDirname(referrer) !== referrer && /\.[^/]+$/.test(referrer)
+	return (
+		pathDirname(referrer) !== referrer &&
+		/\.(?:[cm]?[jt]sx?|json|node)$/i.test(referrer)
+	)
 		? pathDirname(referrer)
 		: referrer;
 }
@@ -2983,6 +2986,76 @@ function resolvePackageExport(
 	return null;
 }
 
+const RELATIVE_MODULE_EXTENSIONS = [
+	"",
+	".js",
+	".json",
+	".node",
+	".mjs",
+	".cjs",
+	".ts",
+	".tsx",
+	".mts",
+	".cts",
+	".jsx",
+] as const;
+
+function resolveRelativeModuleSync(
+	req: string,
+	hostDir: string,
+): string | null {
+	const basePath = pathResolve(hostDir, req);
+
+	for (const extension of RELATIVE_MODULE_EXTENSIONS) {
+		const filePath = extension ? `${basePath}${extension}` : basePath;
+		try {
+			if (statSync(filePath).isFile()) {
+				return filePath;
+			}
+		} catch {
+			// Try the next file candidate.
+		}
+	}
+
+	try {
+		if (!statSync(basePath).isDirectory()) {
+			return null;
+		}
+	} catch {
+		return null;
+	}
+
+	const packageJsonPath = pathJoin(basePath, "package.json");
+	if (existsSync(packageJsonPath)) {
+		try {
+			const pkg = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as {
+				main?: unknown;
+			};
+			if (typeof pkg.main === "string" && pkg.main.length > 0) {
+				const packageMain = resolveRelativeModuleSync(pkg.main, basePath);
+				if (packageMain) {
+					return packageMain;
+				}
+			}
+		} catch {
+			// Fall through to index.* probing.
+		}
+	}
+
+	for (const extension of RELATIVE_MODULE_EXTENSIONS.slice(1)) {
+		const indexPath = pathJoin(basePath, `index${extension}`);
+		try {
+			if (statSync(indexPath).isFile()) {
+				return indexPath;
+			}
+		} catch {
+			// Try the next directory index candidate.
+		}
+	}
+
+	return null;
+}
+
 const hostRequire = createRequire(import.meta.url);
 
 /**
@@ -2998,6 +3071,7 @@ export function buildModuleResolutionBridgeHandlers(
 ): BridgeHandlers {
 	const handlers: BridgeHandlers = {};
 	const K = HOST_BRIDGE_GLOBAL_KEYS;
+	const resolutionCache = new Map<string, string | null>();
 
 	// Sync require.resolve — translates sandbox paths and uses Node.js resolution.
 	// Falls back to realpath + manual package.json resolution for pnpm/ESM packages.
@@ -3024,16 +3098,43 @@ export function buildModuleResolutionBridgeHandlers(
 				deps.sandboxToHostPath(sandboxDir) ??
 				sandboxDir,
 		);
+		const resolutionCacheKey =
+			sandboxDir.includes("/node_modules/")
+				? `${resolveMode}\0${req}\0${sandboxDir}`
+				: null;
+		if (
+			resolutionCacheKey !== null &&
+			resolutionCache.has(resolutionCacheKey)
+		) {
+			return resolutionCache.get(resolutionCacheKey)!;
+		}
+		const rememberResolution = (resolved: string | null) => {
+			if (resolutionCacheKey !== null) {
+				resolutionCache.set(resolutionCacheKey, resolved);
+			}
+			return resolved;
+		};
 
 		// Handle absolute path specifiers directly
 		if (req.startsWith("/")) {
-			return req;
+			return rememberResolution(req);
+		}
+
+		if (req.startsWith("./") || req.startsWith("../")) {
+			const resolvedRelative = resolveRelativeModuleSync(req, hostDir);
+			return rememberResolution(
+				resolvedRelative
+					? deps.hostToSandboxPath(resolvedRelative)
+					: null,
+			);
 		}
 
 		// Handle #-prefixed subpath imports (package.json "imports" field)
 		if (req.startsWith("#")) {
 			const resolved = resolvePackageImportSync(req, hostDir, resolveMode);
-			return resolved ? deps.hostToSandboxPath(resolved) : null;
+			return rememberResolution(
+				resolved ? deps.hostToSandboxPath(resolved) : null,
+			);
 		}
 
 		const resolveFromExports = (dir: string) => {
@@ -3043,13 +3144,13 @@ export function buildModuleResolutionBridgeHandlers(
 
 		if (resolveMode === "import") {
 			const resolved = resolveFromExports(hostDir);
-			if (resolved) return resolved;
+			if (resolved) return rememberResolution(resolved);
 		}
 
 		// Try require.resolve first
 		try {
 			const resolved = hostRequire.resolve(req, { paths: [hostDir] });
-			return deps.hostToSandboxPath(resolved);
+			return rememberResolution(deps.hostToSandboxPath(resolved));
 		} catch { /* CJS resolution failed */ }
 
 		// Fallback: follow symlinks and try ESM-compatible resolution
@@ -3058,18 +3159,18 @@ export function buildModuleResolutionBridgeHandlers(
 			try { realDir = realpathSync(hostDir); } catch { realDir = hostDir; }
 			if (resolveMode === "import") {
 				const resolved = resolveFromExports(realDir);
-				if (resolved) return resolved;
+				if (resolved) return rememberResolution(resolved);
 			}
 			// Try require.resolve from real path
 			try {
 				const resolved = hostRequire.resolve(req, { paths: [realDir] });
-				return deps.hostToSandboxPath(resolved);
+				return rememberResolution(deps.hostToSandboxPath(resolved));
 			} catch { /* ESM-only, manual resolution */ }
 			// Manual package.json resolution for ESM packages
 			const resolved = resolveFromExports(realDir);
-			if (resolved) return resolved;
+			if (resolved) return rememberResolution(resolved);
 		} catch { /* fallback failed */ }
-		return null;
+		return rememberResolution(null);
 	};
 
 	// Sync file read — translates sandbox path and applies parser-backed

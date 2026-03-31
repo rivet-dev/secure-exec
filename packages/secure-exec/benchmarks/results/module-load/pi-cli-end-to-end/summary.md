@@ -1,29 +1,29 @@
 # Pi CLI End-to-End
 
 Scenario: `pi-cli-end-to-end`
-Generated: 2026-03-31T11:52:13.176Z
+Generated: 2026-03-31T12:42:35.710Z
 Description: Calls Pi's direct dist/main.js print-mode path against the mock Anthropic SSE server.
 
 ## Progress Copy Fields
 
-- Warm wall mean: 1993.647 ms
-- Bridge calls/iteration: 2823.000
-- Warm fixed session overhead: 8.235 ms
+- Warm wall mean: 1746.020 ms
+- Bridge calls/iteration: 2781.000
+- Warm fixed session overhead: 8.521 ms
 - Scenario IPC connect RTT: 0.000 ms
-- Warm phase attribution: Create->InjectGlobals 5.000 ms, InjectGlobals->Execute 0.500 ms, ExecutionResult->Destroy 0.000 ms, residual 2.734 ms
-- Dominant bridge time: `_loadPolyfill` 944.730 ms/iteration across 2727.000 calls/iteration
-- Dominant bridge response bytes: `_loadPolyfill` 3598434.333 bytes/iteration
-- _loadPolyfill real polyfill-body loads: 80.000 calls/iteration, 114.967 ms/iteration, 839221.667 bytes/iteration
-- _loadPolyfill __bd:* bridge-dispatch wrappers: 2647.000 calls/iteration, 829.763 ms/iteration, 2759212.667 bytes/iteration
-- Dominant frame bytes: `send:BridgeResponse` 3614150.667 bytes/iteration
+- Warm phase attribution: Create->InjectGlobals 5.000 ms, InjectGlobals->Execute 0.000 ms, ExecutionResult->Destroy 0.000 ms, residual 3.521 ms
+- Dominant bridge time: `_loadPolyfill` 999.854 ms/iteration across 2718.000 calls/iteration
+- Dominant bridge response bytes: `_loadPolyfill` 3716707.667 bytes/iteration
+- _loadPolyfill real polyfill-body loads: 80.000 calls/iteration, 109.059 ms/iteration, 839221.667 bytes/iteration
+- _loadPolyfill __bd:* bridge-dispatch wrappers: 2638.000 calls/iteration, 890.794 ms/iteration, 2877486.000 bytes/iteration
+- Dominant frame bytes: `send:BridgeResponse` 3728838.000 bytes/iteration
 
 ## Iteration Timing
 
 | Iteration | Wall | Execute | Fixed Overhead | Bridge Calls | Bridge Time |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | 2302.224 ms | 2281.382 ms | 20.842 ms | 2823 | 1277.310 ms |
-| 2 | 2173.772 ms | 2165.065 ms | 8.707 ms | 2823 | 1045.186 ms |
-| 3 | 1813.522 ms | 1805.760 ms | 7.762 ms | 2823 | 907.085 ms |
+| 1 | 2666.722 ms | 2645.824 ms | 20.898 ms | 2781 | 1459.170 ms |
+| 2 | 1843.331 ms | 1833.946 ms | 9.385 ms | 2781 | 902.521 ms |
+| 3 | 1648.709 ms | 1641.053 ms | 7.656 ms | 2781 | 840.689 ms |
 
 ## Session Phase Attribution
 
@@ -31,40 +31,40 @@ Equivalent lifecycle phases come from `CreateSession -> InjectGlobals -> Execute
 
 | Iteration | Create->InjectGlobals | InjectGlobals->Execute | Execute | ExecutionResult->Destroy | Residual Overhead |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | 13.000 ms | 3.000 ms | 2281.382 ms | 0.000 ms | 4.842 ms |
-| 2 | 6.000 ms | 0.000 ms | 2165.065 ms | 0.000 ms | 2.707 ms |
-| 3 | 4.000 ms | 1.000 ms | 1805.760 ms | 0.000 ms | 2.762 ms |
+| 1 | 13.000 ms | 3.000 ms | 2645.824 ms | 1.000 ms | 3.898 ms |
+| 2 | 5.000 ms | 0.000 ms | 1833.946 ms | 0.000 ms | 4.385 ms |
+| 3 | 5.000 ms | 0.000 ms | 1641.053 ms | 0.000 ms | 2.656 ms |
 
 ## Bridge Methods By Time
 
 | Method | Calls/Iter | Time/Iter | Mean/Call | Response Bytes/Iter |
 | --- | ---: | ---: | ---: | ---: |
-| `_loadPolyfill` | 2727.000 | 944.730 ms | 0.346 ms | 3598434.333 |
-| `_fsExists` | 55.000 | 65.702 ms | 1.195 ms | 2750.000 |
-| `_resolveModule` | 21.000 | 43.723 ms | 2.082 ms | 2986.000 |
-| `_fsMkdir` | 1.000 | 5.882 ms | 5.882 ms | 47.000 |
-| `_fsReadFile` | 5.000 | 4.748 ms | 0.950 ms | 7684.000 |
-| `_networkFetchRaw` | 1.000 | 3.888 ms | 3.888 ms | 1231.000 |
-| `_fsStat` | 1.000 | 1.735 ms | 1.735 ms | 206.333 |
-| `_fsRmdir` | 1.000 | 1.704 ms | 1.704 ms | 47.000 |
-| `_fsUtimes` | 1.000 | 1.633 ms | 1.633 ms | 47.000 |
-| `_fsWriteFile` | 1.000 | 1.161 ms | 1.161 ms | 47.000 |
+| `_loadPolyfill` | 2718.000 | 999.854 ms | 0.368 ms | 3716707.667 |
+| `_fsExists` | 43.000 | 46.360 ms | 1.078 ms | 2150.000 |
+| `_fsMkdir` | 1.000 | 7.999 ms | 7.999 ms | 47.000 |
+| `_fsReadFile` | 5.000 | 3.070 ms | 0.614 ms | 7684.000 |
+| `_networkFetchRaw` | 1.000 | 3.051 ms | 3.051 ms | 1231.000 |
+| `_fsChmod` | 1.000 | 1.607 ms | 1.607 ms | 47.000 |
+| `_fsWriteFile` | 1.000 | 1.396 ms | 1.396 ms | 47.000 |
+| `_fsUtimes` | 1.000 | 1.232 ms | 1.232 ms | 47.000 |
+| `_fsStat` | 1.000 | 1.189 ms | 1.189 ms | 206.333 |
+| `_fsRmdir` | 1.000 | 1.058 ms | 1.058 ms | 47.000 |
 
 ## _loadPolyfill Attribution
 
 | Kind | Calls/Iter | Time/Iter | Response Bytes/Iter | Sample Targets |
 | --- | ---: | ---: | ---: | --- |
-| real polyfill-body loads | 80.000 | 114.967 ms | 839221.667 | `#ansi-styles`, `#supports-color`, `@anthropic-ai/sdk`, `@borewit/text-codec`, `@mariozechner/jiti` |
-| __bd:* bridge-dispatch wrappers | 2647.000 | 829.763 ms | 2759212.667 | `__bd:_loadFileSync:["/home/nathan/se6/node_modules/.pnpm/@anthropic-ai+sdk@0.73.0_zod@3.25.76/node_modules/@anthropic-ai/sdk/_vendor/partial-json-parser/parser.js"]`, `__bd:_loadFileSync:["/home/nathan/se6/node_modules/.pnpm/@anthropic-ai+sdk@0.73.0_zod@3.25.76/node_modules/@anthropic-ai/sdk/client.js"]`, `__bd:_loadFileSync:["/home/nathan/se6/node_modules/.pnpm/@anthropic-ai+sdk@0.73.0_zod@3.25.76/node_modules/@anthropic-ai/sdk/core/api-promise.js"]`, `__bd:_loadFileSync:["/home/nathan/se6/node_modules/.pnpm/@anthropic-ai+sdk@0.73.0_zod@3.25.76/node_modules/@anthropic-ai/sdk/core/error.js"]`, `__bd:_loadFileSync:["/home/nathan/se6/node_modules/.pnpm/@anthropic-ai+sdk@0.73.0_zod@3.25.76/node_modules/@anthropic-ai/sdk/core/pagination.js"]` |
+| real polyfill-body loads | 80.000 | 109.059 ms | 839221.667 | `#ansi-styles`, `#supports-color`, `@anthropic-ai/sdk`, `@borewit/text-codec`, `@mariozechner/jiti` |
+| __bd:* bridge-dispatch wrappers | 2638.000 | 890.794 ms | 2877486.000 | `__bd:_loadFileSync:["/home/nathan/se6/node_modules/.pnpm/@anthropic-ai+sdk@0.73.0_zod@3.25.76/node_modules/@anthropic-ai/sdk/_vendor/partial-json-parser/parser.js"]`, `__bd:_loadFileSync:["/home/nathan/se6/node_modules/.pnpm/@anthropic-ai+sdk@0.73.0_zod@3.25.76/node_modules/@anthropic-ai/sdk/client.js"]`, `__bd:_loadFileSync:["/home/nathan/se6/node_modules/.pnpm/@anthropic-ai+sdk@0.73.0_zod@3.25.76/node_modules/@anthropic-ai/sdk/core/api-promise.js"]`, `__bd:_loadFileSync:["/home/nathan/se6/node_modules/.pnpm/@anthropic-ai+sdk@0.73.0_zod@3.25.76/node_modules/@anthropic-ai/sdk/core/error.js"]`, `__bd:_loadFileSync:["/home/nathan/se6/node_modules/.pnpm/@anthropic-ai+sdk@0.73.0_zod@3.25.76/node_modules/@anthropic-ai/sdk/core/pagination.js"]` |
 
 ## Frame Bytes
 
 | Frame | Count/Iter | Encoded Bytes/Iter | Payload Bytes/Iter |
 | --- | ---: | ---: | ---: |
-| `send:BridgeResponse` | 2823.000 | 3614150.667 | 3481469.667 |
-| `recv:BridgeCall` | 2823.000 | 611630.000 | 439660.000 |
-| `send:Execute` | 1.000 | 423428.667 | 0.000 |
-| `send:WarmSnapshot` | 0.333 | 409300.000 | 0.000 |
+| `send:BridgeResponse` | 2781.000 | 3728838.000 | 3598131.000 |
+| `recv:BridgeCall` | 2781.000 | 587601.000 | 418166.000 |
+| `send:Execute` | 1.000 | 425289.000 | 0.000 |
+| `send:WarmSnapshot` | 0.333 | 411160.333 | 0.000 |
 | `recv:ExecutionResult` | 1.000 | 244.000 | 0.000 |
 | `send:InjectGlobals` | 1.000 | 228.000 | 190.000 |
 | `send:StreamEvent` | 2.000 | 116.000 | 26.000 |
@@ -74,27 +74,29 @@ Equivalent lifecycle phases come from `CreateSession -> InjectGlobals -> Execute
 
 ## Comparison To Previous Baseline
 
-Baseline scenario timestamp: 2026-03-31T11:03:59.558Z
+Baseline scenario timestamp: 2026-03-31T11:52:13.176Z
 
-- Warm wall: 1789.771 -> 1993.647 ms (+203.876 ms (+11.39%))
-- Bridge calls/iteration: 2823.000 -> 2823.000 calls (0.000 calls (0.00%))
-- Warm fixed overhead: 11.449 -> 8.235 ms (-3.214 ms (-28.07%))
-- Warm Create->InjectGlobals: 4.500 -> 5.000 ms (+0.500 ms (+11.11%))
-- Warm InjectGlobals->Execute: 0.500 -> 0.500 ms (0.000 ms (0.00%))
+- Warm wall: 1993.647 -> 1746.020 ms (-247.627 ms (-12.42%))
+- Bridge calls/iteration: 2823.000 -> 2781.000 calls (-42.000 calls (-1.49%))
+- Warm fixed overhead: 8.235 -> 8.521 ms (+0.286 ms (+3.47%))
+- Warm Create->InjectGlobals: 5.000 -> 5.000 ms (0.000 ms (0.00%))
+- Warm InjectGlobals->Execute: 0.500 -> 0.000 ms (-0.500 ms (-100.00%))
 - Warm ExecutionResult->Destroy: 0.000 -> 0.000 ms (0.000 ms)
-- Warm residual overhead: 6.449 -> 2.734 ms (-3.715 ms (-57.61%))
-- Bridge time/iteration: 1064.727 -> 1076.527 ms (+11.800 ms (+1.11%))
-- BridgeResponse encoded bytes/iteration: 3614151.333 -> 3614150.667 bytes (-0.666 bytes (0.00%))
-- _loadPolyfill real polyfill-body loads: calls 80.000 -> 80.000 calls (0.000 calls (0.00%)); time 92.575 -> 114.967 ms (+22.392 ms (+24.19%)); response bytes 839221.667 -> 839221.667 bytes (0.000 bytes (0.00%))
-- _loadPolyfill __bd:* bridge-dispatch wrappers: calls 2647.000 -> 2647.000 calls (0.000 calls (0.00%)); time 861.463 -> 829.763 ms (-31.700 ms (-3.68%)); response bytes 2759212.667 -> 2759212.667 bytes (0.000 bytes (0.00%))
+- Warm residual overhead: 2.734 -> 3.521 ms (+0.787 ms (+28.79%))
+- Bridge time/iteration: 1076.527 -> 1067.460 ms (-9.067 ms (-0.84%))
+- BridgeResponse encoded bytes/iteration: 3614150.667 -> 3728838.000 bytes (+114687.333 bytes (+3.17%))
+- _loadPolyfill real polyfill-body loads: calls 80.000 -> 80.000 calls (0.000 calls (0.00%)); time 114.967 -> 109.059 ms (-5.908 ms (-5.14%)); response bytes 839221.667 -> 839221.667 bytes (0.000 bytes (0.00%))
+- _loadPolyfill __bd:* bridge-dispatch wrappers: calls 2647.000 -> 2638.000 calls (-9.000 calls (-0.34%)); time 829.763 -> 890.794 ms (+61.031 ms (+7.36%)); response bytes 2759212.667 -> 2877486.000 bytes (+118273.333 bytes (+4.29%))
 
 | Delta Type | Name | Before | After | Delta |
 | --- | --- | ---: | ---: | ---: |
-| Method time | `_fsExists` | 51.455 | 65.702 | +14.247 |
-| Method time | `_loadPolyfill` | 954.038 | 944.730 | -9.308 |
-| Method time | `_fsReadFile` | 2.971 | 4.748 | +1.777 |
-| Method bytes | `_fsStat` | 207.000 | 206.333 | -0.667 |
-| Frame bytes | `send:Execute` | 547342.000 | 423428.667 | -123913.333 |
-| Frame bytes | `send:WarmSnapshot` | 348889.333 | 409300.000 | +60410.667 |
-| Frame bytes | `send:BridgeResponse` | 3614151.333 | 3614150.667 | -0.666 |
+| Method time | `_loadPolyfill` | 944.730 | 999.854 | +55.124 |
+| Method time | `_resolveModule` | 43.723 | 0.000 | -43.723 |
+| Method time | `_fsExists` | 65.702 | 46.360 | -19.342 |
+| Method bytes | `_loadPolyfill` | 3598434.333 | 3716707.667 | +118273.334 |
+| Method bytes | `_resolveModule` | 2986.000 | 0.000 | -2986.000 |
+| Method bytes | `_fsExists` | 2750.000 | 2150.000 | -600.000 |
+| Frame bytes | `send:BridgeResponse` | 3614150.667 | 3728838.000 | +114687.333 |
+| Frame bytes | `recv:BridgeCall` | 611630.000 | 587601.000 | -24029.000 |
+| Frame bytes | `send:Execute` | 423428.667 | 425289.000 | +1860.333 |
 

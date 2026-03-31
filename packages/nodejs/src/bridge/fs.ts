@@ -3,6 +3,7 @@
 // It communicates with the host via the _fs Reference object
 
 import { Buffer } from "buffer";
+import { exposeMutableRuntimeStateGlobal } from "@secure-exec/core/internal/shared/global-exposure";
 import type * as nodeFs from "fs";
 import type { FsFacadeBridge } from "../bridge-contract.js";
 
@@ -742,6 +743,59 @@ function tryNormalizeExistsPath(path: unknown): string | null {
   } catch {
     return null;
   }
+}
+
+const INITIAL_FS_EXISTS_CACHE = new Map<string, boolean>();
+exposeMutableRuntimeStateGlobal("__fsExistsCache", INITIAL_FS_EXISTS_CACHE);
+
+function getExistsCache(): Map<string, boolean> {
+  const globals = globalThis as Record<string, unknown>;
+  const existing = globals.__fsExistsCache;
+  if (existing instanceof Map) {
+    return existing as Map<string, boolean>;
+  }
+  const cache = new Map<string, boolean>();
+  globals.__fsExistsCache = cache;
+  return cache;
+}
+
+function getCachedExistsResult(path: string): boolean | undefined {
+  const cache = getExistsCache();
+  return cache.has(path) ? cache.get(path) : undefined;
+}
+
+function setCachedExistsResult(path: string, exists: boolean): void {
+  getExistsCache().set(path, exists);
+}
+
+function clearCachedExistsTree(path: string): void {
+  const prefix = path.endsWith("/") ? path : path + "/";
+  const cache = getExistsCache();
+  for (const key of Array.from(cache.keys())) {
+    if (key === path || key.startsWith(prefix)) {
+      cache.delete(key);
+    }
+  }
+}
+
+function invalidateCachedExistsPath(path: string): void {
+  clearCachedExistsTree(path);
+  const lastSlash = path.lastIndexOf("/");
+  if (lastSlash === -1) {
+    return;
+  }
+  const parentPath = lastSlash === 0 ? "/" : path.slice(0, lastSlash);
+  clearCachedExistsTree(parentPath);
+}
+
+function recordPathCreated(path: string): void {
+  invalidateCachedExistsPath(path);
+  setCachedExistsResult(path, true);
+}
+
+function recordPathRemoved(path: string): void {
+  invalidateCachedExistsPath(path);
+  setCachedExistsResult(path, false);
 }
 
 function normalizeNumberArgument(
@@ -2339,15 +2393,21 @@ const fs = {
     if (typeof data === "string") {
       // Text mode - use text write
       // Return the result so async callers (fs.promises) can await it.
-      return _fs.writeFile.applySyncPromise(undefined, [pathStr, data]);
+      const result = _fs.writeFile.applySyncPromise(undefined, [pathStr, data]);
+      recordPathCreated(pathStr);
+      return result;
     } else if (ArrayBuffer.isView(data)) {
       // Binary mode - convert to base64 and use binary write
       const uint8 = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
       const base64 = Buffer.from(uint8).toString("base64");
-      return _fs.writeFileBinary.applySyncPromise(undefined, [pathStr, base64]);
+      const result = _fs.writeFileBinary.applySyncPromise(undefined, [pathStr, base64]);
+      recordPathCreated(pathStr);
+      return result;
     } else {
       // Fallback to text mode
-      return _fs.writeFile.applySyncPromise(undefined, [pathStr, String(data)]);
+      const result = _fs.writeFile.applySyncPromise(undefined, [pathStr, String(data)]);
+      recordPathCreated(pathStr);
+      return result;
     }
   },
 
@@ -2399,12 +2459,14 @@ const fs = {
     const pathStr = rawPath;
     const recursive = typeof options === "object" ? options?.recursive ?? false : false;
     _fs.mkdir.applySyncPromise(undefined, [pathStr, recursive]);
+    recordPathCreated(pathStr);
     return recursive ? rawPath : undefined;
   },
 
   rmdirSync(path: PathLike, _options?: RmDirOptions): void {
     const pathStr = normalizePathLike(path);
     _fs.rmdir.applySyncPromise(undefined, [pathStr]);
+    recordPathRemoved(pathStr);
   },
 
   rmSync(path: PathLike, options?: { force?: boolean; recursive?: boolean }): void {
@@ -2438,6 +2500,7 @@ const fs = {
       }
       throw e;
     }
+    recordPathRemoved(pathStr);
   },
 
   existsSync(path: PathLike): boolean {
@@ -2445,7 +2508,13 @@ const fs = {
     if (!pathStr) {
       return false;
     }
-    return _fs.exists.applySyncPromise(undefined, [pathStr]);
+    const cached = getCachedExistsResult(pathStr);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const exists = _fs.exists.applySyncPromise(undefined, [pathStr]);
+    setCachedExistsResult(pathStr, exists);
+    return exists;
   },
 
   statSync(path: PathLike, _options?: nodeFs.StatSyncOptions): Stats {
@@ -2502,12 +2571,15 @@ const fs = {
   unlinkSync(path: PathLike): void {
     const pathStr = normalizePathLike(path);
     _fs.unlink.applySyncPromise(undefined, [pathStr]);
+    recordPathRemoved(pathStr);
   },
 
   renameSync(oldPath: PathLike, newPath: PathLike): void {
     const oldPathStr = normalizePathLike(oldPath, "oldPath");
     const newPathStr = normalizePathLike(newPath, "newPath");
     _fs.rename.applySyncPromise(undefined, [oldPathStr, newPathStr]);
+    recordPathRemoved(oldPathStr);
+    recordPathCreated(newPathStr);
   },
 
   copyFileSync(src: PathLike, dest: PathLike, _mode?: number): void {
@@ -2595,7 +2667,11 @@ const fs = {
     const numFlags = parseFlags(flags ?? "r");
     const modeNum = normalizeOpenModeArgument(_mode);
     try {
-      return _fdOpen.applySyncPromise(undefined, [pathStr, numFlags, modeNum]);
+      const fd = _fdOpen.applySyncPromise(undefined, [pathStr, numFlags, modeNum]);
+      if ((numFlags & O_CREAT) !== 0) {
+        recordPathCreated(pathStr);
+      }
+      return fd;
     } catch (e: any) {
       const msg = e?.message ?? String(e);
       if (msg.includes("ENOENT")) throw createFsError("ENOENT", msg, "open", pathStr);
@@ -2822,12 +2898,14 @@ const fs = {
     const existingStr = normalizePathLike(existingPath, "existingPath");
     const newStr = normalizePathLike(newPath, "newPath");
     bridgeCall(() => _fs.link.applySyncPromise(undefined, [existingStr, newStr]), "link", newStr);
+    recordPathCreated(newStr);
   },
 
   symlinkSync(target: PathLike, path: PathLike, _type?: string | null): void {
     const targetStr = normalizePathLike(target, "target");
     const pathStr = normalizePathLike(path);
     bridgeCall(() => _fs.symlink.applySyncPromise(undefined, [targetStr, pathStr]), "symlink", pathStr);
+    recordPathCreated(pathStr);
   },
 
   readlinkSync(path: PathLike, _options?: nodeFs.EncodingOption): string {

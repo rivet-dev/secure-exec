@@ -21,14 +21,27 @@ const initialCurrentModule = {
 	exports: {},
 	loaded: false,
 };
+const INITIAL_MODULE_RESOLUTION_CACHE: Record<string, string | null> = Object.create(
+	null,
+);
 
 exposeMutableRuntimeStateGlobal("_moduleCache", initialModuleCache);
 exposeMutableRuntimeStateGlobal("_pendingModules", initialPendingModules);
 exposeMutableRuntimeStateGlobal("_currentModule", initialCurrentModule);
+exposeMutableRuntimeStateGlobal(
+	"__runtimeModuleResolutionCache",
+	INITIAL_MODULE_RESOLUTION_CACHE,
+);
 
 // Declare host bridge globals that are set up by setupRequire()
 declare const _requireFrom: RequireFromBridgeFn;
 declare const _resolveModule: ResolveModuleBridgeRef;
+declare const _resolveModuleSync:
+	| {
+			applySync(ctx: undefined, args: [string, string]): string | null;
+			applySync(ctx: undefined, args: [string, string, string]): string | null;
+	  }
+	| undefined;
 declare const _moduleCache: ModuleCacheBridgeRecord;
 
 // Path utilities for module resolution
@@ -52,6 +65,78 @@ function _parseFileUrl(url: string): string {
     return "/" + path;
   }
   return url;
+}
+
+function _getResolutionCache(): Record<string, string | null> {
+	const globals = globalThis as Record<string, unknown>;
+	const existing = globals.__runtimeModuleResolutionCache;
+	if (existing && typeof existing === "object") {
+		return existing as Record<string, string | null>;
+	}
+	const cache = Object.create(null) as Record<string, string | null>;
+	globals.__runtimeModuleResolutionCache = cache;
+	return cache;
+}
+
+function _canMemoizeResolution(request: string, fromDir: string): boolean {
+	return (
+		typeof fromDir === "string" &&
+		fromDir.includes("/node_modules/") &&
+		typeof request === "string" &&
+		request.length > 0
+	);
+}
+
+function _resolveModuleFrom(
+	request: string,
+	fromDir: string,
+	mode: "require" | "import" = "require",
+): string {
+	const resolutionCacheKey = _canMemoizeResolution(request, fromDir)
+		? `${mode}\0${fromDir}\0${request}`
+		: null;
+	if (
+		resolutionCacheKey !== null &&
+		Object.prototype.hasOwnProperty.call(
+			_getResolutionCache(),
+			resolutionCacheKey,
+		)
+	) {
+		const cached = _getResolutionCache()[resolutionCacheKey];
+		if (cached === null) {
+			const err = new Error(
+				"Cannot find module '" + request + "'",
+			) as NodeJS.ErrnoException;
+			err.code = "MODULE_NOT_FOUND";
+			throw err;
+		}
+		return cached;
+	}
+
+	let resolved: string | null | undefined = undefined;
+	if (typeof _resolveModuleSync !== "undefined") {
+		resolved = _resolveModuleSync.applySync(undefined, [
+			request,
+			fromDir,
+			mode,
+		]);
+	}
+	if (resolved === null || resolved === undefined) {
+		resolved = _resolveModule.applySyncPromise(undefined, [
+			request,
+			fromDir,
+			mode,
+		]);
+	}
+	if (resolutionCacheKey !== null) {
+		_getResolutionCache()[resolutionCacheKey] = resolved;
+	}
+	if (resolved === null) {
+		const err = new Error("Cannot find module '" + request + "'") as NodeJS.ErrnoException;
+		err.code = "MODULE_NOT_FOUND";
+		throw err;
+	}
+	return resolved;
 }
 
 // Require function interface
@@ -135,16 +220,7 @@ export function createRequire(filename: string | URL): RequireFunction {
     request: string,
     _options?: { paths?: string[] }
   ): string {
-    const resolved = _resolveModule.applySyncPromise(undefined, [
-      request,
-      dirname,
-    ]);
-    if (resolved === null) {
-      const err = new Error("Cannot find module '" + request + "'") as NodeJS.ErrnoException;
-      err.code = "MODULE_NOT_FOUND";
-      throw err;
-    }
-    return resolved;
+    return _resolveModuleFrom(request, dirname);
   } as RequireResolve;
 
   resolve.paths = resolvePaths;
@@ -234,16 +310,7 @@ export class Module {
     (moduleRequire as { resolve?: (request: string) => string }).resolve = (
       request: string
     ): string => {
-      const resolved = _resolveModule.applySyncPromise(undefined, [
-        request,
-        this.path,
-      ]);
-      if (resolved === null) {
-        const err = new Error("Cannot find module '" + request + "'") as NodeJS.ErrnoException;
-        err.code = "MODULE_NOT_FOUND";
-        throw err;
-      }
-      return resolved;
+      return _resolveModuleFrom(request, this.path);
     };
     wrapper(this.exports, moduleRequire, this, filename, this.path);
     this.loaded = true;
@@ -278,16 +345,7 @@ export class Module {
     _options?: unknown
   ): string {
     const parentDir = parent && parent.path ? parent.path : "/";
-    const resolved = _resolveModule.applySyncPromise(undefined, [
-      request,
-      parentDir,
-    ]);
-    if (resolved === null) {
-      const err = new Error("Cannot find module '" + request + "'") as NodeJS.ErrnoException;
-      err.code = "MODULE_NOT_FOUND";
-      throw err;
-    }
-    return resolved;
+    return _resolveModuleFrom(request, parentDir);
   }
 
   static wrap(content: string): string {

@@ -199,8 +199,8 @@
         "Touched packages typecheck."
       ],
       "priority": 9,
-      "passes": false,
-      "notes": "Baseline secondary hotspots: `_resolveModule` is `34` calls and `~41-46 ms` per Pi iteration, while `_fsExists` rises to `38` calls and `~31.5 ms` in Pi SDK end-to-end and `44` calls with `~54.9 ms` in Pi CLI startup."
+      "passes": true,
+      "notes": "Completed by sharing resolver caches across require/createRequire/dynamic-import helpers, fixing sync resolution for projected package paths and dotted package directories, and caching/invalidation for repeated `fs.existsSync` probes. `_resolveModule` fell out of the Pi bridge-method tables, while `_fsExists` dropped to `32` calls in Pi SDK end-to-end, `41` in Pi CLI startup, and `43` in Pi CLI end-to-end. Remaining startup byte-transfer cost maps to the existing `_loadPolyfill` / preload follow-up work in `US-008`."
     },
     {
       "id": "US-008",

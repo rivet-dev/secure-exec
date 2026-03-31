@@ -20,6 +20,58 @@ const __pathToFileURL:
 				.pathToFileURL ?? null)
 		: null;
 
+const __getModuleResolutionCache = function (): Record<string, string | null> {
+	const globals = globalThis as Record<string, unknown>;
+	const existing = globals.__runtimeModuleResolutionCache;
+	if (existing && typeof existing === "object") {
+		return existing as Record<string, string | null>;
+	}
+	const cache = Object.create(null) as Record<string, string | null>;
+	globals.__runtimeModuleResolutionCache = cache;
+	return cache;
+};
+
+const __canMemoizeResolution = function (
+	request: string,
+	referrer: string,
+): boolean {
+	return (
+		typeof referrer === "string" &&
+		referrer.includes("/node_modules/") &&
+		typeof request === "string" &&
+		request.length > 0
+	);
+};
+
+const __getCachedResolution = function (
+	request: string,
+	referrer: string,
+	mode: "require" | "import",
+): string | null | undefined {
+	if (!__canMemoizeResolution(request, referrer)) {
+		return undefined;
+	}
+	const cache = __getModuleResolutionCache();
+	const cacheKey = `${mode}\0${referrer}\0${request}`;
+	if (!Object.prototype.hasOwnProperty.call(cache, cacheKey)) {
+		return undefined;
+	}
+	return cache[cacheKey];
+};
+
+const __setCachedResolution = function (
+	request: string,
+	referrer: string,
+	mode: "require" | "import",
+	resolved: string | null,
+): void {
+	if (!__canMemoizeResolution(request, referrer)) {
+		return;
+	}
+	const cache = __getModuleResolutionCache();
+	cache[`${mode}\0${referrer}\0${request}`] = resolved;
+};
+
 const __resolveDynamicImportPath = function (
 	request: string,
 	referrer: string,
@@ -53,13 +105,21 @@ const __dynamicImportHandler = function (
 		typeof fromPath === "string" && fromPath.length > 0
 			? fromPath
 			: __fallbackReferrer;
+	const requestCacheKey = `${referrer}\0${request}`;
+	const cachedByRequest = __dynamicImportCache.get(requestCacheKey);
+	if (cachedByRequest) return Promise.resolve(cachedByRequest);
 
-	let resolved: string | null = null;
-	if (typeof globalThis._resolveModuleSync !== "undefined") {
+	const cachedResolution = __getCachedResolution(request, referrer, "import");
+	let resolved = cachedResolution;
+	if (
+		cachedResolution === undefined &&
+		typeof globalThis._resolveModuleSync !== "undefined"
+	) {
 		resolved = globalThis._resolveModuleSync.applySync(
 			undefined,
 			[request, referrer, "import"],
 		);
+		__setCachedResolution(request, referrer, "import", resolved ?? null);
 	}
 	const resolvedPath =
 		typeof resolved === "string" && resolved.length > 0
@@ -68,7 +128,7 @@ const __dynamicImportHandler = function (
 	const cacheKey =
 		typeof resolved === "string" && resolved.length > 0
 			? resolved
-			: `${referrer}\0${request}`;
+			: requestCacheKey;
 	const cached = __dynamicImportCache.get(cacheKey);
 	if (cached) return Promise.resolve(cached);
 
@@ -104,6 +164,7 @@ const __dynamicImportHandler = function (
 			}
 		}
 	}
+	__dynamicImportCache.set(requestCacheKey, namespaceFallback);
 	__dynamicImportCache.set(cacheKey, namespaceFallback);
 	return Promise.resolve(namespaceFallback);
 };
@@ -118,18 +179,24 @@ const __importMetaResolveHandler = function (
 			? fromPath
 			: __fallbackReferrer;
 
-	let resolved: string | null = null;
-	if (typeof globalThis._resolveModuleSync !== "undefined") {
+	const cachedResolution = __getCachedResolution(request, referrer, "import");
+	let resolved = cachedResolution;
+	if (
+		cachedResolution === undefined &&
+		typeof globalThis._resolveModuleSync !== "undefined"
+	) {
 		resolved = globalThis._resolveModuleSync.applySync(
 			undefined,
 			[request, referrer, "import"],
 		);
+		__setCachedResolution(request, referrer, "import", resolved ?? null);
 	}
 	if (resolved === null || resolved === undefined) {
 		resolved = globalThis._resolveModule.applySyncPromise(
 			undefined,
 			[request, referrer, "import"],
 		);
+		__setCachedResolution(request, referrer, "import", resolved ?? null);
 	}
 	if (resolved === null) {
 		const err = new Error("Cannot find module '" + request + "'");

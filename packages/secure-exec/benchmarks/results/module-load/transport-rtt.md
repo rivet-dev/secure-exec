@@ -14,12 +14,12 @@ Measured iterations/payload: 20
 
 ## Comparison To Previous Baseline
 
-Baseline transport timestamp: 2026-03-31T11:03:59.603Z
-- Connect RTT: 0.344 -> 0.244 ms (-0.100 ms (-29.07%))
-- 1 B mean RTT: 0.049 -> 0.083 ms (+0.034 ms (+69.39%))
-- 1 B P95 RTT: 0.084 -> 0.127 ms (+0.043 ms (+51.19%))
-- 1 KB mean RTT: 0.040 -> 0.047 ms (+0.007 ms (+17.50%))
-- 1 KB P95 RTT: 0.060 -> 0.083 ms (+0.023 ms (+38.33%))
-- 64 KB mean RTT: 0.150 -> 0.120 ms (-0.030 ms (-20.00%))
-- 64 KB P95 RTT: 0.208 -> 0.154 ms (-0.054 ms (-25.96%))
+Baseline transport timestamp: 2026-03-31T11:52:13.213Z
+- Connect RTT: 0.244 -> 0.244 ms (0.000 ms (0.00%))
+- 1 B mean RTT: 0.083 -> 0.083 ms (0.000 ms (0.00%))
+- 1 B P95 RTT: 0.127 -> 0.127 ms (0.000 ms (0.00%))
+- 1 KB mean RTT: 0.047 -> 0.047 ms (0.000 ms (0.00%))
+- 1 KB P95 RTT: 0.083 -> 0.083 ms (0.000 ms (0.00%))
+- 64 KB mean RTT: 0.120 -> 0.120 ms (0.000 ms (0.00%))
+- 64 KB P95 RTT: 0.154 -> 0.154 ms (0.000 ms (0.00%))
 

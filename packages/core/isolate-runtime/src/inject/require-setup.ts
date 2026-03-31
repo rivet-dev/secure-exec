@@ -4029,7 +4029,11 @@
       // Memoize resolution results for projected node_modules imports. Those trees
       // are read-only inside moduleAccess, so repeated package-internal requires
       // can safely reuse the same resolution result or miss.
-      const __moduleResolutionCache = Object.create(null);
+      const __moduleResolutionCache =
+        globalThis.__runtimeModuleResolutionCache &&
+        typeof globalThis.__runtimeModuleResolutionCache === 'object'
+          ? globalThis.__runtimeModuleResolutionCache
+          : (globalThis.__runtimeModuleResolutionCache = Object.create(null));
 
       const __require = function require(moduleName) {
         return _requireFrom(moduleName, _currentModule.dirname);
@@ -4038,7 +4042,7 @@
 
       function _resolveFrom(moduleName, fromDir) {
         const resolutionCacheKey = _canMemoizeResolution(moduleName, fromDir)
-          ? fromDir + '\0' + moduleName
+          ? 'require' + '\0' + fromDir + '\0' + moduleName
           : null;
         if (
           resolutionCacheKey !== null &&

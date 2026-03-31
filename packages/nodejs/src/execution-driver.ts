@@ -1243,12 +1243,12 @@ export class NodeExecutionDriver implements RuntimeDriver {
 				...netSocketResult.handlers,
 				...buildModuleResolutionBridgeHandlers({
 					sandboxToHostPath: (p) => {
-						const rfs = this.rawFilesystem as any;
-						return typeof rfs?.toHostPath === "function" ? rfs.toHostPath(p) : null;
+						const fs = s.filesystem as any;
+						return typeof fs?.toHostPath === "function" ? fs.toHostPath(p) : null;
 					},
 					hostToSandboxPath: (p) => {
-						const rfs = this.rawFilesystem as any;
-						return typeof rfs?.toSandboxPath === "function" ? rfs.toSandboxPath(p) : p;
+						const fs = s.filesystem as any;
+						return typeof fs?.toSandboxPath === "function" ? fs.toSandboxPath(p) : p;
 					},
 				}),
 				...buildPtyBridgeHandlers({

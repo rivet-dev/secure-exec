@@ -1,10 +1,10 @@
 # Module Load Benchmark
 
-Generated: 2026-03-31T11:52:13.425Z
-Git commit: a5f06534200cd4f6131d64de2c0a09c1bee14d53
+Generated: 2026-03-31T12:45:53.747Z
+Git commit: 9efe5dc13e3cba345660e3d91b0f194a2f16bd52
 Host: {"node":"v24.13.0","platform":"linux","arch":"x64","cpu":"12th Gen Intel(R) Core(TM) i7-12700KF","cores":20,"ramGb":62.558}
 V8 binary: /home/nathan/se6/native/v8-runtime/target/release/secure-exec-v8
-Baseline summary: 2026-03-31T11:03:59.802Z
+Baseline summary: 2026-03-31T11:52:13.425Z
 
 Use `comparison.md` for before/after deltas, including the split between real `_loadPolyfill` bodies and `__bd:*` dispatch wrappers, and the per-scenario `summary.md` files for copy-ready progress numbers.
 
@@ -16,10 +16,10 @@ Use `comparison.md` for before/after deltas, including the split between real `_
 | pdf-lib End-to-End | 349.741 ms | 529.000 | 111.777 ms | `_loadPolyfill` 68.094 ms/iter | `send:BridgeResponse` 682998.000 B/iter |
 | JSZip Startup | 172.202 ms | 179.000 | 111.102 ms | `_loadPolyfill` 76.484 ms/iter | `send:Execute` 422616.667 B/iter |
 | JSZip End-to-End | 215.876 ms | 182.000 | 109.703 ms | `_loadPolyfill` 62.205 ms/iter | `send:Execute` 424147.667 B/iter |
-| Pi SDK Startup | 1780.762 ms | 2548.000 | 116.058 ms | `_loadPolyfill` 965.840 ms/iter | `send:BridgeResponse` 3457969.667 B/iter |
-| Pi SDK End-to-End | 1857.941 ms | 2788.000 | 116.371 ms | `_loadPolyfill` 984.662 ms/iter | `send:BridgeResponse` 3602748.667 B/iter |
-| Pi CLI Startup | 1854.094 ms | 2604.000 | 114.551 ms | `_loadPolyfill` 896.110 ms/iter | `send:BridgeResponse` 3466269.333 B/iter |
-| Pi CLI End-to-End | 1993.647 ms | 2823.000 | 8.235 ms | `_loadPolyfill` 944.730 ms/iter | `send:BridgeResponse` 3614150.667 B/iter |
+| Pi SDK Startup | 1767.451 ms | 2520.000 | 116.678 ms | `_loadPolyfill` 985.493 ms/iter | `send:BridgeResponse` 3578585.667 B/iter |
+| Pi SDK End-to-End | 2054.149 ms | 2754.000 | 116.365 ms | `_loadPolyfill` 1049.312 ms/iter | `send:BridgeResponse` 3723168.667 B/iter |
+| Pi CLI Startup | 1977.525 ms | 2571.000 | 116.726 ms | `_loadPolyfill` 1072.026 ms/iter | `send:BridgeResponse` 3581302.667 B/iter |
+| Pi CLI End-to-End | 1746.020 ms | 2781.000 | 8.521 ms | `_loadPolyfill` 999.854 ms/iter | `send:BridgeResponse` 3728838.000 B/iter |
 
 ## Warm Session Phase Means
 
@@ -31,10 +31,10 @@ Use `comparison.md` for before/after deltas, including the split between real `_
 | pdf-lib End-to-End | 1.000 ms | 5.000 ms | 0.000 ms | 237.964 ms | 102.000 ms | 4.777 ms |
 | JSZip Startup | 0.000 ms | 4.500 ms | 0.000 ms | 61.100 ms | 103.000 ms | 3.603 ms |
 | JSZip End-to-End | 0.000 ms | 5.000 ms | 0.000 ms | 106.172 ms | 102.000 ms | 2.704 ms |
-| Pi SDK Startup | 0.000 ms | 4.500 ms | 0.000 ms | 1664.704 ms | 103.000 ms | 8.558 ms |
-| Pi SDK End-to-End | 0.000 ms | 5.000 ms | 0.000 ms | 1741.570 ms | 102.000 ms | 9.371 ms |
-| Pi CLI Startup | 1.000 ms | 5.000 ms | 0.000 ms | 1739.543 ms | 102.500 ms | 7.051 ms |
-| Pi CLI End-to-End | 0.000 ms | 5.000 ms | 0.500 ms | 1985.412 ms | 0.000 ms | 2.734 ms |
+| Pi SDK Startup | 0.000 ms | 4.500 ms | 0.000 ms | 1650.773 ms | 103.000 ms | 9.178 ms |
+| Pi SDK End-to-End | 1.000 ms | 5.000 ms | 0.000 ms | 1937.784 ms | 101.500 ms | 9.865 ms |
+| Pi CLI Startup | 1.000 ms | 5.000 ms | 0.000 ms | 1860.799 ms | 101.500 ms | 10.226 ms |
+| Pi CLI End-to-End | 0.000 ms | 5.000 ms | 0.000 ms | 1737.499 ms | 0.000 ms | 3.521 ms |
 
 ## Transport RTT
 

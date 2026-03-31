@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
 	NodeRuntime,
+	NodeFileSystem,
 	allowAll,
 	createNodeDriver,
 	createNodeRuntimeDriverFactory,
@@ -309,26 +310,35 @@ describe("runtime driver specific: node", () => {
 				path.join(tmpdir(), "secure-exec-resolution-cache-"),
 			);
 			const packageDir = path.join(projectDir, "node_modules", "pkg");
+			const nestedSchemaDir = path.join(
+				packageDir,
+				"dist",
+				"schema",
+				"yaml-1.1",
+			);
 
 			try {
-				await mkdir(packageDir, { recursive: true });
+				await mkdir(nestedSchemaDir, { recursive: true });
+				await mkdir(path.join(packageDir, "dist", "nodes"), {
+					recursive: true,
+				});
 				await writeFile(
 					path.join(packageDir, "package.json"),
 					JSON.stringify({ name: "pkg", main: "index.js" }),
 					"utf8",
 				);
 				await writeFile(
-					path.join(packageDir, "inner.js"),
+					path.join(packageDir, "dist", "nodes", "inner.js"),
 					"module.exports = 42;\n",
 					"utf8",
 				);
 				await writeFile(
-					path.join(packageDir, "index.js"),
+					path.join(nestedSchemaDir, "index.js"),
 					[
 						"for (let i = 0; i < 5; i += 1) {",
-						'  require.resolve("./inner.js");',
+						'  require.resolve("../../nodes/inner.js");',
 						"}",
-						'module.exports = require("./inner.js");',
+						'module.exports = require("../../nodes/inner.js");',
 						"",
 					].join("\n"),
 					"utf8",
@@ -346,21 +356,33 @@ describe("runtime driver specific: node", () => {
 				const result = await runtime.run(
 					`
 						const seen = [];
+						const asyncSeen = [];
 						const original = _resolveModuleSync.applySync;
+						const originalAsync = _resolveModule.applySyncPromise;
 						_resolveModuleSync.applySync = function(ctx, args) {
 							seen.push(args.join("\\u0000"));
 							return original.call(this, ctx, args);
 						};
+						_resolveModule.applySyncPromise = function(ctx, args) {
+							asyncSeen.push(args.join("\\u0000"));
+							return originalAsync.call(this, ctx, args);
+						};
 
 						const value = require(${JSON.stringify(
-							path.join(packageDir, "index.js"),
+							path.join(nestedSchemaDir, "index.js"),
 						)});
 						module.exports = {
 							value,
 							innerResolveCalls: seen.filter(
 								(entry) =>
 									entry === ${JSON.stringify(
-										`./inner.js\u0000${packageDir}`,
+										`../../nodes/inner.js\u0000${nestedSchemaDir}`,
+									)},
+							).length,
+							innerAsyncResolveCalls: asyncSeen.filter(
+								(entry) =>
+									entry === ${JSON.stringify(
+										`../../nodes/inner.js\u0000${nestedSchemaDir}\u0000require`,
 									)},
 							).length,
 						};
@@ -370,9 +392,246 @@ describe("runtime driver specific: node", () => {
 				expect(result.exports).toEqual({
 					value: 42,
 					innerResolveCalls: 1,
+					innerAsyncResolveCalls: 0,
 				});
 			} finally {
 				await rm(projectDir, { recursive: true, force: true });
+			}
+		},
+		20_000,
+	);
+
+	it(
+		"memoizes repeated createRequire.resolve calls from node_modules within a single workload",
+		async () => {
+			const projectDir = await mkdtemp(
+				path.join(tmpdir(), "secure-exec-create-require-cache-"),
+			);
+			const packageDir = path.join(projectDir, "node_modules", "pkg");
+
+			try {
+				await mkdir(packageDir, { recursive: true });
+				await writeFile(
+					path.join(packageDir, "package.json"),
+					JSON.stringify({ name: "pkg", main: "index.js" }),
+					"utf8",
+				);
+				await writeFile(
+					path.join(packageDir, "inner.js"),
+					"module.exports = 42;\n",
+					"utf8",
+				);
+				await writeFile(
+					path.join(packageDir, "index.js"),
+					"module.exports = 'pkg';\n",
+					"utf8",
+				);
+
+				const runtime = new NodeRuntime({
+					systemDriver: createNodeDriver({
+						moduleAccess: { cwd: projectDir },
+						permissions: allowAll,
+					}),
+					runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+				});
+				runtimes.add(runtime);
+
+				const result = await runtime.run(
+					`
+						const Module = require("module");
+						const syncSeen = [];
+						const asyncSeen = [];
+						const originalSync = _resolveModuleSync.applySync;
+						const originalAsync = _resolveModule.applySyncPromise;
+						_resolveModuleSync.applySync = function(ctx, args) {
+							syncSeen.push(args.join("\\u0000"));
+							return originalSync.call(this, ctx, args);
+						};
+						_resolveModule.applySyncPromise = function(ctx, args) {
+							asyncSeen.push(args.join("\\u0000"));
+							return originalAsync.call(this, ctx, args);
+						};
+
+						const req = Module.createRequire(${JSON.stringify(
+							path.join(packageDir, "index.js"),
+						)});
+						for (let i = 0; i < 5; i += 1) {
+							req.resolve("./inner.js");
+						}
+
+						module.exports = {
+							syncCalls: syncSeen.filter(
+								(entry) =>
+									entry === ${JSON.stringify(
+										`./inner.js\u0000${packageDir}\u0000require`,
+									)},
+							).length,
+							asyncCalls: asyncSeen.filter(
+								(entry) =>
+									entry === ${JSON.stringify(
+										`./inner.js\u0000${packageDir}\u0000require`,
+									)},
+							).length,
+						};
+					`,
+				);
+
+				expect(result.exports).toEqual({
+					syncCalls: 1,
+					asyncCalls: 0,
+				});
+			} finally {
+				await rm(projectDir, { recursive: true, force: true });
+			}
+		},
+		20_000,
+	);
+
+	it(
+		"memoizes repeated createRequire.resolve misses from node_modules within a single workload",
+		async () => {
+			const projectDir = await mkdtemp(
+				path.join(tmpdir(), "secure-exec-create-require-miss-cache-"),
+			);
+			const packageDir = path.join(projectDir, "node_modules", "pkg");
+
+			try {
+				await mkdir(packageDir, { recursive: true });
+				await writeFile(
+					path.join(packageDir, "package.json"),
+					JSON.stringify({ name: "pkg", main: "index.js" }),
+					"utf8",
+				);
+				await writeFile(
+					path.join(packageDir, "index.js"),
+					"module.exports = 'pkg';\n",
+					"utf8",
+				);
+
+				const runtime = new NodeRuntime({
+					systemDriver: createNodeDriver({
+						moduleAccess: { cwd: projectDir },
+						permissions: allowAll,
+					}),
+					runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+				});
+				runtimes.add(runtime);
+
+				const result = await runtime.run(
+					`
+						const Module = require("module");
+						const syncSeen = [];
+						const asyncSeen = [];
+						const originalSync = _resolveModuleSync.applySync;
+						const originalAsync = _resolveModule.applySyncPromise;
+						_resolveModuleSync.applySync = function(ctx, args) {
+							syncSeen.push(args.join("\\u0000"));
+							return originalSync.call(this, ctx, args);
+						};
+						_resolveModule.applySyncPromise = function(ctx, args) {
+							asyncSeen.push(args.join("\\u0000"));
+							return originalAsync.call(this, ctx, args);
+						};
+
+						const req = Module.createRequire(${JSON.stringify(
+							path.join(packageDir, "index.js"),
+						)});
+						for (let i = 0; i < 5; i += 1) {
+							try {
+								req.resolve("./missing.js");
+							} catch {}
+						}
+
+						module.exports = {
+							syncCalls: syncSeen.filter(
+								(entry) =>
+									entry === ${JSON.stringify(
+										`./missing.js\u0000${packageDir}\u0000require`,
+									)},
+							).length,
+							asyncCalls: asyncSeen.filter(
+								(entry) =>
+									entry === ${JSON.stringify(
+										`./missing.js\u0000${packageDir}\u0000require`,
+									)},
+							).length,
+						};
+					`,
+				);
+
+				expect(result.exports).toEqual({
+					syncCalls: 1,
+					asyncCalls: 1,
+				});
+			} finally {
+				await rm(projectDir, { recursive: true, force: true });
+			}
+		},
+		20_000,
+	);
+
+	it(
+		"caches fs.existsSync results and invalidates them after mutations",
+		async () => {
+			const sandboxRoot = await mkdtemp(
+				path.join(tmpdir(), "secure-exec-exists-cache-"),
+			);
+
+			try {
+				const runtime = new NodeRuntime({
+					systemDriver: createNodeDriver({
+						filesystem: new NodeFileSystem({ root: sandboxRoot }),
+						permissions: allowAll,
+					}),
+					runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+				});
+				runtimes.add(runtime);
+				const result = await runtime.run(
+					`
+						const fs = require("fs");
+						fs.mkdirSync("/tmp", { recursive: true });
+						const target =
+							"/tmp/exists-cache-check-" + Math.random().toString(16).slice(2) + ".txt";
+						const seen = [];
+						const original = _fs.exists.applySyncPromise;
+						_fs.exists.applySyncPromise = function(ctx, args) {
+							seen.push(String(args[0]));
+							return original.call(this, ctx, args);
+						};
+
+						const before = [
+							fs.existsSync(target),
+							fs.existsSync(target),
+							fs.existsSync(target),
+						];
+						fs.writeFileSync(target, "hello");
+						const afterCreate = [
+							fs.existsSync(target),
+							fs.existsSync(target),
+						];
+						fs.unlinkSync(target);
+						const afterRemove = [
+							fs.existsSync(target),
+							fs.existsSync(target),
+						];
+
+						module.exports = {
+							before,
+							afterCreate,
+							afterRemove,
+							bridgeCalls: seen.filter((entry) => entry === target).length,
+						};
+					`,
+				);
+
+				expect(result.exports).toEqual({
+					before: [false, false, false],
+					afterCreate: [true, true],
+					afterRemove: [false, false],
+					bridgeCalls: 1,
+				});
+			} finally {
+				await rm(sandboxRoot, { recursive: true, force: true });
 			}
 		},
 		20_000,
