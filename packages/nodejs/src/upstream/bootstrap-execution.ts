@@ -53,7 +53,21 @@ const DEFAULT_RUNNER_TIMEOUT_MS = 20_000;
 const textEncoder = new TextEncoder();
 const FS_FIRST_LIGHT_PUBLIC_BUILTINS = ["fs"] as const;
 const NET_FIRST_LIGHT_PUBLIC_BUILTINS = ["net"] as const;
-const REPLACEMENT_PUBLIC_BUILTINS = ["fs", "net"] as const;
+const HTTP_FIRST_LIGHT_PUBLIC_BUILTINS = [
+	"net",
+	"http",
+	"https",
+	"_http_agent",
+	"_http_client",
+	"_http_common",
+	"_http_incoming",
+	"_http_outgoing",
+	"_http_server",
+] as const;
+const REPLACEMENT_PUBLIC_BUILTINS = [
+	"fs",
+	...HTTP_FIRST_LIGHT_PUBLIC_BUILTINS,
+] as const;
 
 function getBootstrapRunnerPath(): string {
 	return fileURLToPath(
@@ -275,6 +289,16 @@ export async function runUpstreamNetFirstLightEval(
 		...request,
 		awaitCompletionSignal: true,
 		vendoredPublicBuiltins: [...NET_FIRST_LIGHT_PUBLIC_BUILTINS],
+	});
+}
+
+export async function runUpstreamHttpFirstLightEval(
+	request: Omit<UpstreamBootstrapEvalRequest, "vendoredPublicBuiltins">,
+): Promise<UpstreamBootstrapEvalResult> {
+	return runUpstreamBootstrapEval({
+		...request,
+		awaitCompletionSignal: true,
+		vendoredPublicBuiltins: [...HTTP_FIRST_LIGHT_PUBLIC_BUILTINS],
 	});
 }
 

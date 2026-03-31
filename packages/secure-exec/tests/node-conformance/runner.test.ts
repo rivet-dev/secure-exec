@@ -115,6 +115,7 @@ async function runTestInSandbox(
 	await fs.writeFile(testVfsPath, testCode);
 
 	// Create /tmp for tmpdir.refresh()
+	await fs.mkdir("/tmp", { recursive: true });
 	await fs.mkdir("/tmp/node-test");
 
 	const capturedStdout: string[] = [];

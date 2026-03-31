@@ -39,9 +39,22 @@ const APPLIED_BINDING_SHIMS = Object.freeze([
 	"internal/options-host-shim",
 	"fs_event_wrap-fsevent-subclass",
 	"tcp_wrap-owner-subclass",
+	"http-cluster-host-context",
 	"internal/util/debuglog-initializeDebugEnv",
 	"host-internal/util/debuglog-initializeDebugEnv",
 	"public-builtin-host-fallback",
+]);
+const HOST_CONTEXT_BUILTINS = new Set([
+	"net",
+	"http",
+	"https",
+	"_http_agent",
+	"_http_client",
+	"_http_common",
+	"_http_incoming",
+	"_http_outgoing",
+	"_http_server",
+	"internal/http",
 ]);
 
 let internalBinding;
@@ -209,6 +222,36 @@ function compileVendoredBuiltin(id, parameters, context) {
 		filename: `node:${id}`,
 		parsingContext: context,
 	});
+}
+
+function getBuiltinCompileParameters(id) {
+	if (id === "internal/bootstrap/realm") {
+		return [
+			"process",
+			"getLinkedBinding",
+			"getInternalBinding",
+			"primordials",
+		];
+	}
+	if (id.startsWith("internal/bootstrap/") || id.startsWith("internal/main/")) {
+		return ["process", "require", "internalBinding", "primordials"];
+	}
+	if (id.startsWith("internal/per_context/")) {
+		return [
+			"exports",
+			"primordials",
+			"privateSymbols",
+			"perIsolateSymbols",
+		];
+	}
+	return [
+		"exports",
+		"require",
+		"module",
+		"process",
+		"internalBinding",
+		"primordials",
+	];
 }
 
 function createDefaultOptionValue(flag, optionInfo) {
@@ -471,38 +514,11 @@ function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 			vendoredPublicBuiltinsLoaded.add(id);
 		}
 
-		let parameters;
-		if (id === "internal/bootstrap/realm") {
-			parameters = [
-				"process",
-				"getLinkedBinding",
-				"getInternalBinding",
-				"primordials",
-			];
-		} else if (
-			id.startsWith("internal/bootstrap/") ||
-			id.startsWith("internal/main/")
-		) {
-			parameters = ["process", "require", "internalBinding", "primordials"];
-		} else if (id.startsWith("internal/per_context/")) {
-			parameters = [
-				"exports",
-				"primordials",
-				"privateSymbols",
-				"perIsolateSymbols",
-			];
-		} else {
-			parameters = [
-				"exports",
-				"require",
-				"module",
-				"process",
-				"internalBinding",
-				"primordials",
-			];
-		}
-
-		const compiled = compileVendoredBuiltin(id, parameters, context);
+		const compiled = compileVendoredBuiltin(
+			id,
+			getBuiltinCompileParameters(id),
+			context,
+		);
 		compiledCache.set(id, compiled);
 		return compiled;
 	}
@@ -624,12 +640,18 @@ function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 		return mod.exports;
 	}
 
-	function requireHostVendoredPublicBuiltin(id) {
+	function requireHostVendoredBuiltin(id) {
 		if (hostPublicBuiltinCache.has(id)) {
 			return hostPublicBuiltinCache.get(id).exports;
 		}
 
-		vendoredPublicBuiltinsLoaded.add(id);
+		const entry = BUILTIN_ENTRIES.get(id);
+		if (!entry) {
+			throw new Error(`Unknown vendored builtin: ${id}`);
+		}
+		if (entry.classification === "public") {
+			vendoredPublicBuiltinsLoaded.add(id);
+		}
 		const mod = { exports: {} };
 		hostPublicBuiltinCache.set(id, mod);
 		const hostRequire = (specifier) => {
@@ -640,8 +662,18 @@ function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 			if (builtinId === id) {
 				return mod.exports;
 			}
-			const entry = BUILTIN_ENTRIES.get(builtinId);
-			if (entry?.classification === "internal") {
+			if (
+				executeUserCodeDirectly &&
+				HOST_CONTEXT_BUILTINS.has(builtinId) &&
+				(
+					vendoredPublicBuiltins.has(builtinId) ||
+					BUILTIN_ENTRIES.get(builtinId)?.classification === "internal"
+				)
+			) {
+				return requireHostVendoredBuiltin(builtinId);
+			}
+			const requestedEntry = BUILTIN_ENTRIES.get(builtinId);
+			if (requestedEntry?.classification === "internal") {
 				return HOST_REQUIRE(builtinId);
 			}
 			return HOST_REQUIRE(`node:${builtinId}`);
@@ -658,21 +690,40 @@ function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 
 		const compiled = compileFunction(
 			getBuiltinSource(id),
-			["exports", "require", "module", "process", "internalBinding", "primordials"],
+			getBuiltinCompileParameters(id),
 			{
 				filename: `node:${id}`,
 			},
 		);
-		const result = compiled(
-			mod.exports,
-			hostRequire,
-			mod,
-			process,
-			internalBindingShim,
-			primordials,
-		);
-		if (result !== undefined) {
-			mod.exports = result;
+		if (id === "internal/bootstrap/realm") {
+			const result = compiled(
+				process,
+				() => ({}),
+				internalBindingShim,
+				primordials,
+			);
+			if (result !== undefined) {
+				mod.exports = result;
+			}
+		} else if (id.startsWith("internal/bootstrap/") || id.startsWith("internal/main/")) {
+			const result = compiled(process, hostRequire, internalBindingShim, primordials);
+			if (result !== undefined) {
+				mod.exports = result;
+			}
+		} else if (id.startsWith("internal/per_context/")) {
+			compiled(mod.exports, primordials, privateSymbols, perIsolateSymbols);
+		} else {
+			const result = compiled(
+				mod.exports,
+				hostRequire,
+				mod,
+				process,
+				internalBindingShim,
+				primordials,
+			);
+			if (result !== undefined) {
+				mod.exports = result;
+			}
 		}
 		hostPublicBuiltinCache.set(id, mod);
 		return mod.exports;
@@ -685,10 +736,10 @@ function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 			if (builtinId) {
 				if (
 					executeUserCodeDirectly &&
-					builtinId === "net" &&
-					vendoredPublicBuiltins.has("net")
+					vendoredPublicBuiltins.has(builtinId) &&
+					HOST_CONTEXT_BUILTINS.has(builtinId)
 				) {
-					return requireHostVendoredPublicBuiltin("net");
+					return requireHostVendoredBuiltin(builtinId);
 				}
 				return builtinRequire(builtinId);
 			}
