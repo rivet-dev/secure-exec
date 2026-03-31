@@ -1,0 +1,107 @@
+---
+title: Custom Bindings
+description: Expose host-side functions to sandboxed code.
+icon: "plug"
+---
+
+Custom bindings let you give sandboxed code access to host capabilities beyond the built-in bridge — databases, caches, queues, AI models, or any custom API.
+
+## Basic usage
+
+Register a `bindings` object when creating the runtime. Each leaf function becomes callable from sandbox code via `SecureExec.bindings`.
+
+```ts
+import {
+  NodeRuntime,
+  createNodeDriver,
+  createNodeRuntimeDriverFactory,
+} from "@anthropic-ai/secure-exec";
+
+const runtime = new NodeRuntime({
+  systemDriver: createNodeDriver(),
+  runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+  bindings: {
+    db: {
+      query: async (sql, params) => db.query(sql, params),
+      insert: async (sql, values) => db.insert(sql, values),
+    },
+    cache: {
+      get: async (key) => redis.get(key),
+      set: async (key, val) => redis.set(key, val),
+    },
+    greet: (name) => `Hello, ${name}!`,
+  },
+});
+```
+
+Sandbox code accesses bindings through the frozen `SecureExec.bindings` global:
+
+```js
+// Inside the sandbox
+const rows = await SecureExec.bindings.db.query("SELECT * FROM users", []);
+await SecureExec.bindings.cache.set("key", "value");
+const msg = SecureExec.bindings.greet("world"); // "Hello, world!"
+
+// Destructure for convenience
+const { db, cache } = SecureExec.bindings;
+```
+
+## Sync and async
+
+Both sync and async host functions work. If the host function is `async` or returns a `Promise`, the sandbox call returns a `Promise`. Otherwise it returns the value directly.
+
+```ts
+bindings: {
+  // Sync — sandbox gets the return value immediately
+  add: (a, b) => a + b,
+
+  // Async — sandbox must await the result
+  fetchUser: async (id) => await db.users.findById(id),
+}
+```
+
+## Serialization
+
+Arguments and return values are serialized using V8 structured clone. Supported types:
+
+| Type | Supported |
+| --- | --- |
+| Primitives (string, number, boolean, null, undefined) | Yes |
+| Plain objects and arrays | Yes |
+| `Uint8Array` / `ArrayBuffer` | Yes |
+| `Date`, `Map`, `Set`, `RegExp` | Yes |
+| `Error` objects | Yes |
+| Nested/circular references | Yes |
+| Functions | No |
+| Symbols | No |
+| `WeakMap` / `WeakSet` | No |
+
+The same payload size limits apply as all bridge calls.
+
+## Constraints
+
+- **Valid identifiers**: binding keys must be valid JavaScript identifiers.
+- **Max depth**: nesting is limited to 4 levels.
+- **Max leaves**: up to 64 leaf functions per runtime.
+- **Reserved prefix**: keys starting with `_` are reserved for internal bridge names and will be rejected.
+- **Immutable**: bindings are set at runtime construction and cannot be changed. `SecureExec.bindings` is recursively frozen — sandbox code cannot mutate it.
+
+## The `SecureExec` global
+
+`SecureExec` is always present on `globalThis` inside the sandbox, even when no bindings are registered. It is non-writable and non-configurable.
+
+```js
+SecureExec.bindings // user-provided bindings (empty object if none registered)
+```
+
+## Types
+
+```ts
+import type { BindingTree, BindingFunction } from "@anthropic-ai/secure-exec";
+
+type BindingFunction = (...args: unknown[]) => unknown | Promise<unknown>;
+
+interface BindingTree {
+  [key: string]: BindingFunction | BindingTree;
+}
+```
