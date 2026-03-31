@@ -480,7 +480,8 @@ const keepAlive = setInterval(() => {}, 10);
 
     const archive = await zip.generateAsync({
       type: "uint8array",
-      compression: "STORE",
+      compression: "DEFLATE",
+      compressionOptions: { level: 6 },
     });
     const fileCount = Object.values(zip.files).filter((entry) => !entry.dir).length;
     const finishedAt = performance.now();
@@ -489,6 +490,7 @@ const keepAlive = setInterval(() => {}, 10);
       sandboxMs: Number((finishedAt - startedAt).toFixed(3)),
       fileCount,
       archiveBytes: archive.length,
+      compression: "DEFLATE",
     }));
   } catch (error) {
     console.log(JSON.stringify({
@@ -789,7 +791,9 @@ async function runScenarioIteration(
 			if (
 				payload.ok !== true ||
 				Number(payload.fileCount ?? 0) !== 16 ||
-				Number(payload.archiveBytes ?? 0) <= 2_000
+				Number(payload.archiveBytes ?? 0) <= 2_000 ||
+				Number(payload.archiveBytes ?? 0) >= 8_000 ||
+				payload.compression !== "DEFLATE"
 			) {
 				throw new Error(`JSZip end-to-end failed: ${JSON.stringify(payload)}`);
 			}
@@ -806,6 +810,7 @@ async function runScenarioIteration(
 				checks: {
 					fileCount: Number(payload.fileCount ?? 0),
 					archiveBytes: Number(payload.archiveBytes ?? 0),
+					compression: String(payload.compression ?? ""),
 				},
 			};
 		}

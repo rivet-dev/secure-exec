@@ -4,7 +4,7 @@
   "target": "jszip",
   "kind": "end_to_end",
   "description": "Builds a representative nested archive and serializes it to a zip payload.",
-  "createdAt": "2026-03-31T05:29:29.401Z",
+  "createdAt": "2026-03-31T05:47:31.678Z",
   "iterations": 3,
   "artifacts": {
     "resultFile": "jszip-end-to-end/result.json",
@@ -14,50 +14,53 @@
   "samples": [
     {
       "iteration": 1,
-      "wallMs": 832.404,
+      "wallMs": 738.519,
       "code": 0,
-      "stdoutBytes": 61,
+      "stdoutBytes": 84,
       "stderrBytes": 0,
       "sandboxMs": 0,
-      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"fileCount\":16,\"archiveBytes\":65879}",
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"fileCount\":16,\"archiveBytes\":5207,\"compression\":\"DEFLATE\"}",
       "stderrPreview": "",
       "checks": {
         "fileCount": 16,
-        "archiveBytes": 65879
+        "archiveBytes": 5207,
+        "compression": "DEFLATE"
       }
     },
     {
       "iteration": 2,
-      "wallMs": 589.857,
+      "wallMs": 554.284,
       "code": 0,
-      "stdoutBytes": 61,
+      "stdoutBytes": 84,
       "stderrBytes": 0,
       "sandboxMs": 0,
-      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"fileCount\":16,\"archiveBytes\":65879}",
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"fileCount\":16,\"archiveBytes\":5207,\"compression\":\"DEFLATE\"}",
       "stderrPreview": "",
       "checks": {
         "fileCount": 16,
-        "archiveBytes": 65879
+        "archiveBytes": 5207,
+        "compression": "DEFLATE"
       }
     },
     {
       "iteration": 3,
-      "wallMs": 587.047,
+      "wallMs": 551.639,
       "code": 0,
-      "stdoutBytes": 61,
+      "stdoutBytes": 84,
       "stderrBytes": 0,
       "sandboxMs": 0,
-      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"fileCount\":16,\"archiveBytes\":65879}",
+      "stdoutPreview": "{\"ok\":true,\"sandboxMs\":0,\"fileCount\":16,\"archiveBytes\":5207,\"compression\":\"DEFLATE\"}",
       "stderrPreview": "",
       "checks": {
         "fileCount": 16,
-        "archiveBytes": 65879
+        "archiveBytes": 5207,
+        "compression": "DEFLATE"
       }
     }
   ],
   "summary": {
-    "coldWallMs": 832.404,
-    "warmWallMsMean": 588.452,
+    "coldWallMs": 738.519,
+    "warmWallMsMean": 552.962,
     "coldSandboxMs": 0,
     "warmSandboxMsMean": 0
   }

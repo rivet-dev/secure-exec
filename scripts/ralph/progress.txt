@@ -4,6 +4,7 @@ Started: Mon Mar 30 08:41:55 PM PDT 2026
 
 ## Codebase Patterns
 - Active module-load benchmark artifacts live in `packages/secure-exec/benchmarks/results/module-load/`; refresh them with the full `pnpm --filter secure-exec bench:module-load` run after each performance story.
+- Shared `createNodeV8Runtime()` reuse now depends on `session.destroy()` fully draining the runtime-side teardown path; if a workload generates lots of timer or stream events, use an ordered barrier like `DestroySession` -> `Ping/Pong` instead of treating session destroy as fire-and-forget.
 - Headless CLI workloads inside standalone `NodeRuntime.exec()` should pass `stdin: ""`; for Pi's direct `dist/main.js` print-mode path with an explicit `--print` message, set `process.stdin.isTTY = true` inside the sandbox harness or Pi stalls in its piped-stdin probe before provider traffic.
 - Promise-heavy standalone `NodeRuntime.exec()` benchmark scripts need an explicit live handle (for example a short `setInterval()` cleared in `finally`) until the final stdout JSON is emitted, or exec-mode runs can return `code: 0` before long async library work like `pdfDoc.save()` or `zip.generateAsync()` produces output.
 - For Pi startup and end-to-end perf stories, record warm wall time together with bridge calls/iteration and dominant IPC counters (`_loadPolyfill`, BridgeResponse bytes, and any new network callsites) instead of relying on a single aggregate number.
@@ -76,4 +77,14 @@ Started: Mon Mar 30 08:41:55 PM PDT 2026
   - Promise-only benchmark workloads in standalone `NodeRuntime.exec()` need an explicit keepalive handle until the final log call, or the sandbox can exit cleanly before the trailing JSON hits stdout.
   - Package-local `dist/*` entrypoints that are not exported through a dependency's `exports` map still need to be addressed via the package symlink under the local `node_modules/` tree; `createRequire.resolve("pkg/dist/foo.js")` will fail even when the file exists on disk.
   - The current JSZip benchmark shape is intentionally nested and non-trivial, but its compressed `DEFLATE` variant is not stable across three fresh sessions yet; use `US-013` instead of silently swapping the workload back.
+---
+## [2026-03-30 22:48 PDT] - US-013
+- Reproduced the broken state first with a standalone shared-`createNodeV8Runtime()` harness: iterations 1 and 2 finished, while iteration 3 timed out after `15001 ms` with empty stdout/stderr; the same `DEFLATE` workload succeeded 4/4 on host Node. Fixed the regression by making `packages/v8/src/runtime.ts` wait for a post-`DestroySession` `Ping/Pong` barrier before returning from `session.destroy()`, then restored the benchmark scenario to `compression: "DEFLATE"` with focused repeated-session regression coverage.
+- Benchmark deltas:
+  - `jszip-end-to-end`: warm wall `588.452 ms` -> `552.962 ms`; bridge calls stayed `519`/iteration; warm fixed overhead `107.377 ms` -> `108.426 ms`; dominant `_loadPolyfill` `80.144 ms` -> `45.999 ms` host bridge time/iteration across `518` calls/iteration; dominant frame `send:Execute` `1242293.000` -> `1242365.000` encoded bytes/iteration; new ordered teardown adds `send:Ping` / `recv:Pong` `38` encoded bytes/iteration each while keeping the compressed archive stable at `5207` bytes.
+- Files changed: `docs-internal/todo.md`, `packages/v8/src/runtime.ts`, `packages/secure-exec/tests/runtime-driver/node/runtime.test.ts`, `packages/secure-exec/benchmarks/module-load/scenario-runner.ts`, `packages/secure-exec/benchmarks/results/module-load/*`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - When a shared V8 runtime starts stalling only on later sessions, compare shared-runtime reuse against a fresh `createNodeV8Runtime()` per iteration. If the fresh-runtime control passes, the bug is likely teardown ordering rather than the workload itself.
+  - For this regression, the decisive repro was: shared runtime `DEFLATE` workload times out on iteration 3 with empty stdout/stderr, while the host control succeeds 4/4. That points to a runtime-process reuse bug, not a JSZip archive-shape problem.
+  - `DestroySession` alone is not a sufficient completion signal for reuse-sensitive workloads. An ordered barrier like `DestroySession` -> `Ping/Pong` is a reusable way to make sure the runtime process has actually drained and joined the prior session before the next one starts.
 ---

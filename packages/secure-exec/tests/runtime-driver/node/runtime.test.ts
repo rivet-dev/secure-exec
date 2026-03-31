@@ -1,14 +1,94 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { fileURLToPath } from "node:url";
 import {
 	NodeRuntime,
+	allowAll,
 	createNodeDriver,
 	createNodeRuntimeDriverFactory,
+	createNodeV8Runtime,
 } from "../../../src/index.js";
 import type { NodeRuntimeOptions } from "../../../src/index.js";
 import type { NodeRuntimeDriverFactory } from "../../../src/types.js";
 import type { ProcessConfig } from "../../../src/shared/api-types.js";
 
 type RuntimeOptions = Omit<NodeRuntimeOptions, "systemDriver" | "runtimeDriverFactory">;
+const SECURE_EXEC_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
+
+function buildJsZipDeflateWorkload(): string {
+	return `
+const keepAlive = setInterval(() => {}, 10);
+(async () => {
+  try {
+    const startedAt = performance.now();
+    const JSZip = require("jszip");
+    const zip = new JSZip();
+    const sharedParagraph = Array.from(
+      { length: 16 },
+      (_, index) => "Section " + index + ": " + "benchmark-data-".repeat(24),
+    ).join("\\n");
+
+    for (let docIndex = 0; docIndex < 8; docIndex += 1) {
+      zip.file(
+        "docs/chapter-" + docIndex + ".md",
+        "# Chapter " + docIndex + "\\n\\n" + sharedParagraph + "\\n\\n" + "line-".repeat(96),
+      );
+    }
+
+    for (let datasetIndex = 0; datasetIndex < 4; datasetIndex += 1) {
+      const rows = Array.from({ length: 20 }, (_, rowIndex) => ({
+        id: "row-" + datasetIndex + "-" + rowIndex,
+        status: rowIndex % 2 === 0 ? "ready" : "pending",
+        weight: datasetIndex * 100 + rowIndex,
+        label: "record-" + String(rowIndex).padStart(3, "0"),
+      }));
+      zip.file(
+        "data/report-" + datasetIndex + ".json",
+        JSON.stringify({ datasetIndex, rows }, null, 2),
+      );
+    }
+
+    for (let assetIndex = 0; assetIndex < 3; assetIndex += 1) {
+      const bytes = Uint8Array.from(
+        { length: 1024 },
+        (_, byteIndex) => (byteIndex * 17 + assetIndex * 29) % 251,
+      );
+      zip.file("assets/blob-" + assetIndex + ".bin", bytes);
+    }
+
+    zip.file(
+      "manifest.json",
+      JSON.stringify({
+        generatedBy: "secure-exec-module-load-benchmark",
+        docs: 8,
+        datasets: 4,
+        assets: 3,
+      }, null, 2),
+    );
+
+    const archive = await zip.generateAsync({
+      type: "uint8array",
+      compression: "DEFLATE",
+      compressionOptions: { level: 6 },
+    });
+    const finishedAt = performance.now();
+    console.log(JSON.stringify({
+      ok: true,
+      sandboxMs: Number((finishedAt - startedAt).toFixed(3)),
+      fileCount: Object.values(zip.files).filter((entry) => !entry.dir).length,
+      archiveBytes: archive.length,
+    }));
+  } catch (error) {
+    console.log(JSON.stringify({
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    process.exitCode = 1;
+  } finally {
+    clearInterval(keepAlive);
+  }
+})();
+`;
+}
 
 function createRuntimeWithProcessConfig(
 	processConfig: ProcessConfig,
@@ -104,6 +184,71 @@ describe("runtime driver specific: node", () => {
 
 		expect(result.code).toBe(0);
 	});
+
+	it(
+		"reuses a shared V8 runtime across repeated compressed JSZip sessions",
+		async () => {
+			const v8Runtime = await createNodeV8Runtime();
+			const runtimeDriverFactory = createNodeRuntimeDriverFactory({ v8Runtime });
+			const runtimesForTest = new Set<NodeRuntime>();
+
+			try {
+				for (let iteration = 1; iteration <= 4; iteration += 1) {
+					const stdout: string[] = [];
+					const runtime = new NodeRuntime({
+						onStdio: (event) => {
+							if (event.channel === "stdout") {
+								stdout.push(event.message);
+							}
+						},
+						systemDriver: createNodeDriver({
+							moduleAccess: { cwd: SECURE_EXEC_ROOT },
+							permissions: allowAll,
+						}),
+						runtimeDriverFactory,
+					});
+					runtimes.add(runtime);
+					runtimesForTest.add(runtime);
+
+					const result = await Promise.race([
+						runtime.exec(buildJsZipDeflateWorkload(), {
+							cwd: SECURE_EXEC_ROOT,
+						}),
+						new Promise<never>((_, reject) => {
+							setTimeout(
+								() =>
+									reject(
+										new Error(
+											`timed out compressed JSZip iteration ${iteration}`,
+										),
+									),
+								15_000,
+							);
+						}),
+					]);
+
+					expect(result.code).toBe(0);
+					const payload = JSON.parse(stdout.join(""));
+					expect(payload).toMatchObject({
+						ok: true,
+						fileCount: 16,
+					});
+					expect(Number(payload.archiveBytes)).toBeLessThan(8_000);
+				}
+			} finally {
+				for (const runtime of runtimesForTest) {
+					try {
+						await runtime.terminate();
+					} catch {
+						runtime.dispose();
+					}
+					runtimes.delete(runtime);
+				}
+				await v8Runtime.dispose();
+			}
+		},
+		20_000,
+	);
 
 	it("treats TypeScript-only syntax as a JavaScript execution failure", async () => {
 		const runtime = createRuntime();

@@ -115,6 +115,11 @@ export async function createV8Runtime(
 	>();
 	// Per-session reject functions for rejecting in-flight execute() promises
 	const sessionRejects = new Map<string, (err: Error) => void>();
+	// Connection-scoped Ping/Pong barriers used to wait for ordered teardown.
+	const pingWaiters = new Map<
+		string,
+		{ resolve: () => void; reject: (error: Error) => void }
+	>();
 	let ipcClient: IpcClient | null = null;
 	let disposed = false;
 
@@ -211,6 +216,16 @@ export async function createV8Runtime(
 	ipcClient = new IpcClient({
 		socketPath,
 		onMessage: (frame) => {
+			if (frame.type === "Pong") {
+				const token = frame.payload.toString("utf8");
+				const waiter = pingWaiters.get(token);
+				if (waiter) {
+					pingWaiters.delete(token);
+					waiter.resolve();
+					updateSocketRef();
+				}
+				return;
+			}
 			// Route frame to the appropriate session handler by sessionId
 			if ("sessionId" in frame && frame.sessionId) {
 				const handler = sessionHandlers.get(frame.sessionId);
@@ -267,11 +282,20 @@ export async function createV8Runtime(
 	/** Ref/unref the IPC socket based on active session count. */
 	function updateSocketRef(): void {
 		if (!ipcClient || disposed) return;
-		if (sessionHandlers.size > 0) {
+		if (sessionHandlers.size > 0 || pingWaiters.size > 0) {
 			ipcClient.ref();
 		} else {
 			ipcClient.unref();
 		}
+	}
+
+	function rejectPendingPings(error: Error): void {
+		const waiters = [...pingWaiters.values()];
+		pingWaiters.clear();
+		for (const waiter of waiters) {
+			waiter.reject(error);
+		}
+		updateSocketRef();
 	}
 
 	/** Resolve all pending execute() promises with a crash/close error result. */
@@ -299,6 +323,7 @@ export async function createV8Runtime(
 			sessionRejects.delete(sid);
 			reject(error);
 		}
+		rejectPendingPings(error);
 		updateSocketRef();
 	}
 
@@ -307,6 +332,36 @@ export async function createV8Runtime(
 		if (!processAlive || disposed) {
 			throw exitError ?? new Error("V8 runtime process is not running");
 		}
+	}
+
+	function waitForRuntimeBarrier(client: IpcClient): Promise<void> {
+		ensureAlive();
+		if (!client.isConnected) {
+			return Promise.reject(new Error("IPC client is not connected"));
+		}
+
+		const token = randomBytes(16).toString("hex");
+		return new Promise<void>((resolve, reject) => {
+			pingWaiters.set(token, {
+				resolve,
+				reject,
+			});
+			updateSocketRef();
+			try {
+				client.send({
+					type: "Ping",
+					payload: Buffer.from(token, "utf8"),
+				});
+			} catch (error) {
+				pingWaiters.delete(token);
+				updateSocketRef();
+				reject(
+					error instanceof Error
+						? error
+						: new Error(`Failed to send Ping barrier: ${error}`),
+				);
+			}
+		});
 	}
 
 	const runtime: V8Runtime = {
@@ -543,6 +598,7 @@ export async function createV8Runtime(
 							type: "DestroySession",
 							sessionId,
 						});
+						await waitForRuntimeBarrier(client);
 					}
 					observability?.recordRuntimeEvent("session_destroyed", {
 						sessionId,

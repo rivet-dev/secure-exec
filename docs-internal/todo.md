@@ -117,9 +117,6 @@ docs-internal/specs/cli-tool-e2e.md
 - [ ] Expand module-load benchmark controls and transport attribution.
   - Add true cold-start timing, same-session and new-session replay controls, host-Node controls, warm snapshot comparisons, and direct UDS RTT measurements so later optimizations are attributable.
 
-- [ ] Restore a compressed JSZip warm-session benchmark path.
-  - The committed `jszip-end-to-end` baseline currently serializes a representative nested archive with `STORE` after repeated `DEFLATE` runs hung on the third fresh session in `scenario-runner.ts`; fix the repeated-session compressed path and then switch the committed scenario back to a compressed archive workload.
-
 - [ ] Remove remaining `@ts-nocheck` bypasses in bridge internals.
   - Current bypasses remain in `bridge/polyfills.ts`, `bridge/os.ts`, `bridge/child-process.ts`, `bridge/process.ts`, and `bridge/network.ts`.
   - Files: `packages/secure-exec/src/bridge/*.ts`

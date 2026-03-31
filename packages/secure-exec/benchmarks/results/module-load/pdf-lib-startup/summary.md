@@ -1,17 +1,17 @@
 # pdf-lib Startup
 
 Scenario: `pdf-lib-startup`
-Generated: 2026-03-31T05:29:24.028Z
+Generated: 2026-03-31T05:47:26.381Z
 Description: Loads pdf-lib, creates a document, and embeds a standard font.
 
 ## Progress Copy Fields
 
-- Warm wall mean: 283.235 ms
+- Warm wall mean: 314.083 ms
 - Bridge calls/iteration: 1651.000
-- Warm fixed session overhead: 107.558 ms
+- Warm fixed session overhead: 108.981 ms
 - Scenario IPC connect RTT: 0.000 ms
-- Warm phase attribution: Create->InjectGlobals 0.000 ms, InjectGlobals->Execute 5.500 ms, ExecutionResult->Destroy 102.000 ms, residual 0.058 ms
-- Dominant bridge time: `_loadPolyfill` 63.188 ms/iteration across 1650.000 calls/iteration
+- Warm phase attribution: Create->InjectGlobals 0.000 ms, InjectGlobals->Execute 5.000 ms, ExecutionResult->Destroy 101.500 ms, residual 2.481 ms
+- Dominant bridge time: `_loadPolyfill` 64.567 ms/iteration across 1650.000 calls/iteration
 - Dominant bridge response bytes: `_loadPolyfill` 1918473.000 bytes/iteration
 - Dominant frame bytes: `send:BridgeResponse` 1918520.000 bytes/iteration
 
@@ -19,9 +19,9 @@ Description: Loads pdf-lib, creates a document, and embeds a standard font.
 
 | Iteration | Wall | Execute | Fixed Overhead | Bridge Calls | Bridge Time |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | 444.597 ms | 332.130 ms | 112.467 ms | 1651 | 99.800 ms |
-| 2 | 287.311 ms | 178.027 ms | 109.284 ms | 1651 | 45.441 ms |
-| 3 | 279.158 ms | 173.326 ms | 105.832 ms | 1651 | 44.577 ms |
+| 1 | 451.111 ms | 337.645 ms | 113.466 ms | 1651 | 97.218 ms |
+| 2 | 270.404 ms | 161.023 ms | 109.381 ms | 1651 | 42.155 ms |
+| 3 | 357.763 ms | 249.183 ms | 108.580 ms | 1651 | 54.727 ms |
 
 ## Session Phase Attribution
 
@@ -29,16 +29,16 @@ Equivalent lifecycle phases come from `CreateSession -> InjectGlobals -> Execute
 
 | Iteration | Create->InjectGlobals | InjectGlobals->Execute | Execute | ExecutionResult->Destroy | Residual Overhead |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | 3.000 ms | 6.000 ms | 332.130 ms | 102.000 ms | 1.467 ms |
-| 2 | 0.000 ms | 7.000 ms | 178.027 ms | 102.000 ms | 0.284 ms |
-| 3 | 0.000 ms | 4.000 ms | 173.326 ms | 102.000 ms | -0.168 ms |
+| 1 | 3.000 ms | 6.000 ms | 337.645 ms | 102.000 ms | 2.466 ms |
+| 2 | 0.000 ms | 6.000 ms | 161.023 ms | 102.000 ms | 1.381 ms |
+| 3 | 0.000 ms | 4.000 ms | 249.183 ms | 101.000 ms | 3.580 ms |
 
 ## Bridge Methods By Time
 
 | Method | Calls/Iter | Time/Iter | Mean/Call | Response Bytes/Iter |
 | --- | ---: | ---: | ---: | ---: |
-| `_loadPolyfill` | 1650.000 | 63.188 ms | 0.038 ms | 1918473.000 |
-| `_log` | 1.000 | 0.085 ms | 0.085 ms | 47.000 |
+| `_loadPolyfill` | 1650.000 | 64.567 ms | 0.039 ms | 1918473.000 |
+| `_log` | 1.000 | 0.133 ms | 0.133 ms | 47.000 |
 
 ## Frame Bytes
 
@@ -52,24 +52,27 @@ Equivalent lifecycle phases come from `CreateSession -> InjectGlobals -> Execute
 | `send:CreateSession` | 1.000 | 46.000 | 0.000 |
 | `recv:ExecutionResult` | 1.000 | 43.000 | 0.000 |
 | `send:DestroySession` | 1.000 | 38.000 | 0.000 |
-| `send:Authenticate` | 0.333 | 12.667 | 0.000 |
+| `send:Ping` | 1.000 | 38.000 | 32.000 |
+| `recv:Pong` | 1.000 | 38.000 | 32.000 |
 
 ## Comparison To Previous Baseline
 
-Baseline scenario timestamp: 2026-03-31T05:26:31.135Z
+Baseline scenario timestamp: 2026-03-31T05:29:24.028Z
 
-- Warm wall: 280.452 -> 283.235 ms (+2.783 ms (+0.99%))
+- Warm wall: 283.235 -> 314.083 ms (+30.848 ms (+10.89%))
 - Bridge calls/iteration: 1651.000 -> 1651.000 calls (0.000 calls (0.00%))
-- Warm fixed overhead: 107.194 -> 107.558 ms (+0.364 ms (+0.34%))
+- Warm fixed overhead: 107.558 -> 108.981 ms (+1.423 ms (+1.32%))
 - Warm Create->InjectGlobals: 0.000 -> 0.000 ms (0.000 ms)
-- Warm InjectGlobals->Execute: 5.000 -> 5.500 ms (+0.500 ms (+10.00%))
-- Warm ExecutionResult->Destroy: 102.000 -> 102.000 ms (0.000 ms (0.00%))
-- Warm residual overhead: 0.194 -> 0.058 ms (-0.136 ms (-70.10%))
-- Bridge time/iteration: 67.254 -> 63.273 ms (-3.981 ms (-5.92%))
+- Warm InjectGlobals->Execute: 5.500 -> 5.000 ms (-0.500 ms (-9.09%))
+- Warm ExecutionResult->Destroy: 102.000 -> 101.500 ms (-0.500 ms (-0.49%))
+- Warm residual overhead: 0.058 -> 2.481 ms (+2.423 ms (+4177.59%))
+- Bridge time/iteration: 63.273 -> 64.700 ms (+1.427 ms (+2.25%))
 - BridgeResponse encoded bytes/iteration: 1918520.000 -> 1918520.000 bytes (0.000 bytes (0.00%))
 
 | Delta Type | Name | Before | After | Delta |
 | --- | --- | ---: | ---: | ---: |
-| Method time | `_loadPolyfill` | 67.157 | 63.188 | -3.969 |
-| Method time | `_log` | 0.097 | 0.085 | -0.012 |
+| Method time | `_loadPolyfill` | 63.188 | 64.567 | +1.379 |
+| Method time | `_log` | 0.085 | 0.133 | +0.048 |
+| Frame bytes | `send:Ping` | 0.000 | 38.000 | +38.000 |
+| Frame bytes | `recv:Pong` | 0.000 | 38.000 | +38.000 |
 
