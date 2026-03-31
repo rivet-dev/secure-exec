@@ -112,6 +112,22 @@ function buildPolyfillCacheKey(moduleName: string, code: string): string {
 	return `polyfill:${moduleName}:${hash}`;
 }
 
+function buildBridgeDispatchCacheKey(
+	dispatchMethod: string,
+	args: unknown[],
+	result: unknown,
+): string {
+	const requestHash = createHash("sha256")
+		.update(v8.serialize([dispatchMethod, args]))
+		.digest("hex")
+		.slice(0, 16);
+	const payloadHash = createHash("sha256")
+		.update(v8.serialize(result))
+		.digest("hex")
+		.slice(0, 16);
+	return `dispatch:${dispatchMethod}:${requestHash}:${payloadHash}`;
+}
+
 function buildBridgeCodeCacheKey(bridgeCode: string): string {
 	return `bridge:${createHash("sha256").update(bridgeCode).digest("hex")}`;
 }
@@ -140,24 +156,62 @@ function shouldCachePolyfillPayload(
 	);
 }
 
+function shouldCacheBridgeDispatchPayload(
+	dispatchMethod: string,
+	result: unknown,
+): result is { __bd_result: string } {
+	if (!result || typeof result !== "object" || Array.isArray(result)) {
+		return false;
+	}
+
+	if (
+		dispatchMethod !== "_loadFile" &&
+		dispatchMethod !== "_loadFileSync"
+	) {
+		return false;
+	}
+
+	return (
+		"__bd_result" in result &&
+		typeof result.__bd_result === "string" &&
+		!("__bd_error" in result)
+	);
+}
+
 function buildCachedPolyfillBridgePayload(
 	method: string,
 	args: unknown[],
 	result: unknown,
 	sentPolyfillCacheKeys: ReadonlySet<string>,
 ): CachedPolyfillBridgePayload | null {
-	if (method !== "_loadPolyfill") {
-		return null;
-	}
-	const [moduleName] = args;
-	if (typeof moduleName !== "string") {
-		return null;
-	}
-	if (!shouldCachePolyfillPayload(moduleName, result)) {
+	let cacheKey: string | null = null;
+
+	if (method === "_loadPolyfill") {
+		const [moduleName] = args;
+		if (typeof moduleName !== "string") {
+			return null;
+		}
+		if (!shouldCachePolyfillPayload(moduleName, result)) {
+			return null;
+		}
+		cacheKey = buildPolyfillCacheKey(moduleName, result);
+	} else if (method === "_bridgeDispatch") {
+		const [dispatchMethod, ...dispatchArgs] = args;
+		if (typeof dispatchMethod !== "string") {
+			return null;
+		}
+		if (!shouldCacheBridgeDispatchPayload(dispatchMethod, result)) {
+			return null;
+		}
+		cacheKey = buildBridgeDispatchCacheKey(
+			dispatchMethod,
+			dispatchArgs,
+			result,
+		);
+	} else {
 		return null;
 	}
 
-	const cacheKey = buildPolyfillCacheKey(moduleName, result);
 	if (sentPolyfillCacheKeys.has(cacheKey)) {
 		return {
 			payload: Buffer.from(

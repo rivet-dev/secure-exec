@@ -1,6 +1,7 @@
 // V8 startup snapshots: fast isolate creation from pre-compiled bridge code
 
 use std::collections::HashMap;
+use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Condvar, Mutex};
 
 use crate::bridge::{external_refs, register_stub_bridge_fns};
@@ -648,6 +649,7 @@ mod tests {
                 Box::new(receiver),
                 "test-session".to_string(),
                 call_id_router,
+                Arc::new(AtomicU64::new(1)),
             );
             let session_buffers = RefCell::new(SessionBuffers::new());
             let pending = PendingPromises::new();
@@ -1030,6 +1032,7 @@ mod tests {
                 Box::new(receiver),
                 "test-session".to_string(),
                 call_id_router,
+                Arc::new(AtomicU64::new(1)),
             );
             let session_buffers = RefCell::new(SessionBuffers::new());
             let pending = PendingPromises::new();

@@ -1,40 +1,50 @@
 # Module Load Benchmark
 
-Generated: 2026-03-31T20:10:29.899Z
-Git commit: 834a057fb04ac9b702b78c7d40d5bdfa3558dc0e
+Generated: 2026-03-31T20:29:57.618Z
+Git commit: d22ee524f26e5a40e09ee48800a38942524b5239
 Host: {"node":"v24.13.0","platform":"linux","arch":"x64","cpu":"12th Gen Intel(R) Core(TM) i7-12700KF","cores":20,"ramGb":62.558}
 V8 binary: /home/nathan/se6/native/v8-runtime/target/release/secure-exec-v8
-Baseline summary: 2026-03-31T13:28:50.274Z
+Baseline summary: 2026-03-31T20:10:29.899Z
 
 Use `comparison.md` for before/after deltas, including the split between real `_loadPolyfill` bodies and `__bd:*` dispatch wrappers, and the per-scenario `summary.md` files for copy-ready progress numbers.
 
 | Scenario | Warm Wall Mean | Bridge Calls/Iter | Warm Fixed Overhead | Dominant Method Time | Dominant Frame Bytes |
 | --- | ---: | ---: | ---: | --- | --- |
-| Hono Startup | 140.959 ms | 59.000 | 109.115 ms | `_loadPolyfill` 38.364 ms/iter | `send:WarmSnapshot` 411389.667 B/iter |
-| Hono End-to-End | 139.728 ms | 59.000 | 109.456 ms | `_loadPolyfill` 16.919 ms/iter | `send:WarmSnapshot` 411389.667 B/iter |
-| pdf-lib Startup | 353.377 ms | 514.000 | 110.105 ms | `_loadPolyfill` 80.806 ms/iter | `send:BridgeResponse` 682128.000 B/iter |
-| pdf-lib End-to-End | 362.870 ms | 529.000 | 111.424 ms | `_loadPolyfill` 59.792 ms/iter | `send:BridgeResponse` 682998.000 B/iter |
-| JSZip Startup | 169.488 ms | 179.000 | 109.156 ms | `_loadPolyfill` 53.858 ms/iter | `send:BridgeResponse` 421617.667 B/iter |
-| JSZip End-to-End | 193.293 ms | 182.000 | 108.653 ms | `_loadPolyfill` 59.379 ms/iter | `send:BridgeResponse` 421791.667 B/iter |
-| Pi SDK Startup | 1707.406 ms | 2511.000 | 9.018 ms | `_bridgeDispatch` 850.245 ms/iter | `send:BridgeResponse` 7506336.667 B/iter |
-| Pi SDK End-to-End | 1835.606 ms | 2745.000 | 116.839 ms | `_loadPolyfill` 890.972 ms/iter | `send:BridgeResponse` 3642576.667 B/iter |
-| Pi CLI Startup | 1737.108 ms | 2562.000 | 9.105 ms | `_bridgeDispatch` 758.816 ms/iter | `send:BridgeResponse` 7509075.333 B/iter |
-| Pi CLI End-to-End | 1926.880 ms | 2772.000 | 13.261 ms | `_loadPolyfill` 937.983 ms/iter | `send:BridgeResponse` 3648246.667 B/iter |
+| Hono Startup | 37.787 ms | 59.000 | 5.579 ms | `_loadPolyfill` 12.742 ms/iter | `send:WarmSnapshot` 411447.667 B/iter |
+| Hono End-to-End | 43.049 ms | 59.000 | 6.241 ms | `_loadPolyfill` 10.391 ms/iter | `send:WarmSnapshot` 411447.667 B/iter |
+| pdf-lib Startup | 132.760 ms | 514.000 | 7.157 ms | `_bridgeDispatch` 63.650 ms/iter | `send:BridgeResponse` 652213.000 B/iter |
+| pdf-lib End-to-End | 297.079 ms | 529.000 | 7.191 ms | `_bridgeDispatch` 60.207 ms/iter | `send:BridgeResponse` 653208.000 B/iter |
+| JSZip Startup | 72.290 ms | 179.000 | 6.176 ms | `_loadPolyfill` 38.119 ms/iter | `send:WarmSnapshot` 411447.667 B/iter |
+| JSZip End-to-End | 77.776 ms | 182.000 | 6.130 ms | `_loadPolyfill` 43.727 ms/iter | `send:WarmSnapshot` 411447.667 B/iter |
+| Pi SDK Startup | 1422.383 ms | 2511.000 | 9.264 ms | `_bridgeDispatch` 822.419 ms/iter | `send:BridgeResponse` 3309659.000 B/iter |
+| Pi SDK End-to-End | 1823.659 ms | 2745.000 | 12.578 ms | `_bridgeDispatch` 816.475 ms/iter | `send:BridgeResponse` 3444124.333 B/iter |
+| Pi CLI Startup | 1470.153 ms | 2562.000 | 9.412 ms | `_bridgeDispatch` 640.133 ms/iter | `send:BridgeResponse` 3312400.333 B/iter |
+| Pi CLI End-to-End | 1049.009 ms | 2772.000 | 9.409 ms | `_bridgeDispatch` 440.689 ms/iter | `send:BridgeResponse` 3449856.000 B/iter |
 
 ## Warm Session Phase Means
 
 | Scenario | Connect RTT | Create->InjectGlobals | InjectGlobals->Execute | Execute | ExecutionResult->Destroy | Residual |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Hono Startup | 0.000 ms | 4.500 ms | 0.500 ms | 31.843 ms | 102.500 ms | 1.615 ms |
-| Hono End-to-End | 0.000 ms | 5.000 ms | 0.500 ms | 30.273 ms | 102.500 ms | 1.456 ms |
-| pdf-lib Startup | 0.000 ms | 5.000 ms | 0.000 ms | 243.272 ms | 103.000 ms | 2.104 ms |
-| pdf-lib End-to-End | 0.000 ms | 5.000 ms | 0.000 ms | 251.446 ms | 102.500 ms | 3.924 ms |
-| JSZip Startup | 0.000 ms | 4.500 ms | 0.500 ms | 60.332 ms | 101.500 ms | 2.656 ms |
-| JSZip End-to-End | 0.000 ms | 4.500 ms | 1.000 ms | 84.640 ms | 101.500 ms | 1.653 ms |
-| Pi SDK Startup | 0.000 ms | 5.500 ms | 0.000 ms | 1698.389 ms | 0.000 ms | 3.518 ms |
-| Pi SDK End-to-End | 1.000 ms | 5.500 ms | 0.000 ms | 1718.767 ms | 102.000 ms | 9.339 ms |
-| Pi CLI Startup | 0.000 ms | 5.500 ms | 0.000 ms | 1728.003 ms | 0.000 ms | 3.605 ms |
-| Pi CLI End-to-End | 0.000 ms | 5.500 ms | 0.000 ms | 1913.619 ms | 0.000 ms | 7.760 ms |
+| Hono Startup | 0.000 ms | 5.000 ms | 0.000 ms | 32.208 ms | 0.000 ms | 0.579 ms |
+| Hono End-to-End | 0.000 ms | 5.500 ms | 0.000 ms | 36.808 ms | 0.000 ms | 0.741 ms |
+| pdf-lib Startup | 0.000 ms | 5.000 ms | 0.000 ms | 125.602 ms | 0.000 ms | 2.158 ms |
+| pdf-lib End-to-End | 0.000 ms | 4.500 ms | 0.000 ms | 289.889 ms | 0.000 ms | 2.691 ms |
+| JSZip Startup | 0.000 ms | 5.500 ms | 0.000 ms | 66.114 ms | 0.000 ms | 0.676 ms |
+| JSZip End-to-End | 0.000 ms | 5.500 ms | 0.000 ms | 71.646 ms | 0.000 ms | 0.630 ms |
+| Pi SDK Startup | 0.000 ms | 6.000 ms | 0.000 ms | 1413.120 ms | 0.000 ms | 3.263 ms |
+| Pi SDK End-to-End | 1.000 ms | 6.500 ms | 0.500 ms | 1811.081 ms | 0.000 ms | 5.578 ms |
+| Pi CLI Startup | 0.000 ms | 5.500 ms | 0.000 ms | 1460.741 ms | 0.000 ms | 3.912 ms |
+| Pi CLI End-to-End | 0.000 ms | 6.000 ms | 0.000 ms | 1039.601 ms | 0.000 ms | 3.409 ms |
+
+## Transport RTT
+
+Dedicated IPC connect RTT: 0.177 ms
+
+| Payload | Mean RTT | P95 RTT | Max RTT |
+| --- | ---: | ---: | ---: |
+| 1 B | 0.049 ms | 0.061 ms | 0.331 ms |
+| 1 KB | 0.038 ms | 0.052 ms | 0.127 ms |
+| 64 KB | 0.118 ms | 0.133 ms | 0.136 ms |
 
 ## Progress Guide
 
@@ -58,4 +68,5 @@ Use `comparison.md` for before/after deltas, including the split between real `_
 - `pi-sdk-end-to-end`: `pi-sdk-end-to-end/summary.json`, `pi-sdk-end-to-end/summary.md`
 - `pi-cli-startup`: `pi-cli-startup/summary.json`, `pi-cli-startup/summary.md`
 - `pi-cli-end-to-end`: `pi-cli-end-to-end/summary.json`, `pi-cli-end-to-end/summary.md`
+- `transport-rtt`: `transport-rtt.json`, `transport-rtt.md`
 

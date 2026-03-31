@@ -870,6 +870,187 @@ describe.skipIf(skipUnlessBinary)("V8 context snapshot behavior", () => {
 				await rm(tempDir, { recursive: true, force: true });
 			}
 		});
+
+		it("reuses cached _bridgeDispatch _loadFileSync payloads across fresh sessions", async () => {
+			const tempDir = await mkdtemp(
+				join(tmpdir(), "secure-exec-v8-dispatch-load-file-hit-"),
+			);
+			const logFile = join(tempDir, "ipc.ndjson");
+			const projectedPath = "/root/node_modules/demo/index.js";
+			const sourceBody = `dispatch-file-hit:${"x".repeat(4096)}`;
+			const runtime = await createRuntime({
+				observability: { logFile },
+			});
+			let callCount = 0;
+
+			try {
+				const firstSession = await runtime.createSession();
+				const firstResult = await firstSession.execute(
+					defaultExecOptions({
+						userCode: `
+							const payload = _bridgeDispatch("_loadFileSync", ${JSON.stringify(projectedPath)});
+							if (!payload || payload.__bd_result !== ${JSON.stringify(sourceBody)}) {
+								throw new Error("unexpected first dispatch file payload");
+							}
+						`,
+						bridgeHandlers: {
+							_bridgeDispatch: (method: unknown, filePath: unknown) => {
+								callCount += 1;
+								if (method !== "_loadFileSync") {
+									throw new Error(`unexpected dispatch method: ${String(method)}`);
+								}
+								if (filePath !== projectedPath) {
+									throw new Error(`unexpected dispatch path: ${String(filePath)}`);
+								}
+								return { __bd_result: sourceBody };
+							},
+						},
+					}),
+				);
+				expect(firstResult.code).toBe(0);
+				expect(firstResult.error).toBeFalsy();
+				await firstSession.destroy();
+
+				const secondSession = await runtime.createSession();
+				const secondResult = await secondSession.execute(
+					defaultExecOptions({
+						userCode: `
+							const payload = _bridgeDispatch("_loadFileSync", ${JSON.stringify(projectedPath)});
+							if (!payload || payload.__bd_result !== ${JSON.stringify(sourceBody)}) {
+								throw new Error("unexpected second dispatch file payload");
+							}
+						`,
+						bridgeHandlers: {
+							_bridgeDispatch: (method: unknown, filePath: unknown) => {
+								callCount += 1;
+								if (method !== "_loadFileSync") {
+									throw new Error(`unexpected dispatch method: ${String(method)}`);
+								}
+								if (filePath !== projectedPath) {
+									throw new Error(`unexpected dispatch path: ${String(filePath)}`);
+								}
+								return { __bd_result: sourceBody };
+							},
+						},
+					}),
+				);
+				expect(secondResult.code).toBe(0);
+				expect(secondResult.error).toBeFalsy();
+				await secondSession.destroy();
+
+				await runtime.dispose();
+				const runtimeIndex = runtimes.indexOf(runtime);
+				if (runtimeIndex !== -1) {
+					runtimes.splice(runtimeIndex, 1);
+				}
+
+				const bridgeResponses = (await readLogEntries(logFile)).filter(
+					(entry) =>
+						entry.kind === "ipc_frame" &&
+						entry.direction === "send" &&
+						entry.frameType === "BridgeResponse" &&
+						entry.status === 0,
+				);
+
+				expect(callCount).toBe(2);
+				expect(bridgeResponses).toHaveLength(2);
+				expect(bridgeResponses[0].payloadBytes).toBeGreaterThan(4000);
+				expect(bridgeResponses[1].payloadBytes).toBeLessThan(256);
+			} finally {
+				await rm(tempDir, { recursive: true, force: true });
+			}
+		});
+
+		it("treats changed _bridgeDispatch _loadFileSync payloads as cache misses", async () => {
+			const tempDir = await mkdtemp(
+				join(tmpdir(), "secure-exec-v8-dispatch-load-file-miss-"),
+			);
+			const logFile = join(tempDir, "ipc.ndjson");
+			const projectedPath = "/root/node_modules/demo/index.js";
+			const firstSourceBody = `dispatch-file-miss:a:${"a".repeat(4096)}`;
+			const secondSourceBody = `dispatch-file-miss:b:${"b".repeat(4096)}`;
+			const runtime = await createRuntime({
+				observability: { logFile },
+			});
+			let callCount = 0;
+
+			try {
+				const firstSession = await runtime.createSession();
+				const firstResult = await firstSession.execute(
+					defaultExecOptions({
+						userCode: `
+							const payload = _bridgeDispatch("_loadFileSync", ${JSON.stringify(projectedPath)});
+							if (!payload || payload.__bd_result !== ${JSON.stringify(firstSourceBody)}) {
+								throw new Error("unexpected first dispatch file payload");
+							}
+						`,
+						bridgeHandlers: {
+							_bridgeDispatch: (method: unknown, filePath: unknown) => {
+								callCount += 1;
+								if (method !== "_loadFileSync") {
+									throw new Error(`unexpected dispatch method: ${String(method)}`);
+								}
+								if (filePath !== projectedPath) {
+									throw new Error(`unexpected dispatch path: ${String(filePath)}`);
+								}
+								return { __bd_result: firstSourceBody };
+							},
+						},
+					}),
+				);
+				expect(firstResult.code).toBe(0);
+				expect(firstResult.error).toBeFalsy();
+				await firstSession.destroy();
+
+				const secondSession = await runtime.createSession();
+				const secondResult = await secondSession.execute(
+					defaultExecOptions({
+						userCode: `
+							const payload = _bridgeDispatch("_loadFileSync", ${JSON.stringify(projectedPath)});
+							if (!payload || payload.__bd_result !== ${JSON.stringify(secondSourceBody)}) {
+								throw new Error("unexpected second dispatch file payload");
+							}
+						`,
+						bridgeHandlers: {
+							_bridgeDispatch: (method: unknown, filePath: unknown) => {
+								callCount += 1;
+								if (method !== "_loadFileSync") {
+									throw new Error(`unexpected dispatch method: ${String(method)}`);
+								}
+								if (filePath !== projectedPath) {
+									throw new Error(`unexpected dispatch path: ${String(filePath)}`);
+								}
+								return { __bd_result: secondSourceBody };
+							},
+						},
+					}),
+				);
+				expect(secondResult.code).toBe(0);
+				expect(secondResult.error).toBeFalsy();
+				await secondSession.destroy();
+
+				await runtime.dispose();
+				const runtimeIndex = runtimes.indexOf(runtime);
+				if (runtimeIndex !== -1) {
+					runtimes.splice(runtimeIndex, 1);
+				}
+
+				const bridgeResponses = (await readLogEntries(logFile)).filter(
+					(entry) =>
+						entry.kind === "ipc_frame" &&
+						entry.direction === "send" &&
+						entry.frameType === "BridgeResponse" &&
+						entry.status === 0,
+				);
+
+				expect(callCount).toBe(2);
+				expect(bridgeResponses).toHaveLength(2);
+				expect(bridgeResponses[0].payloadBytes).toBeGreaterThan(4000);
+				expect(bridgeResponses[1].payloadBytes).toBeGreaterThan(4000);
+			} finally {
+				await rm(tempDir, { recursive: true, force: true });
+			}
+		});
 	});
 
 	// -------------------------------------------------------------------

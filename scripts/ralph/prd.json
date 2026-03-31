@@ -232,7 +232,7 @@
         "Touched packages typecheck."
       ],
       "priority": 13,
-      "passes": false,
+      "passes": true,
       "notes": "US-008 landed the safe preload set, but broader builtin candidates such as `stream`, `stream/web`, `crypto`, `zlib`, `assert`, and `url` still destabilize snapshot restore or fail at require time when forced onto the snapshot-preload path."
     },
     {

@@ -95,9 +95,6 @@ fn resolve_cached_polyfill_value<'s>(
         }
         let code_value = get_object_property(scope, store_obj, POLYFILL_CACHE_CODE_FIELD)?
             .ok_or_else(|| "missing cached _loadPolyfill store code".to_string())?;
-        if !code_value.is_string() {
-            return Err("cached _loadPolyfill store code must be a string".to_string());
-        }
 
         let cache_key = cache_key_value.to_rust_string_lossy(scope);
         let serialized_code = serialize_v8_value(scope, code_value)?;
