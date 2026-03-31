@@ -28,6 +28,7 @@
 - e2e-docker fixtures connect to real Docker containers (Postgres, MySQL, Redis, SSH/SFTP) — skip gracefully via `skipUnlessDocker()` when Docker is unavailable
 - interactive/PTY tests must use `kernel.openShell()` with `@xterm/headless`, not host PTY via `script -qefc`
 - before fixing a reported runtime, CLI, SDK, or PTY bug, first reproduce the broken state and capture the exact visible output (stdout, stderr, event payloads, or terminal screen) in a regression or work note; do not start by guessing at the fix
+- host-side upstream Node bootstrap probes must run in isolated child Node processes with `--expose-internals`; replaying `internal/bootstrap/node` can trip native asserts (for example `async_wrap.setupHooks`) and kill the current test worker if run inline
 - terminal-output and PTY-rendering bugs must use snapshot-style assertions against exact strings or exact screen contents under fixed rows/cols, not loose substring checks
 - if expected terminal behavior is unclear, run the same flow on the host as a control and compare the sandbox transcript/screen against that host output before deciding what to fix
 - be liberal with structured debug logging for complex interactive or long-running sessions so later manual repros can be diagnosed from artifacts instead of memory

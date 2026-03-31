@@ -1,9 +1,18 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname as pathDirname, join as pathJoin } from "node:path";
 import { pathToFileURL } from "node:url";
+import {
+	initSync as initCjsLexerSync,
+	parse as parseCjsExports,
+} from "cjs-module-lexer";
+import {
+	init,
+	initSync,
+	parse,
+	type ExportSpecifier,
+	type ImportSpecifier,
+} from "es-module-lexer";
 import { transform, transformSync } from "esbuild";
-import { initSync as initCjsLexerSync, parse as parseCjsExports } from "cjs-module-lexer";
-import { init, initSync, parse } from "es-module-lexer";
 
 const REQUIRE_TRANSFORM_MARKER = "/*__secure_exec_require_esm__*/";
 const IMPORT_META_URL_HELPER = "__secureExecImportMetaUrl__";
@@ -21,17 +30,17 @@ function normalizeJavaScriptSource(source: string): string {
 	if (!source.startsWith("#!", shebangOffset)) {
 		return source;
 	}
-	return (
-		bomPrefix +
-		"//" +
-		source.slice(shebangOffset + 2)
-	);
+	return bomPrefix + "//" + source.slice(shebangOffset + 2);
 }
 
 function parseSourceSyntax(source: string, filePath?: string) {
 	const [imports, , , hasModuleSyntax] = parse(source, filePath);
-	const hasDynamicImport = imports.some((specifier) => specifier.d >= 0);
-	const hasImportMeta = imports.some((specifier) => specifier.d === -2);
+	const hasDynamicImport = imports.some(
+		(specifier: ImportSpecifier) => specifier.d >= 0,
+	);
+	const hasImportMeta = imports.some(
+		(specifier: ImportSpecifier) => specifier.d === -2,
+	);
 	return { hasModuleSyntax, hasDynamicImport, hasImportMeta };
 }
 
@@ -53,11 +62,16 @@ function expandStarReExports(source: string, hostPath: string): string {
 	const [, ownExports] = parse(source, hostPath);
 	const ownExportNames = new Set(
 		ownExports
-			.map((e) => e.n)
-			.filter((n): n is string => typeof n === "string"),
+			.map((exportEntry: ExportSpecifier) => exportEntry.n)
+			.filter((name): name is string => typeof name === "string"),
 	);
 
-	while ((match = starExportRegex.exec(source)) !== null) {
+	while (true) {
+		match = starExportRegex.exec(source);
+		if (match === null) {
+			break;
+		}
+
 		const specifier = match[1];
 		const dir = pathDirname(hostPath);
 		const targetPath = specifier.startsWith(".")
@@ -70,12 +84,12 @@ function expandStarReExports(source: string, hostPath: string): string {
 			const targetSource = readFileSync(targetPath, "utf-8");
 			const [, targetExports] = parse(targetSource, targetPath);
 			const names = targetExports
-				.map((e) => e.n)
+				.map((exportEntry: ExportSpecifier) => exportEntry.n)
 				.filter(
-					(n): n is string =>
-						typeof n === "string" &&
-						n !== "default" &&
-						!ownExportNames.has(n),
+					(name): name is string =>
+						typeof name === "string" &&
+						name !== "default" &&
+						!ownExportNames.has(name),
 				);
 
 			if (names.length > 0) {
@@ -100,7 +114,9 @@ function isValidIdentifier(value: string): boolean {
 	return /^[$A-Z_][0-9A-Z_$]*$/i.test(value);
 }
 
-function getNearestPackageTypeSync(filePath: string): "module" | "commonjs" | null {
+function getNearestPackageTypeSync(
+	filePath: string,
+): "module" | "commonjs" | null {
 	let currentDir = pathDirname(filePath);
 	while (true) {
 		const packageJsonPath = pathJoin(currentDir, "package.json");
@@ -125,7 +141,10 @@ function getNearestPackageTypeSync(filePath: string): "module" | "commonjs" | nu
 	}
 }
 
-function isCommonJsModuleForImportSync(source: string, formatPath: string): boolean {
+function isCommonJsModuleForImportSync(
+	source: string,
+	formatPath: string,
+): boolean {
 	if (!isJavaScriptLikePath(formatPath)) {
 		return false;
 	}
@@ -178,8 +197,7 @@ function getRequireTransformOptions(
 	filePath: string,
 	syntax: ReturnType<typeof parseSourceSyntax>,
 ) {
-	const requiresEsmWrapper =
-		syntax.hasModuleSyntax || syntax.hasImportMeta;
+	const requiresEsmWrapper = syntax.hasModuleSyntax || syntax.hasImportMeta;
 	const bannerLines = requiresEsmWrapper ? [REQUIRE_TRANSFORM_MARKER] : [];
 	if (syntax.hasImportMeta) {
 		bannerLines.push(
@@ -259,12 +277,17 @@ export function transformSourceForRequireSync(
 	const normalizedSource = normalizeJavaScriptSource(source);
 	initSync();
 	const syntax = parseSourceSyntax(normalizedSource, filePath);
-	if (!(syntax.hasModuleSyntax || syntax.hasDynamicImport || syntax.hasImportMeta)) {
+	if (
+		!(syntax.hasModuleSyntax || syntax.hasDynamicImport || syntax.hasImportMeta)
+	) {
 		return normalizedSource;
 	}
 
 	try {
-		return transformSync(normalizedSource, getRequireTransformOptions(filePath, syntax)).code;
+		return transformSync(
+			normalizedSource,
+			getRequireTransformOptions(filePath, syntax),
+		).code;
 	} catch {
 		return normalizedSource;
 	}
@@ -281,13 +304,18 @@ export async function transformSourceForRequire(
 	const normalizedSource = normalizeJavaScriptSource(source);
 	await init;
 	const syntax = parseSourceSyntax(normalizedSource, filePath);
-	if (!(syntax.hasModuleSyntax || syntax.hasDynamicImport || syntax.hasImportMeta)) {
+	if (
+		!(syntax.hasModuleSyntax || syntax.hasDynamicImport || syntax.hasImportMeta)
+	) {
 		return normalizedSource;
 	}
 
 	try {
 		return (
-			await transform(normalizedSource, getRequireTransformOptions(filePath, syntax))
+			await transform(
+				normalizedSource,
+				getRequireTransformOptions(filePath, syntax),
+			)
 		).code;
 	} catch {
 		return normalizedSource;
@@ -307,7 +335,9 @@ export async function transformSourceForImport(
 	const syntax = parseSourceSyntax(normalizedSource, filePath);
 	const needsTransform =
 		normalizedSource.includes(UNICODE_SET_REGEX_MARKER) || syntax.hasImportMeta;
-	if (!(syntax.hasModuleSyntax || syntax.hasDynamicImport || syntax.hasImportMeta)) {
+	if (
+		!(syntax.hasModuleSyntax || syntax.hasDynamicImport || syntax.hasImportMeta)
+	) {
 		return normalizedSource;
 	}
 	if (!needsTransform) {
@@ -315,7 +345,12 @@ export async function transformSourceForImport(
 	}
 
 	try {
-		return (await transform(normalizedSource, getImportTransformOptions(filePath, syntax))).code;
+		return (
+			await transform(
+				normalizedSource,
+				getImportTransformOptions(filePath, syntax),
+			)
+		).code;
 	} catch {
 		return normalizedSource;
 	}
@@ -345,7 +380,9 @@ export function transformSourceForImportSync(
 	const syntax = parseSourceSyntax(processedSource, filePath);
 	const needsTransform =
 		processedSource.includes(UNICODE_SET_REGEX_MARKER) || syntax.hasImportMeta;
-	if (!(syntax.hasModuleSyntax || syntax.hasDynamicImport || syntax.hasImportMeta)) {
+	if (
+		!(syntax.hasModuleSyntax || syntax.hasDynamicImport || syntax.hasImportMeta)
+	) {
 		return processedSource;
 	}
 	if (!needsTransform) {
@@ -353,7 +390,10 @@ export function transformSourceForImportSync(
 	}
 
 	try {
-		return transformSync(processedSource, getImportTransformOptions(filePath, syntax)).code;
+		return transformSync(
+			processedSource,
+			getImportTransformOptions(filePath, syntax),
+		).code;
 	} catch {
 		return processedSource;
 	}
