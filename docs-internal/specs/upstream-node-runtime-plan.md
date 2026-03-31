@@ -475,6 +475,28 @@ Important refinement:
 - in practice, "the specific assets it needs" should mean the full pinned builtin JS tree for the selected Node version, not a manually curated small subset
 - bootstrap and loader internals pull transitive `internal/*` dependencies aggressively, so hand-picking files will create brittle sync churn
 
+### US-003 Pinned Asset Baseline
+
+As of 2026-03-30, the current Node LTS line is `v24` (`Krypton`), and this workstream is pinned to:
+
+- Node version: `v24.14.1`
+- release date: `2026-03-24`
+- upstream commit: `d89bb1b482fa09245c4f2cbb3b5b6a70bea6deaf`
+- upstream repo: `https://github.com/nodejs/node`
+- expected fork: `https://github.com/rivet-dev/secure-exec-node`
+
+The checked-in asset metadata lives in:
+
+- `packages/nodejs/assets/upstream-node/VERSION.json`
+- `packages/nodejs/assets/upstream-node/builtin-manifest.json`
+
+The initial export from that pinned release contains:
+
+- `352` builtin `.js` assets total
+- `73` public builtins under `packages/nodejs/assets/upstream-node/lib/**`
+- `279` internal builtins under `packages/nodejs/assets/upstream-node/internal/**`
+- no `deps/**` export for the `v24.14.1` baseline because the pinned builtin tree did not require one for this phase
+
 ### Proposed Layout In This Repo
 
 Add a new upstream runtime subtree under `packages/nodejs/`:
@@ -512,13 +534,20 @@ Add a sync script in this repo, for example:
 
 - `scripts/sync-node-upstream-assets.ts`
 
-This script should:
+The checked-in implementation now works like this:
 
-1. read a local checkout of `secure-exec-node`
-2. copy the approved builtin JS sources into `packages/nodejs/assets/upstream-node/`
-3. copy the builtin manifest
-4. write the pinned Node commit and version metadata
-5. fail if required upstream files are missing or the exported manifest changes unexpectedly
+1. prepare a local checkout of `rivet-dev/secure-exec-node`
+2. configure remotes as:
+   - `origin` -> `rivet-dev/secure-exec-node`
+   - `upstream` -> `nodejs/node`
+3. make sure the pinned ref `d89bb1b482fa09245c4f2cbb3b5b6a70bea6deaf` is present in the local checkout
+4. run `pnpm sync:node-upstream-assets --source /path/to/secure-exec-node`
+5. run `pnpm check:node-upstream-assets --source /path/to/secure-exec-node`
+
+Important implementation detail:
+
+- the sync script reads files from the pinned git ref, not from the working tree, so a dirty checkout cannot silently skew the exported asset set
+- the script fails if the local checkout does not contain the pinned commit, if bootstrap-critical builtin files are missing, or if `--check` detects drift in the committed asset tree
 
 This gives us deterministic updates without forcing the whole fork into the monorepo.
 

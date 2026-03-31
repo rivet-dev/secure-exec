@@ -5,6 +5,8 @@ Started: Mon Mar 30 06:07:03 PM PDT 2026
 - For bootstrap preflight work, read builtin source from `process.binding('natives')` and defer pinned vendored asset sync to the dedicated upstream-asset story instead of partially vendoring bootstrap files early.
 - WasmVM socket tests that create client sockets from the test harness must register a real kernel-owned PID first; fake PID literals like `999` are rejected by `SocketTable`.
 - When WasmVM `host_net` imports change, rebuild `@secure-exec/wasmvm` before validating probes; runtime execution uses `packages/wasmvm/dist/kernel-worker.js`, not just `src/kernel-worker.ts`.
+- Upstream Node asset sync must export from a pinned git ref and validate with `pnpm check:node-upstream-assets`; do not copy builtin files from a dirty checkout or from upstream `main` when the story is pinned to a release tag.
+- `pnpm check:node-upstream-assets` only needs a git checkout that contains the pinned commit; a temporary `git init` plus single-commit fetch is enough for real-release validation.
 
 ## [2026-03-30 18:23 PDT] - US-001
 - What was implemented: added a host-side upstream Node preflight runner that replays `internal/bootstrap/realm`, probes `internal/bootstrap/node`, and exercises `module_wrap`, `contextify`, `uv`, and `cares_wrap`; documented the exact bootstrap-node blocker and linked it from the runtime plan; added focused vitest coverage for the probe outcomes; added local lexer type shims plus typed callbacks so `@secure-exec/nodejs` typecheck is green again.
@@ -21,4 +23,20 @@ Started: Mon Mar 30 06:07:03 PM PDT 2026
   - Patterns discovered: if the pinned `wasi-libc` vendor tree is not reset before patch apply, malformed hunks can look like "already applied" drift instead of a real clean-build failure.
   - Gotchas encountered: probe binaries can import newer `host_net` symbols before the checked-in worker bundle knows about them; the visible failure is a WASM instantiate error like `Import #7 "host_net" "net_bind": function import requires a callable`.
   - Useful context: fs, TCP connect/listen/accept/read/write/close, and DNS lookups fit the current WasmVM backend path cleanly after the patch refresh; TTY raw-mode is still blocked on missing libc/kernel imports and is documented as follow-up instead of guessed around.
+---
+## [2026-03-30 19:20 PDT] - US-003
+- What was implemented: pinned the upstream runtime asset baseline to Node `v24.14.1` at commit `d89bb1b482fa09245c4f2cbb3b5b6a70bea6deaf`, added `scripts/sync-node-upstream-assets.ts` with deterministic `--check` validation against a pinned git ref, vendored the full `352`-file builtin JS asset tree into `packages/nodejs/assets/upstream-node/`, updated package publishing metadata to include the assets, added focused sync tests, and documented the exact pin plus fork/sync workflow in the upstream runtime plan.
+- Files changed: `scripts/sync-node-upstream-assets.ts`, `package.json`, `packages/nodejs/package.json`, `packages/nodejs/assets/upstream-node/VERSION.json`, `packages/nodejs/assets/upstream-node/builtin-manifest.json`, `packages/nodejs/assets/upstream-node/lib/**`, `packages/nodejs/assets/upstream-node/internal/**`, `packages/nodejs/test/upstream-node-asset-sync.test.ts`, `docs-internal/specs/upstream-node-runtime-plan.md`, `AGENTS.md`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Patterns discovered: the asset sync flow should read builtin sources from the pinned git ref and use `pnpm check:node-upstream-assets` to detect drift before any runtime work depends on the vendored tree.
+  - Gotchas encountered: the pinned `v24.14.1` release exports `352` builtin `.js` files; counts from `nodejs/node` `main` were higher and would have produced the wrong manifest for a release-pinned story.
+  - Useful context: focused checks for the sync workflow passed, but the full `@secure-exec/nodejs` package suite is currently blocked in this environment because the native `secure-exec-v8` runtime binary is absent and kernel-backed tests fail before bootstrapping the V8 child process.
+---
+## [2026-03-30 19:27 PDT] - US-003
+- What was implemented: verified the committed asset tree against the real pinned upstream commit using `pnpm check:node-upstream-assets --source <temp git fetch>`, flipped `US-003` to passing in the PRD, and preserved the reusable asset-sync workflow note in the progress log.
+- Files changed: `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Patterns discovered: real-release asset validation does not require a full fork checkout on disk; a temporary repo containing the pinned commit is sufficient for `--check`.
+  - Gotchas encountered: the sync script validates the resolved commit hash exactly, so fetching the pinned object is mandatory even when the source repo already has nearby release tags.
+  - Useful context: the focused quality bar for this story is green with `pnpm --filter @secure-exec/nodejs check-types`, `pnpm vitest run packages/nodejs/test/upstream-node-asset-sync.test.ts`, and `pnpm check:node-upstream-assets --source <temp repo>`.
 ---

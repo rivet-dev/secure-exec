@@ -147,6 +147,7 @@
 - read `docs-internal/arch/overview.md` for the component map (NodeRuntime, RuntimeDriver, NodeDriver, NodeExecutionDriver, ModuleAccessFileSystem, Permissions)
 - keep it up to date when adding, removing, or significantly changing components
 - keep host bootstrap polyfills in `packages/nodejs/src/execution-driver.ts` aligned with isolate bootstrap polyfills in `packages/core/isolate-runtime/src/inject/require-setup.ts`; drift in shared globals like `AbortController` causes sandbox-only behavior gaps that source-level tests can miss
+- upstream Node asset sync is driven by `scripts/sync-node-upstream-assets.ts`; always export builtin assets from the pinned git ref recorded in `packages/nodejs/assets/upstream-node/VERSION.json`, not from a dirty working tree or a hand-picked file subset
 - WHATWG globals that sandbox code touches before any bridge module loads (`TextDecoder`, `TextEncoder`, `Event`, `CustomEvent`, `EventTarget`) must be fixed in both bootstrap layers and `packages/nodejs/src/bridge/polyfills.ts`; bridge-only fixes do not change the globals seen by direct `runtime.run()` / `runtime.exec()` code
 - bridged `fetch()` request serialization must normalize `Headers` instances before crossing the JSON bridge; passing the host a raw `Headers` object silently drops auth and SDK-specific headers because it stringifies to `{}`
 - sandbox stdout/stderr write bridges must preserve Node's callback semantics even for empty writes like `process.stdout.write('', cb)`; headless CLI tools use that zero-byte callback as a flush barrier before clean exit

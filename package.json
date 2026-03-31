@@ -8,9 +8,11 @@
 	"scripts": {
 		"build": "turbo run build",
 		"check-types": "turbo run check-types",
+		"check:node-upstream-assets": "tsx scripts/sync-node-upstream-assets.ts --check",
 		"test": "turbo run test",
 		"test:watch": "turbo run test:watch",
 		"dev": "turbo run dev",
+		"sync:node-upstream-assets": "tsx scripts/sync-node-upstream-assets.ts",
 		"lint": "biome check",
 		"lint:fix": "biome check --write"
 	},
