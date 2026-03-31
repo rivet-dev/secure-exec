@@ -281,7 +281,7 @@
         "Touched packages typecheck."
       ],
       "priority": 14,
-      "passes": false,
+      "passes": true,
       "notes": "The current committed warm phase tables still show `ExecutionResult->Destroy` at about `102-103 ms` for Hono, pdf-lib, JSZip, Pi SDK startup, and Pi CLI startup. The current teardown path lives in `packages/v8/src/runtime.ts`, where `destroy()` sends `DestroySession` and then waits on `waitForRuntimeBarrier()` via a connection-level `Ping` / `Pong` round-trip."
     },
     {

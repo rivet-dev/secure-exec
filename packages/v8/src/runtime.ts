@@ -260,6 +260,10 @@ export async function createV8Runtime(
 		string,
 		{ resolve: () => void; reject: (error: Error) => void }
 	>();
+	const destroyWaiters = new Map<
+		string,
+		{ resolve: () => void; reject: (error: Error) => void }
+	>();
 	// Shared-runtime cache state for bridge payloads that can be materialized in
 	// the native process after a prior execution has transferred them.
 	const promotedPolyfillCacheKeys = new Set<string>();
@@ -373,6 +377,24 @@ export async function createV8Runtime(
 				}
 				return;
 			}
+			if (frame.type === "DestroySessionResult") {
+				const waiter = destroyWaiters.get(frame.sessionId);
+				if (waiter) {
+					destroyWaiters.delete(frame.sessionId);
+					if (frame.status === 0) {
+						waiter.resolve();
+					} else {
+						waiter.reject(
+							new Error(
+								frame.message ||
+									`DestroySession failed for ${frame.sessionId}`,
+							),
+						);
+					}
+					updateSocketRef();
+				}
+				return;
+			}
 			// Route frame to the appropriate session handler by sessionId
 			if ("sessionId" in frame && frame.sessionId) {
 				const handler = sessionHandlers.get(frame.sessionId);
@@ -435,7 +457,11 @@ export async function createV8Runtime(
 	/** Ref/unref the IPC socket based on active session count. */
 	function updateSocketRef(): void {
 		if (!ipcClient || disposed) return;
-		if (sessionHandlers.size > 0 || pingWaiters.size > 0) {
+		if (
+			sessionHandlers.size > 0 ||
+			pingWaiters.size > 0 ||
+			destroyWaiters.size > 0
+		) {
 			ipcClient.ref();
 		} else {
 			ipcClient.unref();
@@ -445,6 +471,15 @@ export async function createV8Runtime(
 	function rejectPendingPings(error: Error): void {
 		const waiters = [...pingWaiters.values()];
 		pingWaiters.clear();
+		for (const waiter of waiters) {
+			waiter.reject(error);
+		}
+		updateSocketRef();
+	}
+
+	function rejectPendingDestroys(error: Error): void {
+		const waiters = [...destroyWaiters.values()];
+		destroyWaiters.clear();
 		for (const waiter of waiters) {
 			waiter.reject(error);
 		}
@@ -477,6 +512,7 @@ export async function createV8Runtime(
 			reject(error);
 		}
 		rejectPendingPings(error);
+		rejectPendingDestroys(error);
 		updateSocketRef();
 	}
 
@@ -548,6 +584,8 @@ export async function createV8Runtime(
 			// Track bridge code hash to skip resending unchanged bridge code within
 			// a session, and to promote cross-session bridge snapshot refs.
 			let lastBridgeCodeHash: number | null = null;
+			let destroyPromise: Promise<void> | null = null;
+			let destroyed = false;
 			const session: V8Session = {
 				sendStreamEvent(eventType: string, payload: Uint8Array): void {
 					ensureAlive();
@@ -853,19 +891,52 @@ export async function createV8Runtime(
 				},
 
 				async destroy(): Promise<void> {
-					sessionHandlers.delete(sessionId);
-					sessionRejects.delete(sessionId);
-					updateSocketRef();
-					if (client.isConnected) {
-						client.send({
-							type: "DestroySession",
+					if (destroyed) {
+						return;
+					}
+					if (destroyPromise) {
+						return destroyPromise;
+					}
+					destroyPromise = (async () => {
+						sessionHandlers.delete(sessionId);
+						sessionRejects.delete(sessionId);
+						updateSocketRef();
+						if (!client.isConnected) {
+							destroyed = true;
+							return;
+						}
+						await new Promise<void>((resolve, reject) => {
+							destroyWaiters.set(sessionId, { resolve, reject });
+							updateSocketRef();
+							try {
+								client.send({
+									type: "DestroySession",
+									sessionId,
+								});
+							} catch (error) {
+								destroyWaiters.delete(sessionId);
+								updateSocketRef();
+								reject(
+									error instanceof Error
+										? error
+										: new Error(
+												`Failed to send DestroySession: ${error}`,
+											),
+								);
+							}
+						});
+						destroyed = true;
+					})();
+					try {
+						await destroyPromise;
+						observability?.recordRuntimeEvent("session_destroyed", {
 							sessionId,
 						});
-						await waitForRuntimeBarrier(client);
+					} finally {
+						if (!destroyed) {
+							destroyPromise = null;
+						}
 					}
-					observability?.recordRuntimeEvent("session_destroyed", {
-						sessionId,
-					});
 				},
 			};
 

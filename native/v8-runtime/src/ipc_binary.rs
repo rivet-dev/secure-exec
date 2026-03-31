@@ -33,6 +33,7 @@ const MSG_EXECUTION_RESULT: u8 = 0x82;
 const MSG_LOG: u8 = 0x83;
 const MSG_STREAM_CALLBACK: u8 = 0x84;
 const MSG_PONG: u8 = 0x85;
+const MSG_DESTROY_SESSION_RESULT: u8 = 0x86;
 
 // ExecutionResult flags
 const FLAG_HAS_EXPORTS: u8 = 0x01;
@@ -114,6 +115,11 @@ pub enum BinaryFrame {
     },
     Pong {
         payload: Vec<u8>,
+    },
+    DestroySessionResult {
+        session_id: String,
+        status: u8, // 0 = success, 1 = error
+        message: String,
     },
 }
 
@@ -381,6 +387,16 @@ fn encode_body(buf: &mut Vec<u8>, frame: &BinaryFrame) -> io::Result<()> {
             buf.push(0); // no session_id
             buf.extend_from_slice(payload);
         }
+        BinaryFrame::DestroySessionResult {
+            session_id,
+            status,
+            message,
+        } => {
+            buf.push(MSG_DESTROY_SESSION_RESULT);
+            write_session_id(buf, session_id)?;
+            buf.push(*status);
+            buf.extend_from_slice(message.as_bytes());
+        }
     }
     Ok(())
 }
@@ -549,6 +565,16 @@ fn decode_body(buf: &[u8]) -> io::Result<BinaryFrame> {
         MSG_PONG => {
             let payload = buf[pos..].to_vec();
             Ok(BinaryFrame::Pong { payload })
+        }
+        MSG_DESTROY_SESSION_RESULT => {
+            let status = read_u8(buf, &mut pos)?;
+            let remaining = buf.len() - pos;
+            let message = read_utf8(buf, &mut pos, remaining)?;
+            Ok(BinaryFrame::DestroySessionResult {
+                session_id,
+                status,
+                message,
+            })
         }
         _ => Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -913,6 +939,15 @@ mod tests {
         });
     }
 
+    #[test]
+    fn roundtrip_destroy_session_result() {
+        roundtrip(&BinaryFrame::DestroySessionResult {
+            session_id: "sess-8".into(),
+            status: 1,
+            message: "session sess-8 does not exist".into(),
+        });
+    }
+
     // -- WarmSnapshot --
 
     #[test]
@@ -1141,6 +1176,11 @@ mod tests {
                 channel: 0,
                 message: "hi".into(),
             },
+            BinaryFrame::DestroySessionResult {
+                session_id: "sess-destroy-result".into(),
+                status: 0,
+                message: String::new(),
+            },
         ];
 
         for frame in &test_cases {
@@ -1157,7 +1197,10 @@ mod tests {
                 | BinaryFrame::Execute { session_id, .. }
                 | BinaryFrame::BridgeResponse { session_id, .. }
                 | BinaryFrame::ExecutionResult { session_id, .. }
-                | BinaryFrame::Log { session_id, .. } => session_id.as_str(),
+                | BinaryFrame::Log { session_id, .. }
+                | BinaryFrame::DestroySessionResult { session_id, .. } => {
+                    session_id.as_str()
+                }
                 _ => unreachable!(),
             };
             assert_eq!(sid, expected, "session_id mismatch for frame: {:?}", frame);
@@ -1315,6 +1358,14 @@ mod tests {
                     payload: vec![],
                 },
                 0x85,
+            ),
+            (
+                BinaryFrame::DestroySessionResult {
+                    session_id: "s".into(),
+                    status: 0,
+                    message: String::new(),
+                },
+                0x86,
             ),
         ];
         for (frame, expected_type) in &cases {

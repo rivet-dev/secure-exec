@@ -34,6 +34,7 @@ const MSG_EXECUTION_RESULT = 0x82;
 const MSG_LOG = 0x83;
 const MSG_STREAM_CALLBACK = 0x84;
 const MSG_PONG = 0x85;
+const MSG_DESTROY_SESSION_RESULT = 0x86;
 
 // ExecutionResult flags
 const FLAG_HAS_EXPORTS = 0x01;
@@ -108,7 +109,13 @@ export type BinaryFrame =
 			callbackType: string;
 			payload: Buffer;
 	  }
-	| { type: "Pong"; payload: Buffer };
+	| { type: "Pong"; payload: Buffer }
+	| {
+			type: "DestroySessionResult";
+			sessionId: string;
+			status: number;
+			message: string;
+	  };
 
 /**
  * Encode a binary frame into a Buffer with 4-byte length prefix.
@@ -292,6 +299,11 @@ export function decodeFrame(buf: Buffer): BinaryFrame {
 		case MSG_PONG: {
 			const payload = Buffer.from(buf.subarray(pos));
 			return { type: "Pong", payload };
+		}
+		case MSG_DESTROY_SESSION_RESULT: {
+			const status = buf[pos++];
+			const message = buf.toString("utf8", pos);
+			return { type: "DestroySessionResult", sessionId, status, message };
 		}
 		default:
 			throw new Error(
@@ -498,6 +510,13 @@ function encodeBody(frame: BinaryFrame): Buffer {
 		case "Pong": {
 			parts.push(Buffer.from([MSG_PONG, 0])); // no session_id
 			parts.push(frame.payload);
+			break;
+		}
+		case "DestroySessionResult": {
+			parts.push(Buffer.from([MSG_DESTROY_SESSION_RESULT]));
+			parts.push(encodeSessionId(frame.sessionId));
+			parts.push(Buffer.from([frame.status]));
+			parts.push(Buffer.from(frame.message, "utf8"));
 			break;
 		}
 	}

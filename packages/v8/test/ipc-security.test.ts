@@ -141,6 +141,22 @@ async function connectClient(
 	return client;
 }
 
+async function waitForMessage(
+	messages: BinaryFrame[],
+	predicate: (message: BinaryFrame) => boolean,
+	timeoutMs = 3000,
+): Promise<BinaryFrame> {
+	const startedAt = Date.now();
+	while (Date.now() - startedAt < timeoutMs) {
+		const match = messages.find(predicate);
+		if (match) {
+			return match;
+		}
+		await new Promise((resolve) => setTimeout(resolve, 25));
+	}
+	throw new Error("Timed out waiting for IPC message");
+}
+
 /** Write raw bytes (length-prefixed frame) to a UDS. */
 function writeRawFrame(
 	socketPath: string,
@@ -418,6 +434,105 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 
 		// Clean up session
 		clientA.send({ type: "DestroySession", sessionId });
+	});
+
+	it("returns DestroySessionResult errors for missing sessions", async () => {
+		const { child, socketPath, authToken } = await spawnRustBinary();
+		children.push(child);
+
+		const messages: BinaryFrame[] = [];
+		const client = await connectClient(socketPath, (msg) => messages.push(msg));
+		clients.push(client);
+		client.authenticate(authToken);
+		await new Promise((resolve) => setTimeout(resolve, 200));
+
+		const sessionId = "missing-destroy-session";
+		client.send({ type: "DestroySession", sessionId });
+		const destroyResult = await waitForMessage(
+			messages,
+			(message) => message.type === "DestroySessionResult",
+		);
+		expect(destroyResult.type).toBe("DestroySessionResult");
+		if (destroyResult.type === "DestroySessionResult") {
+			expect(destroyResult.status).toBe(1);
+			expect(destroyResult.message).toContain("does not exist");
+		}
+	});
+
+	it("cleans up disconnected sessions so the same session ID can be reused", async () => {
+		const { child, socketPath, authToken } = await spawnRustBinary();
+		children.push(child);
+
+		const firstClient = await connectClient(socketPath, () => {});
+		clients.push(firstClient);
+		firstClient.authenticate(authToken);
+		await new Promise((resolve) => setTimeout(resolve, 200));
+
+		const sessionId = "reused-session-id";
+		firstClient.send({
+			type: "CreateSession",
+			sessionId,
+			heapLimitMb: 0,
+			cpuTimeLimitMs: 0,
+		});
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		firstClient.close();
+		await new Promise((resolve) => setTimeout(resolve, 200));
+
+		const secondMessages: BinaryFrame[] = [];
+		const secondClient = await connectClient(socketPath, (msg) =>
+			secondMessages.push(msg),
+		);
+		clients.push(secondClient);
+		secondClient.authenticate(authToken);
+		await new Promise((resolve) => setTimeout(resolve, 200));
+
+		secondClient.send({
+			type: "CreateSession",
+			sessionId,
+			heapLimitMb: 0,
+			cpuTimeLimitMs: 0,
+		});
+		secondClient.send({
+			type: "InjectGlobals",
+			sessionId,
+			payload: v8.serialize({
+				processConfig: {
+					cwd: "/tmp",
+					env: {},
+					timing_mitigation: "none",
+					frozen_time_ms: null,
+				},
+				osConfig: {
+					homedir: "/root",
+					tmpdir: "/tmp",
+					platform: "linux",
+					arch: "x64",
+				},
+			}),
+		});
+		secondClient.send({
+			type: "Execute",
+			sessionId,
+			bridgeCodeRef: "",
+			postRestoreScriptRef: "",
+			bridgeCode: "",
+			postRestoreScript: "",
+			userCode: "21 * 2;",
+			mode: 0,
+			filePath: "",
+		});
+
+		const executionResult = await waitForMessage(
+			secondMessages,
+			(message) => message.type === "ExecutionResult",
+		);
+		expect(executionResult.type).toBe("ExecutionResult");
+		if (executionResult.type === "ExecutionResult") {
+			expect(executionResult.exitCode).toBe(0);
+		}
+
+		secondClient.send({ type: "DestroySession", sessionId });
 	});
 
 	// --- Oversized message rejection ---

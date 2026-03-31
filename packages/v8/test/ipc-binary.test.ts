@@ -1,7 +1,7 @@
 /**
  * Unit tests for the binary header IPC framing module.
  *
- * Covers: round-trip encode/decode for all 12 message types,
+ * Covers: round-trip encode/decode for all message types,
  * session_id extraction, edge cases, framing validation, and
  * interop byte-level verification matching Rust ipc_binary.rs.
  */
@@ -256,6 +256,15 @@ describe("Rust → Host messages", () => {
 		});
 	});
 
+	it("round-trips DestroySessionResult", () => {
+		roundtrip({
+			type: "DestroySessionResult",
+			sessionId: "sess-8",
+			status: 1,
+			message: "session sess-8 does not exist",
+		});
+	});
+
 	it("round-trips Log (stdout)", () => {
 		roundtrip({
 			type: "Log",
@@ -452,6 +461,15 @@ describe("session_id extraction", () => {
 				{ type: "Log", sessionId: "sess-log", channel: 0, message: "hi" },
 				"sess-log",
 			],
+			[
+				{
+					type: "DestroySessionResult",
+					sessionId: "sess-destroy-result",
+					status: 0,
+					message: "",
+				},
+				"sess-destroy-result",
+			],
 		];
 
 		for (const [frame, expectedSid] of testCases) {
@@ -594,6 +612,15 @@ describe("wire format interop", () => {
 				0x84,
 			],
 			[{ type: "Pong", payload: Buffer.alloc(0) }, 0x85],
+			[
+				{
+					type: "DestroySessionResult",
+					sessionId: "s",
+					status: 0,
+					message: "",
+				},
+				0x86,
+			],
 		];
 
 		for (const [frame, expectedType] of cases) {
@@ -736,6 +763,22 @@ describe("wire format interop", () => {
 		pos += 3;
 		expect(body.readUInt16BE(pos)).toBe(1);
 		expect(body.toString("utf8", pos + 2, pos + 3)).toBe("C");
+	});
+
+	it("DestroySessionResult layout matches Rust", () => {
+		const frame: BinaryFrame = {
+			type: "DestroySessionResult",
+			sessionId: "Z",
+			status: 1,
+			message: "bad destroy",
+		};
+		const encoded = encodeFrame(frame);
+		const body = encoded.subarray(4);
+		expect(body[0]).toBe(0x86);
+		expect(body[1]).toBe(1);
+		expect(body.toString("utf8", 2, 3)).toBe("Z");
+		expect(body[3]).toBe(1);
+		expect(body.toString("utf8", 4)).toBe("bad destroy");
 	});
 });
 

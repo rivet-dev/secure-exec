@@ -10,6 +10,9 @@ import { describe, it, expect, afterEach } from "vitest";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createV8Runtime } from "../src/runtime.js";
 import type { V8Runtime, V8RuntimeOptions } from "../src/runtime.js";
 import type {
@@ -63,6 +66,21 @@ function defaultExecOptions(
 	};
 }
 
+interface IpcFrameLogEntry {
+	kind: string;
+	direction?: "send" | "recv";
+	frameType?: string;
+}
+
+async function readLogEntries(logFile: string): Promise<IpcFrameLogEntry[]> {
+	const contents = await readFile(logFile, "utf8");
+	return contents
+		.trim()
+		.split("\n")
+		.filter(Boolean)
+		.map((line) => JSON.parse(line) as IpcFrameLogEntry);
+}
+
 describe.skipIf(skipUnlessBinary)("V8 IPC round-trip", () => {
 	let runtime: V8Runtime | null = null;
 
@@ -98,6 +116,50 @@ describe.skipIf(skipUnlessBinary)("V8 IPC round-trip", () => {
 		await session.destroy();
 	});
 
+	it("uses DestroySessionResult instead of Ping/Pong to complete destroy", async () => {
+		const tempDir = await mkdtemp(join(tmpdir(), "secure-exec-destroy-ack-"));
+		const logFile = join(tempDir, "ipc.ndjson");
+		try {
+			const rt = await createRuntime({
+				observability: { logFile },
+			});
+			const session = await rt.createSession();
+			const result = await session.execute(
+				defaultExecOptions({
+					userCode: "1 + 1;",
+				}),
+			);
+			expect(result.code).toBe(0);
+
+			await session.destroy();
+
+			const frames = (await readLogEntries(logFile)).filter(
+				(entry) =>
+					entry.kind === "ipc_frame" &&
+					["ExecutionResult", "DestroySession", "DestroySessionResult", "Ping", "Pong"].includes(
+						entry.frameType ?? "",
+					),
+			);
+			const frameNames = frames.map(
+				(entry) => `${entry.direction}:${entry.frameType}`,
+			);
+			expect(frameNames).toContain("recv:ExecutionResult");
+			expect(frameNames).toContain("send:DestroySession");
+			expect(frameNames).toContain("recv:DestroySessionResult");
+			expect(frameNames).not.toContain("send:Ping");
+			expect(frameNames).not.toContain("recv:Pong");
+
+			const executionResultIndex = frameNames.indexOf("recv:ExecutionResult");
+			const destroyIndex = frameNames.indexOf("send:DestroySession");
+			const destroyResultIndex = frameNames.indexOf("recv:DestroySessionResult");
+			expect(executionResultIndex).toBeGreaterThanOrEqual(0);
+			expect(destroyIndex).toBeGreaterThan(executionResultIndex);
+			expect(destroyResultIndex).toBeGreaterThan(destroyIndex);
+		} finally {
+			await rm(tempDir, { recursive: true, force: true });
+		}
+	});
+
 	it("creates a session with resource budgets", async () => {
 		const rt = await createRuntime();
 		const session = await rt.createSession({
@@ -105,6 +167,15 @@ describe.skipIf(skipUnlessBinary)("V8 IPC round-trip", () => {
 			cpuTimeLimitMs: 5000,
 		});
 		await session.destroy();
+	});
+
+	it("dispose rejects a pending destroy instead of hanging", async () => {
+		const rt = await createRuntime();
+		const session = await rt.createSession();
+		const destroyPromise = session.destroy();
+		await rt.dispose();
+		runtime = null;
+		await expect(destroyPromise).rejects.toThrow(/process|connection/i);
 	});
 
 	// --- Simple execution ---

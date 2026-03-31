@@ -1,9 +1,9 @@
 {
-  "createdAt": "2026-03-31T20:29:57.618Z",
-  "gitCommit": "d22ee524f26e5a40e09ee48800a38942524b5239",
+  "createdAt": "2026-03-31T21:03:06.214Z",
+  "gitCommit": "ba7f25d50dd615ef19498cc1d435e1b29a4bb665",
   "baseline": {
-    "createdAt": "2026-03-31T20:10:29.899Z",
-    "gitCommit": "834a057fb04ac9b702b78c7d40d5bdfa3558dc0e",
+    "createdAt": "2026-03-31T20:29:57.618Z",
+    "gitCommit": "d22ee524f26e5a40e09ee48800a38942524b5239",
     "host": {
       "node": "v24.13.0",
       "platform": "linux",
@@ -16,120 +16,237 @@
     "iterations": 3
   },
   "transportRtt": {
-    "createdAt": "2026-03-31T20:29:57.453Z",
+    "createdAt": "2026-03-31T21:01:07.549Z",
     "measurement": "ipc_ping_pong",
     "warmupIterations": 3,
     "sampleIterations": 20,
-    "connectRttMs": 0.177,
+    "connectRttMs": 0.22,
     "payloads": [
       {
         "label": "1 B",
         "payloadBytes": 1,
         "sampleCount": 20,
         "samplesMs": [
-          0.331,
-          0.056,
-          0.041,
-          0.029,
-          0.029,
           0.047,
-          0.033,
+          0.036,
+          0.04,
+          0.037,
+          0.041,
+          0.059,
+          0.039,
+          0.031,
           0.026,
+          0.023,
           0.021,
           0.023,
-          0.061,
-          0.045,
-          0.046,
-          0.032,
-          0.03,
-          0.03,
-          0.026,
-          0.027,
-          0.026,
-          0.027
+          0.022,
+          0.033,
+          0.321,
+          0.051,
+          0.022,
+          0.021,
+          0.036,
+          0.021
         ],
         "minRttMs": 0.021,
-        "meanRttMs": 0.049,
-        "p95RttMs": 0.061,
-        "maxRttMs": 0.331
+        "meanRttMs": 0.048,
+        "p95RttMs": 0.059,
+        "maxRttMs": 0.321
       },
       {
         "label": "1 KB",
         "payloadBytes": 1024,
         "sampleCount": 20,
         "samplesMs": [
-          0.034,
+          0.028,
+          0.024,
+          0.022,
+          0.024,
+          0.021,
+          0.022,
+          0.022,
+          0.021,
+          0.022,
+          0.02,
+          0.024,
+          0.028,
           0.031,
-          0.046,
-          0.033,
-          0.031,
-          0.028,
-          0.03,
-          0.028,
-          0.034,
-          0.038,
-          0.032,
-          0.035,
-          0.032,
-          0.036,
-          0.028,
-          0.032,
-          0.029,
-          0.029,
-          0.127,
-          0.052
+          0.023,
+          0.021,
+          0.025,
+          0.021,
+          0.024,
+          0.021,
+          0.023
         ],
-        "minRttMs": 0.028,
-        "meanRttMs": 0.038,
-        "p95RttMs": 0.052,
-        "maxRttMs": 0.127
+        "minRttMs": 0.02,
+        "meanRttMs": 0.023,
+        "p95RttMs": 0.028,
+        "maxRttMs": 0.031
       },
       {
         "label": "64 KB",
         "payloadBytes": 65536,
         "sampleCount": 20,
         "samplesMs": [
-          0.132,
-          0.136,
-          0.117,
-          0.118,
-          0.133,
-          0.122,
-          0.12,
-          0.117,
-          0.117,
-          0.116,
-          0.113,
-          0.114,
-          0.115,
+          0.138,
+          0.158,
+          0.15,
+          0.126,
+          0.134,
+          0.172,
+          0.127,
           0.124,
+          0.123,
+          0.12,
+          0.118,
           0.115,
-          0.11,
-          0.113,
+          0.118,
+          0.117,
+          0.117,
+          0.117,
+          0.112,
           0.111,
           0.112,
-          0.114
+          0.11
         ],
         "minRttMs": 0.11,
-        "meanRttMs": 0.118,
-        "p95RttMs": 0.133,
-        "maxRttMs": 0.136
+        "meanRttMs": 0.126,
+        "p95RttMs": 0.158,
+        "maxRttMs": 0.172
+      }
+    ],
+    "comparisonToPrevious": {
+      "baselineCreatedAt": "2026-03-31T20:29:57.453Z",
+      "connectRttMs": {
+        "before": 0.177,
+        "after": 0.22,
+        "delta": 0.043,
+        "deltaPercent": 24.294
+      },
+      "payloads": [
+        {
+          "label": "1 B",
+          "payloadBytes": 1,
+          "meanRttMs": {
+            "before": 0.049,
+            "after": 0.048,
+            "delta": -0.001,
+            "deltaPercent": -2.041
+          },
+          "p95RttMs": {
+            "before": 0.061,
+            "after": 0.059,
+            "delta": -0.002,
+            "deltaPercent": -3.279
+          }
+        },
+        {
+          "label": "1 KB",
+          "payloadBytes": 1024,
+          "meanRttMs": {
+            "before": 0.038,
+            "after": 0.023,
+            "delta": -0.015,
+            "deltaPercent": -39.474
+          },
+          "p95RttMs": {
+            "before": 0.052,
+            "after": 0.028,
+            "delta": -0.024,
+            "deltaPercent": -46.154
+          }
+        },
+        {
+          "label": "64 KB",
+          "payloadBytes": 65536,
+          "meanRttMs": {
+            "before": 0.118,
+            "after": 0.126,
+            "delta": 0.008,
+            "deltaPercent": 6.78
+          },
+          "p95RttMs": {
+            "before": 0.133,
+            "after": 0.158,
+            "delta": 0.025,
+            "deltaPercent": 18.797
+          }
+        }
+      ]
+    }
+  },
+  "transportRttComparison": {
+    "baselineCreatedAt": "2026-03-31T20:29:57.453Z",
+    "connectRttMs": {
+      "before": 0.177,
+      "after": 0.22,
+      "delta": 0.043,
+      "deltaPercent": 24.294
+    },
+    "payloads": [
+      {
+        "label": "1 B",
+        "payloadBytes": 1,
+        "meanRttMs": {
+          "before": 0.049,
+          "after": 0.048,
+          "delta": -0.001,
+          "deltaPercent": -2.041
+        },
+        "p95RttMs": {
+          "before": 0.061,
+          "after": 0.059,
+          "delta": -0.002,
+          "deltaPercent": -3.279
+        }
+      },
+      {
+        "label": "1 KB",
+        "payloadBytes": 1024,
+        "meanRttMs": {
+          "before": 0.038,
+          "after": 0.023,
+          "delta": -0.015,
+          "deltaPercent": -39.474
+        },
+        "p95RttMs": {
+          "before": 0.052,
+          "after": 0.028,
+          "delta": -0.024,
+          "deltaPercent": -46.154
+        }
+      },
+      {
+        "label": "64 KB",
+        "payloadBytes": 65536,
+        "meanRttMs": {
+          "before": 0.118,
+          "after": 0.126,
+          "delta": 0.008,
+          "deltaPercent": 6.78
+        },
+        "p95RttMs": {
+          "before": 0.133,
+          "after": 0.158,
+          "delta": 0.025,
+          "deltaPercent": 18.797
+        }
       }
     ]
   },
-  "transportRttComparison": null,
   "scenarios": [
     {
       "scenarioId": "hono-startup",
       "title": "Hono Startup",
       "comparisonToPrevious": {
-        "baselineScenarioCreatedAt": "2026-03-31T13:28:18.129Z",
+        "baselineScenarioCreatedAt": "2026-03-31T20:29:31.390Z",
         "metrics": {
           "warmWallMsMean": {
-            "before": 140.959,
-            "after": 37.787,
-            "delta": -103.172,
-            "deltaPercent": -73.193
+            "before": 37.787,
+            "after": 33.412,
+            "delta": -4.375,
+            "deltaPercent": -11.578
           },
           "bridgeCallsPerIteration": {
             "before": 59,
@@ -138,130 +255,95 @@
             "deltaPercent": 0
           },
           "fixedSessionOverheadWarmMsMean": {
-            "before": 109.115,
-            "after": 5.579,
-            "delta": -103.536,
-            "deltaPercent": -94.887
+            "before": 5.579,
+            "after": 5.44,
+            "delta": -0.139,
+            "deltaPercent": -2.491
           },
           "createToInjectGlobalsWarmMsMean": {
-            "before": 4.5,
+            "before": 5,
             "after": 5,
-            "delta": 0.5,
-            "deltaPercent": 11.111
+            "delta": 0,
+            "deltaPercent": 0
           },
           "injectGlobalsToExecuteSendWarmMsMean": {
-            "before": 0.5,
+            "before": 0,
             "after": 0,
-            "delta": -0.5,
-            "deltaPercent": -100
+            "delta": 0
           },
           "executeResultToDestroyWarmMsMean": {
-            "before": 102.5,
+            "before": 0,
             "after": 0,
-            "delta": -102.5,
-            "deltaPercent": -100
+            "delta": 0
           },
           "residualFixedOverheadWarmMsMean": {
-            "before": 1.615,
-            "after": 0.579,
-            "delta": -1.036,
-            "deltaPercent": -64.149
+            "before": 0.579,
+            "after": 0.44,
+            "delta": -0.139,
+            "deltaPercent": -24.007
           },
           "bridgeDurationPerIterationMs": {
-            "before": 38.499,
-            "after": 18.062,
-            "delta": -20.437,
-            "deltaPercent": -53.084
+            "before": 18.062,
+            "after": 14.571,
+            "delta": -3.491,
+            "deltaPercent": -19.328
           },
           "bridgeResponseFrameBytesPerIteration": {
-            "before": 143871,
+            "before": 140415,
             "after": 140415,
-            "delta": -3456,
-            "deltaPercent": -2.402
+            "delta": 0,
+            "deltaPercent": 0
           },
           "executeWarmMsMean": {
-            "before": 31.843,
-            "after": 32.208,
-            "delta": 0.365,
-            "deltaPercent": 1.146
+            "before": 32.208,
+            "after": 27.972,
+            "delta": -4.236,
+            "deltaPercent": -13.152
           }
         },
         "bridgeMethodDurationDeltas": [
           {
             "method": "_loadPolyfill",
-            "before": 38.364,
-            "after": 12.742,
-            "delta": -25.622
+            "before": 12.742,
+            "after": 10.399,
+            "delta": -2.343
           },
           {
             "method": "_bridgeDispatch",
-            "before": 0,
-            "after": 5.248,
-            "delta": 5.248
+            "before": 5.248,
+            "after": 4.11,
+            "delta": -1.138
           },
           {
             "method": "_log",
-            "before": 0.135,
-            "after": 0.072,
-            "delta": -0.063
+            "before": 0.072,
+            "after": 0.061,
+            "delta": -0.011
           }
         ],
-        "bridgeMethodCountDeltas": [
-          {
-            "method": "_loadPolyfill",
-            "before": 58,
-            "after": 3,
-            "delta": -55
-          },
-          {
-            "method": "_bridgeDispatch",
-            "before": 0,
-            "after": 55,
-            "delta": 55
-          }
-        ],
-        "bridgeMethodResponseByteDeltas": [
-          {
-            "method": "_loadPolyfill",
-            "before": 143824,
-            "after": 99859.333,
-            "delta": -43964.667
-          },
-          {
-            "method": "_bridgeDispatch",
-            "before": 0,
-            "after": 40508.667,
-            "delta": 40508.667
-          }
-        ],
+        "bridgeMethodCountDeltas": [],
+        "bridgeMethodResponseByteDeltas": [],
         "frameEncodedByteDeltas": [
           {
-            "direction": "send",
-            "frameType": "BridgeResponse",
-            "before": 143871,
-            "after": 140415,
-            "delta": -3456
+            "direction": "recv",
+            "frameType": "DestroySessionResult",
+            "before": 0,
+            "after": 39,
+            "delta": 39
           },
           {
             "direction": "send",
-            "frameType": "Execute",
-            "before": 13199,
-            "after": 14181,
-            "delta": 982
+            "frameType": "Ping",
+            "before": 50.667,
+            "after": 12.667,
+            "delta": -38
           },
           {
             "direction": "recv",
-            "frameType": "BridgeCall",
-            "before": 10948,
-            "after": 10738,
-            "delta": -210
-          },
-          {
-            "direction": "send",
-            "frameType": "WarmSnapshot",
-            "before": 411389.667,
-            "after": 411447.667,
-            "delta": 58
+            "frameType": "Pong",
+            "before": 50.667,
+            "after": 12.667,
+            "delta": -38
           }
         ],
         "loadPolyfillAttributionDeltas": [
@@ -275,10 +357,10 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 29.585,
-              "after": 12.742,
-              "delta": -16.843,
-              "deltaPercent": -56.931
+              "before": 12.742,
+              "after": 10.399,
+              "delta": -2.343,
+              "deltaPercent": -18.388
             },
             "responseEncodedBytesPerIteration": {
               "before": 99859.333,
@@ -291,22 +373,19 @@
             "kind": "bridge_dispatch",
             "label": "__bd:* bridge-dispatch wrappers",
             "callsPerIteration": {
-              "before": 55,
+              "before": 0,
               "after": 0,
-              "delta": -55,
-              "deltaPercent": -100
+              "delta": 0
             },
             "durationMsPerIteration": {
-              "before": 8.779,
+              "before": 0,
               "after": 0,
-              "delta": -8.779,
-              "deltaPercent": -100
+              "delta": 0
             },
             "responseEncodedBytesPerIteration": {
-              "before": 43964.667,
+              "before": 0,
               "after": 0,
-              "delta": -43964.667,
-              "deltaPercent": -100
+              "delta": 0
             }
           }
         ]
@@ -316,13 +395,13 @@
       "scenarioId": "hono-end-to-end",
       "title": "Hono End-to-End",
       "comparisonToPrevious": {
-        "baselineScenarioCreatedAt": "2026-03-31T13:28:19.098Z",
+        "baselineScenarioCreatedAt": "2026-03-31T20:29:32.054Z",
         "metrics": {
           "warmWallMsMean": {
-            "before": 139.728,
-            "after": 43.049,
-            "delta": -96.679,
-            "deltaPercent": -69.191
+            "before": 43.049,
+            "after": 35.979,
+            "delta": -7.07,
+            "deltaPercent": -16.423
           },
           "bridgeCallsPerIteration": {
             "before": 59,
@@ -331,130 +410,95 @@
             "deltaPercent": 0
           },
           "fixedSessionOverheadWarmMsMean": {
-            "before": 109.456,
-            "after": 6.241,
-            "delta": -103.215,
-            "deltaPercent": -94.298
+            "before": 6.241,
+            "after": 5.543,
+            "delta": -0.698,
+            "deltaPercent": -11.184
           },
           "createToInjectGlobalsWarmMsMean": {
-            "before": 5,
-            "after": 5.5,
-            "delta": 0.5,
-            "deltaPercent": 10
+            "before": 5.5,
+            "after": 5,
+            "delta": -0.5,
+            "deltaPercent": -9.091
           },
           "injectGlobalsToExecuteSendWarmMsMean": {
-            "before": 0.5,
+            "before": 0,
             "after": 0,
-            "delta": -0.5,
-            "deltaPercent": -100
+            "delta": 0
           },
           "executeResultToDestroyWarmMsMean": {
-            "before": 102.5,
+            "before": 0,
             "after": 0,
-            "delta": -102.5,
-            "deltaPercent": -100
+            "delta": 0
           },
           "residualFixedOverheadWarmMsMean": {
-            "before": 1.456,
-            "after": 0.741,
-            "delta": -0.715,
-            "deltaPercent": -49.107
+            "before": 0.741,
+            "after": 0.543,
+            "delta": -0.198,
+            "deltaPercent": -26.721
           },
           "bridgeDurationPerIterationMs": {
-            "before": 17.021,
-            "after": 15.56,
-            "delta": -1.461,
-            "deltaPercent": -8.584
+            "before": 15.56,
+            "after": 23.407,
+            "delta": 7.847,
+            "deltaPercent": 50.431
           },
           "bridgeResponseFrameBytesPerIteration": {
-            "before": 143871,
+            "before": 140415,
             "after": 140415,
-            "delta": -3456,
-            "deltaPercent": -2.402
+            "delta": 0,
+            "deltaPercent": 0
           },
           "executeWarmMsMean": {
-            "before": 30.273,
-            "after": 36.808,
-            "delta": 6.535,
-            "deltaPercent": 21.587
+            "before": 36.808,
+            "after": 30.435,
+            "delta": -6.373,
+            "deltaPercent": -17.314
           }
         },
         "bridgeMethodDurationDeltas": [
           {
             "method": "_loadPolyfill",
-            "before": 16.919,
-            "after": 10.391,
-            "delta": -6.528
+            "before": 10.391,
+            "after": 17.284,
+            "delta": 6.893
           },
           {
             "method": "_bridgeDispatch",
-            "before": 0,
-            "after": 5.119,
-            "delta": 5.119
+            "before": 5.119,
+            "after": 6.071,
+            "delta": 0.952
           },
           {
             "method": "_log",
-            "before": 0.102,
-            "after": 0.05,
-            "delta": -0.052
+            "before": 0.05,
+            "after": 0.051,
+            "delta": 0.001
           }
         ],
-        "bridgeMethodCountDeltas": [
-          {
-            "method": "_loadPolyfill",
-            "before": 58,
-            "after": 3,
-            "delta": -55
-          },
-          {
-            "method": "_bridgeDispatch",
-            "before": 0,
-            "after": 55,
-            "delta": 55
-          }
-        ],
-        "bridgeMethodResponseByteDeltas": [
-          {
-            "method": "_loadPolyfill",
-            "before": 143824,
-            "after": 99859.333,
-            "delta": -43964.667
-          },
-          {
-            "method": "_bridgeDispatch",
-            "before": 0,
-            "after": 40508.667,
-            "delta": 40508.667
-          }
-        ],
+        "bridgeMethodCountDeltas": [],
+        "bridgeMethodResponseByteDeltas": [],
         "frameEncodedByteDeltas": [
           {
-            "direction": "send",
-            "frameType": "BridgeResponse",
-            "before": 143871,
-            "after": 140415,
-            "delta": -3456
+            "direction": "recv",
+            "frameType": "DestroySessionResult",
+            "before": 0,
+            "after": 39,
+            "delta": 39
           },
           {
             "direction": "send",
-            "frameType": "Execute",
-            "before": 13316,
-            "after": 14298,
-            "delta": 982
+            "frameType": "Ping",
+            "before": 50.667,
+            "after": 12.667,
+            "delta": -38
           },
           {
             "direction": "recv",
-            "frameType": "BridgeCall",
-            "before": 10962,
-            "after": 10752,
-            "delta": -210
-          },
-          {
-            "direction": "send",
-            "frameType": "WarmSnapshot",
-            "before": 411389.667,
-            "after": 411447.667,
-            "delta": 58
+            "frameType": "Pong",
+            "before": 50.667,
+            "after": 12.667,
+            "delta": -38
           }
         ],
         "loadPolyfillAttributionDeltas": [
@@ -468,10 +512,10 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 10.759,
-              "after": 10.391,
-              "delta": -0.368,
-              "deltaPercent": -3.42
+              "before": 10.391,
+              "after": 17.284,
+              "delta": 6.893,
+              "deltaPercent": 66.336
             },
             "responseEncodedBytesPerIteration": {
               "before": 99859.333,
@@ -484,22 +528,19 @@
             "kind": "bridge_dispatch",
             "label": "__bd:* bridge-dispatch wrappers",
             "callsPerIteration": {
-              "before": 55,
+              "before": 0,
               "after": 0,
-              "delta": -55,
-              "deltaPercent": -100
+              "delta": 0
             },
             "durationMsPerIteration": {
-              "before": 6.16,
+              "before": 0,
               "after": 0,
-              "delta": -6.16,
-              "deltaPercent": -100
+              "delta": 0
             },
             "responseEncodedBytesPerIteration": {
-              "before": 43964.667,
+              "before": 0,
               "after": 0,
-              "delta": -43964.667,
-              "deltaPercent": -100
+              "delta": 0
             }
           }
         ]
@@ -509,13 +550,13 @@
       "scenarioId": "pdf-lib-startup",
       "title": "pdf-lib Startup",
       "comparisonToPrevious": {
-        "baselineScenarioCreatedAt": "2026-03-31T13:28:20.629Z",
+        "baselineScenarioCreatedAt": "2026-03-31T20:29:33.217Z",
         "metrics": {
           "warmWallMsMean": {
-            "before": 353.377,
-            "after": 132.76,
-            "delta": -220.617,
-            "deltaPercent": -62.431
+            "before": 132.76,
+            "after": 230.975,
+            "delta": 98.215,
+            "deltaPercent": 73.979
           },
           "bridgeCallsPerIteration": {
             "before": 514,
@@ -524,16 +565,16 @@
             "deltaPercent": 0
           },
           "fixedSessionOverheadWarmMsMean": {
-            "before": 110.105,
-            "after": 7.157,
-            "delta": -102.948,
-            "deltaPercent": -93.5
+            "before": 7.157,
+            "after": 7.713,
+            "delta": 0.556,
+            "deltaPercent": 7.769
           },
           "createToInjectGlobalsWarmMsMean": {
             "before": 5,
-            "after": 5,
-            "delta": 0,
-            "deltaPercent": 0
+            "after": 5.5,
+            "delta": 0.5,
+            "deltaPercent": 10
           },
           "injectGlobalsToExecuteSendWarmMsMean": {
             "before": 0,
@@ -541,112 +582,78 @@
             "delta": 0
           },
           "executeResultToDestroyWarmMsMean": {
-            "before": 103,
-            "after": 0,
-            "delta": -103,
-            "deltaPercent": -100
+            "before": 0,
+            "after": 0.5,
+            "delta": 0.5
           },
           "residualFixedOverheadWarmMsMean": {
-            "before": 2.104,
-            "after": 2.158,
-            "delta": 0.054,
-            "deltaPercent": 2.567
+            "before": 2.158,
+            "after": 1.712,
+            "delta": -0.446,
+            "deltaPercent": -20.667
           },
           "bridgeDurationPerIterationMs": {
-            "before": 80.914,
-            "after": 74.141,
-            "delta": -6.773,
-            "deltaPercent": -8.371
+            "before": 74.141,
+            "after": 75.494,
+            "delta": 1.353,
+            "deltaPercent": 1.825
           },
           "bridgeResponseFrameBytesPerIteration": {
-            "before": 682128,
+            "before": 652213,
             "after": 652213,
-            "delta": -29915,
-            "deltaPercent": -4.386
+            "delta": 0,
+            "deltaPercent": 0
           },
           "executeWarmMsMean": {
-            "before": 243.272,
-            "after": 125.602,
-            "delta": -117.67,
-            "deltaPercent": -48.37
+            "before": 125.602,
+            "after": 223.263,
+            "delta": 97.661,
+            "deltaPercent": 77.754
           }
         },
         "bridgeMethodDurationDeltas": [
           {
             "method": "_loadPolyfill",
-            "before": 80.806,
-            "after": 10.406,
-            "delta": -70.4
+            "before": 10.406,
+            "after": 12.926,
+            "delta": 2.52
           },
           {
             "method": "_bridgeDispatch",
-            "before": 0,
-            "after": 63.65,
-            "delta": 63.65
+            "before": 63.65,
+            "after": 62.437,
+            "delta": -1.213
           },
           {
             "method": "_log",
-            "before": 0.108,
-            "after": 0.085,
-            "delta": -0.023
+            "before": 0.085,
+            "after": 0.131,
+            "delta": 0.046
           }
         ],
-        "bridgeMethodCountDeltas": [
-          {
-            "method": "_loadPolyfill",
-            "before": 513,
-            "after": 7,
-            "delta": -506
-          },
-          {
-            "method": "_bridgeDispatch",
-            "before": 0,
-            "after": 506,
-            "delta": 506
-          }
-        ],
-        "bridgeMethodResponseByteDeltas": [
-          {
-            "method": "_loadPolyfill",
-            "before": 682081,
-            "after": 100059.333,
-            "delta": -582021.667
-          },
-          {
-            "method": "_bridgeDispatch",
-            "before": 0,
-            "after": 552106.667,
-            "delta": 552106.667
-          }
-        ],
+        "bridgeMethodCountDeltas": [],
+        "bridgeMethodResponseByteDeltas": [],
         "frameEncodedByteDeltas": [
           {
+            "direction": "recv",
+            "frameType": "DestroySessionResult",
+            "before": 0,
+            "after": 39,
+            "delta": 39
+          },
+          {
             "direction": "send",
-            "frameType": "BridgeResponse",
-            "before": 682128,
-            "after": 652213,
-            "delta": -29915
+            "frameType": "Ping",
+            "before": 50.667,
+            "after": 12.667,
+            "delta": -38
           },
           {
             "direction": "recv",
-            "frameType": "BridgeCall",
-            "before": 103142,
-            "after": 101179,
-            "delta": -1963
-          },
-          {
-            "direction": "send",
-            "frameType": "Execute",
-            "before": 13321,
-            "after": 14303,
-            "delta": 982
-          },
-          {
-            "direction": "send",
-            "frameType": "WarmSnapshot",
-            "before": 411389.667,
-            "after": 411447.667,
-            "delta": 58
+            "frameType": "Pong",
+            "before": 50.667,
+            "after": 12.667,
+            "delta": -38
           }
         ],
         "loadPolyfillAttributionDeltas": [
@@ -660,10 +667,10 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 13.47,
-              "after": 10.406,
-              "delta": -3.064,
-              "deltaPercent": -22.747
+              "before": 10.406,
+              "after": 12.926,
+              "delta": 2.52,
+              "deltaPercent": 24.217
             },
             "responseEncodedBytesPerIteration": {
               "before": 100059.333,
@@ -676,22 +683,19 @@
             "kind": "bridge_dispatch",
             "label": "__bd:* bridge-dispatch wrappers",
             "callsPerIteration": {
-              "before": 506,
+              "before": 0,
               "after": 0,
-              "delta": -506,
-              "deltaPercent": -100
+              "delta": 0
             },
             "durationMsPerIteration": {
-              "before": 67.336,
+              "before": 0,
               "after": 0,
-              "delta": -67.336,
-              "deltaPercent": -100
+              "delta": 0
             },
             "responseEncodedBytesPerIteration": {
-              "before": 582021.667,
+              "before": 0,
               "after": 0,
-              "delta": -582021.667,
-              "deltaPercent": -100
+              "delta": 0
             }
           }
         ]
@@ -701,13 +705,13 @@
       "scenarioId": "pdf-lib-end-to-end",
       "title": "pdf-lib End-to-End",
       "comparisonToPrevious": {
-        "baselineScenarioCreatedAt": "2026-03-31T13:28:22.232Z",
+        "baselineScenarioCreatedAt": "2026-03-31T20:29:34.584Z",
         "metrics": {
           "warmWallMsMean": {
-            "before": 362.87,
+            "before": 297.079,
             "after": 297.079,
-            "delta": -65.791,
-            "deltaPercent": -18.131
+            "delta": 0,
+            "deltaPercent": 0
           },
           "bridgeCallsPerIteration": {
             "before": 529,
@@ -716,16 +720,16 @@
             "deltaPercent": 0
           },
           "fixedSessionOverheadWarmMsMean": {
-            "before": 111.424,
+            "before": 7.191,
             "after": 7.191,
-            "delta": -104.233,
-            "deltaPercent": -93.546
+            "delta": 0,
+            "deltaPercent": 0
           },
           "createToInjectGlobalsWarmMsMean": {
-            "before": 5,
+            "before": 4.5,
             "after": 4.5,
-            "delta": -0.5,
-            "deltaPercent": -10
+            "delta": 0,
+            "deltaPercent": 0
           },
           "injectGlobalsToExecuteSendWarmMsMean": {
             "before": 0,
@@ -733,114 +737,39 @@
             "delta": 0
           },
           "executeResultToDestroyWarmMsMean": {
-            "before": 102.5,
+            "before": 0,
             "after": 0,
-            "delta": -102.5,
-            "deltaPercent": -100
+            "delta": 0
           },
           "residualFixedOverheadWarmMsMean": {
-            "before": 3.924,
+            "before": 2.691,
             "after": 2.691,
-            "delta": -1.233,
-            "deltaPercent": -31.422
+            "delta": 0,
+            "deltaPercent": 0
           },
           "bridgeDurationPerIterationMs": {
-            "before": 59.917,
+            "before": 70.245,
             "after": 70.245,
-            "delta": 10.328,
-            "deltaPercent": 17.237
+            "delta": 0,
+            "deltaPercent": 0
           },
           "bridgeResponseFrameBytesPerIteration": {
-            "before": 682998,
+            "before": 653208,
             "after": 653208,
-            "delta": -29790,
-            "deltaPercent": -4.362
+            "delta": 0,
+            "deltaPercent": 0
           },
           "executeWarmMsMean": {
-            "before": 251.446,
+            "before": 289.889,
             "after": 289.889,
-            "delta": 38.443,
-            "deltaPercent": 15.289
+            "delta": 0,
+            "deltaPercent": 0
           }
         },
-        "bridgeMethodDurationDeltas": [
-          {
-            "method": "_bridgeDispatch",
-            "before": 0,
-            "after": 60.207,
-            "delta": 60.207
-          },
-          {
-            "method": "_loadPolyfill",
-            "before": 59.792,
-            "after": 9.867,
-            "delta": -49.925
-          },
-          {
-            "method": "_log",
-            "before": 0.125,
-            "after": 0.171,
-            "delta": 0.046
-          }
-        ],
-        "bridgeMethodCountDeltas": [
-          {
-            "method": "_loadPolyfill",
-            "before": 528,
-            "after": 7,
-            "delta": -521
-          },
-          {
-            "method": "_bridgeDispatch",
-            "before": 0,
-            "after": 521,
-            "delta": 521
-          }
-        ],
-        "bridgeMethodResponseByteDeltas": [
-          {
-            "method": "_loadPolyfill",
-            "before": 682951,
-            "after": 100059.333,
-            "delta": -582891.667
-          },
-          {
-            "method": "_bridgeDispatch",
-            "before": 0,
-            "after": 553101.667,
-            "delta": 553101.667
-          }
-        ],
-        "frameEncodedByteDeltas": [
-          {
-            "direction": "send",
-            "frameType": "BridgeResponse",
-            "before": 682998,
-            "after": 653208,
-            "delta": -29790
-          },
-          {
-            "direction": "recv",
-            "frameType": "BridgeCall",
-            "before": 104588,
-            "after": 102565,
-            "delta": -2023
-          },
-          {
-            "direction": "send",
-            "frameType": "Execute",
-            "before": 14060,
-            "after": 15042,
-            "delta": 982
-          },
-          {
-            "direction": "send",
-            "frameType": "WarmSnapshot",
-            "before": 411389.667,
-            "after": 411447.667,
-            "delta": 58
-          }
-        ],
+        "bridgeMethodDurationDeltas": [],
+        "bridgeMethodCountDeltas": [],
+        "bridgeMethodResponseByteDeltas": [],
+        "frameEncodedByteDeltas": [],
         "loadPolyfillAttributionDeltas": [
           {
             "kind": "polyfill_body",
@@ -852,10 +781,10 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 10.038,
+              "before": 9.867,
               "after": 9.867,
-              "delta": -0.171,
-              "deltaPercent": -1.704
+              "delta": 0,
+              "deltaPercent": 0
             },
             "responseEncodedBytesPerIteration": {
               "before": 100059.333,
@@ -868,22 +797,19 @@
             "kind": "bridge_dispatch",
             "label": "__bd:* bridge-dispatch wrappers",
             "callsPerIteration": {
-              "before": 521,
+              "before": 0,
               "after": 0,
-              "delta": -521,
-              "deltaPercent": -100
+              "delta": 0
             },
             "durationMsPerIteration": {
-              "before": 49.754,
+              "before": 0,
               "after": 0,
-              "delta": -49.754,
-              "deltaPercent": -100
+              "delta": 0
             },
             "responseEncodedBytesPerIteration": {
-              "before": 582891.667,
+              "before": 0,
               "after": 0,
-              "delta": -582891.667,
-              "deltaPercent": -100
+              "delta": 0
             }
           }
         ]
@@ -893,13 +819,13 @@
       "scenarioId": "jszip-startup",
       "title": "JSZip Startup",
       "comparisonToPrevious": {
-        "baselineScenarioCreatedAt": "2026-03-31T13:28:23.425Z",
+        "baselineScenarioCreatedAt": "2026-03-31T20:29:35.437Z",
         "metrics": {
           "warmWallMsMean": {
-            "before": 169.488,
-            "after": 72.29,
-            "delta": -97.198,
-            "deltaPercent": -57.348
+            "before": 72.29,
+            "after": 68.886,
+            "delta": -3.404,
+            "deltaPercent": -4.709
           },
           "bridgeCallsPerIteration": {
             "before": 179,
@@ -908,130 +834,95 @@
             "deltaPercent": 0
           },
           "fixedSessionOverheadWarmMsMean": {
-            "before": 109.156,
-            "after": 6.176,
-            "delta": -102.98,
-            "deltaPercent": -94.342
+            "before": 6.176,
+            "after": 6.29,
+            "delta": 0.114,
+            "deltaPercent": 1.846
           },
           "createToInjectGlobalsWarmMsMean": {
-            "before": 4.5,
-            "after": 5.5,
-            "delta": 1,
-            "deltaPercent": 22.222
+            "before": 5.5,
+            "after": 4.5,
+            "delta": -1,
+            "deltaPercent": -18.182
           },
           "injectGlobalsToExecuteSendWarmMsMean": {
-            "before": 0.5,
+            "before": 0,
             "after": 0,
-            "delta": -0.5,
-            "deltaPercent": -100
+            "delta": 0
           },
           "executeResultToDestroyWarmMsMean": {
-            "before": 101.5,
-            "after": 0,
-            "delta": -101.5,
-            "deltaPercent": -100
+            "before": 0,
+            "after": 0.5,
+            "delta": 0.5
           },
           "residualFixedOverheadWarmMsMean": {
-            "before": 2.656,
-            "after": 0.676,
-            "delta": -1.98,
-            "deltaPercent": -74.548
+            "before": 0.676,
+            "after": 1.29,
+            "delta": 0.614,
+            "deltaPercent": 90.828
           },
           "bridgeDurationPerIterationMs": {
-            "before": 53.999,
-            "after": 51.564,
-            "delta": -2.435,
-            "deltaPercent": -4.509
+            "before": 51.564,
+            "after": 52.825,
+            "delta": 1.261,
+            "deltaPercent": 2.446
           },
           "bridgeResponseFrameBytesPerIteration": {
-            "before": 421617.667,
+            "before": 410655.667,
             "after": 410655.667,
-            "delta": -10962,
-            "deltaPercent": -2.6
+            "delta": 0,
+            "deltaPercent": 0
           },
           "executeWarmMsMean": {
-            "before": 60.332,
-            "after": 66.114,
-            "delta": 5.782,
-            "deltaPercent": 9.584
+            "before": 66.114,
+            "after": 62.596,
+            "delta": -3.518,
+            "deltaPercent": -5.321
           }
         },
         "bridgeMethodDurationDeltas": [
           {
-            "method": "_loadPolyfill",
-            "before": 53.858,
-            "after": 38.119,
-            "delta": -15.739
+            "method": "_bridgeDispatch",
+            "before": 13.376,
+            "after": 15.169,
+            "delta": 1.793
           },
           {
-            "method": "_bridgeDispatch",
-            "before": 0,
-            "after": 13.376,
-            "delta": 13.376
+            "method": "_loadPolyfill",
+            "before": 38.119,
+            "after": 37.582,
+            "delta": -0.537
           },
           {
             "method": "_log",
-            "before": 0.141,
-            "after": 0.069,
-            "delta": -0.072
+            "before": 0.069,
+            "after": 0.074,
+            "delta": 0.005
           }
         ],
-        "bridgeMethodCountDeltas": [
-          {
-            "method": "_loadPolyfill",
-            "before": 178,
-            "after": 17,
-            "delta": -161
-          },
-          {
-            "method": "_bridgeDispatch",
-            "before": 0,
-            "after": 161,
-            "delta": 161
-          }
-        ],
-        "bridgeMethodResponseByteDeltas": [
-          {
-            "method": "_loadPolyfill",
-            "before": 421570.667,
-            "after": 233610,
-            "delta": -187960.667
-          },
-          {
-            "method": "_bridgeDispatch",
-            "before": 0,
-            "after": 176998.667,
-            "delta": 176998.667
-          }
-        ],
+        "bridgeMethodCountDeltas": [],
+        "bridgeMethodResponseByteDeltas": [],
         "frameEncodedByteDeltas": [
           {
-            "direction": "send",
-            "frameType": "BridgeResponse",
-            "before": 421617.667,
-            "after": 410655.667,
-            "delta": -10962
+            "direction": "recv",
+            "frameType": "DestroySessionResult",
+            "before": 0,
+            "after": 39,
+            "delta": 39
           },
           {
             "direction": "send",
-            "frameType": "Execute",
-            "before": 13320,
-            "after": 14302,
-            "delta": 982
+            "frameType": "Ping",
+            "before": 50.667,
+            "after": 12.667,
+            "delta": -38
           },
           {
             "direction": "recv",
-            "frameType": "BridgeCall",
-            "before": 32171,
-            "after": 31584,
-            "delta": -587
-          },
-          {
-            "direction": "send",
-            "frameType": "WarmSnapshot",
-            "before": 411389.667,
-            "after": 411447.667,
-            "delta": 58
+            "frameType": "Pong",
+            "before": 50.667,
+            "after": 12.667,
+            "delta": -38
           }
         ],
         "loadPolyfillAttributionDeltas": [
@@ -1045,38 +936,35 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 35.764,
-              "after": 38.119,
-              "delta": 2.355,
-              "deltaPercent": 6.585
+              "before": 38.119,
+              "after": 37.582,
+              "delta": -0.537,
+              "deltaPercent": -1.409
             },
             "responseEncodedBytesPerIteration": {
-              "before": 233549.333,
+              "before": 233610,
               "after": 233610,
-              "delta": 60.667,
-              "deltaPercent": 0.026
+              "delta": 0,
+              "deltaPercent": 0
             }
           },
           {
             "kind": "bridge_dispatch",
             "label": "__bd:* bridge-dispatch wrappers",
             "callsPerIteration": {
-              "before": 161,
+              "before": 0,
               "after": 0,
-              "delta": -161,
-              "deltaPercent": -100
+              "delta": 0
             },
             "durationMsPerIteration": {
-              "before": 18.094,
+              "before": 0,
               "after": 0,
-              "delta": -18.094,
-              "deltaPercent": -100
+              "delta": 0
             },
             "responseEncodedBytesPerIteration": {
-              "before": 188021.333,
+              "before": 0,
               "after": 0,
-              "delta": -188021.333,
-              "deltaPercent": -100
+              "delta": 0
             }
           }
         ]
@@ -1086,13 +974,13 @@
       "scenarioId": "jszip-end-to-end",
       "title": "JSZip End-to-End",
       "comparisonToPrevious": {
-        "baselineScenarioCreatedAt": "2026-03-31T13:28:24.667Z",
+        "baselineScenarioCreatedAt": "2026-03-31T20:29:36.447Z",
         "metrics": {
           "warmWallMsMean": {
-            "before": 193.293,
-            "after": 77.776,
-            "delta": -115.517,
-            "deltaPercent": -59.763
+            "before": 77.776,
+            "after": 79.804,
+            "delta": 2.028,
+            "deltaPercent": 2.607
           },
           "bridgeCallsPerIteration": {
             "before": 182,
@@ -1101,130 +989,95 @@
             "deltaPercent": 0
           },
           "fixedSessionOverheadWarmMsMean": {
-            "before": 108.653,
-            "after": 6.13,
-            "delta": -102.523,
-            "deltaPercent": -94.358
+            "before": 6.13,
+            "after": 6.676,
+            "delta": 0.546,
+            "deltaPercent": 8.907
           },
           "createToInjectGlobalsWarmMsMean": {
-            "before": 4.5,
+            "before": 5.5,
             "after": 5.5,
-            "delta": 1,
-            "deltaPercent": 22.222
+            "delta": 0,
+            "deltaPercent": 0
           },
           "injectGlobalsToExecuteSendWarmMsMean": {
-            "before": 1,
+            "before": 0,
             "after": 0,
-            "delta": -1,
-            "deltaPercent": -100
+            "delta": 0
           },
           "executeResultToDestroyWarmMsMean": {
-            "before": 101.5,
+            "before": 0,
             "after": 0,
-            "delta": -101.5,
-            "deltaPercent": -100
+            "delta": 0
           },
           "residualFixedOverheadWarmMsMean": {
-            "before": 1.653,
-            "after": 0.63,
-            "delta": -1.023,
-            "deltaPercent": -61.887
+            "before": 0.63,
+            "after": 1.175,
+            "delta": 0.545,
+            "deltaPercent": 86.508
           },
           "bridgeDurationPerIterationMs": {
-            "before": 59.496,
-            "after": 65.932,
-            "delta": 6.436,
-            "deltaPercent": 10.818
+            "before": 65.932,
+            "after": 46.383,
+            "delta": -19.549,
+            "deltaPercent": -29.65
           },
           "bridgeResponseFrameBytesPerIteration": {
-            "before": 421791.667,
+            "before": 410854.667,
             "after": 410854.667,
-            "delta": -10937,
-            "deltaPercent": -2.593
+            "delta": 0,
+            "deltaPercent": 0
           },
           "executeWarmMsMean": {
-            "before": 84.64,
-            "after": 71.646,
-            "delta": -12.994,
-            "deltaPercent": -15.352
+            "before": 71.646,
+            "after": 73.129,
+            "delta": 1.483,
+            "deltaPercent": 2.07
           }
         },
         "bridgeMethodDurationDeltas": [
           {
-            "method": "_bridgeDispatch",
-            "before": 0,
-            "after": 22.101,
-            "delta": 22.101
+            "method": "_loadPolyfill",
+            "before": 43.727,
+            "after": 33.071,
+            "delta": -10.656
           },
           {
-            "method": "_loadPolyfill",
-            "before": 59.379,
-            "after": 43.727,
-            "delta": -15.652
+            "method": "_bridgeDispatch",
+            "before": 22.101,
+            "after": 13.212,
+            "delta": -8.889
           },
           {
             "method": "_log",
-            "before": 0.117,
-            "after": 0.104,
-            "delta": -0.013
+            "before": 0.104,
+            "after": 0.101,
+            "delta": -0.003
           }
         ],
-        "bridgeMethodCountDeltas": [
-          {
-            "method": "_loadPolyfill",
-            "before": 181,
-            "after": 17,
-            "delta": -164
-          },
-          {
-            "method": "_bridgeDispatch",
-            "before": 0,
-            "after": 164,
-            "delta": 164
-          }
-        ],
-        "bridgeMethodResponseByteDeltas": [
-          {
-            "method": "_loadPolyfill",
-            "before": 421744.667,
-            "after": 233610,
-            "delta": -188134.667
-          },
-          {
-            "method": "_bridgeDispatch",
-            "before": 0,
-            "after": 177197.667,
-            "delta": 177197.667
-          }
-        ],
+        "bridgeMethodCountDeltas": [],
+        "bridgeMethodResponseByteDeltas": [],
         "frameEncodedByteDeltas": [
           {
-            "direction": "send",
-            "frameType": "BridgeResponse",
-            "before": 421791.667,
-            "after": 410854.667,
-            "delta": -10937
+            "direction": "recv",
+            "frameType": "DestroySessionResult",
+            "before": 0,
+            "after": 39,
+            "delta": 39
           },
           {
             "direction": "send",
-            "frameType": "Execute",
-            "before": 14851,
-            "after": 15833,
-            "delta": 982
+            "frameType": "Ping",
+            "before": 50.667,
+            "after": 12.667,
+            "delta": -38
           },
           {
             "direction": "recv",
-            "frameType": "BridgeCall",
-            "before": 32458,
-            "after": 31859,
-            "delta": -599
-          },
-          {
-            "direction": "send",
-            "frameType": "WarmSnapshot",
-            "before": 411389.667,
-            "after": 411447.667,
-            "delta": 58
+            "frameType": "Pong",
+            "before": 50.667,
+            "after": 12.667,
+            "delta": -38
           }
         ],
         "loadPolyfillAttributionDeltas": [
@@ -1238,38 +1091,35 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 44.497,
-              "after": 43.727,
-              "delta": -0.77,
-              "deltaPercent": -1.73
+              "before": 43.727,
+              "after": 33.071,
+              "delta": -10.656,
+              "deltaPercent": -24.369
             },
             "responseEncodedBytesPerIteration": {
-              "before": 233549.333,
+              "before": 233610,
               "after": 233610,
-              "delta": 60.667,
-              "deltaPercent": 0.026
+              "delta": 0,
+              "deltaPercent": 0
             }
           },
           {
             "kind": "bridge_dispatch",
             "label": "__bd:* bridge-dispatch wrappers",
             "callsPerIteration": {
-              "before": 164,
+              "before": 0,
               "after": 0,
-              "delta": -164,
-              "deltaPercent": -100
+              "delta": 0
             },
             "durationMsPerIteration": {
-              "before": 14.882,
+              "before": 0,
               "after": 0,
-              "delta": -14.882,
-              "deltaPercent": -100
+              "delta": 0
             },
             "responseEncodedBytesPerIteration": {
-              "before": 188195.333,
+              "before": 0,
               "after": 0,
-              "delta": -188195.333,
-              "deltaPercent": -100
+              "delta": 0
             }
           }
         ]
@@ -1279,13 +1129,13 @@
       "scenarioId": "pi-sdk-startup",
       "title": "Pi SDK Startup",
       "comparisonToPrevious": {
-        "baselineScenarioCreatedAt": "2026-03-31T20:09:09.260Z",
+        "baselineScenarioCreatedAt": "2026-03-31T20:29:42.089Z",
         "metrics": {
           "warmWallMsMean": {
-            "before": 1707.406,
-            "after": 1422.383,
-            "delta": -285.023,
-            "deltaPercent": -16.693
+            "before": 1422.383,
+            "after": 1665.403,
+            "delta": 243.02,
+            "deltaPercent": 17.085
           },
           "bridgeCallsPerIteration": {
             "before": 2511,
@@ -1294,16 +1144,16 @@
             "deltaPercent": 0
           },
           "fixedSessionOverheadWarmMsMean": {
-            "before": 9.018,
-            "after": 9.264,
-            "delta": 0.246,
-            "deltaPercent": 2.728
+            "before": 9.264,
+            "after": 12.056,
+            "delta": 2.792,
+            "deltaPercent": 30.138
           },
           "createToInjectGlobalsWarmMsMean": {
-            "before": 5.5,
+            "before": 6,
             "after": 6,
-            "delta": 0.5,
-            "deltaPercent": 9.091
+            "delta": 0,
+            "deltaPercent": 0
           },
           "injectGlobalsToExecuteSendWarmMsMean": {
             "before": 0,
@@ -1316,78 +1166,85 @@
             "delta": 0
           },
           "residualFixedOverheadWarmMsMean": {
-            "before": 3.518,
-            "after": 3.263,
-            "delta": -0.255,
-            "deltaPercent": -7.248
+            "before": 3.263,
+            "after": 6.056,
+            "delta": 2.793,
+            "deltaPercent": 85.596
           },
           "bridgeDurationPerIterationMs": {
-            "before": 920.916,
-            "after": 884.867,
-            "delta": -36.049,
-            "deltaPercent": -3.914
+            "before": 884.867,
+            "after": 854.598,
+            "delta": -30.269,
+            "deltaPercent": -3.421
           },
           "bridgeResponseFrameBytesPerIteration": {
-            "before": 7506336.667,
+            "before": 3309659,
             "after": 3309659,
-            "delta": -4196677.667,
-            "deltaPercent": -55.908
+            "delta": 0,
+            "deltaPercent": 0
           },
           "executeWarmMsMean": {
-            "before": 1698.389,
-            "after": 1413.12,
-            "delta": -285.269,
-            "deltaPercent": -16.796
+            "before": 1413.12,
+            "after": 1653.348,
+            "delta": 240.228,
+            "deltaPercent": 17
           }
         },
         "bridgeMethodDurationDeltas": [
           {
             "method": "_bridgeDispatch",
-            "before": 850.245,
-            "after": 822.419,
-            "delta": -27.826
+            "before": 822.419,
+            "after": 779.699,
+            "delta": -42.72
           },
           {
             "method": "_loadPolyfill",
-            "before": 69.902,
-            "after": 60.8,
-            "delta": -9.102
+            "before": 60.8,
+            "after": 74.071,
+            "delta": 13.271
           },
           {
             "method": "_fsReadFile",
-            "before": 0.286,
-            "after": 0.831,
-            "delta": 0.545
+            "before": 0.831,
+            "after": 0.235,
+            "delta": -0.596
           },
           {
             "method": "_fsExists",
-            "before": 0.435,
-            "after": 0.71,
-            "delta": 0.275
+            "before": 0.71,
+            "after": 0.445,
+            "delta": -0.265
           },
           {
             "method": "_log",
-            "before": 0.049,
-            "after": 0.107,
-            "delta": 0.058
+            "before": 0.107,
+            "after": 0.148,
+            "delta": 0.041
           }
         ],
         "bridgeMethodCountDeltas": [],
-        "bridgeMethodResponseByteDeltas": [
-          {
-            "method": "_bridgeDispatch",
-            "before": 6744299,
-            "after": 2547621.333,
-            "delta": -4196677.667
-          }
-        ],
+        "bridgeMethodResponseByteDeltas": [],
         "frameEncodedByteDeltas": [
           {
+            "direction": "recv",
+            "frameType": "DestroySessionResult",
+            "before": 0,
+            "after": 39,
+            "delta": 39
+          },
+          {
             "direction": "send",
-            "frameType": "BridgeResponse",
-            "before": 7506336.667,
-            "after": 3309659,
-            "delta": -4196677.667
+            "frameType": "Ping",
+            "before": 50.667,
+            "after": 12.667,
+            "delta": -38
+          },
+          {
+            "direction": "recv",
+            "frameType": "Pong",
+            "before": 50.667,
+            "after": 12.667,
+            "delta": -38
           }
         ],
         "loadPolyfillAttributionDeltas": [
@@ -1401,10 +1258,10 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 69.902,
-              "after": 60.8,
-              "delta": -9.102,
-              "deltaPercent": -13.021
+              "before": 60.8,
+              "after": 74.071,
+              "delta": 13.271,
+              "deltaPercent": 21.827
             },
             "responseEncodedBytesPerIteration": {
               "before": 758579.667,
@@ -1439,13 +1296,13 @@
       "scenarioId": "pi-sdk-end-to-end",
       "title": "Pi SDK End-to-End",
       "comparisonToPrevious": {
-        "baselineScenarioCreatedAt": "2026-03-31T13:28:36.991Z",
+        "baselineScenarioCreatedAt": "2026-03-31T20:29:48.229Z",
         "metrics": {
           "warmWallMsMean": {
-            "before": 1835.606,
-            "after": 1823.659,
-            "delta": -11.947,
-            "deltaPercent": -0.651
+            "before": 1823.659,
+            "after": 1695.689,
+            "delta": -127.97,
+            "deltaPercent": -7.017
           },
           "bridgeCallsPerIteration": {
             "before": 2745,
@@ -1454,141 +1311,108 @@
             "deltaPercent": 0
           },
           "fixedSessionOverheadWarmMsMean": {
-            "before": 116.839,
-            "after": 12.578,
-            "delta": -104.261,
-            "deltaPercent": -89.235
+            "before": 12.578,
+            "after": 9.169,
+            "delta": -3.409,
+            "deltaPercent": -27.103
           },
           "createToInjectGlobalsWarmMsMean": {
-            "before": 5.5,
-            "after": 6.5,
-            "delta": 1,
-            "deltaPercent": 18.182
+            "before": 6.5,
+            "after": 5.5,
+            "delta": -1,
+            "deltaPercent": -15.385
           },
           "injectGlobalsToExecuteSendWarmMsMean": {
-            "before": 0,
-            "after": 0.5,
-            "delta": 0.5
-          },
-          "executeResultToDestroyWarmMsMean": {
-            "before": 102,
+            "before": 0.5,
             "after": 0,
-            "delta": -102,
+            "delta": -0.5,
             "deltaPercent": -100
           },
+          "executeResultToDestroyWarmMsMean": {
+            "before": 0,
+            "after": 0,
+            "delta": 0
+          },
           "residualFixedOverheadWarmMsMean": {
-            "before": 9.339,
-            "after": 5.578,
-            "delta": -3.761,
-            "deltaPercent": -40.272
+            "before": 5.578,
+            "after": 3.669,
+            "delta": -1.909,
+            "deltaPercent": -34.224
           },
           "bridgeDurationPerIterationMs": {
-            "before": 938.761,
-            "after": 925.536,
-            "delta": -13.225,
-            "deltaPercent": -1.409
+            "before": 925.536,
+            "after": 943.233,
+            "delta": 17.697,
+            "deltaPercent": 1.912
           },
           "bridgeResponseFrameBytesPerIteration": {
-            "before": 3642576.667,
+            "before": 3444124.333,
             "after": 3444124.333,
-            "delta": -198452.334,
-            "deltaPercent": -5.448
+            "delta": 0,
+            "deltaPercent": 0
           },
           "executeWarmMsMean": {
-            "before": 1718.767,
-            "after": 1811.081,
-            "delta": 92.314,
-            "deltaPercent": 5.371
+            "before": 1811.081,
+            "after": 1686.52,
+            "delta": -124.561,
+            "deltaPercent": -6.878
           }
         },
         "bridgeMethodDurationDeltas": [
           {
-            "method": "_loadPolyfill",
-            "before": 890.972,
-            "after": 66.774,
-            "delta": -824.198
-          },
-          {
             "method": "_bridgeDispatch",
-            "before": 0,
-            "after": 816.475,
-            "delta": 816.475
-          },
-          {
-            "method": "_fsExists",
-            "before": 38.878,
-            "after": 31.906,
-            "delta": -6.972
+            "before": 816.475,
+            "after": 838.52,
+            "delta": 22.045
           },
           {
             "method": "_fsReadFile",
-            "before": 3.12,
-            "after": 6.474,
-            "delta": 3.354
+            "before": 6.474,
+            "after": 1.945,
+            "delta": -4.529
+          },
+          {
+            "method": "_fsExists",
+            "before": 31.906,
+            "after": 34.673,
+            "delta": 2.767
+          },
+          {
+            "method": "_loadPolyfill",
+            "before": 66.774,
+            "after": 65.055,
+            "delta": -1.719
           },
           {
             "method": "_networkFetchRaw",
-            "before": 5.324,
-            "after": 3.573,
-            "delta": -1.751
+            "before": 3.573,
+            "after": 2.767,
+            "delta": -0.806
           }
         ],
-        "bridgeMethodCountDeltas": [
-          {
-            "method": "_loadPolyfill",
-            "before": 2702,
-            "after": 71,
-            "delta": -2631
-          },
-          {
-            "method": "_bridgeDispatch",
-            "before": 0,
-            "after": 2631,
-            "delta": 2631
-          }
-        ],
-        "bridgeMethodResponseByteDeltas": [
-          {
-            "method": "_loadPolyfill",
-            "before": 3635716.667,
-            "after": 758629.667,
-            "delta": -2877087
-          },
-          {
-            "method": "_bridgeDispatch",
-            "before": 0,
-            "after": 2678634.667,
-            "delta": 2678634.667
-          }
-        ],
+        "bridgeMethodCountDeltas": [],
+        "bridgeMethodResponseByteDeltas": [],
         "frameEncodedByteDeltas": [
           {
+            "direction": "recv",
+            "frameType": "DestroySessionResult",
+            "before": 0,
+            "after": 39,
+            "delta": 39
+          },
+          {
             "direction": "send",
-            "frameType": "BridgeResponse",
-            "before": 3642576.667,
-            "after": 3444124.333,
-            "delta": -198452.334
+            "frameType": "Ping",
+            "before": 50.667,
+            "after": 12.667,
+            "delta": -38
           },
           {
             "direction": "recv",
-            "frameType": "BridgeCall",
-            "before": 583632,
-            "after": 572981,
-            "delta": -10651
-          },
-          {
-            "direction": "send",
-            "frameType": "Execute",
-            "before": 14229,
-            "after": 15211,
-            "delta": 982
-          },
-          {
-            "direction": "send",
-            "frameType": "WarmSnapshot",
-            "before": 494371.333,
-            "after": 494493.333,
-            "delta": 122
+            "frameType": "Pong",
+            "before": 50.667,
+            "after": 12.667,
+            "delta": -38
           }
         ],
         "loadPolyfillAttributionDeltas": [
@@ -1602,10 +1426,10 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 77.999,
-              "after": 66.774,
-              "delta": -11.225,
-              "deltaPercent": -14.391
+              "before": 66.774,
+              "after": 65.055,
+              "delta": -1.719,
+              "deltaPercent": -2.574
             },
             "responseEncodedBytesPerIteration": {
               "before": 758629.667,
@@ -1618,22 +1442,19 @@
             "kind": "bridge_dispatch",
             "label": "__bd:* bridge-dispatch wrappers",
             "callsPerIteration": {
-              "before": 2631,
+              "before": 0,
               "after": 0,
-              "delta": -2631,
-              "deltaPercent": -100
+              "delta": 0
             },
             "durationMsPerIteration": {
-              "before": 812.973,
+              "before": 0,
               "after": 0,
-              "delta": -812.973,
-              "deltaPercent": -100
+              "delta": 0
             },
             "responseEncodedBytesPerIteration": {
-              "before": 2877087,
+              "before": 0,
               "after": 0,
-              "delta": -2877087,
-              "deltaPercent": -100
+              "delta": 0
             }
           }
         ]
@@ -1643,13 +1464,13 @@
       "scenarioId": "pi-cli-startup",
       "title": "Pi CLI Startup",
       "comparisonToPrevious": {
-        "baselineScenarioCreatedAt": "2026-03-31T20:09:28.411Z",
+        "baselineScenarioCreatedAt": "2026-03-31T20:29:53.447Z",
         "metrics": {
           "warmWallMsMean": {
-            "before": 1737.108,
-            "after": 1470.153,
-            "delta": -266.955,
-            "deltaPercent": -15.368
+            "before": 1470.153,
+            "after": 1367.156,
+            "delta": -102.997,
+            "deltaPercent": -7.006
           },
           "bridgeCallsPerIteration": {
             "before": 2562,
@@ -1658,10 +1479,10 @@
             "deltaPercent": 0
           },
           "fixedSessionOverheadWarmMsMean": {
-            "before": 9.105,
-            "after": 9.412,
-            "delta": 0.307,
-            "deltaPercent": 3.372
+            "before": 9.412,
+            "after": 9.168,
+            "delta": -0.244,
+            "deltaPercent": -2.592
           },
           "createToInjectGlobalsWarmMsMean": {
             "before": 5.5,
@@ -1680,84 +1501,85 @@
             "delta": 0
           },
           "residualFixedOverheadWarmMsMean": {
-            "before": 3.605,
-            "after": 3.912,
-            "delta": 0.307,
-            "deltaPercent": 8.516
+            "before": 3.912,
+            "after": 3.668,
+            "delta": -0.244,
+            "deltaPercent": -6.237
           },
           "bridgeDurationPerIterationMs": {
-            "before": 899.96,
-            "after": 767.271,
-            "delta": -132.689,
-            "deltaPercent": -14.744
+            "before": 767.271,
+            "after": 846.662,
+            "delta": 79.391,
+            "deltaPercent": 10.347
           },
           "bridgeResponseFrameBytesPerIteration": {
-            "before": 7509075.333,
+            "before": 3312400.333,
             "after": 3312400.333,
-            "delta": -4196675,
-            "deltaPercent": -55.888
+            "delta": 0,
+            "deltaPercent": 0
           },
           "executeWarmMsMean": {
-            "before": 1728.003,
-            "after": 1460.741,
-            "delta": -267.262,
-            "deltaPercent": -15.467
+            "before": 1460.741,
+            "after": 1357.987,
+            "delta": -102.754,
+            "deltaPercent": -7.034
           }
         },
         "bridgeMethodDurationDeltas": [
           {
             "method": "_bridgeDispatch",
-            "before": 758.816,
-            "after": 640.133,
-            "delta": -118.683
+            "before": 640.133,
+            "after": 716.479,
+            "delta": 76.346
           },
           {
             "method": "_fsExists",
-            "before": 60.389,
-            "after": 43.615,
-            "delta": -16.774
+            "before": 43.615,
+            "after": 51.473,
+            "delta": 7.858
           },
           {
             "method": "_loadPolyfill",
-            "before": 64.531,
-            "after": 70.042,
-            "delta": 5.511
+            "before": 70.042,
+            "after": 63.722,
+            "delta": -6.32
           },
           {
             "method": "_fsMkdir",
-            "before": 6.044,
-            "after": 4.756,
-            "delta": -1.288
-          },
-          {
-            "method": "_fsWriteFile",
-            "before": 1.515,
-            "after": 1.039,
-            "delta": -0.476
-          }
-        ],
-        "bridgeMethodCountDeltas": [],
-        "bridgeMethodResponseByteDeltas": [
-          {
-            "method": "_bridgeDispatch",
-            "before": 6744496,
-            "after": 2547818.333,
-            "delta": -4196677.667
+            "before": 4.756,
+            "after": 5.812,
+            "delta": 1.056
           },
           {
             "method": "_fsStat",
-            "before": 203.667,
-            "after": 206.333,
-            "delta": 2.666
+            "before": 1.764,
+            "after": 1.144,
+            "delta": -0.62
           }
         ],
+        "bridgeMethodCountDeltas": [],
+        "bridgeMethodResponseByteDeltas": [],
         "frameEncodedByteDeltas": [
           {
+            "direction": "recv",
+            "frameType": "DestroySessionResult",
+            "before": 0,
+            "after": 39,
+            "delta": 39
+          },
+          {
             "direction": "send",
-            "frameType": "BridgeResponse",
-            "before": 7509075.333,
-            "after": 3312400.333,
-            "delta": -4196675
+            "frameType": "Ping",
+            "before": 50.667,
+            "after": 12.667,
+            "delta": -38
+          },
+          {
+            "direction": "recv",
+            "frameType": "Pong",
+            "before": 50.667,
+            "after": 12.667,
+            "delta": -38
           }
         ],
         "loadPolyfillAttributionDeltas": [
@@ -1771,10 +1593,10 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 64.531,
-              "after": 70.042,
-              "delta": 5.511,
-              "deltaPercent": 8.54
+              "before": 70.042,
+              "after": 63.722,
+              "delta": -6.32,
+              "deltaPercent": -9.023
             },
             "responseEncodedBytesPerIteration": {
               "before": 758579.667,
@@ -1809,31 +1631,31 @@
       "scenarioId": "pi-cli-end-to-end",
       "title": "Pi CLI End-to-End",
       "comparisonToPrevious": {
-        "baselineScenarioCreatedAt": "2026-03-31T13:28:50.007Z",
+        "baselineScenarioCreatedAt": "2026-03-31T20:29:57.416Z",
         "metrics": {
           "warmWallMsMean": {
-            "before": 1926.88,
-            "after": 1049.009,
-            "delta": -877.871,
-            "deltaPercent": -45.559
+            "before": 1049.009,
+            "after": 1754.015,
+            "delta": 705.006,
+            "deltaPercent": 67.207
           },
           "bridgeCallsPerIteration": {
             "before": 2772,
-            "after": 2772,
-            "delta": 0,
-            "deltaPercent": 0
+            "after": 2772.333,
+            "delta": 0.333,
+            "deltaPercent": 0.012
           },
           "fixedSessionOverheadWarmMsMean": {
-            "before": 13.261,
-            "after": 9.409,
-            "delta": -3.852,
-            "deltaPercent": -29.048
+            "before": 9.409,
+            "after": 13.227,
+            "delta": 3.818,
+            "deltaPercent": 40.578
           },
           "createToInjectGlobalsWarmMsMean": {
-            "before": 5.5,
-            "after": 6,
+            "before": 6,
+            "after": 6.5,
             "delta": 0.5,
-            "deltaPercent": 9.091
+            "deltaPercent": 8.333
           },
           "injectGlobalsToExecuteSendWarmMsMean": {
             "before": 0,
@@ -1842,128 +1664,123 @@
           },
           "executeResultToDestroyWarmMsMean": {
             "before": 0,
-            "after": 0,
-            "delta": 0
+            "after": 0.5,
+            "delta": 0.5
           },
           "residualFixedOverheadWarmMsMean": {
-            "before": 7.76,
-            "after": 3.409,
-            "delta": -4.351,
-            "deltaPercent": -56.07
+            "before": 3.409,
+            "after": 6.226,
+            "delta": 2.817,
+            "deltaPercent": 82.634
           },
           "bridgeDurationPerIterationMs": {
-            "before": 1010.667,
-            "after": 553.958,
-            "delta": -456.709,
-            "deltaPercent": -45.189
+            "before": 553.958,
+            "after": 971.184,
+            "delta": 417.226,
+            "deltaPercent": 75.317
           },
           "bridgeResponseFrameBytesPerIteration": {
-            "before": 3648246.667,
-            "after": 3449856,
-            "delta": -198390.667,
-            "deltaPercent": -5.438
+            "before": 3449856,
+            "after": 3449878.667,
+            "delta": 22.667,
+            "deltaPercent": 0.001
           },
           "executeWarmMsMean": {
-            "before": 1913.619,
-            "after": 1039.601,
-            "delta": -874.018,
-            "deltaPercent": -45.674
+            "before": 1039.601,
+            "after": 1740.789,
+            "delta": 701.188,
+            "deltaPercent": 67.448
           }
         },
         "bridgeMethodDurationDeltas": [
           {
-            "method": "_loadPolyfill",
-            "before": 937.983,
-            "after": 51.942,
-            "delta": -886.041
-          },
-          {
             "method": "_bridgeDispatch",
-            "before": 0,
-            "after": 440.689,
-            "delta": 440.689
+            "before": 440.689,
+            "after": 823.737,
+            "delta": 383.048
           },
           {
-            "method": "_fsExists",
-            "before": 52.29,
-            "after": 43.089,
-            "delta": -9.201
+            "method": "_loadPolyfill",
+            "before": 51.942,
+            "after": 80.413,
+            "delta": 28.471
           },
           {
             "method": "_networkFetchRaw",
-            "before": 5.84,
-            "after": 3.002,
-            "delta": -2.838
+            "before": 3.002,
+            "after": 5.861,
+            "delta": 2.859
+          },
+          {
+            "method": "_fsExists",
+            "before": 43.089,
+            "after": 45.285,
+            "delta": 2.196
           },
           {
             "method": "_fsMkdir",
-            "before": 5.144,
-            "after": 5.442,
-            "delta": 0.298
+            "before": 5.442,
+            "after": 6.043,
+            "delta": 0.601
           }
         ],
         "bridgeMethodCountDeltas": [
           {
-            "method": "_loadPolyfill",
-            "before": 2709,
-            "after": 71,
-            "delta": -2638
-          },
-          {
             "method": "_bridgeDispatch",
-            "before": 0,
-            "after": 2638,
-            "delta": 2638
+            "before": 2638,
+            "after": 2638.333,
+            "delta": 0.333
           }
         ],
         "bridgeMethodResponseByteDeltas": [
           {
-            "method": "_loadPolyfill",
-            "before": 3636115.667,
-            "after": 758629.667,
-            "delta": -2877486
-          },
-          {
             "method": "_bridgeDispatch",
-            "before": 0,
-            "after": 2679096.667,
-            "delta": 2679096.667
+            "before": 2679096.667,
+            "after": 2679118.667,
+            "delta": 22
           },
           {
             "method": "_fsStat",
-            "before": 207,
-            "after": 205.667,
-            "delta": -1.333
+            "before": 205.667,
+            "after": 206.333,
+            "delta": 0.666
           }
         ],
         "frameEncodedByteDeltas": [
           {
+            "direction": "recv",
+            "frameType": "DestroySessionResult",
+            "before": 0,
+            "after": 39,
+            "delta": 39
+          },
+          {
             "direction": "send",
-            "frameType": "BridgeResponse",
-            "before": 3648246.667,
-            "after": 3449856,
-            "delta": -198390.667
+            "frameType": "Ping",
+            "before": 50.667,
+            "after": 12.667,
+            "delta": -38
+          },
+          {
+            "direction": "recv",
+            "frameType": "Pong",
+            "before": 50.667,
+            "after": 12.667,
+            "delta": -38
           },
           {
             "direction": "recv",
             "frameType": "BridgeCall",
-            "before": 586892,
-            "after": 576212,
-            "delta": -10680
+            "before": 576212,
+            "after": 576242.667,
+            "delta": 30.667
           },
           {
             "direction": "send",
-            "frameType": "Execute",
-            "before": 14132,
-            "after": 15114,
-            "delta": 982
-          },
-          {
-            "direction": "send",
-            "frameType": "WarmSnapshot",
-            "before": 494371.333,
-            "after": 494493.333,
-            "delta": 122
+            "frameType": "BridgeResponse",
+            "before": 3449856,
+            "after": 3449878.667,
+            "delta": 22.667
           }
         ],
         "loadPolyfillAttributionDeltas": [
@@ -1977,10 +1794,10 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 78.924,
-              "after": 51.942,
-              "delta": -26.982,
-              "deltaPercent": -34.187
+              "before": 51.942,
+              "after": 80.413,
+              "delta": 28.471,
+              "deltaPercent": 54.813
             },
             "responseEncodedBytesPerIteration": {
               "before": 758629.667,
@@ -1993,22 +1810,19 @@
             "kind": "bridge_dispatch",
             "label": "__bd:* bridge-dispatch wrappers",
             "callsPerIteration": {
-              "before": 2638,
+              "before": 0,
               "after": 0,
-              "delta": -2638,
-              "deltaPercent": -100
+              "delta": 0
             },
             "durationMsPerIteration": {
-              "before": 859.059,
+              "before": 0,
               "after": 0,
-              "delta": -859.059,
-              "deltaPercent": -100
+              "delta": 0
             },
             "responseEncodedBytesPerIteration": {
-              "before": 2877486,
+              "before": 0,
               "after": 0,
-              "delta": -2877486,
-              "deltaPercent": -100
+              "delta": 0
             }
           }
         ]

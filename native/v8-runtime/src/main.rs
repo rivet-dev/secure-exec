@@ -226,7 +226,29 @@ fn handle_connection(
             }
             BinaryFrame::DestroySession { session_id } => {
                 let mut mgr = session_mgr.lock().unwrap();
-                if let Err(e) = mgr.destroy_session(&session_id, connection_id) {
+                let destroy_result = mgr.destroy_session(&session_id, connection_id);
+                let destroy_result_frame = match &destroy_result {
+                    Ok(()) => BinaryFrame::DestroySessionResult {
+                        session_id: session_id.clone(),
+                        status: 0,
+                        message: String::new(),
+                    },
+                    Err(error) => BinaryFrame::DestroySessionResult {
+                        session_id: session_id.clone(),
+                        status: 1,
+                        message: error.clone(),
+                    },
+                };
+
+                if let Err(e) = mgr.send_connection_frame(&destroy_result_frame) {
+                    eprintln!(
+                        "connection {}: destroy session {} ack failed: {}",
+                        connection_id, session_id, e
+                    );
+                    break;
+                }
+
+                if let Err(e) = destroy_result {
                     eprintln!(
                         "connection {}: destroy session {} failed: {}",
                         connection_id, session_id, e

@@ -470,6 +470,12 @@ function summarizeFrame(
 				callbackType: frame.callbackType,
 				payloadBytes: frame.payload.length,
 			};
+		case "DestroySessionResult":
+			return {
+				...base,
+				status: frame.status,
+				messageBytes: Buffer.byteLength(frame.message, "utf8"),
+			};
 		case "DestroySession":
 		case "TerminateExecution":
 			return base;
