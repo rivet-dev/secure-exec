@@ -70,11 +70,37 @@ export interface UpstreamBuiltinsBinding {
 }
 
 export type UpstreamBindingStatus = "deferred" | "implemented" | "planned";
+export type UpstreamBindingExecutionModel =
+	| "deferred"
+	| "host-lifecycle-plus-backend"
+	| "host-only";
+export type UpstreamBindingPhase = "bootstrap" | "fs-first";
+export type UpstreamHostResponsibility =
+	| "callback-delivery"
+	| "close-semantics"
+	| "js-wrapper-identity"
+	| "ref-unref-state";
 
 export interface UpstreamInternalBindingDescriptor {
 	name: string;
 	status: UpstreamBindingStatus;
+	executionModel: UpstreamBindingExecutionModel;
+	requiredFor: readonly UpstreamBindingPhase[];
+	hostResponsibilities: readonly UpstreamHostResponsibility[];
 	notes: string;
+}
+
+export interface UpstreamInternalBindingResolverContext {
+	builtinsBinding: UpstreamBuiltinsBinding;
+}
+
+export type UpstreamInternalBindingFactory = (
+	context: UpstreamInternalBindingResolverContext,
+) => unknown;
+
+export interface UpstreamInternalBindingRegistration {
+	descriptor: UpstreamInternalBindingDescriptor;
+	createBinding?: UpstreamInternalBindingFactory;
 }
 
 export type UpstreamBootstrapPhase = "bootstrap" | "entrypoint" | "per_context";

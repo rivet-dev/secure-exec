@@ -900,6 +900,9 @@ At this phase, do not promise:
 - the current US-006 bring-up executes vendored `internal/per_context/*`, `internal/bootstrap/realm`, `internal/bootstrap/node`, and `internal/main/eval_string` inside a dedicated host Node child started with `--expose-internals`
 - the minimum proven shim set is: `internalBinding('builtins')`, host `buffer` plus `setBufferPrototype()` no-op, host `async_wrap` plus `setupHooks()` no-op, host `trace_events` plus `setTraceCategoryStateUpdateHandler()` no-op, and a typed `internal/options` shim for the eval-string entrypoint
 - scope remains intentionally narrow: vendored `internal/*` bootstrap assets run through the new loader path, but public builtins touched by the `eval_string` smoke path still fall back to host `node:` modules until fs-first-light replaces that fallback with real module support
+- US-007 adds a real host binding inventory under `packages/nodejs/src/upstream/host-bindings/` and `internal-binding-registry.ts`; each binding now records its execution model (`host-only`, `host-lifecycle-plus-backend`, or `deferred`), the phases that need it (`bootstrap` or `fs-first`), and which host-owned responsibilities must not move into the backend later
+- the currently wired host shims are intentionally narrow: `builtins`, `config`, `util` bootstrap constants/private symbols, `credentials`, `errors`, `buffer`, `constants`, `symbols`, `timers`, `async_wrap`, `trace_events`, and a minimal `uv` errno surface
+- `module_wrap`, `contextify`, `process_methods`, `cares_wrap`, and `modules` remain explicit planned entries rather than implicit gaps, while `fs`, `fs_dir`, and `fs_event_wrap` are marked deferred for the fs-first story with host-owned callback/wrapper/close semantics called out directly in the notes
 
 ### Exit Criteria
 

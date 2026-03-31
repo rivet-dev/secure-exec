@@ -56,11 +56,13 @@ describe("upstream runtime scaffold", () => {
 			status: "implemented",
 		});
 		expect(bindingRegistry.getBinding("async_wrap").notes).toContain("US-006");
+		expect(bindingRegistry.getBinding("fs").status).toBe("deferred");
 		expect(runtimeScaffold.describe()).toMatchObject({
 			mode: "scaffold",
 			nodeVersion: "v24.14.1",
-			plannedBindingCount: 17,
+			bindingCount: 20,
 			bootstrapStepCount: 6,
+			implementedBindingCount: 12,
 			internalLoadersReady: false,
 		});
 
@@ -78,5 +80,8 @@ describe("upstream runtime scaffold", () => {
 		expect(runtimeScaffold.requireBuiltin("process")).toMatchObject({
 			id: "process",
 		});
+		expect(runtimeScaffold.resolveInternalBinding("builtins")).toBe(
+			runtimeScaffold.getBuiltinsBinding(),
+		);
 	});
 });

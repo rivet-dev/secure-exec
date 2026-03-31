@@ -19,6 +19,7 @@ import {
 	createBootstrapBindingRegistryScaffold,
 } from "./internal-binding-registry.js";
 import type {
+	UpstreamBindingStatus,
 	UpstreamBuiltinsBinding,
 	UpstreamInternalLoaders,
 } from "./types.js";
@@ -32,8 +33,9 @@ export interface UpstreamRuntimeDriverScaffoldDescription {
 	mode: "scaffold";
 	nodeVersion: string;
 	gitCommit: string;
-	plannedBindingCount: number;
+	bindingCount: number;
 	bootstrapStepCount: number;
+	implementedBindingCount: number;
 	internalLoadersReady: boolean;
 }
 
@@ -49,6 +51,7 @@ export class UpstreamRuntimeDriverScaffold {
 	readonly builtinRegistry: UpstreamBuiltinRegistry;
 	readonly bindingRegistry: UpstreamInternalBindingRegistry;
 	readonly bootstrapLoader: UpstreamBootstrapLoader;
+	#internalBindingResolver?: (name: string) => unknown;
 
 	constructor(options: UpstreamRuntimeDriverScaffoldOptions = {}) {
 		this.assetLoader = options.assetLoader ?? createVendoredUpstreamAssetLoader();
@@ -66,13 +69,17 @@ export class UpstreamRuntimeDriverScaffold {
 	describe(): UpstreamRuntimeDriverScaffoldDescription {
 		const versionMetadata = this.assetLoader.getVersionMetadata();
 		const bootstrapPlan = this.bootstrapLoader.createBringUpPlan();
+		const bindingInventory = this.bindingRegistry.listBindings();
 
 		return {
 			mode: "scaffold",
 			nodeVersion: versionMetadata.nodeVersion,
 			gitCommit: versionMetadata.gitCommit,
-			plannedBindingCount: this.bindingRegistry.listBindings().length,
+			bindingCount: bindingInventory.length,
 			bootstrapStepCount: bootstrapPlan.steps.length,
+			implementedBindingCount: bindingInventory.filter(
+				(binding) => binding.status === ("implemented" satisfies UpstreamBindingStatus),
+			).length,
 			internalLoadersReady: this.builtinRegistry.hasInternalLoaders(),
 		};
 	}
@@ -87,6 +94,16 @@ export class UpstreamRuntimeDriverScaffold {
 
 	requireBuiltin(id: string): unknown {
 		return this.builtinRegistry.requireBuiltin(id);
+	}
+
+	resolveInternalBinding(name: string): unknown {
+		if (!this.#internalBindingResolver) {
+			this.#internalBindingResolver = this.bindingRegistry.createResolver({
+				builtinsBinding: this.getBuiltinsBinding(),
+			});
+		}
+
+		return this.#internalBindingResolver(name);
 	}
 
 	runBootstrapEval(code: string): Promise<UpstreamBootstrapEvalResult> {

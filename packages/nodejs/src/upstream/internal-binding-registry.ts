@@ -1,112 +1,43 @@
-import type { UpstreamInternalBindingDescriptor } from "./types.js";
+import { upstreamHostBindingCatalog } from "./host-bindings/index.js";
+import type {
+	UpstreamBindingExecutionModel,
+	UpstreamBindingPhase,
+	UpstreamBindingStatus,
+	UpstreamInternalBindingDescriptor,
+	UpstreamInternalBindingRegistration,
+	UpstreamInternalBindingResolverContext,
+} from "./types.js";
 
-const DEFAULT_BOOTSTRAP_BINDINGS: ReadonlyArray<UpstreamInternalBindingDescriptor> =
-	Object.freeze([
-		{
-			name: "builtins",
-			status: "implemented",
-			notes:
-				"US-005 wires builtinIds, compileFunction, setInternalLoaders, and cached builtin require() access.",
-		},
-		{
-			name: "module_wrap",
-			status: "planned",
-			notes: "US-005 and US-006 wire module compilation and linker hooks.",
-		},
-		{
-			name: "contextify",
-			status: "planned",
-			notes: "US-006 adds the initial vm/createContext bridge surface.",
-		},
-		{
-			name: "config",
-			status: "planned",
-			notes: "Bootstrap config constants stay host-owned in early bring-up.",
-		},
-		{
-			name: "util",
-			status: "planned",
-			notes: "Bootstrap-visible util helpers remain host-side.",
-		},
-		{
-			name: "process_methods",
-			status: "planned",
-			notes: "Process lifecycle helpers land with the bootstrap host binding set.",
-		},
-		{
-			name: "uv",
-			status: "planned",
-			notes: "Listener and handle state stay host-owned while kernel I/O remains below.",
-		},
-		{
-			name: "cares_wrap",
-			status: "planned",
-			notes: "DNS request dispatch stays host-lifecycle-plus-backend.",
-		},
-		{
-			name: "credentials",
-			status: "planned",
-			notes: "Credential probes stay explicit even before full implementation.",
-		},
-		{
-			name: "async_wrap",
-			status: "planned",
-			notes:
-				"US-006 snapshot-free bring-up reuses host async_wrap exports but keeps setupHooks() as a scoped no-op until real host lifecycle wiring lands.",
-		},
-		{
-			name: "trace_events",
-			status: "planned",
-			notes:
-				"US-006 bring-up reuses host trace_events exports but keeps the trace state update setter as a no-op during eval_string smoke tests.",
-		},
-		{
-			name: "timers",
-			status: "planned",
-			notes: "Timer bridge hooks stay on the host side during bring-up.",
-		},
-		{
-			name: "errors",
-			status: "planned",
-			notes: "Bootstrap error constructors and codes remain explicit host bindings.",
-		},
-		{
-			name: "buffer",
-			status: "planned",
-			notes:
-				"US-006 bring-up keeps buffer bootstrap host-owned and patches setBufferPrototype() as a narrow no-op so bootstrap/node can complete.",
-		},
-		{
-			name: "constants",
-			status: "planned",
-			notes: "Constants mirror the pinned upstream release metadata.",
-		},
-		{
-			name: "symbols",
-			status: "planned",
-			notes: "Bootstrap symbol exports remain part of the early host surface.",
-		},
-		{
-			name: "modules",
-			status: "planned",
-			notes: "CommonJS and ESM loader state stays explicit instead of implicit globals.",
-		},
-	]);
+type UpstreamInternalBindingInput =
+	| UpstreamInternalBindingDescriptor
+	| UpstreamInternalBindingRegistration;
+
+function isBindingRegistration(
+	binding: UpstreamInternalBindingInput,
+): binding is UpstreamInternalBindingRegistration {
+	return Object.prototype.hasOwnProperty.call(binding, "descriptor");
+}
 
 export class UpstreamInternalBindingRegistry {
-	#bindings = new Map<string, UpstreamInternalBindingDescriptor>();
+	#bindings = new Map<string, UpstreamInternalBindingRegistration>();
 
-	constructor(bindings: Iterable<UpstreamInternalBindingDescriptor> = []) {
+	constructor(bindings: Iterable<UpstreamInternalBindingInput> = []) {
 		for (const binding of bindings) {
 			this.register(binding);
 		}
 	}
 
-	register(binding: UpstreamInternalBindingDescriptor): void {
-		if (this.#bindings.has(binding.name)) {
-			throw new Error(`Duplicate upstream internal binding scaffold: ${binding.name}`);
+	register(binding: UpstreamInternalBindingInput): void {
+		const registration = isBindingRegistration(binding)
+			? binding
+			: { descriptor: binding };
+
+		if (this.#bindings.has(registration.descriptor.name)) {
+			throw new Error(
+				`Duplicate upstream internal binding scaffold: ${registration.descriptor.name}`,
+			);
 		}
-		this.#bindings.set(binding.name, binding);
+		this.#bindings.set(registration.descriptor.name, registration);
 	}
 
 	hasBinding(name: string): boolean {
@@ -114,7 +45,7 @@ export class UpstreamInternalBindingRegistry {
 	}
 
 	getBinding(name: string): UpstreamInternalBindingDescriptor {
-		const binding = this.#bindings.get(name);
+		const binding = this.#bindings.get(name)?.descriptor;
 		if (!binding) {
 			throw new Error(`Unknown upstream internal binding scaffold: ${name}`);
 		}
@@ -122,7 +53,23 @@ export class UpstreamInternalBindingRegistry {
 	}
 
 	listBindings(): UpstreamInternalBindingDescriptor[] {
-		return [...this.#bindings.values()];
+		return [...this.#bindings.values()].map(({ descriptor }) => descriptor);
+	}
+
+	listBindingsByPhase(phase: UpstreamBindingPhase): UpstreamInternalBindingDescriptor[] {
+		return this.listBindings().filter((binding) => binding.requiredFor.includes(phase));
+	}
+
+	listBindingsByExecutionModel(
+		executionModel: UpstreamBindingExecutionModel,
+	): UpstreamInternalBindingDescriptor[] {
+		return this.listBindings().filter(
+			(binding) => binding.executionModel === executionModel,
+		);
+	}
+
+	listBindingsByStatus(status: UpstreamBindingStatus): UpstreamInternalBindingDescriptor[] {
+		return this.listBindings().filter((binding) => binding.status === status);
 	}
 
 	assertBindings(names: Iterable<string>): void {
@@ -133,8 +80,44 @@ export class UpstreamInternalBindingRegistry {
 			);
 		}
 	}
+
+	createResolver(
+		context: UpstreamInternalBindingResolverContext,
+	): (name: string) => unknown {
+		const cache = new Map<string, unknown>();
+		return (name: string) => this.resolveBinding(name, context, cache);
+	}
+
+	resolveBinding(
+		name: string,
+		context: UpstreamInternalBindingResolverContext,
+		cache = new Map<string, unknown>(),
+	): unknown {
+		if (cache.has(name)) {
+			return cache.get(name);
+		}
+
+		const registration = this.#bindings.get(name);
+		if (!registration) {
+			throw new Error(`Unknown upstream internal binding scaffold: ${name}`);
+		}
+
+		const {
+			descriptor,
+			createBinding,
+		} = registration;
+		if (descriptor.status !== "implemented" || typeof createBinding !== "function") {
+			throw new Error(
+				`Upstream internal binding ${name} is ${descriptor.status} (${descriptor.executionModel}) for ${descriptor.requiredFor.join(", ")}: ${descriptor.notes}`,
+			);
+		}
+
+		const bindingValue = createBinding(context);
+		cache.set(name, bindingValue);
+		return bindingValue;
+	}
 }
 
 export function createBootstrapBindingRegistryScaffold(): UpstreamInternalBindingRegistry {
-	return new UpstreamInternalBindingRegistry(DEFAULT_BOOTSTRAP_BINDINGS);
+	return new UpstreamInternalBindingRegistry(upstreamHostBindingCatalog);
 }
