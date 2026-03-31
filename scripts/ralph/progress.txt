@@ -179,3 +179,11 @@ Started: Mon Mar 30 06:07:03 PM PDT 2026
   - Gotchas encountered: using only the staged host path fixes resolution but breaks the NodeRuntime contract because entry-module `__filename`, `__dirname`, and `argv[1]` leak `/tmp/...`; keep a separate logical path for user-visible metadata and a host path for actual loading.
   - Useful context: the focused quality bar for this story is green with `pnpm --filter @secure-exec/nodejs check-types` and `pnpm vitest run packages/nodejs/test/replacement-runtime-filepath.test.ts packages/nodejs/test/upstream-modules-file-entry.test.ts packages/nodejs/test/upstream-bootstrap-bringup.test.ts`.
 ---
+## [2026-03-31 13:48 PDT] - US-035
+- What was implemented: validated the existing filePath-aware replacement-runtime exec/run implementation already present on `research-node-wasm`, confirmed the focused typecheck and filepath/module/bootstrap tests are green, and updated the PRD to mark `US-035` as passing so the tracker matches the branch state.
+- Files changed: `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Patterns discovered: when a story's implementation already exists in-branch, use the focused quality bar from the earlier progress entry before flipping the PRD status so tracker updates stay evidence-backed.
+  - Gotchas encountered: `progress.txt` can already contain a completed implementation entry while `prd.json` still has `passes: false`; check both before starting new runtime work.
+  - Useful context: this validation pass re-ran `pnpm --filter @secure-exec/nodejs check-types` and `pnpm vitest run packages/nodejs/test/replacement-runtime-filepath.test.ts packages/nodejs/test/upstream-modules-file-entry.test.ts packages/nodejs/test/upstream-bootstrap-bringup.test.ts`.
+---

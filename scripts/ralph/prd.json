@@ -588,7 +588,7 @@
         "Typecheck passes"
       ],
       "priority": 15.6,
-      "passes": false,
+      "passes": true,
       "notes": "Current critical gap: ExperimentalUpstreamBootstrapRuntimeDriver.run() ignores filePath and never returns exports, and the helper runner compiles user code with filename '[eval]'. That breaks the published NodeRuntime contract and a large slice of existing runtime-driver tests."
     },
     {
