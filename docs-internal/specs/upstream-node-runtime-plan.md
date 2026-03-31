@@ -895,6 +895,12 @@ At this phase, do not promise:
 - REPL
 - full user ESM parity
 
+### Current Bring-Up Notes
+
+- the current US-006 bring-up executes vendored `internal/per_context/*`, `internal/bootstrap/realm`, `internal/bootstrap/node`, and `internal/main/eval_string` inside a dedicated host Node child started with `--expose-internals`
+- the minimum proven shim set is: `internalBinding('builtins')`, host `buffer` plus `setBufferPrototype()` no-op, host `async_wrap` plus `setupHooks()` no-op, host `trace_events` plus `setTraceCategoryStateUpdateHandler()` no-op, and a typed `internal/options` shim for the eval-string entrypoint
+- scope remains intentionally narrow: vendored `internal/*` bootstrap assets run through the new loader path, but public builtins touched by the `eval_string` smoke path still fall back to host `node:` modules until fs-first-light replaces that fallback with real module support
+
 ### Exit Criteria
 
 - Secure Exec can run upstream `internal/bootstrap/realm`

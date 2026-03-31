@@ -55,7 +55,7 @@ describe("upstream runtime scaffold", () => {
 		expect(bindingRegistry.getBinding("builtins")).toMatchObject({
 			status: "implemented",
 		});
-		expect(bindingRegistry.getBinding("async_wrap").notes).toContain("US-001");
+		expect(bindingRegistry.getBinding("async_wrap").notes).toContain("US-006");
 		expect(runtimeScaffold.describe()).toMatchObject({
 			mode: "scaffold",
 			nodeVersion: "v24.14.1",

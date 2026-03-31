@@ -11,6 +11,10 @@ import {
 	createUpstreamBootstrapLoader,
 } from "./bootstrap-loader.js";
 import {
+	type UpstreamBootstrapEvalResult,
+	runUpstreamBootstrapEval,
+} from "./bootstrap-execution.js";
+import {
 	type UpstreamInternalBindingRegistry,
 	createBootstrapBindingRegistryScaffold,
 } from "./internal-binding-registry.js";
@@ -83,6 +87,10 @@ export class UpstreamRuntimeDriverScaffold {
 
 	requireBuiltin(id: string): unknown {
 		return this.builtinRegistry.requireBuiltin(id);
+	}
+
+	runBootstrapEval(code: string): Promise<UpstreamBootstrapEvalResult> {
+		return runUpstreamBootstrapEval({ code });
 	}
 }
 

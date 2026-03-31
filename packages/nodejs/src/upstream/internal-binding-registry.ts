@@ -51,12 +51,14 @@ const DEFAULT_BOOTSTRAP_BINDINGS: ReadonlyArray<UpstreamInternalBindingDescripto
 		{
 			name: "async_wrap",
 			status: "planned",
-			notes: "Bootstrap lifecycle wiring remains a host-native blocker from US-001.",
+			notes:
+				"US-006 snapshot-free bring-up reuses host async_wrap exports but keeps setupHooks() as a scoped no-op until real host lifecycle wiring lands.",
 		},
 		{
 			name: "trace_events",
 			status: "planned",
-			notes: "Trace hooks remain intentionally deferred until bootstrap is stable.",
+			notes:
+				"US-006 bring-up reuses host trace_events exports but keeps the trace state update setter as a no-op during eval_string smoke tests.",
 		},
 		{
 			name: "timers",
@@ -71,7 +73,8 @@ const DEFAULT_BOOTSTRAP_BINDINGS: ReadonlyArray<UpstreamInternalBindingDescripto
 		{
 			name: "buffer",
 			status: "planned",
-			notes: "Buffer bootstrap wiring stays in the host binding set.",
+			notes:
+				"US-006 bring-up keeps buffer bootstrap host-owned and patches setBufferPrototype() as a narrow no-op so bootstrap/node can complete.",
 		},
 		{
 			name: "constants",
