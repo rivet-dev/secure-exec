@@ -13,6 +13,7 @@ import {
 import {
 	type UpstreamBootstrapEvalResult,
 	runUpstreamBootstrapEval,
+	runUpstreamFsFirstLightEval,
 } from "./bootstrap-execution.js";
 import {
 	type UpstreamInternalBindingRegistry,
@@ -108,6 +109,10 @@ export class UpstreamRuntimeDriverScaffold {
 
 	runBootstrapEval(code: string): Promise<UpstreamBootstrapEvalResult> {
 		return runUpstreamBootstrapEval({ code });
+	}
+
+	runFsFirstLightEval(code: string): Promise<UpstreamBootstrapEvalResult> {
+		return runUpstreamFsFirstLightEval({ code });
 	}
 }
 

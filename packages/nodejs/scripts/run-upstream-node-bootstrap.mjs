@@ -95,6 +95,8 @@ function createProcessCapture(payload, stdoutChunks, stderrChunks) {
 	const originalExecArgv = process.execArgv.slice();
 	const originalExitCode = process.exitCode;
 	const originalCwd = process.cwd();
+	const originalProcessSecureExecDone = process.__secureExecDone;
+	const originalGlobalSecureExecDone = globalThis.__secureExecDone;
 	const envSnapshot = new Map();
 
 	process.stdout.write = captureWrite(stdoutChunks);
@@ -136,6 +138,16 @@ function createProcessCapture(payload, stdoutChunks, stderrChunks) {
 		process.argv = originalArgv;
 		process.execArgv = originalExecArgv;
 		process.exitCode = originalExitCode;
+		if (originalProcessSecureExecDone === undefined) {
+			delete process.__secureExecDone;
+		} else {
+			process.__secureExecDone = originalProcessSecureExecDone;
+		}
+		if (originalGlobalSecureExecDone === undefined) {
+			delete globalThis.__secureExecDone;
+		} else {
+			globalThis.__secureExecDone = originalGlobalSecureExecDone;
+		}
 
 		for (const [key, value] of envSnapshot) {
 			if (value === undefined) {
@@ -185,6 +197,13 @@ function createDefaultOptionValue(flag, optionInfo) {
 
 function uniqueSorted(values) {
 	return [...values].sort();
+}
+
+function normalizeVendoredPublicBuiltins(values) {
+	if (!Array.isArray(values)) {
+		return new Set();
+	}
+	return new Set(values.filter((value) => typeof value === "string"));
 }
 
 function createProcessShim(payload, stdoutChunks, stderrChunks) {
@@ -287,6 +306,10 @@ function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 	const bootstrapPhases = [];
 	const requestedBindings = new Set();
 	const publicBuiltinFallbacks = new Set();
+	const vendoredPublicBuiltins = normalizeVendoredPublicBuiltins(
+		payload.vendoredPublicBuiltins,
+	);
+	const vendoredPublicBuiltinsLoaded = new Set();
 	const optionInfo = internalBinding("options").getCLIOptionsInfo();
 	const optionsValues = {
 		"--eval": payload.code ?? "",
@@ -309,8 +332,26 @@ function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 	const compiledCache = new Map();
 	const exportCache = new Map();
 	const internalOptionsShim = createInternalOptionsShim(optionInfo, optionsValues);
+	let resolveCompletionSignal;
+	let rejectCompletionSignal;
+	const completionSignalPromise = new Promise((resolve, reject) => {
+		resolveCompletionSignal = resolve;
+		rejectCompletionSignal = reject;
+	});
 
 	context.process = processShim;
+	context.__secureExecDone = (error) => {
+		if (error === undefined || error === null) {
+			resolveCompletionSignal();
+			return;
+		}
+		rejectCompletionSignal(
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	};
+	processShim.__secureExecDone = context.__secureExecDone;
+	process.__secureExecDone = context.__secureExecDone;
+	globalThis.__secureExecDone = context.__secureExecDone;
 
 	function compileBuiltin(id) {
 		const cached = compiledCache.get(id);
@@ -323,7 +364,10 @@ function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 			throw new Error(`Unknown vendored builtin: ${id}`);
 		}
 
-		if (entry.classification === "public") {
+		if (
+			entry.classification === "public" &&
+			!vendoredPublicBuiltins.has(id)
+		) {
 			const hostFallback = (exports, requireFn, module) => {
 				publicBuiltinFallbacks.add(id);
 				const hostExports = HOST_REQUIRE(`node:${id}`);
@@ -332,6 +376,10 @@ function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 			};
 			compiledCache.set(id, hostFallback);
 			return hostFallback;
+		}
+
+		if (entry.classification === "public") {
+			vendoredPublicBuiltinsLoaded.add(id);
 		}
 
 		let parameters;
@@ -489,9 +537,12 @@ function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 	requireBuiltin("internal/main/eval_string");
 
 	return {
+		awaitCompletionSignal: payload.awaitCompletionSignal === true,
 		bootstrapPhases,
+		completionSignalPromise,
 		requestedBindings: uniqueSorted(requestedBindings),
 		publicBuiltinFallbacks: uniqueSorted(publicBuiltinFallbacks),
+		vendoredPublicBuiltinsLoaded: uniqueSorted(vendoredPublicBuiltinsLoaded),
 	};
 }
 
@@ -509,6 +560,20 @@ if (internalBinding) {
 		}
 
 		execution = createBootstrapExecution(payload, stdoutChunks, stderrChunks);
+		if (execution.awaitCompletionSignal) {
+			await Promise.race([
+				execution.completionSignalPromise,
+				new Promise((_, reject) => {
+					setTimeout(() => {
+						reject(
+							new Error(
+								"vendored bootstrap runner timed out waiting for __secureExecDone()",
+							),
+						);
+					}, 2_000);
+				}),
+			]);
+		}
 		exitCode = typeof process.exitCode === "number" ? process.exitCode : 0;
 		restoreProcess();
 		process.stdout.write(
@@ -524,6 +589,8 @@ if (internalBinding) {
 					bootstrapPhases: execution.bootstrapPhases,
 					internalBindings: execution.requestedBindings,
 					publicBuiltinFallbacks: execution.publicBuiltinFallbacks,
+					vendoredPublicBuiltinsLoaded:
+						execution.vendoredPublicBuiltinsLoaded,
 					appliedBindingShims: [...APPLIED_BINDING_SHIMS],
 				},
 				null,
@@ -554,6 +621,8 @@ if (internalBinding) {
 						],
 						internalBindings: execution?.requestedBindings ?? [],
 						publicBuiltinFallbacks: execution?.publicBuiltinFallbacks ?? [],
+						vendoredPublicBuiltinsLoaded:
+							execution?.vendoredPublicBuiltinsLoaded ?? [],
 						appliedBindingShims: [...APPLIED_BINDING_SHIMS],
 					},
 					null,

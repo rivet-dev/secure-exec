@@ -903,6 +903,8 @@ At this phase, do not promise:
 - US-007 adds a real host binding inventory under `packages/nodejs/src/upstream/host-bindings/` and `internal-binding-registry.ts`; each binding now records its execution model (`host-only`, `host-lifecycle-plus-backend`, or `deferred`), the phases that need it (`bootstrap` or `fs-first`), and which host-owned responsibilities must not move into the backend later
 - the currently wired host shims are intentionally narrow: `builtins`, `config`, `util` bootstrap constants/private symbols, `credentials`, `errors`, `buffer`, `constants`, `symbols`, `timers`, `async_wrap`, `trace_events`, and a minimal `uv` errno surface
 - `module_wrap`, `contextify`, `process_methods`, `cares_wrap`, and `modules` remain explicit planned entries rather than implicit gaps, while `fs`, `fs_dir`, and `fs_event_wrap` are marked deferred for the fs-first story with host-owned callback/wrapper/close semantics called out directly in the notes
+- US-008 keeps that same isolated-child bring-up path but now allows selected public builtins to stay vendored; the current first-light set is only `require('fs')`, backed by vendored `lib/fs.js` plus vendored `internal/fs/*` dependencies, while other public builtins like `path`, `os`, `buffer`, and `module` still fall back to host `node:` modules
+- the explicit fs v1 subset is `open`, `read`, `write`, `close`, `stat`, `readdir`, and `realpath` in both sync and callback styles; `fs.promises`, streams, directory handles, watchers, and `fs_event_wrap` remain deferred to later parity stories
 
 ### Exit Criteria
 

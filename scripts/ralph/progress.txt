@@ -12,6 +12,8 @@ Started: Mon Mar 30 06:07:03 PM PDT 2026
 - Snapshot-free upstream bootstrap bring-up should run vendored `internal/*` assets in a dedicated `node --expose-internals` child that captures stdout/stderr into structured JSON, while temporary public-builtin fallback stays explicit and limited to host `node:` modules touched by the `eval_string` smoke path.
 - Model upstream internal bindings with separate fields for execution model (`host-only` vs `host-lifecycle-plus-backend` vs `deferred`), implementation status, and required phase (`bootstrap` vs `fs-first`) so later stories can wire providers incrementally without losing blocker tracking.
 - For replacement-runtime binding gaps, prefer explicit registry entries that fail with phase-aware notes over implicit missing bindings; that keeps `fs`/loader blockers reviewable before the real provider exists.
+- Keep public-builtin first-light bring-up opt-in: vendoring just the target public builtin (for example `fs`) while other public builtins still fall back to host `node:` modules is enough to prove the new loader path without broadening scope prematurely.
+- Async isolated-child upstream probes should use an explicit completion signal such as `process.__secureExecDone()` instead of guessing from active handles or requests; bootstrap can leave long-lived handles around that make idle detection unreliable.
 
 ## [2026-03-30 18:23 PDT] - US-001
 - What was implemented: added a host-side upstream Node preflight runner that replays `internal/bootstrap/realm`, probes `internal/bootstrap/node`, and exercises `module_wrap`, `contextify`, `uv`, and `cares_wrap`; documented the exact bootstrap-node blocker and linked it from the runtime plan; added focused vitest coverage for the probe outcomes; added local lexer type shims plus typed callbacks so `@secure-exec/nodejs` typecheck is green again.
@@ -76,4 +78,12 @@ Started: Mon Mar 30 06:07:03 PM PDT 2026
   - Patterns discovered: the binding inventory is easier to evolve when `bootstrap` and `fs-first` are tracked as explicit phases on each binding instead of a single flat status list.
   - Gotchas encountered: `Object.freeze(["bootstrap"])` widens to `readonly string[]` in this file layout, so use typed helpers for phase/responsibility arrays or the catalog stops satisfying the registry types.
   - Useful context: the focused quality bar for this story is green with `pnpm --filter @secure-exec/nodejs check-types` and `pnpm vitest run packages/nodejs/test/upstream-runtime-scaffold.test.ts packages/nodejs/test/upstream-internal-binding-registry.test.ts packages/nodejs/test/upstream-builtins-registry.test.ts packages/nodejs/test/upstream-bootstrap-bringup.test.ts`.
+---
+## [2026-03-30 20:39 PDT] - US-008
+- What was implemented: extended the isolated upstream bootstrap/eval runner so selected public builtins can stay vendored, added the `fs`-first-light runtime wrappers around that path, proved vendored `require('fs')` for `open`/`read`/`write`/`close`/`stat`/`readdir`/`realpath` in both sync and callback styles, and documented the exact fs v1 scope plus remaining deferred surfaces.
+- Files changed: `packages/nodejs/scripts/run-upstream-node-bootstrap.mjs`, `packages/nodejs/src/upstream/bootstrap-execution.ts`, `packages/nodejs/src/upstream/runtime-driver.ts`, `packages/nodejs/test/upstream-fs-first-light.test.ts`, `docs-internal/specs/upstream-node-runtime-plan.md`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Patterns discovered: first-light public builtin bring-up can stay narrow by vendoring only the target module while leaving unrelated public builtins on explicit host fallbacks.
+  - Gotchas encountered: async callback probes inside the isolated child runner need an explicit completion hook; trying to infer completion from active handles or requests can hang because bootstrap leaves long-lived activity behind.
+  - Useful context: the focused quality bar for this story is green with `pnpm --filter @secure-exec/nodejs check-types` and `pnpm vitest run packages/nodejs/test/upstream-fs-first-light.test.ts packages/nodejs/test/upstream-bootstrap-bringup.test.ts`.
 ---
