@@ -68,8 +68,11 @@ interface IpcFrameLogEntry {
 	kind: string;
 	direction?: "send" | "recv";
 	frameType?: string;
+	encodedBytes?: number;
 	status?: number;
 	payloadBytes?: number;
+	bridgeCodeBytes?: number;
+	bridgeCodeRefBytes?: number;
 }
 
 async function readLogEntries(logFile: string): Promise<IpcFrameLogEntry[]> {
@@ -463,6 +466,66 @@ describe.skipIf(skipUnlessBinary)("V8 context snapshot behavior", () => {
 				expect(bridgeResponses).toHaveLength(2);
 				expect(bridgeResponses[0].payloadBytes).toBeGreaterThan(4000);
 				expect(bridgeResponses[1].payloadBytes).toBeLessThan(256);
+			} finally {
+				await rm(tempDir, { recursive: true, force: true });
+			}
+		});
+
+		it("reuses cached bridge snapshots across fresh sessions", async () => {
+			const tempDir = await mkdtemp(
+				join(tmpdir(), "secure-exec-v8-bridge-ref-hit-"),
+			);
+			const logFile = join(tempDir, "ipc.ndjson");
+			const bridgeCode =
+				`(function(){globalThis.__bridgeReady=true;/*${"x".repeat(8192)}*/})();`;
+			const runtime = await createRuntime({
+				observability: { logFile },
+			});
+			const execOptions = defaultExecOptions({
+				bridgeCode,
+				userCode: `
+					if (globalThis.__bridgeReady !== true) {
+						throw new Error("bridge snapshot did not initialize");
+					}
+				`,
+			});
+
+			try {
+				const firstSession = await runtime.createSession();
+				const firstResult = await firstSession.execute(execOptions);
+				expect(firstResult.code).toBe(0);
+				expect(firstResult.error).toBeFalsy();
+				await firstSession.destroy();
+
+				const secondSession = await runtime.createSession();
+				const secondResult = await secondSession.execute(execOptions);
+				expect(secondResult.code).toBe(0);
+				expect(secondResult.error).toBeFalsy();
+				await secondSession.destroy();
+
+				await runtime.dispose();
+				const runtimeIndex = runtimes.indexOf(runtime);
+				if (runtimeIndex !== -1) {
+					runtimes.splice(runtimeIndex, 1);
+				}
+
+				const executeFrames = (await readLogEntries(logFile)).filter(
+					(entry) =>
+						entry.kind === "ipc_frame" &&
+						entry.direction === "send" &&
+						entry.frameType === "Execute",
+				);
+
+				expect(executeFrames).toHaveLength(2);
+				expect(executeFrames[0].bridgeCodeBytes).toBeGreaterThan(8000);
+				expect(executeFrames[0].bridgeCodeRefBytes).toBeGreaterThan(0);
+				expect(executeFrames[1].bridgeCodeBytes).toBe(0);
+				expect(executeFrames[1].bridgeCodeRefBytes).toBeGreaterThan(0);
+				expect(executeFrames[0].encodedBytes).toBeTypeOf("number");
+				expect(executeFrames[1].encodedBytes).toBeTypeOf("number");
+				expect(executeFrames[1].encodedBytes!).toBeLessThan(
+					executeFrames[0].encodedBytes!,
+				);
 			} finally {
 				await rm(tempDir, { recursive: true, force: true });
 			}

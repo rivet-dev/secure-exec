@@ -47,6 +47,7 @@ export interface DestroySessionMsg {
 export interface ExecuteMsg {
 	type: "Execute";
 	session_id: string;
+	bridge_code_ref?: string | null;
 	bridge_code: string;
 	user_code: string;
 	file_path?: string | null;

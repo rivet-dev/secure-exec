@@ -16,7 +16,11 @@ import {
 	type V8IpcObservabilityOptions,
 } from "./ipc-observability.js";
 import type { BinaryFrame } from "./ipc-binary.js";
-import type { V8Session, V8SessionOptions } from "./session.js";
+import type {
+	V8ExecutionResult,
+	V8Session,
+	V8SessionOptions,
+} from "./session.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -32,6 +36,7 @@ const PLATFORM_PACKAGES: Record<string, string> = {
 
 const POLYFILL_CACHE_STORE_FIELD = "__secureExecPolyfillCacheStore";
 const POLYFILL_CACHE_REF_FIELD = "__secureExecPolyfillCacheRef";
+const BRIDGE_CODE_REF_MISS_ERROR = "ERR_BRIDGE_CODE_REF_MISS";
 
 interface CachedPolyfillBridgePayload {
 	payload: Buffer;
@@ -103,6 +108,10 @@ function resolveBinaryPath(): string {
 function buildPolyfillCacheKey(moduleName: string, code: string): string {
 	const hash = createHash("sha256").update(code).digest("hex").slice(0, 16);
 	return `polyfill:${moduleName}:${hash}`;
+}
+
+function buildBridgeCodeCacheKey(bridgeCode: string): string {
+	return `bridge:${createHash("sha256").update(bridgeCode).digest("hex")}`;
 }
 
 function shouldCachePolyfillPayload(
@@ -194,6 +203,9 @@ export async function createV8Runtime(
 	// Shared-runtime cache state for bridge payloads that can be materialized in
 	// the native process after a prior execution has transferred them.
 	const promotedPolyfillCacheKeys = new Set<string>();
+	// Shared-runtime cache state for bridge snapshots that can be referenced by
+	// hash after an earlier execution has already transferred the full source.
+	const promotedBridgeCodeCacheKeys = new Set<string>();
 	let ipcClient: IpcClient | null = null;
 	let disposed = false;
 
@@ -464,7 +476,8 @@ export async function createV8Runtime(
 
 			// Create session proxy
 			const client = ipcClient;
-			// Track bridge code hash to skip resending unchanged bridge code
+			// Track bridge code hash to skip resending unchanged bridge code within
+			// a session, and to promote cross-session bridge snapshot refs.
 			let lastBridgeCodeHash: number | null = null;
 			const session: V8Session = {
 				sendStreamEvent(eventType: string, payload: Uint8Array): void {
@@ -486,27 +499,48 @@ export async function createV8Runtime(
 						throw new Error("IPC client is not connected");
 					}
 
-					// Inject globals — V8-serialize { processConfig, osConfig }
-					const globalsPayload = v8.serialize({
-						processConfig: execOptions.processConfig,
-						osConfig: execOptions.osConfig,
-					});
-					client.send({
-						type: "InjectGlobals",
-						sessionId,
-						payload: globalsPayload,
-					});
+					const bridgeHash = fnv1aHash(execOptions.bridgeCode);
+					const bridgeCodeRef =
+						execOptions.bridgeCode.length > 0
+							? buildBridgeCodeCacheKey(execOptions.bridgeCode)
+							: "";
 
-					// Set up result promise
-					return new Promise((resolve, reject) => {
-						const sessionPolyfillCacheKeys = new Set<string>();
-						// Store reject so rejectPendingSessions can
-						// reject this promise on IPC close or process crash
-						sessionRejects.set(sessionId, reject);
+					const runExecute = async (
+						forceBridgeCodeTransfer: boolean,
+					): Promise<V8ExecutionResult> => {
+						// Inject globals — V8-serialize { processConfig, osConfig }
+						const globalsPayload = v8.serialize({
+							processConfig: execOptions.processConfig,
+							osConfig: execOptions.osConfig,
+						});
+						client.send({
+							type: "InjectGlobals",
+							sessionId,
+							payload: globalsPayload,
+						});
 
-						// Register session message handler
-						sessionHandlers.set(sessionId, (frame) => {
-							switch (frame.type) {
+						// Set up result promise
+						return new Promise<V8ExecutionResult>((resolve, reject) => {
+							const sessionPolyfillCacheKeys = new Set<string>();
+							const usePromotedBridgeCodeRef =
+								bridgeCodeRef.length > 0 &&
+								!forceBridgeCodeTransfer &&
+								promotedBridgeCodeCacheKeys.has(bridgeCodeRef);
+							const sendBridgeCode =
+								forceBridgeCodeTransfer ||
+								(!usePromotedBridgeCodeRef &&
+									bridgeHash !== lastBridgeCodeHash);
+							if (sendBridgeCode) {
+								lastBridgeCodeHash = bridgeHash;
+							}
+							const bridgeCodeWasOmitted = !sendBridgeCode;
+							// Store reject so rejectPendingSessions can
+							// reject this promise on IPC close or process crash
+							sessionRejects.set(sessionId, reject);
+
+							// Register session message handler
+							sessionHandlers.set(sessionId, (frame) => {
+								switch (frame.type) {
 								case "BridgeCall": {
 									observability?.markBridgeCallStart(
 										sessionId,
@@ -632,10 +666,22 @@ export async function createV8Runtime(
 									for (const cacheKey of sessionPolyfillCacheKeys) {
 										promotedPolyfillCacheKeys.add(cacheKey);
 									}
+									if (sendBridgeCode && bridgeCodeRef.length > 0) {
+										promotedBridgeCodeCacheKeys.add(bridgeCodeRef);
+									}
 									observability?.markExecuteFinish(sessionId, {
 										exitCode: frame.exitCode,
 										errorCode: frame.error?.code || undefined,
 									});
+									if (
+										bridgeCodeWasOmitted &&
+										bridgeCodeRef.length > 0 &&
+										frame.error?.code === BRIDGE_CODE_REF_MISS_ERROR
+									) {
+										promotedBridgeCodeCacheKeys.delete(bridgeCodeRef);
+										void runExecute(true).then(resolve, reject);
+										return;
+									}
 									resolve({
 										code: frame.exitCode,
 										exports: frame.exports,
@@ -665,31 +711,29 @@ export async function createV8Runtime(
 										frame.payload,
 									);
 									break;
-							}
-						});
+								}
+							});
 
-						// Send Execute — skip bridge code if unchanged since last send
-						const bridgeHash = fnv1aHash(execOptions.bridgeCode);
-						const sendBridgeCode = bridgeHash !== lastBridgeCodeHash;
-						if (sendBridgeCode) {
-							lastBridgeCodeHash = bridgeHash;
-						}
-						client.send({
-							type: "Execute",
-							sessionId,
-							bridgeCode: sendBridgeCode ? execOptions.bridgeCode : "",
-							postRestoreScript: execOptions.postRestoreScript ?? "",
-							userCode: execOptions.userCode,
-							mode: execOptions.mode === "exec" ? 0 : 1,
-							filePath: execOptions.filePath ?? "",
+							client.send({
+								type: "Execute",
+								sessionId,
+								bridgeCodeRef,
+								bridgeCode: sendBridgeCode ? execOptions.bridgeCode : "",
+								postRestoreScript: execOptions.postRestoreScript ?? "",
+								userCode: execOptions.userCode,
+								mode: execOptions.mode === "exec" ? 0 : 1,
+								filePath: execOptions.filePath ?? "",
+							});
+							observability?.markExecuteStart(sessionId, {
+								mode: execOptions.mode,
+								filePath: execOptions.filePath,
+							});
+							// Ref the socket while execution is in-flight
+							updateSocketRef();
 						});
-						observability?.markExecuteStart(sessionId, {
-							mode: execOptions.mode,
-							filePath: execOptions.filePath,
-						});
-						// Ref the socket while execution is in-flight
-						updateSocketRef();
-					});
+					};
+
+					return runExecute(false);
 				},
 
 				async destroy(): Promise<void> {

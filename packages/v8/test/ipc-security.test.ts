@@ -358,6 +358,7 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 		clientB.send({
 			type: "Execute",
 			sessionId,
+			bridgeCodeRef: "",
 			bridgeCode: "",
 			postRestoreScript: "",
 			userCode: "1 + 1;",
@@ -396,6 +397,7 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 		clientA.send({
 			type: "Execute",
 			sessionId,
+			bridgeCodeRef: "",
 			bridgeCode: "",
 			postRestoreScript: "",
 			userCode: "1 + 1;",
@@ -428,6 +430,7 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 			encodeFrame({
 				type: "Execute",
 				sessionId: "test",
+				bridgeCodeRef: "",
 				bridgeCode: "",
 				postRestoreScript: "",
 				userCode: largeCode,
@@ -525,6 +528,7 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 		client.send({
 			type: "Execute",
 			sessionId,
+			bridgeCodeRef: "",
 			bridgeCode: "",
 			postRestoreScript: "",
 			userCode: '_log("test");',
@@ -617,6 +621,7 @@ describe.skipIf(skipUnlessBinary)("V8 IPC security", () => {
 		client.send({
 			type: "Execute",
 			sessionId,
+			bridgeCodeRef: "",
 			bridgeCode: "",
 			postRestoreScript: "",
 			userCode: "42;",

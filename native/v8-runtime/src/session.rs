@@ -289,6 +289,8 @@ fn session_thread(
     #[cfg_attr(test, allow(unused_variables))] shared_call_id: SharedCallIdCounter,
     #[cfg_attr(test, allow(unused_variables))] snapshot_cache: Arc<SnapshotCache>,
 ) {
+    const BRIDGE_CODE_REF_MISS_ERROR: &str = "ERR_BRIDGE_CODE_REF_MISS";
+
     // Acquire concurrency slot (blocks if at capacity)
     {
         let (lock, cvar) = &*slot_control;
@@ -351,14 +353,56 @@ fn session_thread(
                     BinaryFrame::Execute {
                         session_id,
                         bridge_code,
+                        bridge_code_ref,
                         post_restore_script,
                         user_code,
                         mode,
                         file_path,
                     } => {
-                        // Use cached bridge code when host sends empty (0-length = use cached)
+                        let send_execute_error =
+                            |message: String, code: &str, ipc_tx: &IpcSender, frame_buf: &mut Vec<u8>| {
+                                let result_frame = BinaryFrame::ExecutionResult {
+                                    session_id: session_id.clone(),
+                                    exit_code: 1,
+                                    exports: None,
+                                    error: Some(ExecutionErrorBin {
+                                        error_type: "Error".to_string(),
+                                        message,
+                                        stack: String::new(),
+                                        code: code.to_string(),
+                                    }),
+                                };
+                                send_message(ipc_tx, &result_frame, frame_buf);
+                            };
+
+                        let mut referenced_snapshot_blob: Option<Arc<Vec<u8>>> = None;
+
+                        // Use a referenced snapshot when available, otherwise
+                        // fall back to cached in-session bridge code or a freshly
+                        // transferred bridge payload.
                         let effective_bridge_code = if bridge_code.is_empty() {
-                            last_bridge_code.as_deref().unwrap_or("").to_string()
+                            if !bridge_code_ref.is_empty() {
+                                match snapshot_cache.get_by_reference(&bridge_code_ref) {
+                                    Some(blob) => {
+                                        referenced_snapshot_blob = Some(blob);
+                                        String::new()
+                                    }
+                                    None => {
+                                        send_execute_error(
+                                            format!(
+                                                "Unknown bridge code ref: {}",
+                                                bridge_code_ref
+                                            ),
+                                            BRIDGE_CODE_REF_MISS_ERROR,
+                                            &ipc_tx,
+                                            &mut msg_frame_buf,
+                                        );
+                                        continue;
+                                    }
+                                }
+                            } else {
+                                last_bridge_code.as_deref().unwrap_or("").to_string()
+                            }
                         } else {
                             last_bridge_code = Some(bridge_code.clone());
                             bridge_code
@@ -367,10 +411,19 @@ fn session_thread(
                         // Deferred isolate creation: create on first Execute using snapshot cache
                         if v8_isolate.is_none() {
                             isolate::init_v8_platform();
-                            let mut iso = if !effective_bridge_code.is_empty() {
+                            let mut iso = if let Some(blob) = referenced_snapshot_blob.clone() {
+                                from_snapshot = true;
+                                snapshot::create_isolate_from_snapshot((*blob).clone(), heap_limit_mb)
+                            } else if !effective_bridge_code.is_empty() {
                                 match snapshot_cache.get_or_create(&effective_bridge_code) {
                                     Ok(blob) => {
                                         from_snapshot = true;
+                                        if !bridge_code_ref.is_empty() {
+                                            snapshot_cache.remember_reference(
+                                                &bridge_code_ref,
+                                                Arc::clone(&blob),
+                                            );
+                                        }
                                         snapshot::create_isolate_from_snapshot(
                                             (*blob).clone(),
                                             heap_limit_mb,

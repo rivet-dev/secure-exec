@@ -115,6 +115,10 @@ docs-internal/specs/cli-tool-e2e.md
 - [ ] Reduce repeated bootstrap, resolver, and filesystem probe overhead in module-load scenarios.
   - Current baseline shows `~1.24 MB` `Execute` payloads per iteration, `_resolveModule` at `34` calls and `~41-46 ms`, and `_fsExists` as high as `44` calls and `~54.9 ms`.
 
+- [ ] Deduplicate the remaining static `postRestoreScript` bytes in warm module-load `Execute` frames.
+  - US-006 removed the repeated `bridgeCode` transfer on warm fresh sessions via bridge snapshot refs, but warm `Execute` frames still resend about `196 KB` of static `postRestoreScript` bootstrap on every iteration.
+  - Files: `packages/nodejs/src/execution-driver.ts`, `packages/v8/src/runtime.ts`, `native/v8-runtime/src/session.rs`
+
 - [ ] Attribute and reduce the fixed fresh-session overhead in the module-load benchmark.
   - Current baseline shows a stable `~109 ms` fixed per-session cost even on Hono, which is likely outside the actual module graph work.
 

@@ -409,6 +409,7 @@ function summarizeFrame(
 				...base,
 				mode: frame.mode === 0 ? "exec" : "run",
 				filePath: frame.filePath || undefined,
+				bridgeCodeRefBytes: Buffer.byteLength(frame.bridgeCodeRef, "utf8"),
 				bridgeCodeBytes: Buffer.byteLength(frame.bridgeCode, "utf8"),
 				postRestoreScriptBytes: Buffer.byteLength(frame.postRestoreScript, "utf8"),
 				userCodeBytes: Buffer.byteLength(frame.userCode, "utf8"),

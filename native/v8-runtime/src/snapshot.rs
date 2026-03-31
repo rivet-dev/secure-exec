@@ -152,6 +152,7 @@ pub struct SnapshotCache {
 
 struct CacheInner {
     entries: Vec<CacheEntry>,
+    refs: Vec<SnapshotRefEntry>,
     /// Per-key in-flight tracking: callers for the same hash wait on the
     /// condvar instead of creating duplicate snapshots.
     in_flight: HashMap<u64, Arc<InFlightEntry>>,
@@ -162,6 +163,11 @@ struct CacheEntry {
     /// Snapshot blob bytes (copied from v8::StartupData).
     /// Stored as Vec<u8> rather than StartupData because StartupData
     /// contains raw pointers that are not Send/Sync.
+    blob: Arc<Vec<u8>>,
+}
+
+struct SnapshotRefEntry {
+    reference: String,
     blob: Arc<Vec<u8>>,
 }
 
@@ -177,10 +183,45 @@ impl SnapshotCache {
         SnapshotCache {
             inner: Mutex::new(CacheInner {
                 entries: Vec::new(),
+                refs: Vec::new(),
                 in_flight: HashMap::new(),
             }),
             max_entries,
         }
+    }
+
+    pub fn remember_reference(&self, reference: &str, blob: Arc<Vec<u8>>) {
+        if reference.is_empty() {
+            return;
+        }
+
+        let mut inner = self.inner.lock().unwrap();
+        if let Some(pos) = inner.refs.iter().position(|entry| entry.reference == reference) {
+            inner.refs.remove(pos);
+        }
+        if inner.refs.len() >= self.max_entries {
+            inner.refs.remove(0);
+        }
+        inner.refs.push(SnapshotRefEntry {
+            reference: reference.to_string(),
+            blob,
+        });
+    }
+
+    pub fn get_by_reference(&self, reference: &str) -> Option<Arc<Vec<u8>>> {
+        if reference.is_empty() {
+            return None;
+        }
+
+        let mut inner = self.inner.lock().unwrap();
+        let pos = inner
+            .refs
+            .iter()
+            .position(|entry| entry.reference == reference)?;
+        let entry = inner.refs.remove(pos);
+        let blob = Arc::clone(&entry.blob);
+        inner.refs.push(entry);
+        Some(blob)
     }
 
     /// Get or create a snapshot for the given bridge code.

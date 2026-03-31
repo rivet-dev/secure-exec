@@ -166,8 +166,24 @@
         "Touched packages typecheck."
       ],
       "priority": 8,
+      "passes": true,
+      "notes": "Completed by adding cross-session bridge snapshot refs to `Execute` frames, backed by native snapshot-ref caching plus a retry-on-ref-miss fallback. The committed benchmark artifacts cut average `send:Execute` bytes by `697699` bytes/iteration across the suite (for example `1243904 -> 546205` on Pi SDK startup and `1244082 -> 546383` on Pi CLI startup), while a focused Hono repro now shows warm fresh-session `Execute` frames at `197216` bytes with `bridgeCodeBytes = 0` and `bridgeCodeRefBytes = 71`. Follow-up `US-016` tracks the remaining static `postRestoreScript` bootstrap bytes that still travel on every warm execute."
+    },
+    {
+      "id": "US-016",
+      "title": "Deduplicate static `postRestoreScript` bootstrap bytes in warm execute frames",
+      "description": "As a maintainer, I need the remaining static post-restore bootstrap script to stop travelling on every warm execute so the steady-state `Execute` frame shrinks beyond the new bridge snapshot-ref floor.",
+      "acceptanceCriteria": [
+        "Warm fresh-session `Execute` frames no longer resend the same large static `postRestoreScript` bootstrap body in full when the content is unchanged, or the benchmark proves a smaller equivalent design.",
+        "Committed benchmark artifacts expose before/after `send:Execute` bytes for at least the Hono control and one Pi scenario, and the byte movement is obvious in `comparison.md`.",
+        "Focused regression coverage proves the refactored post-restore bootstrap still applies console/require/dynamic-import setup correctly after bridge replacement.",
+        "Append before/after benchmark deltas to `scripts/ralph/progress.txt` for the affected scenarios, including warm wall time, bridge calls per iteration, and the dominant IPC counters touched by this story.",
+        "Relevant targeted tests pass.",
+        "Touched packages typecheck."
+      ],
+      "priority": 9,
       "passes": false,
-      "notes": "The current analysis shows an `Execute` frame of roughly `1.24 MB` per iteration. That makes repeated bootstrap transfer a plausible second-order cost even after `_loadPolyfill` call count drops."
+      "notes": "US-006 removed the repeated `bridgeCode` transfer on warm fresh sessions, but warm `Execute` frames still carry about `196 KB` of static `postRestoreScript` bootstrap on every iteration."
     },
     {
       "id": "US-007",
