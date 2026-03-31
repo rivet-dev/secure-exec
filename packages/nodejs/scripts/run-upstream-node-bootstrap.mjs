@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { serialize } from "node:v8";
 import {
 	clearImmediate as hostClearImmediate,
@@ -637,10 +637,19 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 		typeof payload.filePath === "string" && payload.filePath.length > 0
 			? payload.filePath
 			: undefined;
+	const logicalResolutionFilePath =
+		typeof payload.resolutionFilePath === "string" &&
+		payload.resolutionFilePath.length > 0
+			? payload.resolutionFilePath
+			: logicalUserFilePath;
 	const hostUserFilePath =
 		typeof payload.hostFilePath === "string" && payload.hostFilePath.length > 0
 			? payload.hostFilePath
 			: logicalUserFilePath;
+	const hostStageRoot =
+		typeof payload.stageRoot === "string" && payload.stageRoot.length > 0
+			? path.resolve(payload.stageRoot)
+			: undefined;
 	const executeUserInlineFileCode =
 		typeof payload.code === "string" &&
 		typeof hostUserFilePath === "string" &&
@@ -708,6 +717,194 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 	processShim.__secureExecDone = context.__secureExecDone;
 	process.__secureExecDone = context.__secureExecDone;
 	globalThis.__secureExecDone = context.__secureExecDone;
+
+	function normalizeModuleFilename(filenameOrURL) {
+		if (filenameOrURL instanceof URL) {
+			return fileURLToPath(filenameOrURL);
+		}
+		if (typeof filenameOrURL !== "string") {
+			throw new TypeError("filename must be a string or file URL");
+		}
+		if (filenameOrURL.startsWith("file:")) {
+			return fileURLToPath(filenameOrURL);
+		}
+		return filenameOrURL;
+	}
+
+	function isWithinStageRoot(candidatePath) {
+		return (
+			typeof hostStageRoot === "string" &&
+			(candidatePath === hostStageRoot ||
+				candidatePath.startsWith(`${hostStageRoot}${path.sep}`))
+		);
+	}
+
+	function mapLogicalPathToHost(logicalPath) {
+		if (
+			typeof hostStageRoot !== "string" ||
+			typeof logicalPath !== "string" ||
+			!path.posix.isAbsolute(logicalPath)
+		) {
+			return logicalPath;
+		}
+		return path.join(hostStageRoot, logicalPath.slice(1));
+	}
+
+	function mapHostPathToLogical(hostPath) {
+		if (typeof hostPath !== "string") {
+			return hostPath;
+		}
+		if (!isWithinStageRoot(hostPath)) {
+			return null;
+		}
+		const relative = path.relative(hostStageRoot, hostPath);
+		if (relative === "") {
+			return "/";
+		}
+		return `/${relative.split(path.sep).join("/")}`;
+	}
+
+	function createSandboxRequire(referrerHostFilePath, referrerLogicalFilePath) {
+		const effectiveLogicalReferrer =
+			typeof referrerLogicalFilePath === "string" &&
+			referrerLogicalFilePath.length > 0
+				? referrerLogicalFilePath
+				: logicalResolutionFilePath;
+		const effectiveHostReferrer =
+			typeof referrerHostFilePath === "string" &&
+			referrerHostFilePath.length > 0
+				? referrerHostFilePath
+				: mapLogicalPathToHost(effectiveLogicalReferrer);
+		const hostRequire = createRequire(
+			pathToFileURL(path.resolve(effectiveHostReferrer)).href,
+		);
+
+		function resolveNonBuiltin(specifier, options) {
+			const mappedOptions =
+				options &&
+				Array.isArray(options.paths)
+					? {
+							...options,
+							paths: options.paths.map((candidatePath) =>
+								mapLogicalPathToHost(candidatePath),
+							),
+						}
+					: options;
+			const resolved = hostRequire.resolve(specifier, mappedOptions);
+			if (
+				typeof resolved === "string" &&
+				typeof hostStageRoot === "string" &&
+				!isWithinStageRoot(resolved)
+			) {
+				const moduleNotFoundError = new Error(
+					`Cannot find module '${specifier}'`,
+				);
+				moduleNotFoundError.code = "MODULE_NOT_FOUND";
+				throw moduleNotFoundError;
+			}
+			return resolved;
+		}
+
+		const sandboxRequire = (specifier) => {
+			const builtinId = normalizeBuiltinRequest(specifier);
+			if (builtinId) {
+				if (
+					executeUserCodeDirectly &&
+					vendoredPublicBuiltins.has(builtinId) &&
+					HOST_CONTEXT_BUILTINS.has(builtinId)
+				) {
+					return requireHostVendoredBuiltin(builtinId);
+				}
+				if (builtinId === "module") {
+					return patchModuleBuiltinExports(
+						patchVmBuiltinExports(builtinId, requireBuiltin(builtinId)),
+						effectiveHostReferrer,
+						effectiveLogicalReferrer,
+					);
+				}
+				return patchVmBuiltinExports(builtinId, requireBuiltin(builtinId));
+			}
+
+			const resolved = resolveNonBuiltin(specifier);
+			let executionPath = resolved;
+			try {
+				executionPath = realpathSync(resolved);
+			} catch {
+				// Use the resolved path directly when it is not a symlinked package root.
+			}
+			return hostRequire(executionPath);
+		};
+
+		sandboxRequire.resolve = (specifier, options) => {
+			const builtinId = normalizeBuiltinRequest(specifier);
+			if (builtinId) {
+				return specifier.startsWith("node:") ? `node:${builtinId}` : builtinId;
+			}
+			const resolved = resolveNonBuiltin(specifier, options);
+			return mapHostPathToLogical(resolved) ?? resolved;
+		};
+
+		sandboxRequire.resolve.paths = (specifier) => {
+			const builtinId = normalizeBuiltinRequest(specifier);
+			if (builtinId) {
+				return null;
+			}
+			const candidatePaths = hostRequire.resolve.paths(specifier);
+			if (!Array.isArray(candidatePaths)) {
+				return candidatePaths;
+			}
+			return candidatePaths
+				.map((candidatePath) => mapHostPathToLogical(candidatePath))
+				.filter(Boolean);
+		};
+
+		sandboxRequire.cache = hostRequire.cache;
+		sandboxRequire.main = hostRequire.main;
+		return sandboxRequire;
+	}
+
+	function patchModuleBuiltinExports(
+		exportsValue,
+		referrerHostFilePath,
+		referrerLogicalFilePath,
+	) {
+		if (
+			(typeof exportsValue !== "object" || exportsValue === null) &&
+			typeof exportsValue !== "function"
+		) {
+			return exportsValue;
+		}
+		if (typeof exportsValue.createRequire !== "function") {
+			return exportsValue;
+		}
+		if (exportsValue.__secureExecCreateRequirePatched === true) {
+			return exportsValue;
+		}
+
+		const originalCreateRequire = exportsValue.createRequire.bind(exportsValue);
+		exportsValue.createRequire = (filenameOrURL) => {
+			const normalizedFilename = normalizeModuleFilename(filenameOrURL);
+			const logicalFilename =
+				path.posix.isAbsolute(normalizedFilename)
+					? normalizedFilename
+					: referrerLogicalFilePath;
+			const hostFilename =
+				path.posix.isAbsolute(normalizedFilename)
+					? mapLogicalPathToHost(normalizedFilename)
+					: referrerHostFilePath;
+			if (typeof hostFilename !== "string" || hostFilename.length === 0) {
+				return originalCreateRequire(filenameOrURL);
+			}
+			return createSandboxRequire(hostFilename, logicalFilename);
+		};
+		Object.defineProperty(exportsValue, "__secureExecCreateRequirePatched", {
+			value: true,
+			configurable: true,
+			enumerable: false,
+			writable: false,
+		});
+		return exportsValue;
+	}
 
 	function compileBuiltin(id) {
 		const cached = compiledCache.get(id);
@@ -1024,12 +1221,12 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 		return patchVmBuiltinExports(id, mod.exports);
 	}
 
-	function createUserRequire(referrerFilePath) {
+	function createUserRequire(referrerFilePath, referrerLogicalFilePath) {
 		const builtinRequire = capturedLoaders?.requireBuiltin ?? requireBuiltin;
-		const hostRequire =
-			typeof referrerFilePath === "string" && referrerFilePath.length > 0
-				? createRequire(pathToFileURL(referrerFilePath).href)
-				: HOST_REQUIRE;
+		const sandboxRequire = createSandboxRequire(
+			referrerFilePath,
+			referrerLogicalFilePath,
+		);
 		const userRequire = (specifier) => {
 			const builtinId = normalizeBuiltinRequest(specifier);
 			if (builtinId) {
@@ -1040,25 +1237,27 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 				) {
 					return requireHostVendoredBuiltin(builtinId);
 				}
+				if (builtinId === "module") {
+					return patchModuleBuiltinExports(
+						patchVmBuiltinExports(builtinId, builtinRequire(builtinId)),
+						referrerFilePath,
+						referrerLogicalFilePath,
+					);
+				}
 				return patchVmBuiltinExports(builtinId, builtinRequire(builtinId));
 			}
-			return hostRequire(specifier);
+			return sandboxRequire(specifier);
 		};
-		userRequire.resolve = (specifier) => {
-			const builtinId = normalizeBuiltinRequest(specifier);
-			if (builtinId) {
-				return `node:${builtinId}`;
-			}
-			return hostRequire.resolve(specifier);
-		};
-		userRequire.cache = hostRequire.cache;
-		userRequire.main = hostRequire.main;
+		userRequire.resolve = sandboxRequire.resolve;
+		userRequire.cache = sandboxRequire.cache;
+		userRequire.main = sandboxRequire.main;
 		return userRequire;
 	}
 
 	function executeUserEvalCode({
 		hostFilePath,
 		logicalFilePath,
+		resolutionFilePath,
 	} = {}) {
 		Object.assign(context, hostTimerGlobals);
 		const visibleFilePath = logicalFilePath ?? "[eval]";
@@ -1080,7 +1279,10 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 			id: visibleFilePath,
 			path: visibleDirname,
 		};
-		const userRequire = createUserRequire(hostFilePath);
+		const userRequire = createUserRequire(
+			hostFilePath,
+			resolutionFilePath ?? logicalFilePath,
+		);
 		const result = compiled(
 			mod.exports,
 			userRequire,
@@ -1102,6 +1304,7 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 		return executeUserEvalCode({
 			hostFilePath: normalizedHostPath,
 			logicalFilePath: logicalFilePath ?? normalizedHostPath,
+			resolutionFilePath: logicalFilePath ?? normalizedHostPath,
 		});
 	}
 
@@ -1146,7 +1349,10 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 		);
 	} else if (executeUserCodeDirectly) {
 		entrypoint = "secure_exec/post_bootstrap_eval";
-		userExports = executeUserEvalCode();
+		userExports = executeUserEvalCode({
+			hostFilePath: hostUserFilePath,
+			resolutionFilePath: logicalResolutionFilePath,
+		});
 	} else {
 		bootstrapPhases.push("internal/main/eval_string");
 		requireBuiltin("internal/main/eval_string");

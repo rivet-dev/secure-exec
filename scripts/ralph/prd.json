@@ -605,7 +605,7 @@
         "Typecheck passes"
       ],
       "priority": 15.7,
-      "passes": false,
+      "passes": true,
       "notes": "Current critical gap: the replacement bootstrap runner still routes non-builtin requires and require.resolve() through HOST_REQUIRE. That violates the node-bridge and node-stdlib contracts and makes package parity claims untrustworthy."
     },
     {

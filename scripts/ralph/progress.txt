@@ -2,6 +2,7 @@
 Started: Mon Mar 30 06:07:03 PM PDT 2026
 ## Codebase Patterns
 - Inline replacement-runtime `exec(code, { filePath })` and `run(code, filePath)` need two paths: keep the logical `filePath` for entry-module `__filename`/`__dirname`/`argv[1]`, but stage the source into a temp host tree and copy relative dependencies from the inline code string when the entry file does not already exist in the VFS.
+- Replacement-runtime helper-child evals without a real `filePath` still need a synthetic staged anchor file so non-builtin `require()` / `require.resolve()` stay inside the sandbox closure instead of leaking to repo/host `HOST_REQUIRE`.
 - Run upstream Node bootstrap probes in isolated child host Node processes with `--expose-internals`; `internal/bootstrap/node` can abort on native asserts and kill the current test worker if run inline.
 - For bootstrap preflight work, read builtin source from `process.binding('natives')` and defer pinned vendored asset sync to the dedicated upstream-asset story instead of partially vendoring bootstrap files early.
 - WasmVM socket tests that create client sockets from the test harness must register a real kernel-owned PID first; fake PID literals like `999` are rejected by `SocketTable`.
@@ -186,4 +187,12 @@ Started: Mon Mar 30 06:07:03 PM PDT 2026
   - Patterns discovered: when a story's implementation already exists in-branch, use the focused quality bar from the earlier progress entry before flipping the PRD status so tracker updates stay evidence-backed.
   - Gotchas encountered: `progress.txt` can already contain a completed implementation entry while `prd.json` still has `passes: false`; check both before starting new runtime work.
   - Useful context: this validation pass re-ran `pnpm --filter @secure-exec/nodejs check-types` and `pnpm vitest run packages/nodejs/test/replacement-runtime-filepath.test.ts packages/nodejs/test/upstream-modules-file-entry.test.ts packages/nodejs/test/upstream-bootstrap-bringup.test.ts`.
+---
+## [2026-03-31 14:27 PDT] - US-036
+- What was implemented: replaced replacement-runtime non-builtin package fallback with staged sandbox package resolution by giving fileless evals a synthetic staged anchor, staging bare package roots and pnpm dependency candidates into the helper-child temp tree, and wrapping helper-child `require()` / `require.resolve()` so sandbox-visible package lookups no longer leak to repo-host `HOST_REQUIRE`. Added focused coverage for module-access package imports/exports, `Module.createRequire()`/`require.resolve.paths()`, host-only package denial, and pnpm-style package asset reads through the staged replacement runtime.
+- Files changed: `CLAUDE.md`, `packages/nodejs/scripts/run-upstream-node-bootstrap.mjs`, `packages/nodejs/src/upstream/bootstrap-execution.ts`, `packages/nodejs/test/replacement-runtime-module-resolution.test.ts`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Patterns discovered: replacement-runtime evals without a user file still need a synthetic staged anchor path so package resolution is rooted in the sandbox tree instead of the helper script's own `node_modules`.
+  - Gotchas encountered: pnpm-style dependency lookups are not fully discoverable through the generic `resolveModule()` path alone; staging needs an explicit fallback that scans `.pnpm/*/node_modules/<dep>` candidates when package-local dependency symlinks are involved.
+  - Useful context: the focused quality bar for this story is green with `pnpm --filter @secure-exec/nodejs check-types` and `pnpm vitest run packages/nodejs/test/replacement-runtime-module-resolution.test.ts packages/nodejs/test/replacement-runtime-filepath.test.ts packages/nodejs/test/upstream-modules-file-entry.test.ts`.
 ---

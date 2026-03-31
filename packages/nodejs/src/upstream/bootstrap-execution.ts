@@ -1,7 +1,9 @@
 import { existsSync } from "node:fs";
 import {
+	lstat as lstatHost,
 	mkdir as mkdirHost,
 	mkdtemp,
+	readlink as readHostLink,
 	rm,
 	symlink as symlinkHost,
 	writeFile as writeHostFile,
@@ -25,11 +27,18 @@ import type {
 	ProcessContext,
 	VirtualFileSystem,
 } from "@secure-exec/core";
+import {
+	createResolutionCache,
+	resolveModule,
+	type ResolutionCache,
+} from "../package-bundler.js";
 
 export interface UpstreamBootstrapEvalRequest {
 	code?: string;
 	filePath?: string;
 	hostFilePath?: string;
+	resolutionFilePath?: string;
+	stageRoot?: string;
 	cwd?: string;
 	env?: Record<string, string>;
 	argv?: string[];
@@ -242,6 +251,8 @@ function decodeSerializedExports<T>(
 
 interface StagedUpstreamEntry {
 	entryFilePath: string;
+	logicalEntryPath: string;
+	stageRoot?: string;
 	cwd?: string;
 	cleanup(): Promise<void>;
 }
@@ -284,12 +295,12 @@ async function copyVirtualPathToHost(
 	virtualPath: string,
 	stageRoot: string,
 ): Promise<void> {
-	const stat = await filesystem.lstat(virtualPath);
+	const stat = await lstatVirtualPath(filesystem, virtualPath);
 	const hostPath = getHostPathForVirtualPath(stageRoot, virtualPath);
 
 	if (stat.isSymbolicLink) {
 		await mkdirHost(path.dirname(hostPath), { recursive: true });
-		await symlinkHost(await filesystem.readlink(virtualPath), hostPath);
+		await symlinkHost(await readVirtualLinkTarget(filesystem, virtualPath), hostPath);
 		return;
 	}
 
@@ -302,11 +313,117 @@ async function copyVirtualPathToHost(
 	await writeHostFile(hostPath, await filesystem.readFile(virtualPath));
 }
 
-function extractRelativeSpecifiers(source: string): string[] {
+function extractModuleSpecifiers(source: string): string[] {
 	const matches = source.matchAll(
-		/(?:\brequire\s*\(\s*|(?:\bimport|\bexport)\s+(?:[^"'`]*?\s+from\s+)?|\bimport\s*\(\s*)["'](\.\.?\/[^"'`]+)["']/g,
+		/(?:\brequire\s*\(\s*|(?:\bimport|\bexport)\s+(?:[^"'`]*?\s+from\s+)?|\bimport\s*\(\s*)["']([^"'`]+)["']/g,
 	);
 	return [...new Set([...matches].map((match) => match[1]).filter(Boolean))];
+}
+
+function isRelativeOrAbsoluteSpecifier(specifier: string): boolean {
+	return (
+		specifier.startsWith("/") ||
+		specifier.startsWith("./") ||
+		specifier.startsWith("../") ||
+		specifier === "." ||
+		specifier === ".."
+	);
+}
+
+function supportsHostPathTranslation(
+	filesystem: VirtualFileSystem,
+): filesystem is VirtualFileSystem & {
+	toHostPath(path: string): string | null;
+	toSandboxPath(path: string): string;
+} {
+	return (
+		typeof (filesystem as { toHostPath?: unknown }).toHostPath === "function" &&
+		typeof (filesystem as { toSandboxPath?: unknown }).toSandboxPath ===
+			"function"
+	);
+}
+
+async function readVirtualLinkTarget(
+	filesystem: VirtualFileSystem,
+	virtualPath: string,
+): Promise<string> {
+	try {
+		return await filesystem.readlink(virtualPath);
+	} catch (error) {
+		if (!supportsHostPathTranslation(filesystem)) {
+			throw error;
+		}
+		const hostPath = filesystem.toHostPath(virtualPath);
+		if (!hostPath) {
+			throw error;
+		}
+		return readHostLink(hostPath);
+	}
+}
+
+async function lstatVirtualPath(
+	filesystem: VirtualFileSystem,
+	virtualPath: string,
+): Promise<Awaited<ReturnType<VirtualFileSystem["lstat"]>>> {
+	if (supportsHostPathTranslation(filesystem)) {
+		const hostPath = filesystem.toHostPath(virtualPath);
+		if (hostPath) {
+			try {
+				const info = await lstatHost(hostPath);
+				return {
+					mode: info.mode,
+					size: info.size,
+					isDirectory: info.isDirectory(),
+					isSymbolicLink: info.isSymbolicLink(),
+					atimeMs: info.atimeMs,
+					mtimeMs: info.mtimeMs,
+					ctimeMs: info.ctimeMs,
+					birthtimeMs: info.birthtimeMs,
+					ino: info.ino,
+					nlink: info.nlink,
+					uid: info.uid,
+					gid: info.gid,
+				};
+			} catch {
+				// Fall back to the VFS view when the host path is not directly readable.
+			}
+		}
+	}
+	return filesystem.lstat(virtualPath);
+}
+
+async function findPnpmDependencyRoot(
+	filesystem: VirtualFileSystem,
+	packageRoot: string,
+	dependencyName: string,
+): Promise<string | null> {
+	let currentDir = path.posix.dirname(packageRoot);
+	while (true) {
+		const pnpmRoot =
+			currentDir === "/"
+				? "/.pnpm"
+				: path.posix.join(currentDir, ".pnpm");
+		if (await filesystem.exists(pnpmRoot)) {
+			for (const entry of await filesystem.readDirWithTypes(pnpmRoot)) {
+				if (!entry.isDirectory) {
+					continue;
+				}
+				const candidateRoot = path.posix.join(
+					pnpmRoot,
+					entry.name,
+					"node_modules",
+					...dependencyName.split("/"),
+				);
+				if (await filesystem.exists(candidateRoot)) {
+					return candidateRoot;
+				}
+			}
+		}
+		if (currentDir === "/") {
+			return null;
+		}
+		currentDir = path.posix.dirname(currentDir);
+	}
 }
 
 async function stageNearestVirtualPackageJson(
@@ -330,64 +447,367 @@ async function stageNearestVirtualPackageJson(
 	stagedPaths.add(packageJsonPath);
 }
 
-async function resolveVirtualModuleDependency(
+async function stageVirtualTree(
+	filesystem: VirtualFileSystem,
+	virtualPath: string,
+	stageRoot: string,
+	stagedPaths: Set<string>,
+	visitedPaths: Set<string>,
+): Promise<void> {
+	if (visitedPaths.has(virtualPath)) {
+		return;
+	}
+	visitedPaths.add(virtualPath);
+
+	const stat = await lstatVirtualPath(filesystem, virtualPath);
+	if (!stagedPaths.has(virtualPath)) {
+		await copyVirtualPathToHost(filesystem, virtualPath, stageRoot);
+		stagedPaths.add(virtualPath);
+	}
+
+	if (stat.isSymbolicLink) {
+		const linkTarget = await readVirtualLinkTarget(filesystem, virtualPath);
+		const resolvedTarget = linkTarget.startsWith("/")
+			? path.posix.normalize(linkTarget)
+			: path.posix.resolve(path.posix.dirname(virtualPath), linkTarget);
+		try {
+			if (await filesystem.exists(resolvedTarget)) {
+				await stageVirtualTree(
+					filesystem,
+					resolvedTarget,
+					stageRoot,
+					stagedPaths,
+					visitedPaths,
+				);
+			}
+		} catch {
+			// Ignore unreadable targets so staging mirrors sandbox visibility.
+		}
+		return;
+	}
+
+	if (!stat.isDirectory) {
+		return;
+	}
+
+	for (const entry of await filesystem.readDirWithTypes(virtualPath)) {
+		await stageVirtualTree(
+			filesystem,
+			path.posix.join(virtualPath, entry.name),
+			stageRoot,
+			stagedPaths,
+			visitedPaths,
+		);
+	}
+}
+
+async function stageResolvedSourceDependency(
+	filesystem: VirtualFileSystem,
+	resolvedPath: string,
+	stageRoot: string,
+	stagedPaths: Set<string>,
+	visitedFiles: Set<string>,
+	visitedPackages: Set<string>,
+	resolutionCache: ResolutionCache,
+): Promise<void> {
+	const packageRoot = await findNearestVirtualPackageRoot(filesystem, resolvedPath);
+	if (
+		packageRoot &&
+		(
+			packageRoot === "/node_modules" ||
+			packageRoot.startsWith("/node_modules/") ||
+			packageRoot.includes("/node_modules/")
+		)
+	) {
+		await stageVirtualPackageRoot(
+			filesystem,
+			packageRoot,
+			stageRoot,
+			stagedPaths,
+			visitedFiles,
+			visitedPackages,
+			resolutionCache,
+		);
+		return;
+	}
+
+	await stageVirtualModuleClosure(
+		filesystem,
+		resolvedPath,
+		stageRoot,
+		stagedPaths,
+		visitedFiles,
+		visitedPackages,
+		resolutionCache,
+	);
+}
+
+async function stageVirtualSourceDependencies(
 	filesystem: VirtualFileSystem,
 	referrerFilePath: string,
-	specifier: string,
-): Promise<string | null> {
-	const basePath = path.posix.resolve(path.posix.dirname(referrerFilePath), specifier);
-	const fileCandidates = [
-		basePath,
-		`${basePath}.js`,
-		`${basePath}.mjs`,
-		`${basePath}.cjs`,
-		`${basePath}.json`,
-	];
-
-	for (const candidate of fileCandidates) {
-		if (!await filesystem.exists(candidate)) {
+	source: string,
+	stageRoot: string,
+	stagedPaths: Set<string>,
+	visitedFiles: Set<string>,
+	visitedPackages: Set<string>,
+	resolutionCache: ResolutionCache,
+): Promise<void> {
+	for (const specifier of extractModuleSpecifiers(source)) {
+		if (specifier.startsWith("node:")) {
 			continue;
 		}
-		const stat = await filesystem.lstat(candidate);
-		if (!stat.isDirectory) {
-			return candidate;
+		const resolvedDependency = await resolveModule(
+			specifier,
+			path.posix.dirname(referrerFilePath),
+			filesystem,
+			"require",
+			resolutionCache,
+		);
+		if (!resolvedDependency || !resolvedDependency.startsWith("/")) {
+			continue;
 		}
-	}
 
-	if (await filesystem.exists(basePath)) {
-		const stat = await filesystem.lstat(basePath);
-		if (stat.isDirectory) {
-			const packageJsonPath = path.posix.join(basePath, "package.json");
-			if (await filesystem.exists(packageJsonPath)) {
-				try {
-					const packageJson = JSON.parse(
-						await filesystem.readTextFile(packageJsonPath),
-					) as { main?: string };
-					if (typeof packageJson.main === "string") {
-						const mainPath = await resolveVirtualModuleDependency(
-							filesystem,
-							packageJsonPath,
-							packageJson.main,
-						);
-						if (mainPath) {
-							return mainPath;
-						}
+		if (specifier.startsWith("#") || isRelativeOrAbsoluteSpecifier(specifier)) {
+			await stageResolvedSourceDependency(
+				filesystem,
+				resolvedDependency,
+				stageRoot,
+				stagedPaths,
+				visitedFiles,
+				visitedPackages,
+				resolutionCache,
+			);
+			continue;
+		}
+
+		const packageRoot = await findNearestVirtualPackageRoot(
+			filesystem,
+			resolvedDependency,
+		);
+		if (!packageRoot) {
+			await stageResolvedSourceDependency(
+				filesystem,
+				resolvedDependency,
+				stageRoot,
+				stagedPaths,
+				visitedFiles,
+				visitedPackages,
+				resolutionCache,
+			);
+			continue;
+		}
+		await stageVirtualPackageRoot(
+			filesystem,
+			packageRoot,
+			stageRoot,
+			stagedPaths,
+			visitedFiles,
+			visitedPackages,
+			resolutionCache,
+		);
+	}
+}
+
+async function stageVirtualPackageRoot(
+	filesystem: VirtualFileSystem,
+	packageRoot: string,
+	stageRoot: string,
+	stagedPaths: Set<string>,
+	visitedFiles: Set<string>,
+	visitedPackages: Set<string>,
+	resolutionCache: ResolutionCache,
+): Promise<void> {
+	if (visitedPackages.has(packageRoot)) {
+		return;
+	}
+	visitedPackages.add(packageRoot);
+
+	await stageVirtualTree(
+		filesystem,
+		packageRoot,
+		stageRoot,
+		stagedPaths,
+		visitedFiles,
+	);
+
+	const dependencyResolutionRoots = [packageRoot];
+	const translatedPackageRoot =
+		typeof (filesystem as unknown as { toHostPath?: unknown }).toHostPath ===
+		"function"
+			? (
+					filesystem as unknown as {
+						toHostPath(path: string): string | null;
 					}
-				} catch {
-					// Ignore malformed package metadata while staging test-only closures.
+				).toHostPath(
+					packageRoot,
+				)
+			: null;
+	if (translatedPackageRoot) {
+		try {
+			const hostPackageInfo = await lstatHost(translatedPackageRoot);
+			if (hostPackageInfo.isSymbolicLink()) {
+				const hostLinkTarget = await readHostLink(translatedPackageRoot);
+				const resolvedHostTarget = path.resolve(
+					path.dirname(translatedPackageRoot),
+					hostLinkTarget,
+				);
+				const resolvedSandboxTarget =
+					typeof (filesystem as unknown as { toSandboxPath?: unknown })
+						.toSandboxPath ===
+					"function"
+						? (
+								filesystem as unknown as {
+									toSandboxPath(path: string): string;
+								}
+							).toSandboxPath(resolvedHostTarget)
+						: resolvedHostTarget;
+				if (await filesystem.exists(resolvedSandboxTarget)) {
+					dependencyResolutionRoots.unshift(resolvedSandboxTarget);
 				}
 			}
-
-			for (const extension of [".js", ".mjs", ".cjs", ".json"]) {
-				const indexPath = path.posix.join(basePath, `index${extension}`);
-				if (await filesystem.exists(indexPath)) {
-					return indexPath;
+		} catch {
+			// Fall through to the generic VFS lstat/readlink path below.
+		}
+	}
+	if (dependencyResolutionRoots.length === 1) {
+		try {
+			const packageStat = await lstatVirtualPath(filesystem, packageRoot);
+			if (packageStat.isSymbolicLink) {
+				const linkTarget = await readVirtualLinkTarget(filesystem, packageRoot);
+				const resolvedTarget = linkTarget.startsWith("/")
+					? path.posix.normalize(linkTarget)
+					: path.posix.resolve(path.posix.dirname(packageRoot), linkTarget);
+				if (await filesystem.exists(resolvedTarget)) {
+					dependencyResolutionRoots.unshift(resolvedTarget);
 				}
 			}
+		} catch {
+			// Fall back to the visible package root if lstat/readlink is unavailable.
 		}
 	}
 
-	return null;
+	const packageMetadataRoot = dependencyResolutionRoots[0] ?? packageRoot;
+	const packageJsonPath =
+		packageMetadataRoot === "/"
+			? "/package.json"
+			: path.posix.join(packageMetadataRoot, "package.json");
+	if (!await filesystem.exists(packageJsonPath)) {
+		return;
+	}
+
+	type PackageJsonDependencies = {
+		dependencies?: Record<string, string>;
+		optionalDependencies?: Record<string, string>;
+		peerDependencies?: Record<string, string>;
+	};
+
+	let packageJson: PackageJsonDependencies;
+	try {
+		packageJson = JSON.parse(
+			await filesystem.readTextFile(packageJsonPath),
+		) as PackageJsonDependencies;
+	} catch {
+		return;
+	}
+
+	const dependencyNames = new Set<string>([
+		...Object.keys(packageJson.dependencies ?? {}),
+		...Object.keys(packageJson.optionalDependencies ?? {}),
+	]);
+	for (const dependencyName of dependencyNames) {
+		let dependencyEntry = null;
+		for (const resolutionRoot of dependencyResolutionRoots) {
+			dependencyEntry = await resolveModule(
+				dependencyName,
+				resolutionRoot,
+				filesystem,
+				"require",
+				resolutionCache,
+			);
+			if (dependencyEntry) {
+				break;
+			}
+		}
+		let dependencyRoot = null;
+		if (!dependencyEntry) {
+			dependencyRoot = await findPnpmDependencyRoot(
+				filesystem,
+				packageRoot,
+				dependencyName,
+			);
+			for (const resolutionRoot of dependencyResolutionRoots) {
+				if (dependencyRoot) {
+					break;
+				}
+				const siblingDependencyRoot = path.posix.join(
+					path.posix.dirname(resolutionRoot),
+					...dependencyName.split("/"),
+				);
+				if (await filesystem.exists(siblingDependencyRoot)) {
+					dependencyRoot = siblingDependencyRoot;
+					break;
+				}
+				const nestedDependencyRoot = path.posix.join(
+					resolutionRoot,
+					"node_modules",
+					...dependencyName.split("/"),
+				);
+				if (await filesystem.exists(nestedDependencyRoot)) {
+					dependencyRoot = nestedDependencyRoot;
+					break;
+				}
+			}
+			if (!dependencyRoot) {
+				continue;
+			}
+		} else {
+			dependencyRoot = await findNearestVirtualPackageRoot(
+				filesystem,
+				dependencyEntry,
+			);
+			if (!dependencyRoot) {
+				continue;
+			}
+		}
+		await stageVirtualPackageRoot(
+			filesystem,
+			dependencyRoot,
+			stageRoot,
+			stagedPaths,
+			visitedFiles,
+			visitedPackages,
+			resolutionCache,
+		);
+
+		if (dependencyResolutionRoots[0] !== packageRoot) {
+			const packageDependencyContainerRoot = dependencyResolutionRoots[0];
+			const dependencyLinkVirtualPath = path.posix.join(
+				packageDependencyContainerRoot,
+				"node_modules",
+				...dependencyName.split("/"),
+			);
+			const dependencyLinkHostPath = getHostPathForVirtualPath(
+				stageRoot,
+				dependencyLinkVirtualPath,
+			);
+			if (!existsSync(dependencyLinkHostPath)) {
+				const dependencyTargetHostPath = getHostPathForVirtualPath(
+					stageRoot,
+					dependencyRoot,
+				);
+				await mkdirHost(path.dirname(dependencyLinkHostPath), {
+					recursive: true,
+				});
+				await symlinkHost(
+					path.relative(
+						path.dirname(dependencyLinkHostPath),
+						dependencyTargetHostPath,
+					),
+					dependencyLinkHostPath,
+				);
+			}
+		}
+	}
 }
 
 async function stageVirtualModuleClosure(
@@ -396,6 +816,8 @@ async function stageVirtualModuleClosure(
 	stageRoot: string,
 	stagedPaths: Set<string>,
 	visitedFiles: Set<string>,
+	visitedPackages: Set<string>,
+	resolutionCache: ResolutionCache,
 ): Promise<void> {
 	if (visitedFiles.has(filePath)) {
 		return;
@@ -422,23 +844,16 @@ async function stageVirtualModuleClosure(
 	}
 
 	const source = await filesystem.readTextFile(filePath);
-	for (const specifier of extractRelativeSpecifiers(source)) {
-		const dependencyPath = await resolveVirtualModuleDependency(
-			filesystem,
-			filePath,
-			specifier,
-		);
-		if (!dependencyPath) {
-			continue;
-		}
-		await stageVirtualModuleClosure(
-			filesystem,
-			dependencyPath,
-			stageRoot,
-			stagedPaths,
-			visitedFiles,
-		);
-	}
+	await stageVirtualSourceDependencies(
+		filesystem,
+		filePath,
+		source,
+		stageRoot,
+		stagedPaths,
+		visitedFiles,
+		visitedPackages,
+		resolutionCache,
+	);
 }
 
 async function stageUpstreamEntryFromFilesystem(
@@ -448,18 +863,26 @@ async function stageUpstreamEntryFromFilesystem(
 	cwd: string | undefined,
 ): Promise<StagedUpstreamEntry | null> {
 	if (typeof filePath !== "string" || filePath.length === 0) {
-		return null;
+		if (typeof code !== "string") {
+			return null;
+		}
 	}
 
-	const logicalFilePath = normalizeVirtualPath(filePath, cwd);
+	const logicalFilePath =
+		typeof filePath === "string" && filePath.length > 0
+			? normalizeVirtualPath(filePath, cwd)
+			: normalizeVirtualPath(
+					path.posix.join(cwd ?? "/", "__secure_exec_eval__.js"),
+				);
 	const logicalCwd =
 		typeof cwd === "string" && cwd.length > 0
 			? normalizeVirtualPath(cwd)
 			: undefined;
 
-	if (existsSync(logicalFilePath)) {
+	if (!filesystem && existsSync(logicalFilePath)) {
 		return {
 			entryFilePath: logicalFilePath,
+			logicalEntryPath: logicalFilePath,
 			cwd: logicalCwd && existsSync(logicalCwd) ? logicalCwd : undefined,
 			cleanup: async () => {},
 		};
@@ -472,6 +895,8 @@ async function stageUpstreamEntryFromFilesystem(
 	try {
 		const stagedPaths = new Set<string>();
 		const visitedFiles = new Set<string>();
+		const visitedPackages = new Set<string>();
+		const resolutionCache = createResolutionCache();
 		if (filesystem && await filesystem.exists(logicalFilePath)) {
 			await stageVirtualModuleClosure(
 				filesystem,
@@ -479,6 +904,8 @@ async function stageUpstreamEntryFromFilesystem(
 				stageRoot,
 				stagedPaths,
 				visitedFiles,
+				visitedPackages,
+				resolutionCache,
 			);
 		} else if (filesystem && typeof code === "string") {
 			await stageNearestVirtualPackageJson(
@@ -487,23 +914,16 @@ async function stageUpstreamEntryFromFilesystem(
 				stageRoot,
 				stagedPaths,
 			);
-			for (const specifier of extractRelativeSpecifiers(code)) {
-				const dependencyPath = await resolveVirtualModuleDependency(
-					filesystem,
-					logicalFilePath,
-					specifier,
-				);
-				if (!dependencyPath) {
-					continue;
-				}
-				await stageVirtualModuleClosure(
-					filesystem,
-					dependencyPath,
-					stageRoot,
-					stagedPaths,
-					visitedFiles,
-				);
-			}
+			await stageVirtualSourceDependencies(
+				filesystem,
+				logicalFilePath,
+				code,
+				stageRoot,
+				stagedPaths,
+				visitedFiles,
+				visitedPackages,
+				resolutionCache,
+			);
 		}
 
 		const stagedEntryFilePath = getHostPathForVirtualPath(stageRoot, logicalFilePath);
@@ -519,6 +939,8 @@ async function stageUpstreamEntryFromFilesystem(
 
 		return {
 			entryFilePath: stagedEntryFilePath,
+			logicalEntryPath: logicalFilePath,
+			stageRoot,
 			cwd: stagedCwd,
 			cleanup: async () => {
 				await rm(stageRoot, { recursive: true, force: true });
@@ -594,6 +1016,8 @@ class ExperimentalUpstreamBootstrapRuntimeDriver implements NodeRuntimeDriver {
 				code,
 				filePath: logicalFilePath,
 				hostFilePath: effectiveFilePath,
+				resolutionFilePath: stagedEntry?.logicalEntryPath ?? logicalFilePath,
+				stageRoot: stagedEntry?.stageRoot,
 				cwd: effectiveCwd,
 				env: {
 					...(this.#runtime.process.env ?? {}),
