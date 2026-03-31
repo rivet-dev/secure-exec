@@ -274,7 +274,7 @@
         "Typecheck passes"
       ],
       "priority": 16,
-      "passes": false,
+      "passes": true,
       "notes": "Critical issue encountered early: internal/bootstrap/node could abort in native async_wrap.setupHooks() before later scoped shims were added. This story is about replacing the bootstrap-only workaround with bounded runtime support."
     },
     {

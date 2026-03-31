@@ -36,7 +36,7 @@ const OPTION_DEFAULTS_BY_TYPE = new Map([
 ]);
 const APPLIED_BINDING_SHIMS = Object.freeze([
 	"buffer.setBufferPrototype-noop",
-	"async_wrap.setupHooks-noop",
+	"async_wrap-bootstrap-hook-provider",
 	"trace_events.setTraceCategoryStateUpdateHandler-noop",
 	"internal/options-host-shim",
 	"fs_event_wrap-fsevent-subclass",
@@ -478,6 +478,38 @@ function createModulesBinding() {
 	};
 }
 
+function createModuleWrapBinding() {
+	return internalBinding("module_wrap");
+}
+
+function createContextifyBinding() {
+	return internalBinding("contextify");
+}
+
+function createAsyncWrapBinding() {
+	const hostAsyncWrap = internalBinding("async_wrap");
+	const state = {
+		callbackTrampoline: undefined,
+		nativeHooks: undefined,
+		promiseHooks: [undefined, undefined, undefined, undefined],
+	};
+
+	return Object.assign(Object.create(hostAsyncWrap), {
+		getPromiseHooks() {
+			return [...state.promiseHooks];
+		},
+		setCallbackTrampoline(callback) {
+			state.callbackTrampoline = callback;
+		},
+		setPromiseHooks(initHook, beforeHook, afterHook, settledHook) {
+			state.promiseHooks = [initHook, beforeHook, afterHook, settledHook];
+		},
+		setupHooks(nativeHooks) {
+			state.nativeHooks = nativeHooks;
+		},
+	});
+}
+
 function createProcessShim(payload, stdoutChunks, stderrChunks) {
 	const processShim = Object.create({});
 	const utilBinding = internalBinding("util");
@@ -605,11 +637,17 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 		vendoredPublicBuiltins.has("fs")
 			? createUpstreamFsBinding({ internalBinding })
 			: null;
+	const asyncWrapBinding = createAsyncWrapBinding();
+	const contextifyBinding = createContextifyBinding();
 	const fsEventWrapBinding = createFsEventWrapBinding();
+	const moduleWrapBinding = createModuleWrapBinding();
 	const tcpWrapBinding = createTcpWrapBinding();
 	const modulesBinding = createModulesBinding();
 	const optionsValues = {
 		"--eval": executeUserCodeDirectly ? "" : payload.code ?? "",
+		"--experimental-vm-modules": Array.isArray(payload.execArgv)
+			? payload.execArgv.includes("--experimental-vm-modules")
+			: false,
 		"--print": false,
 		"--import": [],
 		"--experimental-loader": [],
@@ -716,11 +754,16 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 			};
 		}
 
+		if (name === "module_wrap") {
+			return moduleWrapBinding;
+		}
+
+		if (name === "contextify") {
+			return contextifyBinding;
+		}
+
 		if (name === "async_wrap") {
-			return {
-				...internalBinding("async_wrap"),
-				setupHooks() {},
-			};
+			return asyncWrapBinding;
 		}
 
 		if (name === "trace_events") {
@@ -840,7 +883,37 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 		}
 
 		exportCache.set(id, mod);
-		return mod.exports;
+		return patchVmBuiltinExports(id, mod.exports);
+	}
+
+	function patchVmBuiltinExports(id, exportsValue) {
+		if (
+			id !== "vm" ||
+			!internalOptionsShim.getOptionValue("--experimental-vm-modules")
+		) {
+			return exportsValue;
+		}
+		if (
+			(typeof exportsValue !== "object" || exportsValue === null) &&
+			typeof exportsValue !== "function"
+		) {
+			return exportsValue;
+		}
+		if (
+			typeof exportsValue.Module === "function" &&
+			typeof exportsValue.SourceTextModule === "function" &&
+			typeof exportsValue.SyntheticModule === "function"
+		) {
+			return exportsValue;
+		}
+
+		const { Module, SourceTextModule, SyntheticModule } = requireBuiltin(
+			"internal/vm/module",
+		);
+		exportsValue.Module = Module;
+		exportsValue.SourceTextModule = SourceTextModule;
+		exportsValue.SyntheticModule = SyntheticModule;
+		return exportsValue;
 	}
 
 	function requireHostVendoredBuiltin(id) {
@@ -929,7 +1002,7 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 			}
 		}
 		hostPublicBuiltinCache.set(id, mod);
-		return mod.exports;
+		return patchVmBuiltinExports(id, mod.exports);
 	}
 
 	function createUserRequire() {
@@ -937,15 +1010,15 @@ async function createBootstrapExecution(payload, stdoutChunks, stderrChunks) {
 		const userRequire = (specifier) => {
 			const builtinId = normalizeBuiltinRequest(specifier);
 			if (builtinId) {
-				if (
-					executeUserCodeDirectly &&
-					vendoredPublicBuiltins.has(builtinId) &&
-					HOST_CONTEXT_BUILTINS.has(builtinId)
-				) {
-					return requireHostVendoredBuiltin(builtinId);
-				}
-				return builtinRequire(builtinId);
+			if (
+				executeUserCodeDirectly &&
+				vendoredPublicBuiltins.has(builtinId) &&
+				HOST_CONTEXT_BUILTINS.has(builtinId)
+			) {
+				return requireHostVendoredBuiltin(builtinId);
 			}
+			return patchVmBuiltinExports(builtinId, builtinRequire(builtinId));
+		}
 			return HOST_REQUIRE(specifier);
 		};
 		userRequire.resolve = (specifier) => {

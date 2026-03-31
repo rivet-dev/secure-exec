@@ -63,7 +63,7 @@ describe("upstream bootstrap bring-up", () => {
 		);
 		expect(result.appliedBindingShims).toEqual(
 			expect.arrayContaining([
-				"async_wrap.setupHooks-noop",
+				"async_wrap-bootstrap-hook-provider",
 				"buffer.setBufferPrototype-noop",
 				"internal/options-host-shim",
 				"public-builtin-host-fallback",
