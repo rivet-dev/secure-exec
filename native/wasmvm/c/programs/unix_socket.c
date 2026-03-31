@@ -32,6 +32,8 @@ struct sockaddr_un {
 #define SUN_LEN(su) (offsetof(struct sockaddr_un, sun_path) + strlen((su)->sun_path))
 #endif
 
+#include "socket_compat.h"
+
 int main(int argc, char *argv[]) {
     const char *path = "/tmp/test.sock";
     if (argc >= 2) {

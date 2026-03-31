@@ -17,6 +17,7 @@ Standalone WebAssembly binaries providing a comprehensive Unix userland, paired 
 - Binaries are identified by WASM magic bytes (`\0asm`), not file extension
 - Alias commands (egrep→grep, bash→sh, etc.) are symlinks created at build time
 - Stub commands (_stubs mini-multicall) print "not supported in sandbox" errors
+- PTY termios state already exists in `packages/core`, but C/Wasm raw-mode support is still blocked until `native/wasmvm/crates/wasi-ext/src/lib.rs` and the wasi-libc patches expose `tcgetattr`/`tcsetattr` and terminal-size imports to WasmVM programs
 
 ## Naming
 - The project is called **wasmVM**

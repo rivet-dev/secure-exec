@@ -14,15 +14,15 @@ full cwd propagation from parent shell to spawned commands.
 
 --- a/libc-bottom-half/sources/host_spawn_wait.c
 +++ b/libc-bottom-half/sources/host_spawn_wait.c
-@@ -252,6 +252,7 @@
+@@ -232,6 +232,7 @@
      }
-
+ 
      // Process file_actions in order: extract stdio overrides and handle close/open
 +    const char *spawn_cwd = NULL;
      uint32_t stdin_fd = 0, stdout_fd = 1, stderr_fd = 2;
      if (fa && fa->__actions) {
          for (struct __fdop *op = fa->__actions; op; op = op->next) {
-@@ -279,15 +280,24 @@
+@@ -259,16 +260,26 @@
                  else close(opened);
                  break;
              }
@@ -32,7 +32,7 @@ full cwd propagation from parent shell to spawned commands.
              }
          }
      }
-
+ 
 +    // Resolve cwd: explicit chdir action > current getcwd > empty (kernel fallback)
 +    char cwd_buf[1024];
 +    const char *cwd_str = spawn_cwd;
@@ -48,5 +48,5 @@ full cwd propagation from parent shell to spawned commands.
 -        (const uint8_t *)"", 0,
 +        cwd_str ? (const uint8_t *)cwd_str : (const uint8_t *)"", cwd_str ? (uint32_t)strlen(cwd_str) : 0,
          &child_pid);
-
+ 
      free(argv_buf);

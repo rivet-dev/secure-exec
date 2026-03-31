@@ -1,7 +1,7 @@
 /**
  * CI guard for story-critical C-built Wasm artifacts.
  *
- * These artifacts back the WasmVM TCP/UDP/Unix/signal integration suites.
+ * These artifacts back the WasmVM backend-probe, TCP/UDP/Unix, and signal suites.
  * Local development still skips those suites when the binaries are absent,
  * but CI must fail loudly instead of reporting a green skip-only run.
  */
@@ -27,6 +27,21 @@ const REQUIRED_ARTIFACTS = [
   {
     label: 'tcp_server C WASM binary',
     path: join(C_BUILD_DIR, 'tcp_server'),
+    buildStep: 'run `make -C native/wasmvm/c sysroot && make -C native/wasmvm/c programs`',
+  },
+  {
+    label: 'fs_probe C WASM binary',
+    path: join(C_BUILD_DIR, 'fs_probe'),
+    buildStep: 'run `make -C native/wasmvm/c programs`',
+  },
+  {
+    label: 'tcp_echo C WASM binary',
+    path: join(C_BUILD_DIR, 'tcp_echo'),
+    buildStep: 'run `make -C native/wasmvm/c sysroot && make -C native/wasmvm/c programs`',
+  },
+  {
+    label: 'dns_probe C WASM binary',
+    path: join(C_BUILD_DIR, 'dns_probe'),
     buildStep: 'run `make -C native/wasmvm/c sysroot && make -C native/wasmvm/c programs`',
   },
   {

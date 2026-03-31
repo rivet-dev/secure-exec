@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 #include "posix_spawn_compat.h"
+#include "socket_compat.h"
 
 extern char **environ;
 

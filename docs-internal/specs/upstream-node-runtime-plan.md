@@ -79,6 +79,7 @@ Supporting research:
 - [docs-internal/research/comparison/bun-wasm-binding-feasibility.md](/home/nathan/secure-exec-5/docs-internal/research/comparison/bun-wasm-binding-feasibility.md)
 - [docs-internal/research/comparison/node-vs-bun-ipc-boundary.md](/home/nathan/secure-exec-5/docs-internal/research/comparison/node-vs-bun-ipc-boundary.md)
 - [docs-internal/specs/upstream-node-runtime-preflight.md](/home/nathan/secure-exec-5/docs-internal/specs/upstream-node-runtime-preflight.md)
+- [docs-internal/specs/upstream-node-runtime-wasmvm-probes.md](/home/nathan/secure-exec-5/docs-internal/specs/upstream-node-runtime-wasmvm-probes.md)
 
 ## Current Secure Exec Starting Point
 
@@ -210,6 +211,13 @@ US-001 results are recorded in [docs-internal/specs/upstream-node-runtime-prefli
 - `internal/bootstrap/realm` replayed to completion with a bounded host-side `builtins` contract.
 - `module_wrap`, `contextify`, minimal `uv`, and minimal `cares_wrap` probes all passed on the host side.
 - `internal/bootstrap/node` is still blocked on host-native bootstrap lifecycle work, specifically `buffer` bootstrap wiring and `async_wrap` initialization state.
+
+US-002 results are recorded in [docs-internal/specs/upstream-node-runtime-wasmvm-probes.md](/home/nathan/secure-exec-5/docs-internal/specs/upstream-node-runtime-wasmvm-probes.md). The short version is:
+
+- the existing WasmVM path cleanly handles the narrow fs backend operations we need first: `open`, `read`, `write`, `stat`, `readdir`, and `realpath`
+- TCP client/server socket operations fit the existing kernel-mediated WasmVM path
+- DNS success plus expected failure paths fit the current WasmVM host-net path
+- TTY raw-mode still needs WasmVM ABI plus wasi-libc plumbing before it can be probed honestly
 
 ### Purpose
 

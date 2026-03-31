@@ -17,7 +17,7 @@ Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
 
 --- /dev/null	2026-03-16 11:59:07.564000026 -0700
 +++ b/libc-bottom-half/sources/host_spawn_wait.c	2026-03-19 20:51:08.698271081 -0700
-@@ -0,0 +1,307 @@
+@@ -0,0 +1,316 @@
 +// Process spawning and waiting via wasmVM host_process imports.
 +//
 +// Replaces musl's posix_spawn (which uses fork/clone, unavailable in WASI)

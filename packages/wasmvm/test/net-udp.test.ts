@@ -13,6 +13,7 @@ import type { Kernel } from '@secure-exec/core';
 import { existsSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { registerKernelPid } from './helpers/kernel-process.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const COMMANDS_DIR = resolve(__dirname, '../../../native/wasmvm/target/wasm32-wasip1/release/commands');
@@ -132,16 +133,17 @@ async function waitForUdpBinding(
 }
 
 const TEST_PORT = 9877;
-const CLIENT_PID = 999; // Fake PID for test-side client sockets
 
 describe.skipIf(skipReason())('WasmVM UDP integration', { timeout: 30_000 }, () => {
   let kernel: Kernel;
   let vfs: SimpleVFS;
+  let clientPid: number;
 
   beforeEach(async () => {
     vfs = new SimpleVFS();
     kernel = createKernel({ filesystem: vfs as any });
     await kernel.mount(createWasmVmRuntime({ commandDirs: [C_BUILD_DIR, COMMANDS_DIR] }));
+    clientPid = registerKernelPid(kernel);
   });
 
   afterEach(async () => {
@@ -157,7 +159,7 @@ describe.skipIf(skipReason())('WasmVM UDP integration', { timeout: 30_000 }, () 
 
     // Create a client UDP socket and bind to an ephemeral port
     const st = kernel.socketTable;
-    const clientId = st.create(AF_INET, SOCK_DGRAM, 0, CLIENT_PID);
+    const clientId = st.create(AF_INET, SOCK_DGRAM, 0, clientPid);
     await st.bind(clientId, { host: '127.0.0.1', port: 0 });
 
     // Send "hello" to the echo server
@@ -180,7 +182,7 @@ describe.skipIf(skipReason())('WasmVM UDP integration', { timeout: 30_000 }, () 
     expect(reply).toBe('hello');
 
     // Close client socket
-    st.close(clientId, CLIENT_PID);
+    st.close(clientId, clientPid);
 
     // Wait for exec to complete (server exits after echoing one datagram)
     const result = await execPromise;
@@ -200,7 +202,7 @@ describe.skipIf(skipReason())('WasmVM UDP integration', { timeout: 30_000 }, () 
 
     // Create a client UDP socket
     const st = kernel.socketTable;
-    const clientId = st.create(AF_INET, SOCK_DGRAM, 0, CLIENT_PID);
+    const clientId = st.create(AF_INET, SOCK_DGRAM, 0, clientPid);
     await st.bind(clientId, { host: '127.0.0.1', port: 0 });
 
     // Send a message — the echo server echoes exactly one datagram
@@ -225,7 +227,7 @@ describe.skipIf(skipReason())('WasmVM UDP integration', { timeout: 30_000 }, () 
     expect(reply).toBe(msg);
     expect(reply.length).toBe(msg.length);
 
-    st.close(clientId, CLIENT_PID);
+    st.close(clientId, clientPid);
     const result = await execPromise;
     expect(result.exitCode).toBe(0);
   });

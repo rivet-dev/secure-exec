@@ -18,8 +18,8 @@ sockaddr serialization (sockaddr_to_string / string_to_sockaddr).
 
 Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
 
---- a/scripts/install-include-headers.sh	2026-03-20 04:05:48.609869966 -0700
-+++ b/scripts/install-include-headers.sh	2026-03-20 04:05:57.781880813 -0700
+--- a/scripts/install-include-headers.sh
++++ b/scripts/install-include-headers.sh
 @@ -69,10 +69,11 @@
      "net/ethernet.h" "net/route.h" "netinet/if_ether.h" "netinet/ether.h" \
      "sys/timerfd.h" "libintl.h" "sys/sysmacros.h" "aio.h")
@@ -37,8 +37,8 @@ Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
  # Remove all the `MUSL_OMIT_HEADERS` previously copied over.
  for OMIT_HEADER in "${MUSL_OMIT_HEADERS[@]}"; do
 
---- a/libc-top-half/musl/include/sys/socket.h	2026-03-20 04:05:48.609869966 -0700
-+++ b/libc-top-half/musl/include/sys/socket.h	2026-03-20 04:06:04.989889334 -0700
+--- a/libc-top-half/musl/include/sys/socket.h
++++ b/libc-top-half/musl/include/sys/socket.h
 @@ -398,9 +398,7 @@
  #include <__struct_sockaddr_storage.h>
  #endif
@@ -49,44 +49,46 @@ Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
  
  #ifdef __wasilibc_unmodified_upstream /* WASI has no socketpair */
  int socketpair (int, int, int, int [2]);
-@@ -408,8 +406,6 @@
-
+@@ -408,35 +406,27 @@
+ 
  int shutdown (int, int);
-
+ 
 -#if (defined __wasilibc_unmodified_upstream) || (defined __wasilibc_use_wasip2)
  int connect (int, const struct sockaddr *, socklen_t);
  int bind (int, const struct sockaddr *, socklen_t);
  int listen (int, int);
 -#endif
-@@ -414,10 +410,8 @@
+ 
  int accept (int, struct sockaddr *__restrict, socklen_t *__restrict);
  int accept4(int, struct sockaddr *__restrict, socklen_t *__restrict, int);
+ 
 -#if (defined __wasilibc_unmodified_upstream) || (defined __wasilibc_use_wasip2)
  int getsockname (int, struct sockaddr *__restrict, socklen_t *__restrict);
  int getpeername (int, struct sockaddr *__restrict, socklen_t *__restrict);
 -#endif
-@@ -421,9 +417,7 @@
+ 
  ssize_t send (int, const void *, size_t, int);
  ssize_t recv (int, void *, size_t, int);
 -#if (defined __wasilibc_unmodified_upstream) || (defined __wasilibc_use_wasip2)
  ssize_t sendto (int, const void *, size_t, int, const struct sockaddr *, socklen_t);
  ssize_t recvfrom (int, void *__restrict, size_t, int, struct sockaddr *__restrict, socklen_t *__restrict);
 -#endif
-
-@@ -434,9 +430,7 @@
+ #ifdef __wasilibc_unmodified_upstream /* WASI has no sendmsg/recvmsg */
+ ssize_t sendmsg (int, const struct msghdr *, int);
+ ssize_t recvmsg (int, struct msghdr *, int);
  #endif
  
  int getsockopt (int, int, int, void *__restrict, socklen_t *__restrict);
 -#if (defined __wasilibc_unmodified_upstream) || (defined __wasilibc_use_wasip2)
  int setsockopt (int, int, int, const void *, socklen_t);
 -#endif
-
+ 
  #ifdef __wasilibc_unmodified_upstream /* WASI has no sockatmark */
  int sockatmark (int);
 
 --- a/libc-bottom-half/headers/public/__struct_sockaddr_un.h
 +++ b/libc-bottom-half/headers/public/__struct_sockaddr_un.h
-@@ -4,6 +4,7 @@
+@@ -5,6 +5,7 @@
  
  struct sockaddr_un {
      __attribute__((aligned(__BIGGEST_ALIGNMENT__))) sa_family_t sun_family;
@@ -95,9 +97,9 @@ Import signatures match wasmvm/crates/wasi-ext/src/lib.rs exactly.
  
  #endif
 
---- /dev/null
+--- a/libc-bottom-half/sources/host_socket.c
 +++ b/libc-bottom-half/sources/host_socket.c
-@@ -0,0 +1,628 @@
+@@ -0,0 +1,696 @@
 +// Socket API via wasmVM host_net imports.
 +//
 +// Replaces wasi-libc's ENOSYS stubs with calls to our custom WASM imports:

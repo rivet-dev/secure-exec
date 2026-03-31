@@ -78,6 +78,15 @@ else
     fi
 fi
 
+# Rebuilds must start from a clean pinned upstream tree so patch updates
+# replace older host_* sources instead of silently reusing stale vendored files.
+if [ "$MODE" = "apply" ]; then
+    echo "=== Resetting wasi-libc source tree to $WASI_LIBC_COMMIT ==="
+    git -C "$WASI_LIBC_DIR" reset --hard "$WASI_LIBC_COMMIT" > /dev/null
+    git -C "$WASI_LIBC_DIR" clean -fd > /dev/null
+    echo ""
+fi
+
 # Find patch files
 if [ "$MODE" = "reverse" ]; then
     PATCH_FILES=$(find "$PATCHES_DIR" -name '*.patch' -type f 2>/dev/null | sort -r)
@@ -128,8 +137,18 @@ else
                 if patch --dry-run -p1 -d "$WASI_LIBC_DIR" < "$PATCH" > /dev/null 2>&1; then
                     patch --no-backup-if-mismatch -p1 -d "$WASI_LIBC_DIR" < "$PATCH" > /dev/null 2>&1
                     echo "applied"
-                else
+                elif patch --dry-run -R -p1 -d "$WASI_LIBC_DIR" < "$PATCH" > /dev/null 2>&1; then
                     echo "already applied (skipping)"
+                else
+                    NEW_FILES=$(grep '^+++ b/' "$PATCH" | sed 's|^+++ b/||' | while read -r f; do
+                        [ -f "$WASI_LIBC_DIR/$f" ] && echo "$f"
+                    done)
+                    if [ -n "$NEW_FILES" ]; then
+                        echo "applied, modified by later patch (skipping)"
+                    else
+                        echo "FAIL (does not apply)"
+                        FAILED=1
+                    fi
                 fi
                 ;;
             reverse)

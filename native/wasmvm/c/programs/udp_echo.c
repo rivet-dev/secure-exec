@@ -7,6 +7,8 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#include "socket_compat.h"
+
 int main(int argc, char *argv[]) {
     if (argc < 2) {
         fprintf(stderr, "usage: udp_echo <port>\n");

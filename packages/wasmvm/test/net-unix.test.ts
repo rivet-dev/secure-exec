@@ -13,6 +13,7 @@ import type { Kernel } from '@secure-exec/core';
 import { existsSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { registerKernelPid } from './helpers/kernel-process.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const COMMANDS_DIR = resolve(__dirname, '../../../native/wasmvm/target/wasm32-wasip1/release/commands');
@@ -132,11 +133,11 @@ async function waitForUnixListener(
 }
 
 const SOCK_PATH = '/tmp/test.sock';
-const CLIENT_PID = 999; // Fake PID for test-side client sockets
 
 describe.skipIf(skipReason())('WasmVM Unix domain socket integration', { timeout: 30_000 }, () => {
   let kernel: Kernel;
   let vfs: SimpleVFS;
+  let clientPid: number;
 
   beforeEach(async () => {
     vfs = new SimpleVFS();
@@ -144,6 +145,7 @@ describe.skipIf(skipReason())('WasmVM Unix domain socket integration', { timeout
     await vfs.mkdir('/tmp');
     kernel = createKernel({ filesystem: vfs as any });
     await kernel.mount(createWasmVmRuntime({ commandDirs: [C_BUILD_DIR, COMMANDS_DIR] }));
+    clientPid = registerKernelPid(kernel);
   });
 
   afterEach(async () => {
@@ -159,7 +161,7 @@ describe.skipIf(skipReason())('WasmVM Unix domain socket integration', { timeout
 
     // Create a client socket and connect via loopback
     const st = kernel.socketTable;
-    const clientId = st.create(AF_UNIX, SOCK_STREAM, 0, CLIENT_PID);
+    const clientId = st.create(AF_UNIX, SOCK_STREAM, 0, clientPid);
     await st.connect(clientId, { path: SOCK_PATH });
 
     // Send "ping" to the server
@@ -182,7 +184,7 @@ describe.skipIf(skipReason())('WasmVM Unix domain socket integration', { timeout
     expect(reply).toBe('pong');
 
     // Close client socket
-    st.close(clientId, CLIENT_PID);
+    st.close(clientId, clientPid);
 
     // Wait for exec to complete (server exits after handling one connection)
     const result = await execPromise;
