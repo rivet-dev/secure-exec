@@ -38,6 +38,24 @@ secure_exec_v8_ipc_inflight_executions 0
 # HELP secure_exec_v8_ipc_inflight_bridge_calls Number of bridge calls currently awaiting BridgeResponse.
 # TYPE secure_exec_v8_ipc_inflight_bridge_calls gauge
 secure_exec_v8_ipc_inflight_bridge_calls 0
+# HELP secure_exec_v8_host_runtime_memory_bytes Current memory usage observed in the host-side Node runtime that owns IPC observability.
+# TYPE secure_exec_v8_host_runtime_memory_bytes gauge
+secure_exec_v8_host_runtime_memory_bytes{kind="rss"} 214286336
+secure_exec_v8_host_runtime_memory_bytes{kind="heap_used"} 47910488
+# HELP secure_exec_v8_host_runtime_memory_peak_bytes Peak memory usage observed in the host-side Node runtime that owns IPC observability.
+# TYPE secure_exec_v8_host_runtime_memory_peak_bytes gauge
+secure_exec_v8_host_runtime_memory_peak_bytes{kind="rss"} 214286336
+secure_exec_v8_host_runtime_memory_peak_bytes{kind="heap_used"} 49699296
+# HELP secure_exec_v8_host_runtime_cpu_seconds Cumulative CPU time consumed by the host-side Node runtime that owns IPC observability.
+# TYPE secure_exec_v8_host_runtime_cpu_seconds gauge
+secure_exec_v8_host_runtime_cpu_seconds{kind="user"} 0.475137
+secure_exec_v8_host_runtime_cpu_seconds{kind="system"} 0.113708
+# HELP secure_exec_v8_host_runtime_heap_limit_bytes Current V8 heap size limit for the host-side Node runtime that owns IPC observability.
+# TYPE secure_exec_v8_host_runtime_heap_limit_bytes gauge
+secure_exec_v8_host_runtime_heap_limit_bytes 4496293888
+# HELP secure_exec_v8_host_runtime_heap_peak_utilization_ratio Peak host heap usage divided by the current heap limit for the Node runtime that owns IPC observability.
+# TYPE secure_exec_v8_host_runtime_heap_peak_utilization_ratio gauge
+secure_exec_v8_host_runtime_heap_peak_utilization_ratio 0.011053
 # HELP secure_exec_v8_ipc_execute_duration_seconds Wall-clock duration from Execute send to ExecutionResult receive.
 # TYPE secure_exec_v8_ipc_execute_duration_seconds histogram
 secure_exec_v8_ipc_execute_duration_seconds_bucket{mode="exec",le="0.0005"} 0
@@ -45,9 +63,9 @@ secure_exec_v8_ipc_execute_duration_seconds_bucket{mode="exec",le="0.001"} 0
 secure_exec_v8_ipc_execute_duration_seconds_bucket{mode="exec",le="0.0025"} 0
 secure_exec_v8_ipc_execute_duration_seconds_bucket{mode="exec",le="0.005"} 0
 secure_exec_v8_ipc_execute_duration_seconds_bucket{mode="exec",le="0.01"} 0
-secure_exec_v8_ipc_execute_duration_seconds_bucket{mode="exec",le="0.025"} 2
+secure_exec_v8_ipc_execute_duration_seconds_bucket{mode="exec",le="0.025"} 1
 secure_exec_v8_ipc_execute_duration_seconds_bucket{mode="exec",le="0.05"} 2
-secure_exec_v8_ipc_execute_duration_seconds_bucket{mode="exec",le="0.1"} 3
+secure_exec_v8_ipc_execute_duration_seconds_bucket{mode="exec",le="0.1"} 2
 secure_exec_v8_ipc_execute_duration_seconds_bucket{mode="exec",le="0.25"} 3
 secure_exec_v8_ipc_execute_duration_seconds_bucket{mode="exec",le="0.5"} 3
 secure_exec_v8_ipc_execute_duration_seconds_bucket{mode="exec",le="1"} 3
@@ -55,7 +73,7 @@ secure_exec_v8_ipc_execute_duration_seconds_bucket{mode="exec",le="2.5"} 3
 secure_exec_v8_ipc_execute_duration_seconds_bucket{mode="exec",le="5"} 3
 secure_exec_v8_ipc_execute_duration_seconds_bucket{mode="exec",le="10"} 3
 secure_exec_v8_ipc_execute_duration_seconds_bucket{mode="exec",le="+Inf"} 3
-secure_exec_v8_ipc_execute_duration_seconds_sum{mode="exec"} 0.12133363500000001
+secure_exec_v8_ipc_execute_duration_seconds_sum{mode="exec"} 0.16462518299999998
 secure_exec_v8_ipc_execute_duration_seconds_count{mode="exec"} 3
 # HELP secure_exec_v8_ipc_bridge_call_duration_seconds Wall-clock duration from BridgeCall receive to BridgeResponse send.
 # TYPE secure_exec_v8_ipc_bridge_call_duration_seconds histogram
@@ -64,7 +82,7 @@ secure_exec_v8_ipc_bridge_call_duration_seconds_bucket{method="_loadPolyfill",st
 secure_exec_v8_ipc_bridge_call_duration_seconds_bucket{method="_loadPolyfill",status="0",le="0.0025"} 6
 secure_exec_v8_ipc_bridge_call_duration_seconds_bucket{method="_loadPolyfill",status="0",le="0.005"} 6
 secure_exec_v8_ipc_bridge_call_duration_seconds_bucket{method="_loadPolyfill",status="0",le="0.01"} 6
-secure_exec_v8_ipc_bridge_call_duration_seconds_bucket{method="_loadPolyfill",status="0",le="0.025"} 9
+secure_exec_v8_ipc_bridge_call_duration_seconds_bucket{method="_loadPolyfill",status="0",le="0.025"} 8
 secure_exec_v8_ipc_bridge_call_duration_seconds_bucket{method="_loadPolyfill",status="0",le="0.05"} 9
 secure_exec_v8_ipc_bridge_call_duration_seconds_bucket{method="_loadPolyfill",status="0",le="0.1"} 9
 secure_exec_v8_ipc_bridge_call_duration_seconds_bucket{method="_loadPolyfill",status="0",le="0.25"} 9
@@ -74,7 +92,7 @@ secure_exec_v8_ipc_bridge_call_duration_seconds_bucket{method="_loadPolyfill",st
 secure_exec_v8_ipc_bridge_call_duration_seconds_bucket{method="_loadPolyfill",status="0",le="5"} 9
 secure_exec_v8_ipc_bridge_call_duration_seconds_bucket{method="_loadPolyfill",status="0",le="10"} 9
 secure_exec_v8_ipc_bridge_call_duration_seconds_bucket{method="_loadPolyfill",status="0",le="+Inf"} 9
-secure_exec_v8_ipc_bridge_call_duration_seconds_sum{method="_loadPolyfill",status="0"} 0.052642144999999994
+secure_exec_v8_ipc_bridge_call_duration_seconds_sum{method="_loadPolyfill",status="0"} 0.08138475
 secure_exec_v8_ipc_bridge_call_duration_seconds_count{method="_loadPolyfill",status="0"} 9
 secure_exec_v8_ipc_bridge_call_duration_seconds_bucket{method="_log",status="0",le="0.0005"} 3
 secure_exec_v8_ipc_bridge_call_duration_seconds_bucket{method="_log",status="0",le="0.001"} 3
@@ -91,7 +109,7 @@ secure_exec_v8_ipc_bridge_call_duration_seconds_bucket{method="_log",status="0",
 secure_exec_v8_ipc_bridge_call_duration_seconds_bucket{method="_log",status="0",le="5"} 3
 secure_exec_v8_ipc_bridge_call_duration_seconds_bucket{method="_log",status="0",le="10"} 3
 secure_exec_v8_ipc_bridge_call_duration_seconds_bucket{method="_log",status="0",le="+Inf"} 3
-secure_exec_v8_ipc_bridge_call_duration_seconds_sum{method="_log",status="0"} 0.00030086500000000004
+secure_exec_v8_ipc_bridge_call_duration_seconds_sum{method="_log",status="0"} 0.00031629
 secure_exec_v8_ipc_bridge_call_duration_seconds_count{method="_log",status="0"} 3
 secure_exec_v8_ipc_bridge_call_duration_seconds_bucket{method="_bridgeDispatch",status="0",le="0.0005"} 3
 secure_exec_v8_ipc_bridge_call_duration_seconds_bucket{method="_bridgeDispatch",status="0",le="0.001"} 3
@@ -108,5 +126,5 @@ secure_exec_v8_ipc_bridge_call_duration_seconds_bucket{method="_bridgeDispatch",
 secure_exec_v8_ipc_bridge_call_duration_seconds_bucket{method="_bridgeDispatch",status="0",le="5"} 3
 secure_exec_v8_ipc_bridge_call_duration_seconds_bucket{method="_bridgeDispatch",status="0",le="10"} 3
 secure_exec_v8_ipc_bridge_call_duration_seconds_bucket{method="_bridgeDispatch",status="0",le="+Inf"} 3
-secure_exec_v8_ipc_bridge_call_duration_seconds_sum{method="_bridgeDispatch",status="0"} 0.000283296
+secure_exec_v8_ipc_bridge_call_duration_seconds_sum{method="_bridgeDispatch",status="0"} 0.000344524
 secure_exec_v8_ipc_bridge_call_duration_seconds_count{method="_bridgeDispatch",status="0"} 3

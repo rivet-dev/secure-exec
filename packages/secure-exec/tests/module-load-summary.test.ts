@@ -18,6 +18,10 @@ function buildLog(lines: Array<Record<string, unknown>>): string {
 	return `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`;
 }
 
+function buildMetrics(lines: string[]): string {
+	return `${lines.join("\n")}\n`;
+}
+
 describe("module-load summary generation", () => {
 	it("derives per-iteration timings, bridge stats, and frame bytes from the IPC log", () => {
 		const scenario = getModuleLoadScenario("pi-sdk-startup");
@@ -313,7 +317,17 @@ describe("module-load summary generation", () => {
 			},
 		]);
 
-		const summary = deriveScenarioSummary(scenario, result, parseIpcLog(logText));
+		const summary = deriveScenarioSummary(scenario, result, parseIpcLog(logText), {
+			metricsText: buildMetrics([
+				'secure_exec_v8_host_runtime_memory_bytes{kind="rss"} 314572800',
+				'secure_exec_v8_host_runtime_memory_peak_bytes{kind="rss"} 346030080',
+				'secure_exec_v8_host_runtime_memory_bytes{kind="heap_used"} 50331648',
+				'secure_exec_v8_host_runtime_memory_peak_bytes{kind="heap_used"} 62914560',
+				"secure_exec_v8_host_runtime_heap_limit_bytes 268435456",
+				'secure_exec_v8_host_runtime_cpu_seconds{kind="user"} 0.123456',
+				'secure_exec_v8_host_runtime_cpu_seconds{kind="system"} 0.045678',
+			]),
+		});
 
 		expect(summary.timing.connectRttMs).toBe(4);
 		expect(summary.timing.warmExecuteDurationMsMean).toBe(120);
@@ -342,6 +356,27 @@ describe("module-load summary generation", () => {
 			encodedBytesPerIteration: 230,
 		});
 		expect(summary.bridge.methodsByResponseBytes[0]?.responseEncodedBytesPerIteration).toBe(135);
+		expect(summary.stability.warmWallMs).toEqual({
+			sampleCount: 1,
+			min: 210,
+			max: 210,
+			mean: 210,
+			median: 210,
+			stddev: 0,
+			range: 0,
+		});
+		expect(summary.stability.warmExecuteDurationMs?.median).toBe(120);
+		expect(summary.resourceUsage).toEqual({
+			currentRssBytes: 314572800,
+			peakRssBytes: 346030080,
+			currentHeapUsedBytes: 50331648,
+			peakHeapUsedBytes: 62914560,
+			heapLimitBytes: 268435456,
+			peakHeapUsedPercentOfLimit: 23.438,
+			userCpuSeconds: 0.123,
+			systemCpuSeconds: 0.046,
+			totalCpuSeconds: 0.169,
+		});
 	});
 
 	it("splits _loadPolyfill attribution between real polyfills and __bd dispatch, including legacy baseline fallback", () => {
@@ -703,6 +738,8 @@ describe("module-load summary generation", () => {
 					bridgeCallsPerIteration: currentSummary.progressSignals.bridgeCallsPerIteration,
 					fixedSessionOverheadWarmMsMean:
 						currentSummary.progressSignals.fixedSessionOverheadWarmMsMean,
+					stability: currentSummary.stability,
+					resourceUsage: currentSummary.resourceUsage,
 					dominantBridgeMethodByTime:
 						currentSummary.progressSignals.dominantBridgeMethodByTime,
 					dominantFrameByEncodedBytes:
@@ -964,6 +1001,8 @@ describe("module-load summary generation", () => {
 					bridgeCallsPerIteration: currentSummary.progressSignals.bridgeCallsPerIteration,
 					fixedSessionOverheadWarmMsMean:
 						currentSummary.progressSignals.fixedSessionOverheadWarmMsMean,
+					stability: currentSummary.stability,
+					resourceUsage: currentSummary.resourceUsage,
 					dominantBridgeMethodByTime:
 						currentSummary.progressSignals.dominantBridgeMethodByTime,
 					dominantFrameByEncodedBytes:
@@ -982,6 +1021,96 @@ describe("module-load summary generation", () => {
 		expect(buildBenchmarkComparisonMarkdown(report)).toContain("Transport RTT");
 		expect(buildBenchmarkComparisonMarkdown(report)).toContain("_fsExists");
 		expect(buildTransportRttMarkdown(transportRtt)).toContain("64 KB");
+	});
+
+	it("keeps resource reporting readable when metrics are missing or partial", () => {
+		const scenario = getModuleLoadScenario("hono-startup");
+		const result: ScenarioRunResult = {
+			scenarioId: scenario.id,
+			title: scenario.title,
+			target: scenario.target,
+			kind: scenario.kind,
+			description: scenario.description,
+			createdAt: "2026-03-31T06:30:00.000Z",
+			iterations: 2,
+			artifacts: {
+				resultFile: "hono-startup/result.json",
+				metricsFile: "hono-startup/metrics.prom",
+				logFile: "hono-startup/ipc.ndjson",
+			},
+			samples: [
+				{
+					iteration: 1,
+					wallMs: 100,
+					code: 0,
+					stdoutBytes: 0,
+					stderrBytes: 0,
+					stdoutPreview: "",
+					stderrPreview: "",
+					checks: { ok: true },
+				},
+				{
+					iteration: 2,
+					wallMs: 80,
+					code: 0,
+					stdoutBytes: 0,
+					stderrBytes: 0,
+					stdoutPreview: "",
+					stderrPreview: "",
+					checks: { ok: true },
+				},
+			],
+			summary: {
+				coldWallMs: 100,
+				warmWallMsMean: 80,
+			},
+		};
+		const log = parseIpcLog(
+			buildLog([
+				{ ts: "2026-03-31T06:30:00.000Z", kind: "ipc_frame", direction: "send", frameType: "CreateSession", sessionId: "c1", encodedBytes: 10 },
+				{ ts: "2026-03-31T06:30:00.001Z", kind: "ipc_frame", direction: "send", frameType: "InjectGlobals", sessionId: "c1", encodedBytes: 20, payloadBytes: 15 },
+				{ ts: "2026-03-31T06:30:00.002Z", kind: "ipc_frame", direction: "send", frameType: "Execute", sessionId: "c1", encodedBytes: 30, payloadBytes: 25 },
+				{ ts: "2026-03-31T06:30:00.050Z", kind: "ipc_frame", direction: "recv", frameType: "ExecutionResult", sessionId: "c1", encodedBytes: 12 },
+				{ ts: "2026-03-31T06:30:00.050Z", kind: "ipc_execute", event: "finish", sessionId: "c1", durationMs: 70 },
+				{ ts: "2026-03-31T06:30:00.060Z", kind: "ipc_frame", direction: "send", frameType: "DestroySession", sessionId: "c1", encodedBytes: 10 },
+				{ ts: "2026-03-31T06:30:01.000Z", kind: "ipc_frame", direction: "send", frameType: "CreateSession", sessionId: "c2", encodedBytes: 10 },
+				{ ts: "2026-03-31T06:30:01.001Z", kind: "ipc_frame", direction: "send", frameType: "InjectGlobals", sessionId: "c2", encodedBytes: 20, payloadBytes: 15 },
+				{ ts: "2026-03-31T06:30:01.002Z", kind: "ipc_frame", direction: "send", frameType: "Execute", sessionId: "c2", encodedBytes: 30, payloadBytes: 25 },
+				{ ts: "2026-03-31T06:30:01.040Z", kind: "ipc_frame", direction: "recv", frameType: "ExecutionResult", sessionId: "c2", encodedBytes: 12 },
+				{ ts: "2026-03-31T06:30:01.040Z", kind: "ipc_execute", event: "finish", sessionId: "c2", durationMs: 60 },
+				{ ts: "2026-03-31T06:30:01.050Z", kind: "ipc_frame", direction: "send", frameType: "DestroySession", sessionId: "c2", encodedBytes: 10 },
+			]),
+		);
+
+		const baselineSummary = deriveScenarioSummary(scenario, result, log);
+		const currentSummary = deriveScenarioSummary(scenario, result, log, {
+			metricsText: buildMetrics([
+				'secure_exec_v8_host_runtime_memory_peak_bytes{kind="rss"} 104857600',
+			]),
+		});
+		currentSummary.comparisonToPrevious = compareScenarioSummaries(
+			currentSummary,
+			baselineSummary,
+		);
+
+		expect(currentSummary.resourceUsage).toEqual({
+			peakRssBytes: 104857600,
+		});
+		expect(buildScenarioSummaryMarkdown(currentSummary)).toContain(
+			"## Host Runtime Resources",
+		);
+		expect(buildScenarioSummaryMarkdown(currentSummary)).toContain(
+			"| Peak heap used | - |",
+		);
+		expect(buildScenarioSummaryMarkdown(currentSummary)).toContain(
+			"| Peak RSS | 100.000 MiB |",
+		);
+		expect(buildScenarioSummaryMarkdown(currentSummary)).toContain(
+			"- Peak heap used: -",
+		);
+		expect(buildScenarioSummaryMarkdown(currentSummary)).toContain(
+			"- Host CPU total: -",
+		);
 	});
 
 	it("surfaces explicit benchmark mode controls in scenario and benchmark markdown", () => {
@@ -1121,6 +1250,8 @@ describe("module-load summary generation", () => {
 					bridgeCallsPerIteration: summary.progressSignals.bridgeCallsPerIteration,
 					fixedSessionOverheadWarmMsMean:
 						summary.progressSignals.fixedSessionOverheadWarmMsMean,
+					stability: summary.stability,
+					resourceUsage: summary.resourceUsage,
 					dominantBridgeMethodByTime:
 						summary.progressSignals.dominantBridgeMethodByTime,
 					dominantFrameByEncodedBytes:

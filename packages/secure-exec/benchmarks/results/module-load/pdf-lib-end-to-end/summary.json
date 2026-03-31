@@ -4,7 +4,7 @@
   "target": "pdf_lib",
   "kind": "end_to_end",
   "description": "Creates a multi-page PDF with 50 form fields and serializes the document.",
-  "createdAt": "2026-03-31T23:09:49.239Z",
+  "createdAt": "2026-03-31T23:33:31.618Z",
   "iterations": 3,
   "artifacts": {
     "resultFile": "pdf-lib-end-to-end/result.json",
@@ -16,9 +16,9 @@
   "benchmarkModes": {
     "sandboxTrueColdStart": {
       "warmSnapshotEnabled": {
-        "totalWallMs": 333.953,
-        "runtimeCreateMs": 104.987,
-        "firstPassWallMs": 228.966,
+        "totalWallMs": 383.38,
+        "runtimeCreateMs": 100.166,
+        "firstPassWallMs": 283.214,
         "firstPassSandboxMs": 0,
         "checks": {
           "pageCount": 5,
@@ -27,9 +27,9 @@
         }
       },
       "warmSnapshotDisabled": {
-        "totalWallMs": 330.646,
-        "runtimeCreateMs": 5.149,
-        "firstPassWallMs": 325.497,
+        "totalWallMs": 541.959,
+        "runtimeCreateMs": 5.129,
+        "firstPassWallMs": 536.83,
         "firstPassSandboxMs": 0,
         "checks": {
           "pageCount": 5,
@@ -40,20 +40,20 @@
     },
     "sandboxNewSessionReplay": {
       "warmSnapshotEnabled": {
-        "coldWallMs": 258.629,
-        "warmWallMsMean": 179.726,
+        "coldWallMs": 250.839,
+        "warmWallMsMean": 256.817,
         "coldSandboxMs": 0,
         "warmSandboxMsMean": 0
       },
       "warmSnapshotDisabled": {
-        "coldWallMs": 318.763,
-        "warmWallMsMean": 163.219,
+        "coldWallMs": 376.09,
+        "warmWallMsMean": 168.483,
         "coldSandboxMs": 0,
         "warmSandboxMsMean": 0
       }
     },
     "sandboxSameSessionReplay": {
-      "totalWallMs": 197.93,
+      "totalWallMs": 273.334,
       "firstPassMs": 0,
       "replayPassMs": 0,
       "firstPassChecks": {
@@ -66,9 +66,9 @@
       }
     },
     "hostSameSessionControl": {
-      "totalWallMs": 77.433,
-      "firstPassMs": 69.17,
-      "replayPassMs": 8.26,
+      "totalWallMs": 75.166,
+      "firstPassMs": 67.558,
+      "replayPassMs": 7.605,
       "firstPassChecks": {
         "pageCount": 5,
         "fieldCount": 50
@@ -79,39 +79,70 @@
       }
     }
   },
+  "stability": {
+    "warmWallMs": {
+      "sampleCount": 2,
+      "min": 185.627,
+      "max": 328.007,
+      "mean": 256.817,
+      "median": 256.817,
+      "stddev": 71.19,
+      "range": 142.38
+    },
+    "warmExecuteDurationMs": {
+      "sampleCount": 2,
+      "min": 178.403,
+      "max": 320.089,
+      "mean": 249.246,
+      "median": 249.246,
+      "stddev": 70.843,
+      "range": 141.686
+    }
+  },
+  "resourceUsage": {
+    "currentRssBytes": 217288704,
+    "peakRssBytes": 217288704,
+    "currentHeapUsedBytes": 40871624,
+    "peakHeapUsedBytes": 48331704,
+    "heapLimitBytes": 4496293888,
+    "peakHeapUsedPercentOfLimit": 1.075,
+    "userCpuSeconds": 0.803,
+    "systemCpuSeconds": 0.191,
+    "totalCpuSeconds": 0.994
+  },
   "timing": {
     "connectRttMs": 0,
-    "coldWallMs": 258.629,
-    "warmWallMsMean": 179.726,
+    "coldWallMs": 250.839,
+    "warmWallMsMean": 256.817,
     "coldSandboxMs": 0,
     "warmSandboxMsMean": 0,
-    "coldExecuteDurationMs": 243.367,
-    "warmExecuteDurationMsMean": 173.036,
-    "coldFixedSessionOverheadMs": 15.262,
-    "warmFixedSessionOverheadMsMean": 6.691,
-    "coldCreateToInjectGlobalsMs": 13,
+    "coldExecuteDurationMs": 235.605,
+    "warmExecuteDurationMsMean": 249.246,
+    "coldFixedSessionOverheadMs": 15.234,
+    "warmFixedSessionOverheadMsMean": 7.571,
+    "coldCreateToInjectGlobalsMs": 12,
     "warmCreateToInjectGlobalsMsMean": 5,
     "coldInjectGlobalsToExecuteSendMs": 0,
-    "warmInjectGlobalsToExecuteSendMsMean": 0,
+    "warmInjectGlobalsToExecuteSendMsMean": 0.5,
     "coldExecuteResultToDestroyMs": 1,
-    "warmExecuteResultToDestroyMsMean": 0.5,
-    "coldResidualFixedOverheadMs": 1.262,
-    "warmResidualFixedOverheadMsMean": 1.19
+    "warmExecuteResultToDestroyMsMean": 0,
+    "coldResidualFixedOverheadMs": 2.234,
+    "warmResidualFixedOverheadMsMean": 2.071
   },
   "iterationsDetail": [
     {
       "iteration": 1,
-      "sessionId": "1fc7da9001ca5adb7f9a7d4fb7722451",
-      "wallMs": 258.629,
+      "sessionId": "977eaa8ec5cbb61095ed75e9b139f423",
+      "wallMs": 250.839,
       "sandboxMs": 0,
-      "executeDurationMs": 243.367,
-      "fixedSessionOverheadMs": 15.262,
-      "createToInjectGlobalsMs": 13,
+      "executeDurationMs": 235.605,
+      "fixedSessionOverheadMs": 15.234,
+      "createToInjectGlobalsMs": 12,
       "injectGlobalsToExecuteSendMs": 0,
       "executeResultToDestroyMs": 1,
-      "residualFixedOverheadMs": 1.262,
+      "residualFixedOverheadMs": 2.234,
       "bridgeCalls": 529,
-      "bridgeDurationMs": 71.202,
+      "bridgeDurationMs": 73.711,
       "bridgeCallEncodedBytes": 102565,
       "bridgeResponseEncodedBytes": 1797764,
       "bridgeCallPayloadBytes": 69263,
@@ -126,17 +157,17 @@
     },
     {
       "iteration": 2,
-      "sessionId": "0676364ed73e9964056d62ba28cdbb6d",
-      "wallMs": 185.53,
+      "sessionId": "ab69fd6b71629922a0dbb5299362552b",
+      "wallMs": 328.007,
       "sandboxMs": 0,
-      "executeDurationMs": 178.202,
-      "fixedSessionOverheadMs": 7.328,
+      "executeDurationMs": 320.089,
+      "fixedSessionOverheadMs": 7.918,
       "createToInjectGlobalsMs": 6,
       "injectGlobalsToExecuteSendMs": 0,
-      "executeResultToDestroyMs": 1,
-      "residualFixedOverheadMs": 0.328,
+      "executeResultToDestroyMs": 0,
+      "residualFixedOverheadMs": 1.918,
       "bridgeCalls": 529,
-      "bridgeDurationMs": 32.889,
+      "bridgeDurationMs": 73.439,
       "bridgeCallEncodedBytes": 102565,
       "bridgeResponseEncodedBytes": 80930,
       "bridgeCallPayloadBytes": 69263,
@@ -151,17 +182,17 @@
     },
     {
       "iteration": 3,
-      "sessionId": "dd093dab9407244383c796da7b407cfa",
-      "wallMs": 173.923,
+      "sessionId": "25bea993a15510af8409cb7334b300c4",
+      "wallMs": 185.627,
       "sandboxMs": 0,
-      "executeDurationMs": 167.87,
-      "fixedSessionOverheadMs": 6.053,
+      "executeDurationMs": 178.403,
+      "fixedSessionOverheadMs": 7.224,
       "createToInjectGlobalsMs": 4,
-      "injectGlobalsToExecuteSendMs": 0,
+      "injectGlobalsToExecuteSendMs": 1,
       "executeResultToDestroyMs": 0,
-      "residualFixedOverheadMs": 2.053,
+      "residualFixedOverheadMs": 2.224,
       "bridgeCalls": 529,
-      "bridgeDurationMs": 28.379,
+      "bridgeDurationMs": 28.534,
       "bridgeCallEncodedBytes": 102565,
       "bridgeResponseEncodedBytes": 80930,
       "bridgeCallPayloadBytes": 69263,
@@ -178,16 +209,16 @@
   "bridge": {
     "totalCalls": 1587,
     "callsPerIteration": 529,
-    "totalDurationMs": 132.47,
-    "durationMsPerIteration": 44.157,
+    "totalDurationMs": 175.684,
+    "durationMsPerIteration": 58.561,
     "methodsByCount": [
       {
         "method": "_bridgeDispatch",
         "callsTotal": 1563,
         "callsPerIteration": 521,
-        "totalDurationMs": 99.566,
-        "durationMsPerIteration": 33.189,
-        "meanDurationMsPerCall": 0.064,
+        "totalDurationMs": 142.001,
+        "durationMsPerIteration": 47.334,
+        "meanDurationMsPerCall": 0.091,
         "requestEncodedBytesTotal": 305580,
         "requestEncodedBytesPerIteration": 101860,
         "requestPayloadBytesTotal": 207111,
@@ -204,9 +235,9 @@
         "method": "_loadPolyfill",
         "callsTotal": 21,
         "callsPerIteration": 7,
-        "totalDurationMs": 32.723,
-        "durationMsPerIteration": 10.908,
-        "meanDurationMsPerCall": 1.558,
+        "totalDurationMs": 33.328,
+        "durationMsPerIteration": 11.109,
+        "meanDurationMsPerCall": 1.587,
         "requestEncodedBytesTotal": 1707,
         "requestEncodedBytesPerIteration": 569,
         "requestPayloadBytesTotal": 426,
@@ -223,9 +254,9 @@
         "method": "_log",
         "callsTotal": 3,
         "callsPerIteration": 1,
-        "totalDurationMs": 0.181,
-        "durationMsPerIteration": 0.06,
-        "meanDurationMsPerCall": 0.06,
+        "totalDurationMs": 0.355,
+        "durationMsPerIteration": 0.118,
+        "meanDurationMsPerCall": 0.118,
         "requestEncodedBytesTotal": 408,
         "requestEncodedBytesPerIteration": 136,
         "requestPayloadBytesTotal": 252,
@@ -244,9 +275,9 @@
         "method": "_bridgeDispatch",
         "callsTotal": 1563,
         "callsPerIteration": 521,
-        "totalDurationMs": 99.566,
-        "durationMsPerIteration": 33.189,
-        "meanDurationMsPerCall": 0.064,
+        "totalDurationMs": 142.001,
+        "durationMsPerIteration": 47.334,
+        "meanDurationMsPerCall": 0.091,
         "requestEncodedBytesTotal": 305580,
         "requestEncodedBytesPerIteration": 101860,
         "requestPayloadBytesTotal": 207111,
@@ -263,9 +294,9 @@
         "method": "_loadPolyfill",
         "callsTotal": 21,
         "callsPerIteration": 7,
-        "totalDurationMs": 32.723,
-        "durationMsPerIteration": 10.908,
-        "meanDurationMsPerCall": 1.558,
+        "totalDurationMs": 33.328,
+        "durationMsPerIteration": 11.109,
+        "meanDurationMsPerCall": 1.587,
         "requestEncodedBytesTotal": 1707,
         "requestEncodedBytesPerIteration": 569,
         "requestPayloadBytesTotal": 426,
@@ -282,9 +313,9 @@
         "method": "_log",
         "callsTotal": 3,
         "callsPerIteration": 1,
-        "totalDurationMs": 0.181,
-        "durationMsPerIteration": 0.06,
-        "meanDurationMsPerCall": 0.06,
+        "totalDurationMs": 0.355,
+        "durationMsPerIteration": 0.118,
+        "meanDurationMsPerCall": 0.118,
         "requestEncodedBytesTotal": 408,
         "requestEncodedBytesPerIteration": 136,
         "requestPayloadBytesTotal": 252,
@@ -303,9 +334,9 @@
         "method": "_bridgeDispatch",
         "callsTotal": 1563,
         "callsPerIteration": 521,
-        "totalDurationMs": 99.566,
-        "durationMsPerIteration": 33.189,
-        "meanDurationMsPerCall": 0.064,
+        "totalDurationMs": 142.001,
+        "durationMsPerIteration": 47.334,
+        "meanDurationMsPerCall": 0.091,
         "requestEncodedBytesTotal": 305580,
         "requestEncodedBytesPerIteration": 101860,
         "requestPayloadBytesTotal": 207111,
@@ -322,9 +353,9 @@
         "method": "_loadPolyfill",
         "callsTotal": 21,
         "callsPerIteration": 7,
-        "totalDurationMs": 32.723,
-        "durationMsPerIteration": 10.908,
-        "meanDurationMsPerCall": 1.558,
+        "totalDurationMs": 33.328,
+        "durationMsPerIteration": 11.109,
+        "meanDurationMsPerCall": 1.587,
         "requestEncodedBytesTotal": 1707,
         "requestEncodedBytesPerIteration": 569,
         "requestPayloadBytesTotal": 426,
@@ -341,9 +372,9 @@
         "method": "_log",
         "callsTotal": 3,
         "callsPerIteration": 1,
-        "totalDurationMs": 0.181,
-        "durationMsPerIteration": 0.06,
-        "meanDurationMsPerCall": 0.06,
+        "totalDurationMs": 0.355,
+        "durationMsPerIteration": 0.118,
+        "meanDurationMsPerCall": 0.118,
         "requestEncodedBytesTotal": 408,
         "requestEncodedBytesPerIteration": 136,
         "requestPayloadBytesTotal": 252,
@@ -363,8 +394,8 @@
         "label": "real polyfill-body loads",
         "callsTotal": 21,
         "callsPerIteration": 7,
-        "totalDurationMs": 32.723,
-        "durationMsPerIteration": 10.908,
+        "totalDurationMs": 33.328,
+        "durationMsPerIteration": 11.109,
         "requestEncodedBytesTotal": 1707,
         "requestEncodedBytesPerIteration": 569,
         "responseEncodedBytesTotal": 300178,
@@ -374,8 +405,8 @@
             "target": "@pdf-lib/standard-fonts",
             "callsTotal": 3,
             "callsPerIteration": 1,
-            "totalDurationMs": 0.072,
-            "durationMsPerIteration": 0.024,
+            "totalDurationMs": 0.086,
+            "durationMsPerIteration": 0.029,
             "responseEncodedBytesTotal": 150,
             "responseEncodedBytesPerIteration": 50
           },
@@ -383,8 +414,8 @@
             "target": "@pdf-lib/upng",
             "callsTotal": 3,
             "callsPerIteration": 1,
-            "totalDurationMs": 0.077,
-            "durationMsPerIteration": 0.026,
+            "totalDurationMs": 0.105,
+            "durationMsPerIteration": 0.035,
             "responseEncodedBytesTotal": 150,
             "responseEncodedBytesPerIteration": 50
           },
@@ -392,8 +423,8 @@
             "target": "pako",
             "callsTotal": 3,
             "callsPerIteration": 1,
-            "totalDurationMs": 0.052,
-            "durationMsPerIteration": 0.017,
+            "totalDurationMs": 0.072,
+            "durationMsPerIteration": 0.024,
             "responseEncodedBytesTotal": 150,
             "responseEncodedBytesPerIteration": 50
           },
@@ -401,8 +432,8 @@
             "target": "pdf-lib",
             "callsTotal": 3,
             "callsPerIteration": 1,
-            "totalDurationMs": 0.097,
-            "durationMsPerIteration": 0.032,
+            "totalDurationMs": 0.081,
+            "durationMsPerIteration": 0.027,
             "responseEncodedBytesTotal": 150,
             "responseEncodedBytesPerIteration": 50
           },
@@ -410,8 +441,8 @@
             "target": "stream/web",
             "callsTotal": 3,
             "callsPerIteration": 1,
-            "totalDurationMs": 17.097,
-            "durationMsPerIteration": 5.699,
+            "totalDurationMs": 17.752,
+            "durationMsPerIteration": 5.917,
             "responseEncodedBytesTotal": 173950,
             "responseEncodedBytesPerIteration": 57983.333
           },
@@ -428,8 +459,8 @@
             "target": "url",
             "callsTotal": 3,
             "callsPerIteration": 1,
-            "totalDurationMs": 15.258,
-            "durationMsPerIteration": 5.086,
+            "totalDurationMs": 15.162,
+            "durationMsPerIteration": 5.054,
             "responseEncodedBytesTotal": 125478,
             "responseEncodedBytesPerIteration": 41826
           }
@@ -439,8 +470,8 @@
             "target": "stream/web",
             "callsTotal": 3,
             "callsPerIteration": 1,
-            "totalDurationMs": 17.097,
-            "durationMsPerIteration": 5.699,
+            "totalDurationMs": 17.752,
+            "durationMsPerIteration": 5.917,
             "responseEncodedBytesTotal": 173950,
             "responseEncodedBytesPerIteration": 57983.333
           },
@@ -448,26 +479,17 @@
             "target": "url",
             "callsTotal": 3,
             "callsPerIteration": 1,
-            "totalDurationMs": 15.258,
-            "durationMsPerIteration": 5.086,
+            "totalDurationMs": 15.162,
+            "durationMsPerIteration": 5.054,
             "responseEncodedBytesTotal": 125478,
             "responseEncodedBytesPerIteration": 41826
-          },
-          {
-            "target": "pdf-lib",
-            "callsTotal": 3,
-            "callsPerIteration": 1,
-            "totalDurationMs": 0.097,
-            "durationMsPerIteration": 0.032,
-            "responseEncodedBytesTotal": 150,
-            "responseEncodedBytesPerIteration": 50
           },
           {
             "target": "@pdf-lib/upng",
             "callsTotal": 3,
             "callsPerIteration": 1,
-            "totalDurationMs": 0.077,
-            "durationMsPerIteration": 0.026,
+            "totalDurationMs": 0.105,
+            "durationMsPerIteration": 0.035,
             "responseEncodedBytesTotal": 150,
             "responseEncodedBytesPerIteration": 50
           },
@@ -475,8 +497,17 @@
             "target": "@pdf-lib/standard-fonts",
             "callsTotal": 3,
             "callsPerIteration": 1,
-            "totalDurationMs": 0.072,
-            "durationMsPerIteration": 0.024,
+            "totalDurationMs": 0.086,
+            "durationMsPerIteration": 0.029,
+            "responseEncodedBytesTotal": 150,
+            "responseEncodedBytesPerIteration": 50
+          },
+          {
+            "target": "pdf-lib",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 0.081,
+            "durationMsPerIteration": 0.027,
             "responseEncodedBytesTotal": 150,
             "responseEncodedBytesPerIteration": 50
           }
@@ -486,8 +517,8 @@
             "target": "stream/web",
             "callsTotal": 3,
             "callsPerIteration": 1,
-            "totalDurationMs": 17.097,
-            "durationMsPerIteration": 5.699,
+            "totalDurationMs": 17.752,
+            "durationMsPerIteration": 5.917,
             "responseEncodedBytesTotal": 173950,
             "responseEncodedBytesPerIteration": 57983.333
           },
@@ -495,26 +526,17 @@
             "target": "url",
             "callsTotal": 3,
             "callsPerIteration": 1,
-            "totalDurationMs": 15.258,
-            "durationMsPerIteration": 5.086,
+            "totalDurationMs": 15.162,
+            "durationMsPerIteration": 5.054,
             "responseEncodedBytesTotal": 125478,
             "responseEncodedBytesPerIteration": 41826
-          },
-          {
-            "target": "pdf-lib",
-            "callsTotal": 3,
-            "callsPerIteration": 1,
-            "totalDurationMs": 0.097,
-            "durationMsPerIteration": 0.032,
-            "responseEncodedBytesTotal": 150,
-            "responseEncodedBytesPerIteration": 50
           },
           {
             "target": "@pdf-lib/upng",
             "callsTotal": 3,
             "callsPerIteration": 1,
-            "totalDurationMs": 0.077,
-            "durationMsPerIteration": 0.026,
+            "totalDurationMs": 0.105,
+            "durationMsPerIteration": 0.035,
             "responseEncodedBytesTotal": 150,
             "responseEncodedBytesPerIteration": 50
           },
@@ -522,8 +544,17 @@
             "target": "@pdf-lib/standard-fonts",
             "callsTotal": 3,
             "callsPerIteration": 1,
-            "totalDurationMs": 0.072,
-            "durationMsPerIteration": 0.024,
+            "totalDurationMs": 0.086,
+            "durationMsPerIteration": 0.029,
+            "responseEncodedBytesTotal": 150,
+            "responseEncodedBytesPerIteration": 50
+          },
+          {
+            "target": "pdf-lib",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 0.081,
+            "durationMsPerIteration": 0.027,
             "responseEncodedBytesTotal": 150,
             "responseEncodedBytesPerIteration": 50
           }
@@ -533,8 +564,8 @@
             "target": "stream/web",
             "callsTotal": 3,
             "callsPerIteration": 1,
-            "totalDurationMs": 17.097,
-            "durationMsPerIteration": 5.699,
+            "totalDurationMs": 17.752,
+            "durationMsPerIteration": 5.917,
             "responseEncodedBytesTotal": 173950,
             "responseEncodedBytesPerIteration": 57983.333
           },
@@ -542,26 +573,17 @@
             "target": "url",
             "callsTotal": 3,
             "callsPerIteration": 1,
-            "totalDurationMs": 15.258,
-            "durationMsPerIteration": 5.086,
+            "totalDurationMs": 15.162,
+            "durationMsPerIteration": 5.054,
             "responseEncodedBytesTotal": 125478,
             "responseEncodedBytesPerIteration": 41826
-          },
-          {
-            "target": "pdf-lib",
-            "callsTotal": 3,
-            "callsPerIteration": 1,
-            "totalDurationMs": 0.097,
-            "durationMsPerIteration": 0.032,
-            "responseEncodedBytesTotal": 150,
-            "responseEncodedBytesPerIteration": 50
           },
           {
             "target": "@pdf-lib/upng",
             "callsTotal": 3,
             "callsPerIteration": 1,
-            "totalDurationMs": 0.077,
-            "durationMsPerIteration": 0.026,
+            "totalDurationMs": 0.105,
+            "durationMsPerIteration": 0.035,
             "responseEncodedBytesTotal": 150,
             "responseEncodedBytesPerIteration": 50
           },
@@ -569,8 +591,17 @@
             "target": "@pdf-lib/standard-fonts",
             "callsTotal": 3,
             "callsPerIteration": 1,
-            "totalDurationMs": 0.072,
-            "durationMsPerIteration": 0.024,
+            "totalDurationMs": 0.086,
+            "durationMsPerIteration": 0.029,
+            "responseEncodedBytesTotal": 150,
+            "responseEncodedBytesPerIteration": 50
+          },
+          {
+            "target": "pdf-lib",
+            "callsTotal": 3,
+            "callsPerIteration": 1,
+            "totalDurationMs": 0.081,
+            "durationMsPerIteration": 0.027,
             "responseEncodedBytesTotal": 150,
             "responseEncodedBytesPerIteration": 50
           }
@@ -879,18 +910,18 @@
     ]
   },
   "progressSignals": {
-    "warmWallMsMean": 179.726,
+    "warmWallMsMean": 256.817,
     "bridgeCallsPerIteration": 529,
-    "fixedSessionOverheadWarmMsMean": 6.691,
+    "fixedSessionOverheadWarmMsMean": 7.571,
     "dominantBridgeMethodByTime": {
       "method": "_bridgeDispatch",
-      "durationMsPerIteration": 33.189,
+      "durationMsPerIteration": 47.334,
       "callsPerIteration": 521
     },
     "dominantBridgeMethodByCount": {
       "method": "_bridgeDispatch",
       "callsPerIteration": 521,
-      "durationMsPerIteration": 33.189
+      "durationMsPerIteration": 47.334
     },
     "dominantBridgeMethodByResponseBytes": {
       "method": "_bridgeDispatch",
@@ -899,7 +930,7 @@
     "loadPolyfillAttribution": {
       "polyfill_body": {
         "callsPerIteration": 7,
-        "durationMsPerIteration": 10.908,
+        "durationMsPerIteration": 11.109,
         "responseEncodedBytesPerIteration": 100059.333
       },
       "bridge_dispatch": {
@@ -915,13 +946,13 @@
     }
   },
   "comparisonToPrevious": {
-    "baselineScenarioCreatedAt": "2026-03-31T22:51:10.673Z",
+    "baselineScenarioCreatedAt": "2026-03-31T23:09:49.239Z",
     "metrics": {
       "warmWallMsMean": {
-        "before": 243.269,
-        "after": 179.726,
-        "delta": -63.543,
-        "deltaPercent": -26.12
+        "before": 179.726,
+        "after": 256.817,
+        "delta": 77.091,
+        "deltaPercent": 42.894
       },
       "bridgeCallsPerIteration": {
         "before": 529,
@@ -930,10 +961,10 @@
         "deltaPercent": 0
       },
       "fixedSessionOverheadWarmMsMean": {
-        "before": 7.503,
-        "after": 6.691,
-        "delta": -0.812,
-        "deltaPercent": -10.822
+        "before": 6.691,
+        "after": 7.571,
+        "delta": 0.88,
+        "deltaPercent": 13.152
       },
       "createToInjectGlobalsWarmMsMean": {
         "before": 5,
@@ -943,25 +974,26 @@
       },
       "injectGlobalsToExecuteSendWarmMsMean": {
         "before": 0,
-        "after": 0,
-        "delta": 0
-      },
-      "executeResultToDestroyWarmMsMean": {
-        "before": 0,
         "after": 0.5,
         "delta": 0.5
       },
+      "executeResultToDestroyWarmMsMean": {
+        "before": 0.5,
+        "after": 0,
+        "delta": -0.5,
+        "deltaPercent": -100
+      },
       "residualFixedOverheadWarmMsMean": {
-        "before": 2.503,
-        "after": 1.19,
-        "delta": -1.313,
-        "deltaPercent": -52.457
+        "before": 1.19,
+        "after": 2.071,
+        "delta": 0.881,
+        "deltaPercent": 74.034
       },
       "bridgeDurationPerIterationMs": {
-        "before": 60.261,
-        "after": 44.157,
-        "delta": -16.104,
-        "deltaPercent": -26.724
+        "before": 44.157,
+        "after": 58.561,
+        "delta": 14.404,
+        "deltaPercent": 32.62
       },
       "bridgeResponseFrameBytesPerIteration": {
         "before": 653208,
@@ -970,30 +1002,54 @@
         "deltaPercent": 0
       },
       "executeWarmMsMean": {
-        "before": 235.766,
-        "after": 173.036,
-        "delta": -62.73,
-        "deltaPercent": -26.607
+        "before": 173.036,
+        "after": 249.246,
+        "delta": 76.21,
+        "deltaPercent": 44.043
+      },
+      "warmWallMedianMs": {
+        "before": 179.726,
+        "after": 256.817,
+        "delta": 77.091,
+        "deltaPercent": 42.894
+      },
+      "warmWallStddevMs": {
+        "before": 5.803,
+        "after": 71.19,
+        "delta": 65.387,
+        "deltaPercent": 1126.779
+      },
+      "warmExecuteMedianMs": {
+        "before": 173.036,
+        "after": 249.246,
+        "delta": 76.21,
+        "deltaPercent": 44.043
+      },
+      "warmExecuteStddevMs": {
+        "before": 5.166,
+        "after": 70.843,
+        "delta": 65.677,
+        "deltaPercent": 1271.332
       }
     },
     "bridgeMethodDurationDeltas": [
       {
         "method": "_bridgeDispatch",
-        "before": 46.974,
-        "after": 33.189,
-        "delta": -13.785
+        "before": 33.189,
+        "after": 47.334,
+        "delta": 14.145
       },
       {
         "method": "_loadPolyfill",
-        "before": 13.209,
-        "after": 10.908,
-        "delta": -2.301
+        "before": 10.908,
+        "after": 11.109,
+        "delta": 0.201
       },
       {
         "method": "_log",
-        "before": 0.077,
-        "after": 0.06,
-        "delta": -0.017
+        "before": 0.06,
+        "after": 0.118,
+        "delta": 0.058
       }
     ],
     "bridgeMethodCountDeltas": [],
@@ -1010,10 +1066,10 @@
           "deltaPercent": 0
         },
         "durationMsPerIteration": {
-          "before": 13.209,
-          "after": 10.908,
-          "delta": -2.301,
-          "deltaPercent": -17.42
+          "before": 10.908,
+          "after": 11.109,
+          "delta": 0.201,
+          "deltaPercent": 1.843
         },
         "responseEncodedBytesPerIteration": {
           "before": 100059.333,
@@ -1046,10 +1102,10 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 5.403,
-              "after": 5.699,
-              "delta": 0.296,
-              "deltaPercent": 5.478
+              "before": 5.699,
+              "after": 5.917,
+              "delta": 0.218,
+              "deltaPercent": 3.825
             },
             "responseEncodedBytesPerIteration": {
               "before": 57983.333,
@@ -1067,10 +1123,10 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 7.626,
-              "after": 5.086,
-              "delta": -2.54,
-              "deltaPercent": -33.307
+              "before": 5.086,
+              "after": 5.054,
+              "delta": -0.032,
+              "deltaPercent": -0.629
             },
             "responseEncodedBytesPerIteration": {
               "before": 41826,
@@ -1088,10 +1144,10 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 0.049,
-              "after": 0.026,
-              "delta": -0.023,
-              "deltaPercent": -46.939
+              "before": 0.026,
+              "after": 0.035,
+              "delta": 0.009,
+              "deltaPercent": 34.615
             },
             "responseEncodedBytesPerIteration": {
               "before": 50,
@@ -1109,10 +1165,10 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 0.031,
-              "after": 0.017,
-              "delta": -0.014,
-              "deltaPercent": -45.161
+              "before": 0.017,
+              "after": 0.024,
+              "delta": 0.007,
+              "deltaPercent": 41.176
             },
             "responseEncodedBytesPerIteration": {
               "before": 50,
@@ -1122,7 +1178,7 @@
             }
           },
           {
-            "target": "tslib",
+            "target": "@pdf-lib/standard-fonts",
             "callsPerIteration": {
               "before": 1,
               "after": 1,
@@ -1130,10 +1186,10 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 0.035,
-              "after": 0.023,
-              "delta": -0.012,
-              "deltaPercent": -34.286
+              "before": 0.024,
+              "after": 0.029,
+              "delta": 0.005,
+              "deltaPercent": 20.833
             },
             "responseEncodedBytesPerIteration": {
               "before": 50,
@@ -1145,27 +1201,6 @@
         ],
         "targetDeltasByTime": [
           {
-            "target": "url",
-            "callsPerIteration": {
-              "before": 1,
-              "after": 1,
-              "delta": 0,
-              "deltaPercent": 0
-            },
-            "durationMsPerIteration": {
-              "before": 7.626,
-              "after": 5.086,
-              "delta": -2.54,
-              "deltaPercent": -33.307
-            },
-            "responseEncodedBytesPerIteration": {
-              "before": 41826,
-              "after": 41826,
-              "delta": 0,
-              "deltaPercent": 0
-            }
-          },
-          {
             "target": "stream/web",
             "callsPerIteration": {
               "before": 1,
@@ -1174,14 +1209,35 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 5.403,
-              "after": 5.699,
-              "delta": 0.296,
-              "deltaPercent": 5.478
+              "before": 5.699,
+              "after": 5.917,
+              "delta": 0.218,
+              "deltaPercent": 3.825
             },
             "responseEncodedBytesPerIteration": {
               "before": 57983.333,
               "after": 57983.333,
+              "delta": 0,
+              "deltaPercent": 0
+            }
+          },
+          {
+            "target": "url",
+            "callsPerIteration": {
+              "before": 1,
+              "after": 1,
+              "delta": 0,
+              "deltaPercent": 0
+            },
+            "durationMsPerIteration": {
+              "before": 5.086,
+              "after": 5.054,
+              "delta": -0.032,
+              "deltaPercent": -0.629
+            },
+            "responseEncodedBytesPerIteration": {
+              "before": 41826,
+              "after": 41826,
               "delta": 0,
               "deltaPercent": 0
             }
@@ -1195,10 +1251,10 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 0.049,
-              "after": 0.026,
-              "delta": -0.023,
-              "deltaPercent": -46.939
+              "before": 0.026,
+              "after": 0.035,
+              "delta": 0.009,
+              "deltaPercent": 34.615
             },
             "responseEncodedBytesPerIteration": {
               "before": 50,
@@ -1216,10 +1272,10 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 0.031,
-              "after": 0.017,
-              "delta": -0.014,
-              "deltaPercent": -45.161
+              "before": 0.017,
+              "after": 0.024,
+              "delta": 0.007,
+              "deltaPercent": 41.176
             },
             "responseEncodedBytesPerIteration": {
               "before": 50,
@@ -1229,7 +1285,7 @@
             }
           },
           {
-            "target": "tslib",
+            "target": "@pdf-lib/standard-fonts",
             "callsPerIteration": {
               "before": 1,
               "after": 1,
@@ -1237,10 +1293,10 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 0.035,
-              "after": 0.023,
-              "delta": -0.012,
-              "deltaPercent": -34.286
+              "before": 0.024,
+              "after": 0.029,
+              "delta": 0.005,
+              "deltaPercent": 20.833
             },
             "responseEncodedBytesPerIteration": {
               "before": 50,
@@ -1260,10 +1316,10 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 5.403,
-              "after": 5.699,
-              "delta": 0.296,
-              "deltaPercent": 5.478
+              "before": 5.699,
+              "after": 5.917,
+              "delta": 0.218,
+              "deltaPercent": 3.825
             },
             "responseEncodedBytesPerIteration": {
               "before": 57983.333,
@@ -1281,10 +1337,10 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 7.626,
-              "after": 5.086,
-              "delta": -2.54,
-              "deltaPercent": -33.307
+              "before": 5.086,
+              "after": 5.054,
+              "delta": -0.032,
+              "deltaPercent": -0.629
             },
             "responseEncodedBytesPerIteration": {
               "before": 41826,
@@ -1302,10 +1358,10 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 0.049,
-              "after": 0.026,
-              "delta": -0.023,
-              "deltaPercent": -46.939
+              "before": 0.026,
+              "after": 0.035,
+              "delta": 0.009,
+              "deltaPercent": 34.615
             },
             "responseEncodedBytesPerIteration": {
               "before": 50,
@@ -1323,10 +1379,10 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 0.031,
-              "after": 0.017,
-              "delta": -0.014,
-              "deltaPercent": -45.161
+              "before": 0.017,
+              "after": 0.024,
+              "delta": 0.007,
+              "deltaPercent": 41.176
             },
             "responseEncodedBytesPerIteration": {
               "before": 50,
@@ -1336,7 +1392,7 @@
             }
           },
           {
-            "target": "tslib",
+            "target": "@pdf-lib/standard-fonts",
             "callsPerIteration": {
               "before": 1,
               "after": 1,
@@ -1344,10 +1400,10 @@
               "deltaPercent": 0
             },
             "durationMsPerIteration": {
-              "before": 0.035,
-              "after": 0.023,
-              "delta": -0.012,
-              "deltaPercent": -34.286
+              "before": 0.024,
+              "after": 0.029,
+              "delta": 0.005,
+              "deltaPercent": 20.833
             },
             "responseEncodedBytesPerIteration": {
               "before": 50,

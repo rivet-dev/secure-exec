@@ -133,6 +133,15 @@ class GaugeMetric {
 		this.inc(inputLabels, -value);
 	}
 
+	set(
+		inputLabels: Record<string, string | number | boolean | undefined> = {},
+		value: number,
+	): void {
+		const labels = normalizeLabels(this.labelNames, inputLabels);
+		const key = metricKey(this.labelNames, labels);
+		this.samples.set(key, { labels, value });
+	}
+
 	render(): string[] {
 		const lines = [
 			`# HELP ${this.name} ${this.help}`,
@@ -258,6 +267,29 @@ interface PendingExecution {
 interface PendingBridgeCall {
 	startedAt: bigint;
 	method: string;
+}
+
+type HostResourceSnapshot = {
+	rssBytes: number;
+	heapUsedBytes: number;
+	heapLimitBytes: number;
+	userCpuSeconds: number;
+	systemCpuSeconds: number;
+};
+
+const HOST_RESOURCE_SAMPLE_INTERVAL_MS = 50;
+
+function readHostResourceSnapshot(): HostResourceSnapshot {
+	const memoryUsage = process.memoryUsage();
+	const heapStats = v8.getHeapStatistics();
+	const resourceUsage = process.resourceUsage();
+	return {
+		rssBytes: memoryUsage.rss,
+		heapUsedBytes: memoryUsage.heapUsed,
+		heapLimitBytes: heapStats.heap_size_limit,
+		userCpuSeconds: Number((resourceUsage.userCPUTime / 1_000_000).toFixed(6)),
+		systemCpuSeconds: Number((resourceUsage.systemCPUTime / 1_000_000).toFixed(6)),
+	};
 }
 
 export interface IpcObservability {
@@ -524,12 +556,38 @@ class FileAndMetricsObservability implements IpcObservability {
 		HISTOGRAM_BUCKETS_SECONDS,
 		["method", "status"],
 	);
+	private readonly hostRuntimeMemory = this.registry.gauge(
+		"secure_exec_v8_host_runtime_memory_bytes",
+		"Current memory usage observed in the host-side Node runtime that owns IPC observability.",
+		["kind"],
+	);
+	private readonly hostRuntimeMemoryPeak = this.registry.gauge(
+		"secure_exec_v8_host_runtime_memory_peak_bytes",
+		"Peak memory usage observed in the host-side Node runtime that owns IPC observability.",
+		["kind"],
+	);
+	private readonly hostRuntimeCpuSeconds = this.registry.gauge(
+		"secure_exec_v8_host_runtime_cpu_seconds",
+		"Cumulative CPU time consumed by the host-side Node runtime that owns IPC observability.",
+		["kind"],
+	);
+	private readonly hostRuntimeHeapLimitBytes = this.registry.gauge(
+		"secure_exec_v8_host_runtime_heap_limit_bytes",
+		"Current V8 heap size limit for the host-side Node runtime that owns IPC observability.",
+	);
+	private readonly hostRuntimeHeapPeakUtilization = this.registry.gauge(
+		"secure_exec_v8_host_runtime_heap_peak_utilization_ratio",
+		"Peak host heap usage divided by the current heap limit for the Node runtime that owns IPC observability.",
+	);
 	private readonly pendingExecutions = new Map<string, PendingExecution>();
 	private readonly pendingBridgeCalls = new Map<string, PendingBridgeCall>();
 	private readonly options: V8IpcObservabilityOptions;
 	private logStream: WriteStream | null = null;
 	private logStreamErrored = false;
 	private metricsServer: http.Server | null = null;
+	private hostResourceSampleTimer: NodeJS.Timeout | null = null;
+	private peakRssBytes = 0;
+	private peakHeapUsedBytes = 0;
 	private sequence = 0;
 	metricsEndpointUrl?: string;
 
@@ -553,6 +611,11 @@ class FileAndMetricsObservability implements IpcObservability {
 			});
 		}
 		if (this.options.metrics) {
+			this.sampleHostRuntimeResources();
+			this.hostResourceSampleTimer = setInterval(() => {
+				this.sampleHostRuntimeResources();
+			}, HOST_RESOURCE_SAMPLE_INTERVAL_MS);
+			this.hostResourceSampleTimer.unref();
 			await this.startMetricsServer(this.options.metrics);
 			this.writeLog("ipc_observability", {
 				event: "metrics_enabled",
@@ -598,6 +661,7 @@ class FileAndMetricsObservability implements IpcObservability {
 		sessionId: string,
 		fields: { mode: "exec" | "run"; filePath?: string },
 	): void {
+		this.sampleHostRuntimeResources();
 		this.pendingExecutions.set(sessionId, {
 			startedAt: process.hrtime.bigint(),
 			mode: fields.mode,
@@ -615,6 +679,7 @@ class FileAndMetricsObservability implements IpcObservability {
 		sessionId: string,
 		fields: { exitCode: number; errorCode?: string },
 	): void {
+		this.sampleHostRuntimeResources();
 		const pending = this.pendingExecutions.get(sessionId);
 		if (pending) {
 			this.pendingExecutions.delete(sessionId);
@@ -698,6 +763,11 @@ class FileAndMetricsObservability implements IpcObservability {
 		this.writeLog("ipc_observability", {
 			event: "closing",
 		});
+		if (this.hostResourceSampleTimer) {
+			clearInterval(this.hostResourceSampleTimer);
+			this.hostResourceSampleTimer = null;
+		}
+		this.sampleHostRuntimeResources();
 		if (this.metricsServer) {
 			await new Promise<void>((resolve, reject) => {
 				this.metricsServer?.close((error) => (error ? reject(error) : resolve()));
@@ -731,6 +801,7 @@ class FileAndMetricsObservability implements IpcObservability {
 				res.end("not found\n");
 				return;
 			}
+			this.sampleHostRuntimeResources();
 			res.writeHead(200, {
 				"content-type": "text/plain; version=0.0.4; charset=utf-8",
 				"cache-control": "no-store",
@@ -761,5 +832,41 @@ class FileAndMetricsObservability implements IpcObservability {
 			...fields,
 		});
 		this.logStream.write(`${payload}\n`);
+	}
+
+	private sampleHostRuntimeResources(): void {
+		const snapshot = readHostResourceSnapshot();
+		this.peakRssBytes = Math.max(this.peakRssBytes, snapshot.rssBytes);
+		this.peakHeapUsedBytes = Math.max(
+			this.peakHeapUsedBytes,
+			snapshot.heapUsedBytes,
+		);
+		this.hostRuntimeMemory.set({ kind: "rss" }, snapshot.rssBytes);
+		this.hostRuntimeMemory.set(
+			{ kind: "heap_used" },
+			snapshot.heapUsedBytes,
+		);
+		this.hostRuntimeMemoryPeak.set({ kind: "rss" }, this.peakRssBytes);
+		this.hostRuntimeMemoryPeak.set(
+			{ kind: "heap_used" },
+			this.peakHeapUsedBytes,
+		);
+		this.hostRuntimeCpuSeconds.set(
+			{ kind: "user" },
+			snapshot.userCpuSeconds,
+		);
+		this.hostRuntimeCpuSeconds.set(
+			{ kind: "system" },
+			snapshot.systemCpuSeconds,
+		);
+		this.hostRuntimeHeapLimitBytes.set({}, snapshot.heapLimitBytes);
+		this.hostRuntimeHeapPeakUtilization.set(
+			{},
+			snapshot.heapLimitBytes > 0
+				? Number(
+						(this.peakHeapUsedBytes / snapshot.heapLimitBytes).toFixed(6),
+				  )
+				: 0,
+		);
 	}
 }

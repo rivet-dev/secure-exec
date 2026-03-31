@@ -5,7 +5,7 @@
   "kind": "import",
   "description": "Dynamically imports the resolved `@borewit/text-codec` entry file to isolate projected package-file loading from the Pi startup path.",
   "iterations": 3,
-  "createdAt": "2026-03-31T23:09:35.142Z",
+  "createdAt": "2026-03-31T23:33:15.872Z",
   "artifacts": {
     "resultFile": "micro-import-text-codec/result.json",
     "metricsFile": "micro-import-text-codec/metrics.prom",
@@ -14,7 +14,7 @@
   "samples": [
     {
       "iteration": 1,
-      "wallMs": 96.299,
+      "wallMs": 97.944,
       "code": 0,
       "stdoutBytes": 125,
       "stderrBytes": 0,
@@ -29,7 +29,7 @@
     },
     {
       "iteration": 2,
-      "wallMs": 30.178,
+      "wallMs": 27.025,
       "code": 0,
       "stdoutBytes": 125,
       "stderrBytes": 0,
@@ -44,7 +44,7 @@
     },
     {
       "iteration": 3,
-      "wallMs": 24.778,
+      "wallMs": 26.595,
       "code": 0,
       "stdoutBytes": 125,
       "stderrBytes": 0,
@@ -61,9 +61,9 @@
   "benchmarkModes": {
     "sandboxTrueColdStart": {
       "warmSnapshotEnabled": {
-        "totalWallMs": 197.02,
-        "runtimeCreateMs": 99.27,
-        "firstPassWallMs": 97.75,
+        "totalWallMs": 221.184,
+        "runtimeCreateMs": 100.968,
+        "firstPassWallMs": 120.216,
         "firstPassSandboxMs": 0,
         "checks": {
           "importTarget": "@borewit/text-codec/lib/index.js",
@@ -72,9 +72,9 @@
         }
       },
       "warmSnapshotDisabled": {
-        "totalWallMs": 189.786,
-        "runtimeCreateMs": 4.591,
-        "firstPassWallMs": 185.195,
+        "totalWallMs": 199.697,
+        "runtimeCreateMs": 4.949,
+        "firstPassWallMs": 194.748,
         "firstPassSandboxMs": 0,
         "checks": {
           "importTarget": "@borewit/text-codec/lib/index.js",
@@ -85,20 +85,20 @@
     },
     "sandboxNewSessionReplay": {
       "warmSnapshotEnabled": {
-        "coldWallMs": 96.299,
-        "warmWallMsMean": 27.478,
+        "coldWallMs": 97.944,
+        "warmWallMsMean": 26.81,
         "coldSandboxMs": 0,
         "warmSandboxMsMean": 0
       },
       "warmSnapshotDisabled": {
-        "coldWallMs": 187.226,
-        "warmWallMsMean": 26.326,
+        "coldWallMs": 189.998,
+        "warmWallMsMean": 26.273,
         "coldSandboxMs": 0,
         "warmSandboxMsMean": 0
       }
     },
     "sandboxSameSessionReplay": {
-      "totalWallMs": 108.07,
+      "totalWallMs": 106.641,
       "firstPassMs": 0,
       "replayPassMs": 0,
       "firstPassChecks": {
@@ -113,9 +113,9 @@
       }
     },
     "hostSameSessionControl": {
-      "totalWallMs": 2.056,
-      "firstPassMs": 1.974,
-      "replayPassMs": 0.08,
+      "totalWallMs": 3.02,
+      "firstPassMs": 2.93,
+      "replayPassMs": 0.087,
       "firstPassChecks": {
         "importTarget": "@borewit/text-codec/lib/index.js",
         "moduleType": "object",
@@ -129,8 +129,8 @@
     }
   },
   "summary": {
-    "coldWallMs": 96.299,
-    "warmWallMsMean": 27.478,
+    "coldWallMs": 97.944,
+    "warmWallMsMean": 26.81,
     "coldSandboxMs": 0,
     "warmSandboxMsMean": 0
   }

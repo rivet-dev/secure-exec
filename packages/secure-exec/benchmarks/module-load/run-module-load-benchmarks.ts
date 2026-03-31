@@ -469,6 +469,8 @@ async function main(): Promise<void> {
 				"Warm wall mean",
 				"Bridge calls per iteration",
 				"Warm fixed session overhead",
+				"Warm wall and execute stability (median, min/max, stddev)",
+				"Host runtime peak RSS, peak heap / limit, and CPU seconds",
 				"Benchmark mode controls from per-scenario summary.md: true cold start on/off, same-session replay, new-session replay on/off, and host same-session control",
 				"`_loadPolyfill` real polyfill-body vs `__bd:*` bridge-dispatch splits from comparison.md",
 				"`_loadPolyfill` ranked target hotspots from per-scenario summary.md and target-level deltas from comparison.md",
@@ -490,6 +492,8 @@ async function main(): Promise<void> {
 			bridgeCallsPerIteration: summary.progressSignals.bridgeCallsPerIteration,
 			fixedSessionOverheadWarmMsMean:
 				summary.progressSignals.fixedSessionOverheadWarmMsMean,
+			stability: summary.stability,
+			resourceUsage: summary.resourceUsage,
 			dominantBridgeMethodByTime:
 				summary.progressSignals.dominantBridgeMethodByTime,
 			dominantFrameByEncodedBytes:

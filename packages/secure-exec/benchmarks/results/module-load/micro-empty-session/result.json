@@ -5,7 +5,7 @@
   "kind": "lifecycle",
   "description": "Executes a no-op script to isolate fresh-session create, execute, and destroy overhead.",
   "iterations": 3,
-  "createdAt": "2026-03-31T23:09:13.975Z",
+  "createdAt": "2026-03-31T23:32:52.935Z",
   "artifacts": {
     "resultFile": "micro-empty-session/result.json",
     "metricsFile": "micro-empty-session/metrics.prom",
@@ -14,7 +14,7 @@
   "samples": [
     {
       "iteration": 1,
-      "wallMs": 62.768,
+      "wallMs": 66.042,
       "code": 0,
       "stdoutBytes": 37,
       "stderrBytes": 0,
@@ -27,7 +27,7 @@
     },
     {
       "iteration": 2,
-      "wallMs": 24.887,
+      "wallMs": 22.775,
       "code": 0,
       "stdoutBytes": 37,
       "stderrBytes": 0,
@@ -40,7 +40,7 @@
     },
     {
       "iteration": 3,
-      "wallMs": 23.987,
+      "wallMs": 24.514,
       "code": 0,
       "stdoutBytes": 37,
       "stderrBytes": 0,
@@ -55,18 +55,18 @@
   "benchmarkModes": {
     "sandboxTrueColdStart": {
       "warmSnapshotEnabled": {
-        "totalWallMs": 161.961,
-        "runtimeCreateMs": 98.259,
-        "firstPassWallMs": 63.702,
+        "totalWallMs": 166.326,
+        "runtimeCreateMs": 98.062,
+        "firstPassWallMs": 68.264,
         "firstPassSandboxMs": 0,
         "checks": {
           "noop": true
         }
       },
       "warmSnapshotDisabled": {
-        "totalWallMs": 173.986,
-        "runtimeCreateMs": 4.902,
-        "firstPassWallMs": 169.084,
+        "totalWallMs": 163.9,
+        "runtimeCreateMs": 4.612,
+        "firstPassWallMs": 159.288,
         "firstPassSandboxMs": 0,
         "checks": {
           "noop": true
@@ -75,20 +75,20 @@
     },
     "sandboxNewSessionReplay": {
       "warmSnapshotEnabled": {
-        "coldWallMs": 62.768,
-        "warmWallMsMean": 24.437,
+        "coldWallMs": 66.042,
+        "warmWallMsMean": 23.645,
         "coldSandboxMs": 0,
         "warmSandboxMsMean": 0
       },
       "warmSnapshotDisabled": {
-        "coldWallMs": 155.653,
-        "warmWallMsMean": 22.459,
+        "coldWallMs": 156.906,
+        "warmWallMsMean": 23.483,
         "coldSandboxMs": 0,
         "warmSandboxMsMean": 0
       }
     },
     "sandboxSameSessionReplay": {
-      "totalWallMs": 63.515,
+      "totalWallMs": 80.798,
       "firstPassMs": 0,
       "replayPassMs": 0,
       "firstPassChecks": {
@@ -99,9 +99,9 @@
       }
     },
     "hostSameSessionControl": {
-      "totalWallMs": 0.034,
-      "firstPassMs": 0.028,
-      "replayPassMs": 0.004,
+      "totalWallMs": 0.036,
+      "firstPassMs": 0.029,
+      "replayPassMs": 0.005,
       "firstPassChecks": {
         "noop": true
       },
@@ -111,8 +111,8 @@
     }
   },
   "summary": {
-    "coldWallMs": 62.768,
-    "warmWallMsMean": 24.437,
+    "coldWallMs": 66.042,
+    "warmWallMsMean": 23.645,
     "coldSandboxMs": 0,
     "warmSandboxMsMean": 0
   }

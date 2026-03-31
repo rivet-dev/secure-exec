@@ -5,7 +5,7 @@
   "kind": "import",
   "description": "Requires the hot Pi builtin `stream` once to isolate single-import bootstrap cost.",
   "iterations": 3,
-  "createdAt": "2026-03-31T23:09:16.966Z",
+  "createdAt": "2026-03-31T23:32:56.221Z",
   "artifacts": {
     "resultFile": "micro-import-stream/result.json",
     "metricsFile": "micro-import-stream/metrics.prom",
@@ -14,7 +14,7 @@
   "samples": [
     {
       "iteration": 1,
-      "wallMs": 92.787,
+      "wallMs": 153.947,
       "code": 0,
       "stdoutBytes": 99,
       "stderrBytes": 0,
@@ -29,7 +29,7 @@
     },
     {
       "iteration": 2,
-      "wallMs": 29.354,
+      "wallMs": 29.184,
       "code": 0,
       "stdoutBytes": 99,
       "stderrBytes": 0,
@@ -44,7 +44,7 @@
     },
     {
       "iteration": 3,
-      "wallMs": 27.778,
+      "wallMs": 29.017,
       "code": 0,
       "stdoutBytes": 99,
       "stderrBytes": 0,
@@ -61,9 +61,9 @@
   "benchmarkModes": {
     "sandboxTrueColdStart": {
       "warmSnapshotEnabled": {
-        "totalWallMs": 188.623,
-        "runtimeCreateMs": 98.086,
-        "firstPassWallMs": 90.537,
+        "totalWallMs": 194.175,
+        "runtimeCreateMs": 97.859,
+        "firstPassWallMs": 96.316,
         "firstPassSandboxMs": 0,
         "checks": {
           "importTarget": "stream",
@@ -72,9 +72,9 @@
         }
       },
       "warmSnapshotDisabled": {
-        "totalWallMs": 187.089,
-        "runtimeCreateMs": 5.534,
-        "firstPassWallMs": 181.555,
+        "totalWallMs": 205.434,
+        "runtimeCreateMs": 4.492,
+        "firstPassWallMs": 200.942,
         "firstPassSandboxMs": 0,
         "checks": {
           "importTarget": "stream",
@@ -85,20 +85,20 @@
     },
     "sandboxNewSessionReplay": {
       "warmSnapshotEnabled": {
-        "coldWallMs": 92.787,
-        "warmWallMsMean": 28.566,
+        "coldWallMs": 153.947,
+        "warmWallMsMean": 29.101,
         "coldSandboxMs": 0,
         "warmSandboxMsMean": 0
       },
       "warmSnapshotDisabled": {
-        "coldWallMs": 184.581,
-        "warmWallMsMean": 28.834,
+        "coldWallMs": 195.878,
+        "warmWallMsMean": 28.489,
         "coldSandboxMs": 0,
         "warmSandboxMsMean": 0
       }
     },
     "sandboxSameSessionReplay": {
-      "totalWallMs": 90.675,
+      "totalWallMs": 115.896,
       "firstPassMs": 0,
       "replayPassMs": 0,
       "firstPassChecks": {
@@ -113,9 +113,9 @@
       }
     },
     "hostSameSessionControl": {
-      "totalWallMs": 0.819,
-      "firstPassMs": 0.795,
-      "replayPassMs": 0.015,
+      "totalWallMs": 0.831,
+      "firstPassMs": 0.809,
+      "replayPassMs": 0.016,
       "firstPassChecks": {
         "importTarget": "stream",
         "moduleType": "function",
@@ -129,8 +129,8 @@
     }
   },
   "summary": {
-    "coldWallMs": 92.787,
-    "warmWallMsMean": 28.566,
+    "coldWallMs": 153.947,
+    "warmWallMsMean": 29.101,
     "coldSandboxMs": 0,
     "warmSandboxMsMean": 0
   }

@@ -108,6 +108,7 @@ export type LoadPolyfillAttributionClassifier = {
 
 export type DeriveScenarioSummaryOptions = {
 	loadPolyfillAttributionClassifier?: LoadPolyfillAttributionClassifier;
+	metricsText?: string;
 };
 
 const LOAD_POLYFILL_ATTRIBUTION_LABELS: Record<
@@ -313,6 +314,28 @@ export type ScenarioLoadPolyfillTargetSummary = {
 	responseEncodedBytesPerIteration: number;
 };
 
+export type NumericSeriesSummary = {
+	sampleCount: number;
+	min: number;
+	max: number;
+	mean: number;
+	median: number;
+	stddev: number;
+	range: number;
+};
+
+export type ScenarioResourceUsageSummary = {
+	currentRssBytes?: number;
+	peakRssBytes?: number;
+	currentHeapUsedBytes?: number;
+	peakHeapUsedBytes?: number;
+	heapLimitBytes?: number;
+	peakHeapUsedPercentOfLimit?: number;
+	userCpuSeconds?: number;
+	systemCpuSeconds?: number;
+	totalCpuSeconds?: number;
+};
+
 export type NumericDelta = {
 	before: number;
 	after: number;
@@ -331,6 +354,16 @@ export type ScenarioMetricComparison = {
 	bridgeDurationPerIterationMs?: NumericDelta;
 	bridgeResponseFrameBytesPerIteration?: NumericDelta;
 	executeWarmMsMean?: NumericDelta;
+	warmWallMedianMs?: NumericDelta;
+	warmWallStddevMs?: NumericDelta;
+	warmExecuteMedianMs?: NumericDelta;
+	warmExecuteStddevMs?: NumericDelta;
+	peakRssBytes?: NumericDelta;
+	peakHeapUsedBytes?: NumericDelta;
+	peakHeapUsedPercentOfLimit?: NumericDelta;
+	userCpuSeconds?: NumericDelta;
+	systemCpuSeconds?: NumericDelta;
+	totalCpuSeconds?: NumericDelta;
 };
 
 export type ScenarioMethodDelta = {
@@ -396,6 +429,11 @@ export type ScenarioDerivedSummary = {
 		summaryMarkdownFile: string;
 	};
 	benchmarkModes?: ScenarioBenchmarkModes;
+	stability: {
+		warmWallMs?: NumericSeriesSummary;
+		warmExecuteDurationMs?: NumericSeriesSummary;
+	};
+	resourceUsage?: ScenarioResourceUsageSummary;
 	timing: {
 		connectRttMs?: number;
 		coldWallMs: number;
@@ -522,6 +560,8 @@ export type BenchmarkScenarioOverview = {
 	warmWallMsMean?: number;
 	bridgeCallsPerIteration: number;
 	fixedSessionOverheadWarmMsMean?: number;
+	stability: ScenarioDerivedSummary["stability"];
+	resourceUsage?: ScenarioDerivedSummary["resourceUsage"];
 	dominantBridgeMethodByTime?: ScenarioDerivedSummary["progressSignals"]["dominantBridgeMethodByTime"];
 	dominantFrameByEncodedBytes?: ScenarioDerivedSummary["progressSignals"]["dominantFrameByEncodedBytes"];
 	comparisonToPrevious?: ScenarioComparisonSummary;
@@ -596,6 +636,16 @@ function mean(values: number[]): number | undefined {
 	return round(values.reduce((sum, value) => sum + value, 0) / values.length);
 }
 
+function median(values: number[]): number | undefined {
+	if (values.length === 0) return undefined;
+	const sorted = [...values].sort((left, right) => left - right);
+	const middle = Math.floor(sorted.length / 2);
+	if (sorted.length % 2 === 1) {
+		return round(sorted[middle]);
+	}
+	return round((sorted[middle - 1] + sorted[middle]) / 2);
+}
+
 function percentile(values: number[], ratio: number): number | undefined {
 	if (values.length === 0) return undefined;
 	const sorted = [...values].sort((left, right) => left - right);
@@ -606,9 +656,58 @@ function percentile(values: number[], ratio: number): number | undefined {
 	return round(sorted[index]);
 }
 
+function stddev(values: number[]): number | undefined {
+	if (values.length === 0) return undefined;
+	const average =
+		values.reduce((sum, value) => sum + value, 0) / values.length;
+	const variance =
+		values.reduce((sum, value) => sum + (value - average) ** 2, 0) /
+		values.length;
+	return round(Math.sqrt(variance));
+}
+
+function summarizeNumericSeries(
+	values: number[],
+): NumericSeriesSummary | undefined {
+	if (values.length === 0) {
+		return undefined;
+	}
+	const average = mean(values);
+	const midpoint = median(values);
+	const spread = stddev(values);
+	if (
+		average === undefined ||
+		midpoint === undefined ||
+		spread === undefined
+	) {
+		return undefined;
+	}
+	const min = round(Math.min(...values));
+	const max = round(Math.max(...values));
+	return {
+		sampleCount: values.length,
+		min,
+		max,
+		mean: average,
+		median: midpoint,
+		stddev: spread,
+		range: round(max - min),
+	};
+}
+
 function formatMetric(value: number | undefined, unit = "ms"): string {
 	if (value === undefined) return "-";
 	return `${value.toFixed(3)} ${unit}`;
+}
+
+function formatPercent(value: number | undefined): string {
+	if (value === undefined) return "-";
+	return `${value.toFixed(3)}%`;
+}
+
+function formatBytes(value: number | undefined): string {
+	if (value === undefined) return "-";
+	return `${(value / (1024 ** 2)).toFixed(3)} MiB`;
 }
 
 function formatDelta(delta: NumericDelta | undefined, unit = "ms"): string {
@@ -619,6 +718,50 @@ function formatDelta(delta: NumericDelta | undefined, unit = "ms"): string {
 			? ""
 			: ` (${delta.deltaPercent > 0 ? "+" : ""}${delta.deltaPercent.toFixed(2)}%)`;
 	return `${delta.before.toFixed(3)} -> ${delta.after.toFixed(3)} ${unit} (${sign}${delta.delta.toFixed(3)} ${unit}${percent})`;
+}
+
+function formatBytesDelta(delta: NumericDelta | undefined): string {
+	if (!delta) return "-";
+	const sign = delta.delta > 0 ? "+" : delta.delta < 0 ? "-" : "";
+	const percent =
+		delta.deltaPercent === undefined
+			? ""
+			: ` (${delta.deltaPercent > 0 ? "+" : ""}${delta.deltaPercent.toFixed(2)}%)`;
+	return `${formatBytes(delta.before)} -> ${formatBytes(delta.after)} (${sign}${formatBytes(Math.abs(delta.delta))}${percent})`;
+}
+
+function formatPercentDelta(delta: NumericDelta | undefined): string {
+	if (!delta) return "-";
+	const sign = delta.delta > 0 ? "+" : "";
+	const percent =
+		delta.deltaPercent === undefined
+			? ""
+			: ` (${delta.deltaPercent > 0 ? "+" : ""}${delta.deltaPercent.toFixed(2)}%)`;
+	return `${formatPercent(delta.before)} -> ${formatPercent(delta.after)} (${sign}${delta.delta.toFixed(3)}%${percent})`;
+}
+
+function formatSeriesSummary(
+	summary: NumericSeriesSummary | undefined,
+	unit = "ms",
+): string {
+	if (!summary) {
+		return "-";
+	}
+	return `median ${formatMetric(summary.median, unit)}; min/max ${formatMetric(summary.min, unit)} / ${formatMetric(summary.max, unit)}; stddev ${formatMetric(summary.stddev, unit)}; range ${formatMetric(summary.range, unit)}`;
+}
+
+function formatResourceUsageSummary(
+	resourceUsage: ScenarioResourceUsageSummary | undefined,
+): string {
+	if (!resourceUsage) {
+		return "-";
+	}
+	return [
+		`peak RSS ${formatBytes(resourceUsage.peakRssBytes)}`,
+		`peak heap ${formatBytes(resourceUsage.peakHeapUsedBytes)}`,
+		`heap limit usage ${formatPercent(resourceUsage.peakHeapUsedPercentOfLimit)}`,
+		`CPU user/system/total ${formatMetric(resourceUsage.userCpuSeconds, "s")} / ${formatMetric(resourceUsage.systemCpuSeconds, "s")} / ${formatMetric(resourceUsage.totalCpuSeconds, "s")}`,
+	].join("; ");
 }
 
 function formatLoadPolyfillAttributionSummary(
@@ -1003,6 +1146,154 @@ function classifyLoadPolyfillAttribution(
 		: "bridge_dispatch";
 }
 
+type PrometheusSample = {
+	name: string;
+	labels: Record<string, string>;
+	value: number;
+};
+
+const PROMETHEUS_SAMPLE_PATTERN =
+	/^([a-zA-Z_:][a-zA-Z0-9_:]*)(\{([^}]*)\})?\s+([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)$/;
+
+function unescapePrometheusLabelValue(value: string): string {
+	return value
+		.replaceAll("\\n", "\n")
+		.replaceAll('\\"', '"')
+		.replaceAll("\\\\", "\\");
+}
+
+function parsePrometheusLabels(rawLabels: string): Record<string, string> {
+	const labels: Record<string, string> = {};
+	for (const segment of rawLabels.split(",")) {
+		const trimmed = segment.trim();
+		if (!trimmed) continue;
+		const equalsIndex = trimmed.indexOf("=");
+		if (equalsIndex === -1) continue;
+		const key = trimmed.slice(0, equalsIndex).trim();
+		const rawValue = trimmed.slice(equalsIndex + 1).trim();
+		if (!key || !rawValue.startsWith('"') || !rawValue.endsWith('"')) {
+			continue;
+		}
+		labels[key] = unescapePrometheusLabelValue(rawValue.slice(1, -1));
+	}
+	return labels;
+}
+
+function parsePrometheusMetrics(metricsText: string): PrometheusSample[] {
+	return metricsText
+		.split("\n")
+		.map((line) => line.trim())
+		.filter((line) => line.length > 0 && !line.startsWith("#"))
+		.flatMap((line) => {
+			const match = line.match(PROMETHEUS_SAMPLE_PATTERN);
+			if (!match) {
+				return [];
+			}
+			const value = Number(match[4]);
+			if (!Number.isFinite(value)) {
+				return [];
+			}
+			return [
+				{
+					name: match[1],
+					labels: match[3] ? parsePrometheusLabels(match[3]) : {},
+					value,
+				},
+			];
+		});
+}
+
+function getPrometheusSampleValue(
+	samples: readonly PrometheusSample[],
+	name: string,
+	labels: Record<string, string> = {},
+): number | undefined {
+	return samples.find((sample) => {
+		if (sample.name !== name) {
+			return false;
+		}
+		const sampleLabelKeys = Object.keys(sample.labels);
+		const expectedLabelKeys = Object.keys(labels);
+		if (sampleLabelKeys.length !== expectedLabelKeys.length) {
+			return false;
+		}
+		return expectedLabelKeys.every((key) => sample.labels[key] === labels[key]);
+	})?.value;
+}
+
+function deriveScenarioResourceUsage(
+	metricsText: string | undefined,
+): ScenarioResourceUsageSummary | undefined {
+	if (!metricsText) {
+		return undefined;
+	}
+	const samples = parsePrometheusMetrics(metricsText);
+	if (samples.length === 0) {
+		return undefined;
+	}
+	const currentRssBytes = getPrometheusSampleValue(
+		samples,
+		"secure_exec_v8_host_runtime_memory_bytes",
+		{ kind: "rss" },
+	);
+	const peakRssBytes = getPrometheusSampleValue(
+		samples,
+		"secure_exec_v8_host_runtime_memory_peak_bytes",
+		{ kind: "rss" },
+	);
+	const currentHeapUsedBytes = getPrometheusSampleValue(
+		samples,
+		"secure_exec_v8_host_runtime_memory_bytes",
+		{ kind: "heap_used" },
+	);
+	const peakHeapUsedBytes = getPrometheusSampleValue(
+		samples,
+		"secure_exec_v8_host_runtime_memory_peak_bytes",
+		{ kind: "heap_used" },
+	);
+	const heapLimitBytes = getPrometheusSampleValue(
+		samples,
+		"secure_exec_v8_host_runtime_heap_limit_bytes",
+	);
+	const userCpuSeconds = getPrometheusSampleValue(
+		samples,
+		"secure_exec_v8_host_runtime_cpu_seconds",
+		{ kind: "user" },
+	);
+	const systemCpuSeconds = getPrometheusSampleValue(
+		samples,
+		"secure_exec_v8_host_runtime_cpu_seconds",
+		{ kind: "system" },
+	);
+	const totalCpuSeconds =
+		userCpuSeconds !== undefined && systemCpuSeconds !== undefined
+			? round(userCpuSeconds + systemCpuSeconds)
+			: undefined;
+	const peakHeapUsedPercentOfLimit =
+		peakHeapUsedBytes !== undefined &&
+		heapLimitBytes !== undefined &&
+		heapLimitBytes > 0
+			? round((peakHeapUsedBytes / heapLimitBytes) * 100)
+			: undefined;
+
+	const resourceUsage: ScenarioResourceUsageSummary = {
+		currentRssBytes,
+		peakRssBytes,
+		currentHeapUsedBytes,
+		peakHeapUsedBytes,
+		heapLimitBytes,
+		peakHeapUsedPercentOfLimit,
+		userCpuSeconds: userCpuSeconds === undefined ? undefined : round(userCpuSeconds),
+		systemCpuSeconds:
+			systemCpuSeconds === undefined ? undefined : round(systemCpuSeconds),
+		totalCpuSeconds,
+	};
+
+	return Object.values(resourceUsage).some((value) => value !== undefined)
+		? resourceUsage
+		: undefined;
+}
+
 export function parseIpcLog(logText: string): IpcEntry[] {
 	return logText
 		.split("\n")
@@ -1227,6 +1518,15 @@ export function deriveScenarioSummary(
 	});
 
 	const warmIterations = iterationsDetail.slice(1);
+	const warmWallStability = summarizeNumericSeries(
+		warmIterations.map((entry) => entry.wallMs),
+	);
+	const warmExecuteStability = summarizeNumericSeries(
+		warmIterations
+			.map((entry) => entry.executeDurationMs)
+			.filter((value): value is number => typeof value === "number"),
+	);
+	const resourceUsage = deriveScenarioResourceUsage(options?.metricsText);
 	const bridgeMethodSummaries = Array.from(methods.values()).map((method): ScenarioBridgeMethodSummary => ({
 		method: method.method,
 		callsTotal: method.callsTotal,
@@ -1387,6 +1687,11 @@ export function deriveScenarioSummary(
 			summaryMarkdownFile: path.posix.join(result.scenarioId, "summary.md"),
 		},
 		benchmarkModes: result.benchmarkModes,
+		stability: {
+			warmWallMs: warmWallStability,
+			warmExecuteDurationMs: warmExecuteStability,
+		},
+		resourceUsage,
 		timing: {
 			connectRttMs:
 				connectStartTs !== undefined && connectOkTs !== undefined
@@ -1772,6 +2077,46 @@ export function compareScenarioSummaries(
 				baseline.timing.warmExecuteDurationMsMean,
 				current.timing.warmExecuteDurationMsMean,
 			),
+			warmWallMedianMs: compareNumeric(
+				baseline.stability.warmWallMs?.median,
+				current.stability.warmWallMs?.median,
+			),
+			warmWallStddevMs: compareNumeric(
+				baseline.stability.warmWallMs?.stddev,
+				current.stability.warmWallMs?.stddev,
+			),
+			warmExecuteMedianMs: compareNumeric(
+				baseline.stability.warmExecuteDurationMs?.median,
+				current.stability.warmExecuteDurationMs?.median,
+			),
+			warmExecuteStddevMs: compareNumeric(
+				baseline.stability.warmExecuteDurationMs?.stddev,
+				current.stability.warmExecuteDurationMs?.stddev,
+			),
+			peakRssBytes: compareNumeric(
+				baseline.resourceUsage?.peakRssBytes,
+				current.resourceUsage?.peakRssBytes,
+			),
+			peakHeapUsedBytes: compareNumeric(
+				baseline.resourceUsage?.peakHeapUsedBytes,
+				current.resourceUsage?.peakHeapUsedBytes,
+			),
+			peakHeapUsedPercentOfLimit: compareNumeric(
+				baseline.resourceUsage?.peakHeapUsedPercentOfLimit,
+				current.resourceUsage?.peakHeapUsedPercentOfLimit,
+			),
+			userCpuSeconds: compareNumeric(
+				baseline.resourceUsage?.userCpuSeconds,
+				current.resourceUsage?.userCpuSeconds,
+			),
+			systemCpuSeconds: compareNumeric(
+				baseline.resourceUsage?.systemCpuSeconds,
+				current.resourceUsage?.systemCpuSeconds,
+			),
+			totalCpuSeconds: compareNumeric(
+				baseline.resourceUsage?.totalCpuSeconds,
+				current.resourceUsage?.totalCpuSeconds,
+			),
 		},
 		bridgeMethodDurationDeltas: compareMethodSeries(
 			current.bridge.methodsByTime,
@@ -1815,13 +2160,18 @@ export async function loadScenarioDerivedSummary(
 ): Promise<ScenarioDerivedSummary | null> {
 	const resultFile = path.join(resultsRoot, scenario.id, "result.json");
 	const logFile = path.join(resultsRoot, scenario.id, "ipc.ndjson");
+	const metricsFile = path.join(resultsRoot, scenario.id, "metrics.prom");
 	const result = await readScenarioRunResult(resultFile);
 	if (!result) {
 		return null;
 	}
 	try {
 		const logText = await readFile(logFile, "utf8");
-		return deriveScenarioSummary(scenario, result, parseIpcLog(logText), options);
+		const metricsText = await readFile(metricsFile, "utf8").catch(() => undefined);
+		return deriveScenarioSummary(scenario, result, parseIpcLog(logText), {
+			...options,
+			metricsText,
+		});
 	} catch {
 		return null;
 	}
@@ -1978,6 +2328,21 @@ export function buildScenarioSummaryMarkdown(summary: ScenarioDerivedSummary): s
 	lines.push(
 		`- Warm phase attribution: Create->InjectGlobals ${formatMetric(summary.timing.warmCreateToInjectGlobalsMsMean)}, InjectGlobals->Execute ${formatMetric(summary.timing.warmInjectGlobalsToExecuteSendMsMean)}, ExecutionResult->Destroy ${formatMetric(summary.timing.warmExecuteResultToDestroyMsMean)}, residual ${formatMetric(summary.timing.warmResidualFixedOverheadMsMean)}`,
 	);
+	if (summary.stability.warmWallMs) {
+		lines.push(
+			`- Warm wall stability: ${formatSeriesSummary(summary.stability.warmWallMs)}`,
+		);
+	}
+	if (summary.stability.warmExecuteDurationMs) {
+		lines.push(
+			`- Warm execute stability: ${formatSeriesSummary(summary.stability.warmExecuteDurationMs)}`,
+		);
+	}
+	if (summary.resourceUsage) {
+		lines.push(
+			`- Host runtime resources: ${formatResourceUsageSummary(summary.resourceUsage)}`,
+		);
+	}
 
 	if (summary.progressSignals.dominantBridgeMethodByTime) {
 		lines.push(
@@ -2051,6 +2416,53 @@ export function buildScenarioSummaryMarkdown(summary: ScenarioDerivedSummary): s
 			`| ${iteration.iteration} | ${formatMetric(iteration.createToInjectGlobalsMs)} | ${formatMetric(iteration.injectGlobalsToExecuteSendMs)} | ${formatMetric(iteration.executeDurationMs)} | ${formatMetric(iteration.executeResultToDestroyMs)} | ${formatMetric(iteration.residualFixedOverheadMs)} |`,
 		);
 	}
+
+	lines.push("");
+	lines.push("## Warm Stability");
+	lines.push("");
+	lines.push(
+		"| Series | Samples | Min | Median | Mean | Max | Stddev | Range |",
+	);
+	lines.push("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |");
+	for (const [label, series] of [
+		["Warm wall", summary.stability.warmWallMs],
+		["Warm execute", summary.stability.warmExecuteDurationMs],
+	] as const) {
+		lines.push(
+			`| ${label} | ${series?.sampleCount ?? 0} | ${formatMetric(series?.min)} | ${formatMetric(series?.median)} | ${formatMetric(series?.mean)} | ${formatMetric(series?.max)} | ${formatMetric(series?.stddev)} | ${formatMetric(series?.range)} |`,
+		);
+	}
+
+	lines.push("");
+	lines.push("## Host Runtime Resources");
+	lines.push("");
+	lines.push(
+		"These values come from the host-side Node IPC observability process and are sampled through the existing Prometheus observability path during the benchmark run.",
+	);
+	lines.push("");
+	lines.push("| Metric | Value |");
+	lines.push("| --- | ---: |");
+	lines.push(
+		`| Peak RSS | ${formatBytes(summary.resourceUsage?.peakRssBytes)} |`,
+	);
+	lines.push(
+		`| Peak heap used | ${formatBytes(summary.resourceUsage?.peakHeapUsedBytes)} |`,
+	);
+	lines.push(
+		`| Heap limit | ${formatBytes(summary.resourceUsage?.heapLimitBytes)} |`,
+	);
+	lines.push(
+		`| Peak heap / limit | ${formatPercent(summary.resourceUsage?.peakHeapUsedPercentOfLimit)} |`,
+	);
+	lines.push(
+		`| CPU user | ${formatMetric(summary.resourceUsage?.userCpuSeconds, "s")} |`,
+	);
+	lines.push(
+		`| CPU system | ${formatMetric(summary.resourceUsage?.systemCpuSeconds, "s")} |`,
+	);
+	lines.push(
+		`| CPU total | ${formatMetric(summary.resourceUsage?.totalCpuSeconds, "s")} |`,
+	);
 
 	lines.push("");
 	lines.push("## Bridge Methods By Time");
@@ -2166,6 +2578,36 @@ export function buildScenarioSummaryMarkdown(summary: ScenarioDerivedSummary): s
 		lines.push(
 			`- BridgeResponse encoded bytes/iteration: ${formatDelta(summary.comparisonToPrevious.metrics.bridgeResponseFrameBytesPerIteration, "bytes")}`,
 		);
+		lines.push(
+			`- Warm wall median: ${formatDelta(summary.comparisonToPrevious.metrics.warmWallMedianMs)}`,
+		);
+		lines.push(
+			`- Warm wall stddev: ${formatDelta(summary.comparisonToPrevious.metrics.warmWallStddevMs)}`,
+		);
+		lines.push(
+			`- Warm execute median: ${formatDelta(summary.comparisonToPrevious.metrics.warmExecuteMedianMs)}`,
+		);
+		lines.push(
+			`- Warm execute stddev: ${formatDelta(summary.comparisonToPrevious.metrics.warmExecuteStddevMs)}`,
+		);
+		lines.push(
+			`- Peak RSS: ${formatBytesDelta(summary.comparisonToPrevious.metrics.peakRssBytes)}`,
+		);
+		lines.push(
+			`- Peak heap used: ${formatBytesDelta(summary.comparisonToPrevious.metrics.peakHeapUsedBytes)}`,
+		);
+		lines.push(
+			`- Peak heap / limit: ${formatPercentDelta(summary.comparisonToPrevious.metrics.peakHeapUsedPercentOfLimit)}`,
+		);
+		lines.push(
+			`- Host CPU user: ${formatDelta(summary.comparisonToPrevious.metrics.userCpuSeconds, "s")}`,
+		);
+		lines.push(
+			`- Host CPU system: ${formatDelta(summary.comparisonToPrevious.metrics.systemCpuSeconds, "s")}`,
+		);
+		lines.push(
+			`- Host CPU total: ${formatDelta(summary.comparisonToPrevious.metrics.totalCpuSeconds, "s")}`,
+		);
 		for (const attributionDelta of summary.comparisonToPrevious.loadPolyfillAttributionDeltas) {
 			lines.push(
 				`- _loadPolyfill ${attributionDelta.label}: ${formatLoadPolyfillAttributionDelta(attributionDelta)}`,
@@ -2251,7 +2693,7 @@ export function buildBenchmarkSummaryMarkdown(report: BenchmarkSummaryReport): s
 		`Baseline summary: ${report.baseline?.createdAt ?? "none"}`,
 		"Primary comparison mode: `sandbox new-session replay (warm snapshot enabled)`",
 		"",
-		"Use `comparison.md` for before/after deltas on the primary sandbox new-session replay mode, including the split between real `_loadPolyfill` bodies and `__bd:*` dispatch wrappers plus ranked target-level deltas. Lifecycle microbench rows isolate fixed session overhead; import microbench rows isolate single-import/bootstrap hotspots. Use the per-scenario `summary.md` files for copy-ready control-mode numbers such as true cold start, same-session replay, snapshot-off replay, host controls, and current target hotspots.",
+		"Use `comparison.md` for before/after deltas on the primary sandbox new-session replay mode, including the split between real `_loadPolyfill` bodies and `__bd:*` dispatch wrappers plus ranked target-level deltas. Lifecycle microbench rows isolate fixed session overhead; import microbench rows isolate single-import/bootstrap hotspots. Use the per-scenario `summary.md` files for copy-ready control-mode numbers such as true cold start, same-session replay, snapshot-off replay, host controls, current target hotspots, warm-run stability, and host-runtime resource usage.",
 		"",
 		"| Scenario | Kind | Sandbox New-Session Warm Wall Mean | Bridge Calls/Iter | Warm Fixed Overhead | Dominant Method Time | Dominant Frame Bytes |",
 		"| --- | --- | ---: | ---: | ---: | --- | --- |",
@@ -2273,6 +2715,32 @@ export function buildBenchmarkSummaryMarkdown(report: BenchmarkSummaryReport): s
 	for (const scenario of report.scenarioSummaries) {
 		lines.push(
 			`| ${scenario.title} | ${formatMetric(scenario.timing.connectRttMs)} | ${formatMetric(scenario.timing.warmCreateToInjectGlobalsMsMean)} | ${formatMetric(scenario.timing.warmInjectGlobalsToExecuteSendMsMean)} | ${formatMetric(scenario.timing.warmExecuteDurationMsMean)} | ${formatMetric(scenario.timing.warmExecuteResultToDestroyMsMean)} | ${formatMetric(scenario.timing.warmResidualFixedOverheadMsMean)} |`,
+		);
+	}
+
+	lines.push("");
+	lines.push("## Warm Stability");
+	lines.push("");
+	lines.push(
+		"| Scenario | Warm Wall Median | Warm Wall Stddev | Warm Wall Min/Max | Warm Execute Median | Warm Execute Stddev | Warm Execute Min/Max |",
+	);
+	lines.push("| --- | ---: | ---: | --- | ---: | ---: | --- |");
+	for (const scenario of report.scenarioSummaries) {
+		lines.push(
+			`| ${scenario.title} | ${formatMetric(scenario.stability.warmWallMs?.median)} | ${formatMetric(scenario.stability.warmWallMs?.stddev)} | ${formatMetric(scenario.stability.warmWallMs?.min)} / ${formatMetric(scenario.stability.warmWallMs?.max)} | ${formatMetric(scenario.stability.warmExecuteDurationMs?.median)} | ${formatMetric(scenario.stability.warmExecuteDurationMs?.stddev)} | ${formatMetric(scenario.stability.warmExecuteDurationMs?.min)} / ${formatMetric(scenario.stability.warmExecuteDurationMs?.max)} |`,
+		);
+	}
+
+	lines.push("");
+	lines.push("## Host Runtime Resources");
+	lines.push("");
+	lines.push(
+		"| Scenario | Peak RSS | Peak Heap Used | Peak Heap / Limit | CPU User | CPU System | CPU Total |",
+	);
+	lines.push("| --- | ---: | ---: | ---: | ---: | ---: | ---: |");
+	for (const scenario of report.scenarioSummaries) {
+		lines.push(
+			`| ${scenario.title} | ${formatBytes(scenario.resourceUsage?.peakRssBytes)} | ${formatBytes(scenario.resourceUsage?.peakHeapUsedBytes)} | ${formatPercent(scenario.resourceUsage?.peakHeapUsedPercentOfLimit)} | ${formatMetric(scenario.resourceUsage?.userCpuSeconds, "s")} | ${formatMetric(scenario.resourceUsage?.systemCpuSeconds, "s")} | ${formatMetric(scenario.resourceUsage?.totalCpuSeconds, "s")} |`,
 		);
 	}
 
@@ -2352,7 +2820,7 @@ export function buildBenchmarkComparisonMarkdown(report: BenchmarkSummaryReport)
 		`Baseline benchmark: ${report.baseline?.createdAt ?? "none"}${report.baseline?.gitCommit ? ` (${report.baseline.gitCommit})` : ""}`,
 		"Primary comparison mode: `sandbox new-session replay (warm snapshot enabled)`",
 		"",
-		"Copy the primary sandbox new-session replay warm wall, bridge calls/iteration, warm fixed overhead, and the highlighted method/frame deltas below into `scripts/ralph/progress.txt`. When `_loadPolyfill` is relevant, also copy the split between real polyfill bodies and `__bd:*` bridge dispatch plus the ranked target-level deltas below. Use the per-scenario `summary.md` Benchmark Modes section for true cold start, same-session replay, snapshot-off replay, host-control numbers, and current target hotspots.",
+		"Copy the primary sandbox new-session replay warm wall, bridge calls/iteration, warm fixed overhead, warm-run stability, and host-runtime resource fields below into `scripts/ralph/progress.txt`. When `_loadPolyfill` is relevant, also copy the split between real polyfill bodies and `__bd:*` bridge dispatch plus the ranked target-level deltas below. Use the per-scenario `summary.md` Benchmark Modes section for true cold start, same-session replay, snapshot-off replay, host-control numbers, and current target hotspots.",
 		"",
 	];
 
@@ -2390,6 +2858,36 @@ export function buildBenchmarkComparisonMarkdown(report: BenchmarkSummaryReport)
 		);
 		lines.push(
 			`- BridgeResponse encoded bytes/iteration: ${formatDelta(scenario.comparisonToPrevious.metrics.bridgeResponseFrameBytesPerIteration, "bytes")}`,
+		);
+		lines.push(
+			`- Warm wall median: ${formatDelta(scenario.comparisonToPrevious.metrics.warmWallMedianMs)}`,
+		);
+		lines.push(
+			`- Warm wall stddev: ${formatDelta(scenario.comparisonToPrevious.metrics.warmWallStddevMs)}`,
+		);
+		lines.push(
+			`- Warm execute median: ${formatDelta(scenario.comparisonToPrevious.metrics.warmExecuteMedianMs)}`,
+		);
+		lines.push(
+			`- Warm execute stddev: ${formatDelta(scenario.comparisonToPrevious.metrics.warmExecuteStddevMs)}`,
+		);
+		lines.push(
+			`- Peak RSS: ${formatBytesDelta(scenario.comparisonToPrevious.metrics.peakRssBytes)}`,
+		);
+		lines.push(
+			`- Peak heap used: ${formatBytesDelta(scenario.comparisonToPrevious.metrics.peakHeapUsedBytes)}`,
+		);
+		lines.push(
+			`- Peak heap / limit: ${formatPercentDelta(scenario.comparisonToPrevious.metrics.peakHeapUsedPercentOfLimit)}`,
+		);
+		lines.push(
+			`- Host CPU user: ${formatDelta(scenario.comparisonToPrevious.metrics.userCpuSeconds, "s")}`,
+		);
+		lines.push(
+			`- Host CPU system: ${formatDelta(scenario.comparisonToPrevious.metrics.systemCpuSeconds, "s")}`,
+		);
+		lines.push(
+			`- Host CPU total: ${formatDelta(scenario.comparisonToPrevious.metrics.totalCpuSeconds, "s")}`,
 		);
 		const durationDelta = scenario.comparisonToPrevious.bridgeMethodDurationDeltas[0];
 		if (durationDelta) {

@@ -5,7 +5,7 @@
   "kind": "import",
   "description": "Requires the hot Pi builtin `crypto` once to isolate crypto bootstrap cost.",
   "iterations": 3,
-  "createdAt": "2026-03-31T23:09:23.309Z",
+  "createdAt": "2026-03-31T23:33:03.091Z",
   "artifacts": {
     "resultFile": "micro-import-crypto/result.json",
     "metricsFile": "micro-import-crypto/metrics.prom",
@@ -14,7 +14,7 @@
   "samples": [
     {
       "iteration": 1,
-      "wallMs": 177.345,
+      "wallMs": 258.239,
       "code": 0,
       "stdoutBytes": 99,
       "stderrBytes": 0,
@@ -29,7 +29,7 @@
     },
     {
       "iteration": 2,
-      "wallMs": 49.711,
+      "wallMs": 49.178,
       "code": 0,
       "stdoutBytes": 99,
       "stderrBytes": 0,
@@ -44,7 +44,7 @@
     },
     {
       "iteration": 3,
-      "wallMs": 48.006,
+      "wallMs": 48.759,
       "code": 0,
       "stdoutBytes": 99,
       "stderrBytes": 0,
@@ -61,9 +61,9 @@
   "benchmarkModes": {
     "sandboxTrueColdStart": {
       "warmSnapshotEnabled": {
-        "totalWallMs": 261.029,
-        "runtimeCreateMs": 100.264,
-        "firstPassWallMs": 160.765,
+        "totalWallMs": 313.269,
+        "runtimeCreateMs": 102.215,
+        "firstPassWallMs": 211.054,
         "firstPassSandboxMs": 0,
         "checks": {
           "importTarget": "crypto",
@@ -72,9 +72,9 @@
         }
       },
       "warmSnapshotDisabled": {
-        "totalWallMs": 265.663,
-        "runtimeCreateMs": 4.448,
-        "firstPassWallMs": 261.215,
+        "totalWallMs": 320.412,
+        "runtimeCreateMs": 4.592,
+        "firstPassWallMs": 315.82,
         "firstPassSandboxMs": 0,
         "checks": {
           "importTarget": "crypto",
@@ -85,20 +85,20 @@
     },
     "sandboxNewSessionReplay": {
       "warmSnapshotEnabled": {
-        "coldWallMs": 177.345,
-        "warmWallMsMean": 48.858,
+        "coldWallMs": 258.239,
+        "warmWallMsMean": 48.968,
         "coldSandboxMs": 0,
         "warmSandboxMsMean": 0
       },
       "warmSnapshotDisabled": {
-        "coldWallMs": 267.473,
-        "warmWallMsMean": 48.426,
+        "coldWallMs": 310.995,
+        "warmWallMsMean": 49.742,
         "coldSandboxMs": 0,
         "warmSandboxMsMean": 0
       }
     },
     "sandboxSameSessionReplay": {
-      "totalWallMs": 170.557,
+      "totalWallMs": 225.651,
       "firstPassMs": 0,
       "replayPassMs": 0,
       "firstPassChecks": {
@@ -113,8 +113,8 @@
       }
     },
     "hostSameSessionControl": {
-      "totalWallMs": 0.07,
-      "firstPassMs": 0.053,
+      "totalWallMs": 0.071,
+      "firstPassMs": 0.054,
       "replayPassMs": 0.011,
       "firstPassChecks": {
         "importTarget": "crypto",
@@ -129,8 +129,8 @@
     }
   },
   "summary": {
-    "coldWallMs": 177.345,
-    "warmWallMsMean": 48.858,
+    "coldWallMs": 258.239,
+    "warmWallMsMean": 48.968,
     "coldSandboxMs": 0,
     "warmSandboxMsMean": 0
   }

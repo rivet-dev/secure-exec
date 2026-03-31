@@ -97,6 +97,15 @@ describe("IPC observability", () => {
 		expect(metricsText).toContain(
 			'secure_exec_v8_ipc_bridge_call_duration_seconds_count{method="_fsReadFile",status="0"} 1',
 		);
+		expect(metricsText).toContain(
+			'secure_exec_v8_host_runtime_memory_peak_bytes{kind="rss"}',
+		);
+		expect(metricsText).toContain(
+			'secure_exec_v8_host_runtime_cpu_seconds{kind="user"}',
+		);
+		expect(metricsText).toContain(
+			"secure_exec_v8_host_runtime_heap_limit_bytes",
+		);
 
 		await observability?.close();
 

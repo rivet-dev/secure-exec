@@ -5,7 +5,7 @@
   "kind": "end_to_end",
   "description": "Calls Pi's direct dist/main.js print-mode path against the mock Anthropic SSE server.",
   "iterations": 3,
-  "createdAt": "2026-03-31T23:10:47.700Z",
+  "createdAt": "2026-03-31T23:35:02.394Z",
   "artifacts": {
     "resultFile": "pi-cli-end-to-end/result.json",
     "metricsFile": "pi-cli-end-to-end/metrics.prom",
@@ -14,7 +14,7 @@
   "samples": [
     {
       "iteration": 1,
-      "wallMs": 1289.082,
+      "wallMs": 2149.708,
       "code": 0,
       "stdoutBytes": 25,
       "stderrBytes": 0,
@@ -27,7 +27,7 @@
     },
     {
       "iteration": 2,
-      "wallMs": 1032.233,
+      "wallMs": 1897.703,
       "code": 0,
       "stdoutBytes": 25,
       "stderrBytes": 0,
@@ -40,7 +40,7 @@
     },
     {
       "iteration": 3,
-      "wallMs": 1047.937,
+      "wallMs": 1889.541,
       "code": 0,
       "stdoutBytes": 25,
       "stderrBytes": 0,
@@ -55,18 +55,18 @@
   "benchmarkModes": {
     "sandboxTrueColdStart": {
       "warmSnapshotEnabled": {
-        "totalWallMs": 1350.713,
-        "runtimeCreateMs": 181.288,
-        "firstPassWallMs": 1169.425,
+        "totalWallMs": 2203.131,
+        "runtimeCreateMs": 196.512,
+        "firstPassWallMs": 2006.619,
         "mockRequests": 1,
         "checks": {
           "responseSeen": true
         }
       },
       "warmSnapshotDisabled": {
-        "totalWallMs": 1389.17,
-        "runtimeCreateMs": 4.524,
-        "firstPassWallMs": 1384.646,
+        "totalWallMs": 2142.625,
+        "runtimeCreateMs": 4.56,
+        "firstPassWallMs": 2138.065,
         "mockRequests": 1,
         "checks": {
           "responseSeen": true
@@ -75,18 +75,18 @@
     },
     "sandboxNewSessionReplay": {
       "warmSnapshotEnabled": {
-        "coldWallMs": 1289.082,
-        "warmWallMsMean": 1040.085,
+        "coldWallMs": 2149.708,
+        "warmWallMsMean": 1893.622,
         "mockRequestsMean": 1
       },
       "warmSnapshotDisabled": {
-        "coldWallMs": 1361.169,
-        "warmWallMsMean": 966.697,
+        "coldWallMs": 2386.299,
+        "warmWallMsMean": 1805.687,
         "mockRequestsMean": 1
       }
     },
     "sandboxSameSessionReplay": {
-      "totalWallMs": 1230.963,
+      "totalWallMs": 2126.3,
       "firstPassMs": 0,
       "replayPassMs": 0,
       "mockRequests": 2,
@@ -98,9 +98,9 @@
       }
     },
     "hostSameSessionControl": {
-      "totalWallMs": 407.639,
-      "firstPassMs": 400.165,
-      "replayPassMs": 7.472,
+      "totalWallMs": 388.191,
+      "firstPassMs": 380.337,
+      "replayPassMs": 7.852,
       "mockRequests": 2,
       "firstPassChecks": {
         "completed": true
@@ -111,7 +111,7 @@
     }
   },
   "summary": {
-    "coldWallMs": 1289.082,
-    "warmWallMsMean": 1040.085
+    "coldWallMs": 2149.708,
+    "warmWallMsMean": 1893.622
   }
 }

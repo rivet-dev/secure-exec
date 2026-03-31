@@ -1,159 +1,159 @@
 {
-  "createdAt": "2026-03-31T23:10:47.711Z",
+  "createdAt": "2026-03-31T23:35:02.407Z",
   "measurement": "ipc_ping_pong",
   "warmupIterations": 3,
   "sampleIterations": 20,
-  "connectRttMs": 0.203,
+  "connectRttMs": 0.31,
   "payloads": [
     {
       "label": "1 B",
       "payloadBytes": 1,
       "sampleCount": 20,
       "samplesMs": [
-        0.029,
+        0.031,
+        0.028,
+        0.041,
         0.021,
-        0.027,
-        0.02,
-        0.03,
-        0.037,
+        0.029,
+        0.039,
         0.026,
+        0.024,
+        0.278,
+        0.047,
         0.018,
-        0.016,
-        0.013,
-        0.016,
-        0.015,
+        0.017,
+        0.017,
         0.014,
         0.013,
-        0.014,
-        0.019,
-        0.018,
-        0.014,
         0.013,
-        0.013
+        0.013,
+        0.027,
+        0.026,
+        0.028
       ],
       "minRttMs": 0.013,
-      "meanRttMs": 0.019,
-      "p95RttMs": 0.03,
-      "maxRttMs": 0.037
+      "meanRttMs": 0.038,
+      "p95RttMs": 0.047,
+      "maxRttMs": 0.278
     },
     {
       "label": "1 KB",
       "payloadBytes": 1024,
       "sampleCount": 20,
       "samplesMs": [
+        0.019,
+        0.021,
+        0.02,
+        0.017,
+        0.016,
+        0.017,
         0.016,
         0.02,
+        0.057,
+        0.02,
         0.018,
-        0.016,
-        0.016,
-        0.015,
-        0.015,
-        0.016,
-        0.015,
-        0.016,
-        0.014,
-        0.014,
-        0.016,
-        0.015,
-        0.014,
-        0.015,
-        0.015,
-        0.013,
-        0.015,
-        0.014
+        0.017,
+        0.018,
+        0.017,
+        0.018,
+        0.018,
+        0.018,
+        0.017,
+        0.018,
+        0.021
       ],
-      "minRttMs": 0.013,
-      "meanRttMs": 0.015,
-      "p95RttMs": 0.018,
-      "maxRttMs": 0.02
+      "minRttMs": 0.016,
+      "meanRttMs": 0.02,
+      "p95RttMs": 0.021,
+      "maxRttMs": 0.057
     },
     {
       "label": "64 KB",
       "payloadBytes": 65536,
       "sampleCount": 20,
       "samplesMs": [
-        0.11,
-        0.143,
-        0.123,
+        0.214,
+        0.214,
+        0.216,
+        0.168,
         0.118,
-        0.108,
+        0.112,
+        0.117,
+        0.213,
+        0.113,
+        0.112,
+        0.113,
+        0.113,
+        0.116,
+        0.113,
+        0.115,
         0.11,
         0.112,
         0.112,
-        0.112,
-        0.112,
-        0.119,
-        0.114,
-        0.114,
-        0.109,
-        0.112,
-        0.115,
         0.113,
-        0.117,
-        0.121,
-        0.109
+        0.112
       ],
-      "minRttMs": 0.108,
-      "meanRttMs": 0.115,
-      "p95RttMs": 0.123,
-      "maxRttMs": 0.143
+      "minRttMs": 0.11,
+      "meanRttMs": 0.136,
+      "p95RttMs": 0.214,
+      "maxRttMs": 0.216
     }
   ],
   "comparisonToPrevious": {
-    "baselineCreatedAt": "2026-03-31T22:52:39.906Z",
+    "baselineCreatedAt": "2026-03-31T23:10:47.711Z",
     "connectRttMs": {
-      "before": 0.286,
-      "after": 0.203,
-      "delta": -0.083,
-      "deltaPercent": -29.021
+      "before": 0.203,
+      "after": 0.31,
+      "delta": 0.107,
+      "deltaPercent": 52.709
     },
     "payloads": [
       {
         "label": "1 B",
         "payloadBytes": 1,
         "meanRttMs": {
-          "before": 0.048,
-          "after": 0.019,
-          "delta": -0.029,
-          "deltaPercent": -60.417
+          "before": 0.019,
+          "after": 0.038,
+          "delta": 0.019,
+          "deltaPercent": 100
         },
         "p95RttMs": {
-          "before": 0.08,
-          "after": 0.03,
-          "delta": -0.05,
-          "deltaPercent": -62.5
+          "before": 0.03,
+          "after": 0.047,
+          "delta": 0.017,
+          "deltaPercent": 56.667
         }
       },
       {
         "label": "1 KB",
         "payloadBytes": 1024,
         "meanRttMs": {
-          "before": 0.016,
-          "after": 0.015,
-          "delta": -0.001,
-          "deltaPercent": -6.25
+          "before": 0.015,
+          "after": 0.02,
+          "delta": 0.005,
+          "deltaPercent": 33.333
         },
         "p95RttMs": {
-          "before": 0.017,
-          "after": 0.018,
-          "delta": 0.001,
-          "deltaPercent": 5.882
+          "before": 0.018,
+          "after": 0.021,
+          "delta": 0.003,
+          "deltaPercent": 16.667
         }
       },
       {
         "label": "64 KB",
         "payloadBytes": 65536,
         "meanRttMs": {
-          "before": 0.141,
-          "after": 0.115,
-          "delta": -0.026,
-          "deltaPercent": -18.44
+          "before": 0.115,
+          "after": 0.136,
+          "delta": 0.021,
+          "deltaPercent": 18.261
         },
         "p95RttMs": {
-          "before": 0.205,
-          "after": 0.123,
-          "delta": -0.082,
-          "deltaPercent": -40
+          "before": 0.123,
+          "after": 0.214,
+          "delta": 0.091,
+          "deltaPercent": 73.984
         }
       }
     ]
