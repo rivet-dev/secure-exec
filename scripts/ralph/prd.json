@@ -314,7 +314,7 @@
       ],
       "priority": 18,
       "passes": false,
-      "notes": "The current scenario catalog only covers full app-style workloads (`hono`, `pdf-lib`, `jszip`, `pi-sdk`, `pi-cli`). That is useful for end-to-end regression tracking, but it does not isolate the open fixed-overhead story (`US-009`) from the remaining builtin/package import hot spots tracked in `US-017` through `US-019`."
+      "notes": "The current scenario catalog only covers full app-style workloads (`hono`, `pdf-lib`, `jszip`, `pi-sdk`, `pi-cli`). That is useful for end-to-end regression tracking, but it still does not isolate the remaining single-digit lifecycle floor from the builtin/package import hot spots tracked in `US-017` through `US-019`."
     },
     {
       "id": "US-023",
@@ -346,8 +346,8 @@
         "Touched packages typecheck."
       ],
       "priority": 15,
-      "passes": false,
-      "notes": "The fixed overhead still shows up even in Hono (`~109-110 ms` warm fixed overhead, with `ExecutionResult->Destroy` contributing `~102-103 ms`). After US-020 lands, re-measure the remaining fixed-overhead bucket and keep this story only for whatever lifecycle cost is left beyond destroy acknowledgment."
+      "passes": true,
+      "notes": "Satisfied by the committed `US-020` destroy-ack work and the refreshed benchmark artifacts: Hono warm fixed overhead is now `5.440 ms` for startup and `5.543 ms` for end-to-end, with the remaining dominant bucket attributed to `CreateSession -> InjectGlobals` plus a sub-millisecond residual rather than `ExecutionResult -> Destroy`."
     },
     {
       "id": "US-010",
