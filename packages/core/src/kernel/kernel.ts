@@ -303,14 +303,99 @@ class KernelImpl implements Kernel {
 
 		// Route through shell
 		const shell = this.commandRegistry.resolve("sh");
-		if (!shell) {
-			throw new Error(
-				"No shell available. Mount a WasmVM runtime to enable exec().",
-			);
+		if (shell) {
+			const proc = this.spawnInternal("sh", ["-c", command], options);
+			return this.#collectExecResult(proc, options);
 		}
 
-		const proc = this.spawnInternal("sh", ["-c", command], options);
+		// No shell available. If 'node' is registered (e.g. NodeRuntime mounted),
+		// fall back to direct node execution — parse command string into node args.
+		// This makes the README example work out-of-the-box:
+		//   kernel.exec("node -e \"console.log('hello')\"")
+		const nodeCmd = this.commandRegistry.resolve("node");
+		if (nodeCmd) {
+			// Parse command string into individual args (handles quotes)
+			const args = this.#parseCommandArgs(command);
+			if (args.length > 0 && args[0] === "node") {
+				args.shift(); // strip 'node' prefix, keep the rest
+				const proc = this.spawnInternal("node", args, options);
+				return this.#collectExecResult(proc, options);
+			}
+		}
 
+		throw new Error(
+			"No shell available. Mount a WasmVM runtime to enable exec(), " +
+			"or mount a runtime that registers the 'node' command and use " +
+			"`kernel.exec('node -e \"code\"')`.",
+		);
+	}
+
+	/**
+	 * Parse a command string into individual arguments.
+	 * Handles single quotes, double quotes, and basic shell tokenization.
+	 */
+	#parseCommandArgs(command: string): string[] {
+		const args: string[] = [];
+		let current = "";
+		let inSingle = false;
+		let inDouble = false;
+		let i = 0;
+
+		while (i < command.length) {
+			const ch = command[i];
+
+			if (inSingle) {
+				if (ch === "'") {
+					inSingle = false;
+				} else {
+					current += ch;
+				}
+				i++;
+			} else if (inDouble) {
+				if (ch === '"') {
+					inDouble = false;
+				} else if (ch === "\\" && i + 1 < command.length) {
+					// Handle escape sequences in double quotes
+					current += command[i + 1];
+					i += 2;
+				} else {
+					current += ch;
+					i++;
+				}
+			} else {
+				if (ch === "'") {
+					inSingle = true;
+					i++;
+				} else if (ch === '"') {
+					inDouble = true;
+					i++;
+				} else if (ch === " ") {
+					if (current.length > 0) {
+						args.push(current);
+						current = "";
+					}
+					i++;
+				} else {
+					current += ch;
+					i++;
+				}
+			}
+		}
+
+		if (current.length > 0) {
+			args.push(current);
+		}
+
+		return args;
+	}
+
+	/**
+	 * Collect stdout/stderr from a spawned process for exec().
+	 */
+	async #collectExecResult(
+		proc: InternalProcess,
+		options?: ExecOptions,
+	): Promise<ExecResult> {
 		// Write stdin if provided
 		if (options?.stdin) {
 			const data =
@@ -347,7 +432,7 @@ class KernelImpl implements Kernel {
 					new Promise<number>((_, reject) => {
 						timer = setTimeout(() => {
 							// Kill process and detach output callbacks
-							this.log.warn({ command, timeout: options.timeout }, "exec timeout, sending SIGTERM");
+							this.log.warn({ timeout: options.timeout }, "exec timeout, sending SIGTERM");
 							proc.onStdout = null;
 							proc.onStderr = null;
 							proc.kill(SIGTERM);
