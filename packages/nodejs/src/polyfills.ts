@@ -17,6 +17,7 @@ const WEB_STREAMS_PONYFILL_PATH = require.resolve(
 
 const CUSTOM_POLYFILL_ENTRY_POINTS = new Map([
 	["crypto", resolveCustomPolyfillSource("crypto.js")],
+	["path", resolveCustomPolyfillSource("path.js")],
 	["stream/web", resolveCustomPolyfillSource("stream-web.js")],
 	["util/types", resolveCustomPolyfillSource("util-types.js")],
 	["internal/webstreams/util", resolveCustomPolyfillSource("internal-webstreams-util.js")],
@@ -59,6 +60,9 @@ export async function bundlePolyfill(moduleName: string): Promise<string> {
 	}
 	if (typeof stdLibBrowser.crypto === "string") {
 		alias.__secure_exec_crypto_browserify__ = stdLibBrowser.crypto;
+	}
+	if (typeof stdLibBrowser.path === "string") {
+		alias.__secure_exec_path_browserify__ = stdLibBrowser.path;
 	}
 	alias["web-streams-polyfill/dist/ponyfill.js"] = WEB_STREAMS_PONYFILL_PATH;
 
