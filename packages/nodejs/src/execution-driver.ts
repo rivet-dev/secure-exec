@@ -140,6 +140,10 @@ interface DriverState {
 	resolutionCache: ResolutionCache;
 	onPtySetRawMode?: (mode: boolean) => void;
 	liveStdinSource?: NodeExecutionDriverOptions["liveStdinSource"];
+	/** Pre-built bridge code for this driver, based on includeNodeShims setting. */
+	bridgeCode: string;
+	/** Whether this driver includes Node.js polyfill shims on globalThis. */
+	includeNodeShims: boolean;
 }
 
 // Shared V8 runtime process — one per Node.js process, lazy-initialized
@@ -151,8 +155,8 @@ async function getSharedV8Runtime(): Promise<V8Runtime> {
 	if (sharedV8Runtime?.isAlive) return sharedV8Runtime;
 	if (sharedV8RuntimePromise) return sharedV8RuntimePromise;
 
-	// Build bridge code for snapshot warmup
-	const bridgeCode = buildFullBridgeCode();
+	// Build bridge code for snapshot warmup (always with shims for the shared runtime)
+	const bridgeCode = buildFullBridgeCode(true);
 
 	sharedV8RuntimePromise = createV8Runtime({
 		warmupBridgeCode: bridgeCode,
@@ -765,10 +769,12 @@ function buildBridgeDispatchShim(): string {
 const BRIDGE_DISPATCH_SHIM = buildBridgeDispatchShim();
 
 // Cache assembled bridge code (same across all executions)
-let bridgeCodeCache: string | null = null;
+// Keyed by includeNodeShims flag so drivers with different settings get correct code
+const bridgeCodeCache = new Map<boolean, string>();
 
-function buildFullBridgeCode(): string {
-	if (bridgeCodeCache) return bridgeCodeCache;
+function buildFullBridgeCode(includeNodeShims: boolean = true): string {
+	const cached = bridgeCodeCache.get(includeNodeShims);
+	if (cached !== undefined) return cached;
 
 	// Assemble the full bridge code IIFE from component scripts.
 	// Only include code that can run without bridge calls (snapshot phase).
@@ -778,12 +784,18 @@ function buildFullBridgeCode(): string {
 		V8_POLYFILLS,
 		getIsolateRuntimeSource("globalExposureHelpers"),
 		getInitialBridgeGlobalsSetupCode(),
-		getRawBridgeCode(),
-		getBridgeAttachCode(),
 	];
 
-	bridgeCodeCache = parts.join("\n");
-	return bridgeCodeCache;
+	// Only include Node.js shims (fs, http, process globals, etc.) when explicitly requested.
+	// For AI agent use cases, users may want a clean globalThis with no injected polyfills.
+	if (includeNodeShims) {
+		parts.push(getRawBridgeCode());
+		parts.push(getBridgeAttachCode());
+	}
+
+	const code = parts.join("\n");
+	bridgeCodeCache.set(includeNodeShims, code);
+	return code;
 }
 
 export class NodeExecutionDriver implements RuntimeDriver {
@@ -853,6 +865,11 @@ export class NodeExecutionDriver implements RuntimeDriver {
 		osConfig.homedir ??= DEFAULT_SANDBOX_HOME;
 		osConfig.tmpdir ??= DEFAULT_SANDBOX_TMPDIR;
 
+		// Determine whether to include Node.js polyfill shims on globalThis.
+		// When false, globalThis has no injected fs, http, process, Buffer, etc.
+		// Useful for AI agent use cases that need a clean global scope.
+		const includeNodeShims = (options.runtime as any).includeNodeShims ?? true;
+
 		const bridgeBase64TransferLimitBytes = normalizePayloadLimit(
 			options.payloadLimits?.base64TransferBytes,
 			DEFAULT_BRIDGE_BASE64_TRANSFER_BYTES,
@@ -893,6 +910,8 @@ export class NodeExecutionDriver implements RuntimeDriver {
 			resolutionCache: createResolutionCache(),
 			onPtySetRawMode: options.onPtySetRawMode,
 			liveStdinSource: options.liveStdinSource,
+			bridgeCode: buildFullBridgeCode(includeNodeShims),
+			includeNodeShims,
 		};
 
 		// Validate and flatten bindings once at construction time
@@ -1284,8 +1303,8 @@ export class NodeExecutionDriver implements RuntimeDriver {
 				}
 			}
 
-			// Build bridge code with embedded config
-			const bridgeCode = buildFullBridgeCode();
+			// Use the pre-built bridge code from constructor (respects includeNodeShims)
+			const bridgeCode = this.state.bridgeCode;
 
 			// Build post-restore script with per-execution config
 			const bindingKeys = this.flattenedBindings
