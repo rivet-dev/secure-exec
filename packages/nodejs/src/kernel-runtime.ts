@@ -72,6 +72,18 @@ export interface NodeRuntimeOptions {
    * before the CWD-based node_modules fallback in the ModuleAccessFileSystem.
    */
   packageRoots?: Array<{ hostPath: string; vmPath: string }>;
+  /**
+   * Include Node.js polyfill shims (fs, http, process, Buffer, etc.) on globalThis.
+   *
+   * When false: globalThis is clean — useful for AI agents that need full
+   * control over the global scope without any injected Node.js globals.
+   *
+   * You can still access these modules via `require('fs')` or `await import('fs')`
+   * when the host filesystem is accessible via permissions.
+   *
+   * Default: true (include shims, for backward compatibility).
+   */
+  includeNodeShims?: boolean;
 }
 
 const allowKernelProcSelfRead: Pick<Permissions, 'fs'> = {
@@ -409,6 +421,7 @@ class NodeRuntimeDriver implements RuntimeDriver {
   private _loopbackExemptPorts?: number[];
   private _moduleAccessCwd?: string;
   private _packageRoots?: Array<{ hostPath: string; vmPath: string }>;
+  private _includeNodeShims: boolean;
 
   constructor(options?: NodeRuntimeOptions) {
     this._memoryLimit = options?.memoryLimit ?? 128;
@@ -417,6 +430,7 @@ class NodeRuntimeDriver implements RuntimeDriver {
     this._loopbackExemptPorts = options?.loopbackExemptPorts;
     this._moduleAccessCwd = options?.moduleAccessCwd;
     this._packageRoots = options?.packageRoots;
+    this._includeNodeShims = options?.includeNodeShims ?? true;
   }
 
   async init(kernel: KernelInterface): Promise<void> {
@@ -724,6 +738,7 @@ class NodeRuntimeDriver implements RuntimeDriver {
           homedir: ctx.env.HOME || '/root',
           tmpdir: ctx.env.TMPDIR || '/tmp',
         },
+        includeNodeShims: this._includeNodeShims,
       });
 
       // Wire PTY raw mode callback when stdin is a terminal
