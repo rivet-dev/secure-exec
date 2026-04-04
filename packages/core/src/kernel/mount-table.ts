@@ -97,11 +97,16 @@ export class MountTable implements VirtualFileSystem {
 		// Auto-create mount point directory in the parent filesystem.
 		// Resolve *before* inserting the new mount so the path goes to the current owner.
 		const { mount: parentMount, relativePath } = this.resolve(normalized);
-		void parentMount.fs
-			.mkdir(relativePath || "/", { recursive: true })
-			.catch(() => {
+		const mountPointPath = relativePath || "/";
+		void (async () => {
+			try {
+				if (!(await parentMount.fs.exists(mountPointPath))) {
+					await parentMount.fs.mkdir(mountPointPath, { recursive: true });
+				}
+			} catch {
 				/* directory may already exist */
-			});
+			}
+		})();
 
 		const entry: InternalMount = {
 			path: normalized,

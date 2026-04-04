@@ -26,6 +26,74 @@ import { filterEnv, wrapFileSystem } from "../../src/kernel/permissions.js";
 import { MAX_CANON, MAX_PTY_BUFFER_BYTES } from "../../src/kernel/pty.js";
 import { MAX_PIPE_BUFFER_BYTES } from "../../src/kernel/pipe-manager.js";
 import { createProcessScopedFileSystem } from "../../src/kernel/proc-layer.js";
+
+const POSIX_BOOT_DIRS = [
+	"/dev",
+	"/proc",
+	"/tmp",
+	"/bin",
+	"/lib",
+	"/sbin",
+	"/boot",
+	"/etc",
+	"/root",
+	"/run",
+	"/srv",
+	"/sys",
+	"/opt",
+	"/mnt",
+	"/media",
+	"/home",
+	"/usr",
+	"/usr/bin",
+	"/usr/games",
+	"/usr/include",
+	"/usr/lib",
+	"/usr/libexec",
+	"/usr/man",
+	"/usr/sbin",
+	"/usr/share",
+	"/usr/share/man",
+	"/var",
+	"/var/cache",
+	"/var/empty",
+	"/var/lib",
+	"/var/lock",
+	"/var/log",
+	"/var/run",
+	"/var/spool",
+	"/var/tmp",
+] as const;
+
+class CountingFileSystem extends TestFileSystem {
+	counts = {
+		mkdir: 0,
+		writeFile: 0,
+		chmod: 0,
+	};
+
+	resetCounts(): void {
+		this.counts.mkdir = 0;
+		this.counts.writeFile = 0;
+		this.counts.chmod = 0;
+	}
+
+	override async mkdir(path: string, options?: { recursive?: boolean }): Promise<void> {
+		this.counts.mkdir++;
+		return super.mkdir(path, options);
+	}
+
+	override async writeFile(path: string, content: string | Uint8Array): Promise<void> {
+		this.counts.writeFile++;
+		return super.writeFile(path, content);
+	}
+
+	override async chmod(path: string, mode: number): Promise<void> {
+		this.counts.chmod++;
+		return super.chmod(path, mode);
+	}
+}
+
 describe("kernel + MockRuntimeDriver integration", () => {
 	let kernel: Kernel;
 
@@ -43,6 +111,27 @@ describe("kernel + MockRuntimeDriver integration", () => {
 
 		expect(kernel.commands.get("echo")).toBe("mock");
 		expect(kernel.commands.get("cat")).toBe("mock");
+	});
+
+	it("startup skips root mutations when POSIX dirs and command stubs are preseeded", async () => {
+		const vfs = new CountingFileSystem();
+		for (const dir of POSIX_BOOT_DIRS) {
+			await vfs.mkdir(dir, { recursive: true });
+		}
+		await vfs.writeFile("/usr/bin/env", new Uint8Array(1));
+		await vfs.writeFile("/bin/preseeded", "#!/bin/sh\n# kernel command stub\n");
+		await vfs.chmod("/bin/preseeded", 0o755);
+		vfs.resetCounts();
+
+		kernel = createKernel({ filesystem: vfs });
+		await kernel.mount(new MockRuntimeDriver(["preseeded"]));
+
+		expect(vfs.counts).toEqual({
+			mkdir: 0,
+			writeFile: 0,
+			chmod: 0,
+		});
+		expect(kernel.commands.get("preseeded")).toBe("mock");
 	});
 
 	it("spawn returns ManagedProcess with correct PID and exit code", async () => {

@@ -211,14 +211,18 @@ class KernelImpl implements Kernel {
 		];
 		for (const dir of dirs) {
 			try {
-				await this.vfs.mkdir(dir, { recursive: true });
+				if (!(await this.vfs.exists(dir))) {
+					await this.vfs.mkdir(dir, { recursive: true });
+				}
 			} catch {
 				// Directory may already exist
 			}
 		}
 		// Standard utility that many scripts expect
 		try {
-			await this.vfs.writeFile("/usr/bin/env", new Uint8Array(1));
+			if (!(await this.vfs.exists("/usr/bin/env"))) {
+				await this.vfs.writeFile("/usr/bin/env", new Uint8Array(1));
+			}
 		} catch {
 			// File may already exist
 		}
