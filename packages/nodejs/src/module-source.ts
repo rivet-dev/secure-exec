@@ -67,16 +67,8 @@ function expandStarReExports(source: string, hostPath: string): string {
 		if (!targetPath || !existsSync(targetPath)) continue;
 
 		try {
-			const targetSource = readFileSync(targetPath, "utf-8");
-			const [, targetExports] = parse(targetSource, targetPath);
-			const names = targetExports
-				.map((e) => e.n)
-				.filter(
-					(n): n is string =>
-						typeof n === "string" &&
-						n !== "default" &&
-						!ownExportNames.has(n),
-				);
+			const names = collectNamedExportsForStarResolution(targetPath)
+				.filter((n) => n !== "default" && !ownExportNames.has(n));
 
 			if (names.length > 0) {
 				// Track these names so subsequent export * don't duplicate
@@ -94,6 +86,39 @@ function expandStarReExports(source: string, hostPath: string): string {
 	}
 
 	return result;
+}
+
+function collectNamedExportsForStarResolution(
+	filePath: string,
+	visited = new Set<string>(),
+): string[] {
+	if (visited.has(filePath) || !existsSync(filePath)) {
+		return [];
+	}
+
+	visited.add(filePath);
+
+	const source = readFileSync(filePath, "utf-8");
+	const starExportRegex = /export\s*\*\s*from\s*['"]([^'"]+)['"]\s*;?/g;
+	const [, ownExports] = parse(source, filePath);
+	const names = new Set(
+		ownExports
+			.map((e) => e.n)
+			.filter((n): n is string => typeof n === "string"),
+	);
+
+	let match: RegExpExecArray | null;
+	while ((match = starExportRegex.exec(source)) !== null) {
+		const specifier = match[1];
+		if (!specifier.startsWith(".")) continue;
+
+		const targetPath = pathJoin(pathDirname(filePath), specifier);
+		for (const name of collectNamedExportsForStarResolution(targetPath, visited)) {
+			names.add(name);
+		}
+	}
+
+	return Array.from(names);
 }
 
 function isValidIdentifier(value: string): boolean {

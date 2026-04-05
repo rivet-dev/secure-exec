@@ -1,3 +1,6 @@
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	sourceHasModuleSyntax,
@@ -50,5 +53,31 @@ describe("module source transforms", () => {
 		const source = '\uFEFF#!/usr/bin/env node\nimport "./main.js";\n';
 
 		await expect(sourceHasModuleSyntax(source, "/pkg/dist/cli.js")).resolves.toBe(true);
+	});
+
+	it("expands nested star re-exports into named exports", () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "secure-exec-module-source-"));
+		const webhooksDir = join(tempDir, "resources", "webhooks");
+		const entryPath = join(tempDir, "resources", "webhooks.mjs");
+
+		mkdirSync(webhooksDir, { recursive: true });
+		writeFileSync(entryPath, 'export * from "./webhooks/index.mjs";\n');
+		writeFileSync(
+			join(webhooksDir, "index.mjs"),
+			'export * from "./webhooks.mjs";\n',
+		);
+		writeFileSync(
+			join(webhooksDir, "webhooks.mjs"),
+			"export class Webhooks {}\n",
+		);
+
+		const transformed = transformSourceForImportSync(
+			readFileSync(entryPath, "utf8"),
+			entryPath,
+		);
+
+		expect(transformed).toContain(
+			"export { Webhooks } from './webhooks/index.mjs';",
+		);
 	});
 });
