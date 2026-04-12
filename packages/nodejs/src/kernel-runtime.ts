@@ -10,7 +10,7 @@
 
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import * as fsPromises from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type {
   KernelRuntimeDriver as RuntimeDriver,
   KernelInterface,
@@ -74,6 +74,10 @@ export interface NodeRuntimeOptions {
   packageRoots?: Array<{ hostPath: string; vmPath: string }>;
 }
 
+interface HostFallbackOptions {
+  allowedHostRoots?: readonly string[];
+}
+
 const allowKernelProcSelfRead: Pick<Permissions, 'fs'> = {
   fs: (request) => {
     const rawPath = typeof request?.path === 'string' ? request.path : '';
@@ -121,6 +125,79 @@ const allowKernelProcSelfRead: Pick<Permissions, 'fs'> = {
  */
 export function createNodeRuntime(options?: NodeRuntimeOptions): RuntimeDriver {
   return new NodeRuntimeDriver(options);
+}
+
+function isNotFoundError(error: unknown): boolean {
+  if (typeof error === 'object' && error !== null && 'code' in error) {
+    if ((error as { code?: unknown }).code === 'ENOENT') {
+      return true;
+    }
+  }
+
+  return error instanceof Error && /\bENOENT\b/.test(error.message);
+}
+
+function normalizeComparisonPath(path: string): string {
+  const normalized = resolve(path);
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
+function isPathWithinRoot(path: string, root: string): boolean {
+  const normalizedPath = normalizeComparisonPath(path);
+  const normalizedRoot = normalizeComparisonPath(root);
+  const pathRelativeToRoot = relative(normalizedRoot, normalizedPath);
+  return pathRelativeToRoot === '' || (
+    !pathRelativeToRoot.startsWith('..') &&
+    !isAbsolute(pathRelativeToRoot)
+  );
+}
+
+function normalizeAllowedHostRoots(allowedHostRoots: readonly string[]): string[] {
+  return [...new Set(
+    allowedHostRoots
+      .filter((root): root is string => root.length > 0)
+      .map((root) => resolve(root)),
+  )];
+}
+
+async function resolveAllowedHostFallbackPath(
+  path: string,
+  allowedHostRoots: readonly string[],
+): Promise<string | null> {
+  if (!isAbsolute(path)) {
+    return null;
+  }
+
+  const resolvedPath = resolve(path);
+  if (!allowedHostRoots.some((root) => isPathWithinRoot(resolvedPath, root))) {
+    return null;
+  }
+
+  try {
+    const realPath = await fsPromises.realpath(resolvedPath);
+    if (!allowedHostRoots.some((root) => isPathWithinRoot(realPath, root))) {
+      return null;
+    }
+  } catch (error) {
+    if (!isNotFoundError(error)) {
+      throw error;
+    }
+  }
+
+  return resolvedPath;
+}
+
+function resolveHostFallbackRoots(entryPath: string): string[] {
+  const packageRoot = dirname(dirname(entryPath));
+  const roots = new Set<string>([resolve(packageRoot)]);
+
+  try {
+    roots.add(realpathSync(packageRoot));
+  } catch {
+    // Ignore realpath failures and rely on the resolved package root.
+  }
+
+  return [...roots];
 }
 
 // ---------------------------------------------------------------------------
@@ -302,51 +379,108 @@ export function createKernelVfsAdapter(kernelVfs: KernelInterface['vfs']): Virtu
  * and falls back to the host filesystem for reads. Writes always go to the
  * kernel VFS.
  */
-export function createHostFallbackVfs(base: VirtualFileSystem): VirtualFileSystem {
+export function createHostFallbackVfs(
+  base: VirtualFileSystem,
+  options?: HostFallbackOptions,
+): VirtualFileSystem {
+  const allowedHostRoots = normalizeAllowedHostRoots(options?.allowedHostRoots ?? []);
+
+  async function withHostFallback<T>(
+    path: string,
+    readFromBase: () => Promise<T>,
+    readFromHost: (hostPath: string) => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await readFromBase();
+    } catch (error) {
+      if (!isNotFoundError(error)) {
+        throw error;
+      }
+
+      const hostPath = await resolveAllowedHostFallbackPath(path, allowedHostRoots);
+      if (!hostPath) {
+        throw error;
+      }
+
+      return readFromHost(hostPath);
+    }
+  }
+
   return {
-    readFile: async (path) => {
-      try { return await base.readFile(path); }
-      catch { return new Uint8Array(await fsPromises.readFile(path)); }
-    },
-    readTextFile: async (path) => {
-      try { return await base.readTextFile(path); }
-      catch { return await fsPromises.readFile(path, 'utf-8'); }
-    },
-    readDir: async (path) => {
-      try { return await base.readDir(path); }
-      catch { return await fsPromises.readdir(path); }
-    },
-    readDirWithTypes: async (path) => {
-      try { return await base.readDirWithTypes(path); }
-      catch {
-        const entries = await fsPromises.readdir(path, { withFileTypes: true });
-        return entries.map(e => ({ name: e.name, isDirectory: e.isDirectory() }));
-      }
-    },
+    readFile: (path) => withHostFallback(
+      path,
+      () => base.readFile(path),
+      async (hostPath) => new Uint8Array(await fsPromises.readFile(hostPath)),
+    ),
+    readTextFile: (path) => withHostFallback(
+      path,
+      () => base.readTextFile(path),
+      (hostPath) => fsPromises.readFile(hostPath, 'utf-8'),
+    ),
+    readDir: (path) => withHostFallback(
+      path,
+      () => base.readDir(path),
+      (hostPath) => fsPromises.readdir(hostPath),
+    ),
+    readDirWithTypes: (path) => withHostFallback(
+      path,
+      () => base.readDirWithTypes(path),
+      async (hostPath) => {
+        const entries = await fsPromises.readdir(hostPath, { withFileTypes: true });
+        return entries.map((entry) => ({
+          name: entry.name,
+          isDirectory: entry.isDirectory(),
+        }));
+      },
+    ),
     exists: async (path) => {
-      if (await base.exists(path)) return true;
-      try { await fsPromises.access(path); return true; } catch { return false; }
-    },
-    stat: async (path) => {
-      try { return await base.stat(path); }
-      catch {
-        const s = await fsPromises.stat(path);
-        return {
-          mode: s.mode,
-          size: s.size,
-          isDirectory: s.isDirectory(),
-          isSymbolicLink: false,
-          atimeMs: s.atimeMs,
-          mtimeMs: s.mtimeMs,
-          ctimeMs: s.ctimeMs,
-          birthtimeMs: s.birthtimeMs,
-          ino: s.ino,
-          nlink: s.nlink,
-          uid: s.uid,
-          gid: s.gid,
-        };
+      try {
+        if (await base.exists(path)) {
+          return true;
+        }
+      } catch (error) {
+        if (!isNotFoundError(error)) {
+          throw error;
+        }
+      }
+
+      const hostPath = await resolveAllowedHostFallbackPath(path, allowedHostRoots);
+      if (!hostPath) {
+        return false;
+      }
+
+      try {
+        await fsPromises.access(hostPath);
+        return true;
+      } catch (error) {
+        if (isNotFoundError(error)) {
+          return false;
+        }
+
+        throw error;
       }
     },
+    stat: (path) => withHostFallback(
+      path,
+      () => base.stat(path),
+      async (hostPath) => {
+        const stat = await fsPromises.stat(hostPath);
+        return {
+          mode: stat.mode,
+          size: stat.size,
+          isDirectory: stat.isDirectory(),
+          isSymbolicLink: false,
+          atimeMs: stat.atimeMs,
+          mtimeMs: stat.mtimeMs,
+          ctimeMs: stat.ctimeMs,
+          birthtimeMs: stat.birthtimeMs,
+          ino: stat.ino,
+          nlink: stat.nlink,
+          uid: stat.uid,
+          gid: stat.gid,
+        };
+      },
+    ),
     writeFile: (path, content) => base.writeFile(path, content),
     createDir: (path) => base.createDir(path),
     mkdir: (path, options?) => base.mkdir(path, options),
@@ -361,34 +495,29 @@ export function createHostFallbackVfs(base: VirtualFileSystem): VirtualFileSyste
     chown: (path, uid, gid) => base.chown(path, uid, gid),
     utimes: (path, atime, mtime) => base.utimes(path, atime, mtime),
     truncate: (path, length) => base.truncate(path, length),
-    realpath: async (path) => {
-      try { return await base.realpath(path); }
-      catch { return await fsPromises.realpath(path); }
-    },
-    pread: async (path, offset, length) => {
-      try { return await base.pread(path, offset, length); }
-      catch {
-        const handle = await fsPromises.open(path, 'r');
+    realpath: (path) => withHostFallback(
+      path,
+      () => base.realpath(path),
+      (hostPath) => fsPromises.realpath(hostPath),
+    ),
+    pread: (path, offset, length) => withHostFallback(
+      path,
+      () => base.pread(path, offset, length),
+      async (hostPath) => {
+        const handle = await fsPromises.open(hostPath, 'r');
         try {
-          const buf = new Uint8Array(length);
-          const { bytesRead } = await handle.read(buf, 0, length, offset);
-          return buf.slice(0, bytesRead);
+          const buffer = new Uint8Array(length);
+          const { bytesRead } = await handle.read(buffer, 0, length, offset);
+          return buffer.slice(0, bytesRead);
         } finally {
           await handle.close();
         }
-      }
-    },
-    pwrite: async (path, offset, data) => {
-      try { return await base.pwrite(path, offset, data); }
-      catch {
-        const handle = await fsPromises.open(path, 'r+');
-        try {
-          await handle.write(data, 0, data.length, offset);
-        } finally {
-          await handle.close();
-        }
-      }
-    },
+      },
+    ),
+    pwrite: (path, offset, data) => base.pwrite(path, offset, data),
+    ...(base.fsync ? { fsync: (path: string) => base.fsync!(path) } : {}),
+    ...(base.copy ? { copy: (srcPath: string, dstPath: string) => base.copy!(srcPath, dstPath) } : {}),
+    ...(base.readDirStat ? { readDirStat: (path: string) => base.readDirStat!(path) } : {}),
   };
 }
 
@@ -687,7 +816,9 @@ class NodeRuntimeDriver implements RuntimeDriver {
       // npm/npx need host filesystem fallback and fs permissions for module resolution
       let permissions: Partial<Permissions> = { ...this._permissions };
       if (command === 'npm' || command === 'npx') {
-        filesystem = createHostFallbackVfs(filesystem);
+        filesystem = createHostFallbackVfs(filesystem, {
+          allowedHostRoots: filePath ? resolveHostFallbackRoots(filePath) : [],
+        });
         permissions = { ...permissions, ...allowAllFs };
       }
 
