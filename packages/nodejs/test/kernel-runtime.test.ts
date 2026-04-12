@@ -7,10 +7,10 @@
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createNodeRuntime } from '../src/kernel-runtime.ts';
+import { createHostFallbackVfs, createNodeRuntime } from '../src/kernel-runtime.ts';
 import type { NodeRuntimeOptions } from '../src/kernel-runtime.ts';
 import { createKernel } from '@secure-exec/core';
 import type {
@@ -19,6 +19,7 @@ import type {
   ProcessContext,
   DriverProcess,
   Kernel,
+  VirtualFileSystem,
 } from '@secure-exec/core';
 
 /**
@@ -160,6 +161,43 @@ class SimpleVFS {
   async truncate(_path: string, _length: number) {}
 }
 
+function createTestError(code: string, path: string): Error & { code: string } {
+  const error = new Error(`${code}: ${path}`) as Error & { code: string };
+  error.code = code;
+  return error;
+}
+
+function createRejectingVfs(
+  overrides: Partial<VirtualFileSystem> = {},
+): VirtualFileSystem {
+  return {
+    readFile: async (path) => { throw createTestError('ENOENT', path); },
+    readTextFile: async (path) => { throw createTestError('ENOENT', path); },
+    readDir: async (path) => { throw createTestError('ENOENT', path); },
+    readDirWithTypes: async (path) => { throw createTestError('ENOENT', path); },
+    writeFile: async () => {},
+    createDir: async () => {},
+    mkdir: async () => {},
+    exists: async () => false,
+    stat: async (path) => { throw createTestError('ENOENT', path); },
+    removeFile: async () => {},
+    removeDir: async () => {},
+    rename: async () => {},
+    realpath: async (path) => { throw createTestError('ENOENT', path); },
+    symlink: async () => {},
+    readlink: async (path) => { throw createTestError('ENOENT', path); },
+    lstat: async (path) => { throw createTestError('ENOENT', path); },
+    link: async () => {},
+    chmod: async () => {},
+    chown: async () => {},
+    utimes: async () => {},
+    truncate: async () => {},
+    pread: async (path) => { throw createTestError('ENOENT', path); },
+    pwrite: async (path) => { throw createTestError('ENOENT', path); },
+    ...overrides,
+  };
+}
+
 // -------------------------------------------------------------------------
 // Tests
 // -------------------------------------------------------------------------
@@ -196,6 +234,82 @@ describe('Node RuntimeDriver', () => {
     it('memoryLimit defaults to 128', () => {
       const driver = createNodeRuntime();
       expect((driver as any)._memoryLimit).toBe(128);
+    });
+  });
+
+  describe('host fallback scoping', () => {
+    let tmpDir: string | undefined;
+
+    afterEach(() => {
+      if (tmpDir) {
+        try {
+          rmSync(tmpDir, { recursive: true, force: true });
+        } catch {}
+        tmpDir = undefined;
+      }
+    });
+
+    it('falls back to host reads inside allowed roots', async () => {
+      tmpDir = join(tmpdir(), `se-host-fallback-${Date.now()}-allowed`);
+      const allowedRoot = join(tmpDir, 'npm');
+      const allowedFile = join(allowedRoot, 'lib', 'entry.js');
+      mkdirSync(join(allowedRoot, 'lib'), { recursive: true });
+      writeFileSync(allowedFile, 'module.exports = "ok";');
+
+      const vfs = createHostFallbackVfs(createRejectingVfs(), {
+        allowedHostRoots: [allowedRoot],
+      });
+
+      await expect(vfs.readTextFile(allowedFile)).resolves.toBe('module.exports = "ok";');
+      await expect(vfs.exists(allowedFile)).resolves.toBe(true);
+    });
+
+    it('does not fall back outside allowed roots', async () => {
+      tmpDir = join(tmpdir(), `se-host-fallback-${Date.now()}-blocked`);
+      const allowedRoot = join(tmpDir, 'npm');
+      const outsideFile = join(tmpDir, 'outside.txt');
+      mkdirSync(allowedRoot, { recursive: true });
+      writeFileSync(outsideFile, 'host secret');
+
+      const vfs = createHostFallbackVfs(createRejectingVfs(), {
+        allowedHostRoots: [allowedRoot],
+      });
+
+      await expect(vfs.readTextFile(outsideFile)).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(vfs.exists(outsideFile)).resolves.toBe(false);
+    });
+
+    it('does not retry host reads when the base VFS returns EACCES', async () => {
+      tmpDir = join(tmpdir(), `se-host-fallback-${Date.now()}-eacces`);
+      const allowedRoot = join(tmpDir, 'npm');
+      const allowedFile = join(allowedRoot, 'lib', 'entry.js');
+      mkdirSync(join(allowedRoot, 'lib'), { recursive: true });
+      writeFileSync(allowedFile, 'host file');
+
+      const vfs = createHostFallbackVfs(createRejectingVfs({
+        readTextFile: async (path) => { throw createTestError('EACCES', path); },
+      }), {
+        allowedHostRoots: [allowedRoot],
+      });
+
+      await expect(vfs.readTextFile(allowedFile)).rejects.toMatchObject({ code: 'EACCES' });
+    });
+
+    it('never falls back to host writes', async () => {
+      tmpDir = join(tmpdir(), `se-host-fallback-${Date.now()}-write`);
+      const allowedRoot = join(tmpDir, 'npm');
+      const allowedFile = join(allowedRoot, 'lib', 'entry.js');
+      mkdirSync(join(allowedRoot, 'lib'), { recursive: true });
+      writeFileSync(allowedFile, 'before');
+
+      const vfs = createHostFallbackVfs(createRejectingVfs(), {
+        allowedHostRoots: [allowedRoot],
+      });
+
+      await expect(
+        vfs.pwrite(allowedFile, 0, new TextEncoder().encode('after')),
+      ).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(readFileSync(allowedFile, 'utf-8')).toBe('before');
     });
   });
 
