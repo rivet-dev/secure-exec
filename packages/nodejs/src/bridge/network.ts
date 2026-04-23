@@ -1991,7 +1991,7 @@ class DirectTunnelSocket {
   private _listeners: Record<string, EventListener[]> = {};
   private _encoding?: BufferEncoding;
   private _peer: DirectTunnelSocket | null = null;
-  _readableState = { endEmitted: false };
+  _readableState = { endEmitted: false, ended: false };
   _writableState = { finished: false, errorEmitted: false };
 
   constructor(options?: { host?: string; port?: number }) {
@@ -4988,7 +4988,7 @@ class UpgradeSocket {
   private _socketId: number;
 
   // Readable stream state stub for ws compatibility (socketOnClose checks _readableState.endEmitted)
-  _readableState = { endEmitted: false };
+  _readableState = { endEmitted: false, ended: false };
   _writableState = { finished: false, errorEmitted: false };
 
   constructor(socketId: number, options?: { host?: string; port?: number }) {
@@ -8651,7 +8651,7 @@ class NetSocket {
   _tlsSession: Buffer | null = null;
   _tlsSessionReused = false;
   // Readable stream state stub for library compatibility
-  _readableState = { endEmitted: false };
+  _readableState = { endEmitted: false, ended: false };
   _handle: NetSocketHandle | null = null;
 
   constructor(options?: { allowHalfOpen?: boolean; handle?: NetSocketHandle | null }) {
