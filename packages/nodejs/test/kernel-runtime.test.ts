@@ -969,3 +969,58 @@ describe('Node RuntimeDriver', () => {
     }, 10_000);
   });
 });
+
+  describe('includeNodeShims option', () => {
+    let kernel: Kernel;
+
+    afterEach(async () => {
+      await kernel?.dispose();
+    });
+
+    it('globalThis.fs is undefined when includeNodeShims is false', async () => {
+      // With includeNodeShims: false, the bridge does NOT inject fs/http/etc.
+      // onto globalThis. This is useful for AI agents that need a clean scope.
+      const vfs = new SimpleVFS();
+      kernel = createKernel({ filesystem: vfs as any });
+      await kernel.mount(createNodeRuntime({ includeNodeShims: false }));
+
+      // Use exec() with node fallback (fixes #64 — exec falls back to node
+      // when sh is not registered)
+      const result = await kernel.exec(
+        
+ode -e "console.log(typeof fs)",
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.trim()).toBe('undefined');
+    });
+
+    it('globalThis.fs is an object when includeNodeShims is true (default)', async () => {
+      // Default behavior: bridge injects fs, http, process, Buffer etc. onto globalThis.
+      const vfs = new SimpleVFS();
+      kernel = createKernel({ filesystem: vfs as any });
+      await kernel.mount(createNodeRuntime({ includeNodeShims: true }));
+
+      const result = await kernel.exec(
+        
+ode -e "console.log(typeof fs)",
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.trim()).toBe('object');
+    });
+
+    it('exec with includeNodeShims=false still works via node fallback', async () => {
+      const vfs = new SimpleVFS();
+      kernel = createKernel({ filesystem: vfs as any });
+      await kernel.mount(createNodeRuntime({ includeNodeShims: false }));
+
+      const result = await kernel.exec(
+        
+ode -e "console.log('hello from no-shims runtime')",
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.trim()).toBe('hello from no-shims runtime');
+    });
+  });

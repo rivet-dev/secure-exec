@@ -71,6 +71,43 @@ describe("kernel + MockRuntimeDriver integration", () => {
 		expect(result.stderr).toBe("warn\n");
 	});
 
+	it("exec falls back to node when sh is not available", async () => {
+		// NodeRuntime only registers 'node', not 'sh'.
+		// exec() should detect this and route through node directly.
+		// This is the fix for: https://github.com/rivet-dev/secure-exec/issues/64
+		const driver = new MockRuntimeDriver(["node"], {
+			node: {
+				exitCode: 0,
+				stdout: "hello from node\n",
+				stderr: "",
+				// args are passed as-is; for node -e "code", args = ["-e", "code"]
+			},
+		});
+		({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+		const result = await kernel.exec("node -e \"console.log('hello from node')\"");
+		expect(result.exitCode).toBe(0);
+		expect(result.stdout).toBe("hello from node\n");
+	});
+
+	it("exec of node command with single-quoted code", async () => {
+		const driver = new MockRuntimeDriver(["node"], {
+			node: { exitCode: 0, stdout: "42\n" },
+		});
+		({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+		const result = await kernel.exec("node -e 'console.log(42)'");
+		expect(result.exitCode).toBe(0);
+		expect(result.stdout).toBe("42\n");
+	});
+
+	it("exec throws descriptive error when neither sh nor node is available", async () => {
+		// No drivers registered — neither sh nor node
+		({ kernel } = await createTestKernel({ drivers: [] }));
+
+		await expect(kernel.exec("echo hello")).rejects.toThrow("No shell available");
+	});
+
 	it("exec of unknown command throws ENOENT", async () => {
 		const driver = new MockRuntimeDriver(["sh"], { sh: { exitCode: 0 } });
 		({ kernel } = await createTestKernel({ drivers: [driver] }));

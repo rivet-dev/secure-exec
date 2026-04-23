@@ -40,6 +40,8 @@ export interface NodeDriverOptions {
 	loopbackExemptPorts?: number[];
 	processConfig?: ProcessConfig;
 	osConfig?: OSConfig;
+	/** Include Node.js shims (fs, http, process, Buffer, etc.) on globalThis. Default: true. */
+	includeNodeShims?: boolean;
 }
 
 export interface NodeRuntimeDriverFactoryOptions {
@@ -260,6 +262,10 @@ export function createNodeDriver(options: NodeDriverOptions = {}): SystemDriver 
 			os: {
 				...(options.osConfig ?? {}),
 			},
+			// @ts-ignore-next-line — internal field used by NodeExecutionDriver to gate bridge shims
+			...(options.includeNodeShims !== undefined
+				? { includeNodeShims: options.includeNodeShims }
+				: {}),
 		},
 	};
 }
